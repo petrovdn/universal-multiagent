@@ -9,7 +9,7 @@ WORKDIR /app/frontend
 COPY frontend/package.json ./
 
 # Устанавливаем зависимости (включая dev для сборки)
-RUN npm install
+RUN npm install --legacy-peer-deps --prefer-offline --no-audit --progress=false
 
 # Копируем конфигурационные файлы
 COPY frontend/tsconfig.json frontend/tsconfig.node.json frontend/vite.config.ts frontend/index.html ./
