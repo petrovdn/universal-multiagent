@@ -1,0 +1,1124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================
+   CSS VARIABLES - СВЕТЛАЯ ТЕМА CURSOR/PERPLEXITY
+   ============================================ */
+:root {
+  /* Background Colors */
+  --bg-primary: #FFFFFF;
+  --bg-secondary: #FAFAFA;
+  --bg-tertiary: #F5F5F5;
+  --bg-elevated: rgba(0, 0, 0, 0.02);
+  --bg-overlay: rgba(255, 255, 255, 0.95);
+  
+  /* Text Colors */
+  --text-primary: #1A1A1A;
+  --text-secondary: #525252;
+  --text-tertiary: #737373;
+  --text-muted: #A3A3A3;
+  --text-disabled: #D4D4D4;
+  
+  /* Border Colors */
+  --border-primary: rgba(0, 0, 0, 0.08);
+  --border-secondary: rgba(0, 0, 0, 0.05);
+  --border-focus: #3B82F6;
+  
+  /* Accent Colors */
+  --accent-primary: #3B82F6;
+  --accent-secondary: #2563EB;
+  --accent-success: #10B981;
+  --accent-warning: #F59E0B;
+  --accent-error: #EF4444;
+  
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-input: 0 -4px 12px rgba(0, 0, 0, 0.03);
+  
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 200ms ease;
+  --transition-slow: 300ms ease;
+
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  scroll-behavior: smooth;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden; /* Предотвращаем скролл на root */
+}
+
+/* ============================================
+   CUSTOM SCROLLBAR (как в Perplexity) - ВИДИМЫЙ
+   ============================================ */
+/* Для messages-container - принудительно видимый скроллбар */
+.messages-container::-webkit-scrollbar {
+  width: 14px !important; /* Еще больше для видимости */
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.messages-container::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.08) !important; /* Более видимый трек */
+  border-left: 1px solid rgba(0, 0, 0, 0.15);
+  margin: 0;
+}
+
+.messages-container::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.4) !important; /* Очень видимый */
+  border-radius: 7px;
+  border: 3px solid rgba(255, 255, 255, 0.8);
+  background-clip: padding-box;
+  transition: background 0.2s ease;
+  min-height: 50px; /* Минимальная высота ползунка */
+}
+
+.messages-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.6) !important; /* Еще более видимый при hover */
+  background-clip: padding-box;
+}
+
+.messages-container::-webkit-scrollbar-thumb:active {
+  background: rgba(0, 0, 0, 0.7) !important;
+}
+
+/* Для всего документа */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background var(--transition-fast);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
+  background-clip: padding-box;
+}
+
+/* Firefox - принудительно видимый скроллбар (дублирование убрано, стили в основном блоке) */
+
+/* ============================================
+   CHAT CONTAINER
+   ============================================ */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--bg-primary);
+  position: relative;
+  overflow: hidden;
+  min-height: 0; /* Критично для flex скролла */
+  flex: 1; /* Занимает все доступное пространство */
+  max-height: 100vh; /* Ограничиваем высоту viewport */
+}
+
+/* ============================================
+   COMPACT HEADER - ONE LINE
+   ============================================ */
+.compact-header {
+  position: fixed !important; /* Закрепляем сверху */
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 95 !important; /* Выше user-query-block (90), но ниже input area (100) */
+  background: var(--bg-overlay);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-primary);
+  padding: 8px 20px;
+}
+
+.compact-header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+/* Integration Badges Container */
+.integrations-badges-container {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Integration Badges */
+.integration-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.gmail-badge {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3B82F6;
+}
+
+.calendar-badge {
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366F1;
+}
+
+.workspace-badge {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22C55E;
+}
+
+/* Settings Button */
+.settings-button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.settings-button:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+/* Settings Dropdown */
+.settings-dropdown {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  width: 320px;
+  background: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border-primary);
+  overflow: hidden;
+  z-index: 100;
+}
+
+.settings-section {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.settings-section:last-child {
+  border-bottom: none;
+}
+
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+
+/* Execution Mode Toggle - убрано из настроек, перенесено в input area */
+
+/* Integration Row */
+.integration-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.integration-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gmail-icon {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.gmail-icon .w-4 {
+  color: #3B82F6 !important;
+}
+
+.calendar-icon {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.calendar-icon .w-4 {
+  color: #6366F1 !important;
+}
+
+.workspace-icon {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.workspace-icon .w-4 {
+  color: #22C55E !important;
+}
+
+.workspace-icon.active {
+  background: rgba(34, 197, 94, 0.2);
+}
+
+.workspace-icon.active .w-4 {
+  color: #16A34A !important;
+}
+
+.integration-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.integration-status {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* Toggle Button (без checkbox) */
+.toggle-button {
+  position: relative;
+  display: inline-flex;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  padding: 0;
+  outline: none;
+}
+
+.toggle-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.toggle-slider {
+  width: 40px;
+  height: 20px;
+  background: #D1D5DB;
+  border-radius: 10px;
+  position: relative;
+  transition: background var(--transition-fast);
+}
+
+.toggle-slider::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: white;
+  border-radius: 50%;
+  transition: transform var(--transition-fast);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Active state */
+.toggle-slider.active::after {
+  transform: translateX(20px);
+}
+
+.gmail-toggle {
+  background: #D1D5DB;
+}
+
+.gmail-toggle.active {
+  background: #3B82F6;
+}
+
+.calendar-toggle {
+  background: #D1D5DB;
+}
+
+.calendar-toggle.active {
+  background: #6366F1;
+}
+
+/* Session title bar removed - не используется */
+
+/* ============================================
+   USER QUERY BLOCK - FIXED TOP (УДАЛЕНО)
+   ============================================ */
+/* .user-query-block-fixed { ... } */
+
+/* Старый стиль для обратной совместимости (если используется где-то еще) */
+.user-query-block {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 40 !important;
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+  margin: 0 auto;
+  margin-top: 2px;
+  margin-bottom: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+  max-width: 900px;
+  width: calc(100% - 40px);
+  flex-shrink: 0 !important;
+  will-change: transform;
+}
+
+.user-query-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.user-query-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ============================================
+   MESSAGES CONTAINER - SCROLLABLE (на всю ширину и высоту)
+   ============================================ */
+.messages-container {
+  flex: 1 1 0%; /* Критично: flex-basis: 0% для правильного скролла */
+  overflow-y: auto !important; /* auto - показываем скроллбар только когда нужно */
+  overflow-x: hidden !important;
+  padding: 20px;
+  padding-bottom: 0; /* Убрали padding-bottom - контент сам создает отступ */
+  padding-top: 50px; /* Место для Header (~40px) */
+  scroll-behavior: smooth;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  min-height: 0; /* Критично для flex скролла */
+  position: relative;
+  -webkit-overflow-scrolling: touch;
+  /* Принудительно показываем скроллбар */
+  scrollbar-width: thin !important;
+  scrollbar-color: rgba(0, 0, 0, 0.3) rgba(0, 0, 0, 0.05) !important;
+}
+
+/* Spacer убран - больше не нужен, контент будет растягиваться сам */
+
+/* ============================================
+   USER QUERY FLOW BLOCK (Perplexity Style)
+   ============================================ */
+.user-query-flow-block {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  margin-top: 40px; /* Отступ между блоками взаимодействий */
+  margin-bottom: 24px;
+  padding: 16px 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  scroll-margin-top: 52px; /* Смещение для прокрутки (высота Header 40px + border 1px + отступ 11px) */
+}
+
+.user-query-flow-block:first-of-type {
+  margin-top: 0;
+}
+
+.user-query-flow-block .user-query-text {
+  font-size: 15px; /* Такой же размер, как в ответе нейросети */
+  font-weight: 600; /* Жирный шрифт */
+  color: var(--text-primary);
+  line-height: 1.5;
+}
+
+/* ============================================
+   ASSISTANT MESSAGE
+   ============================================ */
+.assistant-message-wrapper {
+  display: flex;
+  flex-direction: column;
+  max-width: 900px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 0;
+  margin-bottom: 0; /* Убрали нижний отступ - контент доходит до низа */
+  flex-shrink: 0; /* Не сжимается - позволяет контенту быть длиннее */
+  padding-top: 20px;
+  padding-bottom: 100px; /* Отступ снизу для input area */
+  box-sizing: border-box;
+  /* Создаем минимальную высоту для заполнения страницы - критично для Perplexity-style */
+  /* Когда контент пустой или маленький, блок занимает всю видимую область */
+  min-height: calc(100vh - 200px); /* Высота экрана минус header (~50px) и input area (~120px) и отступы */
+}
+
+/* Убеждаемся, что содержимое сообщений заполняет всю доступную ширину */
+.assistant-message-wrapper > div {
+  width: 100%;
+  max-width: 100%;
+  flex: 1; /* Растягивается чтобы заполнить доступное пространство */
+}
+
+/* Стили для prose контента внутри сообщений */
+.assistant-message-wrapper .prose {
+  max-width: 100% !important;
+  width: 100% !important;
+}
+
+/* ============================================
+   THINKING BLOCK - ALWAYS VISIBLE (КАК В CURSOR/PERPLEXITY)
+   ============================================ */
+.thinking-block-always-open {
+  position: relative; /* Больше не sticky в потоке */
+  max-width: 900px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+  margin-top: 12px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  flex-shrink: 0;
+}
+
+.thinking-header-static {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--text-muted); /* Светлее */
+}
+
+.thinking-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted); /* Светлее - был accent-primary */
+  flex-shrink: 0;
+  opacity: 0.7; /* Еще светлее */
+}
+
+.thinking-title {
+  font-size: 12px;
+  font-weight: 500; /* Меньше жирности */
+  color: var(--text-muted); /* Светлее - был text-tertiary */
+  letter-spacing: 0.3px;
+}
+
+.thinking-content-static {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-tertiary); /* Светлее чем было text-secondary */
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* Reasoning steps container */
+.reasoning-steps-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.reasoning-step-item {
+  padding: 8px 0;
+}
+
+.reasoning-step-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-weight: 500;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.reasoning-step-icon {
+  font-size: 12px;
+}
+
+.reasoning-step-type {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+.reasoning-step-content {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-tertiary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  padding-left: 18px;
+}
+
+.reasoning-step-divider {
+  height: 1px;
+  background: var(--border-secondary);
+  margin: 8px 0;
+  opacity: 0.5;
+}
+
+.thinking-text-content {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* ============================================
+   TYPING INDICATOR
+   ============================================ */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  border-top-left-radius: 4px;
+  max-width: fit-content;
+}
+
+.typing-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--text-tertiary);
+  border-radius: 50%;
+  animation: typing-bounce 0.6s infinite;
+}
+
+@keyframes typing-bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+/* ============================================
+   SCROLL SPACER (Perplexity-style)
+   ============================================ */
+/* Пустой блок внизу страницы, который позволяет скроллить любое сообщение к верху */
+.scroll-spacer {
+  width: 100%;
+  min-height: calc(100vh - 200px); /* Почти полная высота экрана минус Header и input area */
+  flex-shrink: 0;
+  pointer-events: none;
+}
+
+/* ============================================
+   INPUT AREA - FIXED BOTTOM
+   ============================================ */
+.input-area {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding: 0 20px 16px;
+  background: transparent;
+  pointer-events: none;
+}
+
+.input-fade {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 120px;
+  background: linear-gradient(to top, var(--bg-primary) 60%, transparent);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.input-form {
+  max-width: 900px;
+  margin: 0 auto;
+  pointer-events: auto;
+}
+
+.input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  border: 1.5px solid var(--border-primary);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  transition: all var(--transition-fast);
+}
+
+.input-wrapper:focus-within {
+  background: var(--bg-primary);
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* ============================================
+   INPUT LEFT SECTION (MODE + ICONS)
+   ============================================ */
+.input-left-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Execution Mode Selector - Dropdown (как в Cursor) */
+.mode-selector-dropdown-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.mode-selector-dropdown-button:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border-focus);
+}
+
+.mode-selector-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  min-width: 100px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  z-index: 1000;
+}
+
+.mode-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.mode-dropdown-item:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.mode-dropdown-item.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ============================================
+   MODEL SELECTOR - DROPDOWN (Cursor Style)
+   ============================================ */
+.model-selector-dropdown-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.model-selector-dropdown-button:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--border-focus);
+}
+
+.model-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-tertiary);
+}
+
+.model-selector-dropdown {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  min-width: 180px;
+  max-width: 250px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  z-index: 1001; /* Выше input-area (100) и mode-selector (1000) */
+}
+
+.model-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 13px;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.model-dropdown-item:hover {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.model-dropdown-item.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.model-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
+.model-name {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.model-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.model-dropdown-item.active .model-badge {
+  color: var(--accent-secondary);
+}
+
+/* INPUT ICONS */
+.input-icons {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.input-icon-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.input-icon-button:hover {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+}
+
+/* ============================================
+   CHAT INPUT
+   ============================================ */
+.chat-input {
+  flex: 1;
+  min-height: 44px;
+  max-height: 200px;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  font-family: inherit;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+.chat-input::placeholder {
+  color: var(--text-muted);
+}
+
+.chat-input:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+/* ============================================
+   SEND BUTTON
+   ============================================ */
+.send-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--accent-primary);
+  border: none;
+  border-radius: 8px;
+  color: #FFFFFF;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.send-button:hover:not(:disabled) {
+  background: var(--accent-secondary);
+  transform: scale(1.05);
+}
+
+.send-button:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* ============================================
+   INPUT HINT
+   ============================================ */
+.input-hint {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.input-hint kbd {
+  padding: 2px 6px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* ============================================
+   START DIALOG SCREEN - COMPACT (Perplexity Style)
+   ============================================ */
+.start-dialog-container-compact {
+  position: fixed; /* Используем fixed для позиционирования относительно viewport */
+  /* Центрируем относительно видимой области экрана */
+  /* Высота header примерно 48px, высота input area примерно 100px */
+  /* Центр видимой области = (100vh - 48px - 100px) / 2 + 48px */
+  top: calc(50vh); /* Центр viewport */
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  z-index: 10; /* Выше контента, но ниже dropdown */
+  pointer-events: none; /* Позволяет клики проходить через к сообщениям */
+  transform: translateY(-50%); /* Центрирование по высоте элемента */
+}
+
+.start-dialog-content-compact {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+  pointer-events: auto; /* Возвращаем возможность кликать на элемент */
+}
+
+.start-dialog-icon-compact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+  border-radius: 20px;
+  box-shadow: 0 8px 16px rgba(59, 130, 246, 0.2);
+}
+
+.start-dialog-title-compact {
+  font-size: 32px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+}
+
+/* ============================================
+   WELCOME FEATURES
+   ============================================ */
+.welcome-features {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+  text-align: left;
+}
+
+.welcome-feature {
+  display: flex;
+  align-items: start;
+  gap: 12px;
+}
+
+.welcome-feature-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.welcome-feature-list {
+  list-style: disc;
+  list-style-position: inside;
+  margin-left: 16px;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.welcome-feature-list li {
+  margin-bottom: 4px;
+}
+
+/* ============================================
+   RESPONSIVE
+   ============================================ */
+@media (max-width: 768px) {
+  .compact-header {
+    padding: 8px 16px;
+  }
+  
+  .user-query-block {
+    padding: 6px 16px;
+    max-width: calc(100% - 32px);
+    width: calc(100% - 32px);
+    margin: 8px 16px;
+    margin-top: 4px;
+  }
+  
+  .messages-container {
+    padding: 16px;
+    padding-bottom: 140px;
+    padding-top: 12px;
+  }
+  
+  .input-area {
+    padding: 0 16px 12px;
+  }
+  
+  .settings-dropdown {
+    width: calc(100vw - 32px);
+    right: -16px;
+  }
+  
+  .integration-badge span {
+    display: none;
+  }
+  
+  .settings-button span {
+    display: none;
+  }
+  
+  .execution-mode-selector {
+    display: flex;
+  }
+  
+  .mode-selector-button {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+}
