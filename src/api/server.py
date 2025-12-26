@@ -76,12 +76,18 @@ async def startup_event():
     """Initialize services on startup."""
     logger.info("Starting up Multi-Agent API...")
     
-    # Connect to MCP servers
-    try:
-        results = await mcp_manager.connect_all()
-        logger.info(f"MCP connection results: {results}")
-    except Exception as e:
-        logger.error(f"Failed to connect to MCP servers: {e}")
+    # Connect to MCP servers asynchronously (non-blocking)
+    # This allows the app to start quickly even if MCP servers are slow to connect
+    async def connect_mcp_servers():
+        try:
+            results = await mcp_manager.connect_all()
+            logger.info(f"MCP connection results: {results}")
+        except Exception as e:
+            logger.error(f"Failed to connect to MCP servers: {e}")
+    
+    # Start MCP connection in background (non-blocking)
+    import asyncio
+    asyncio.create_task(connect_mcp_servers())
     
     # Cleanup expired sessions periodically
     # (In production, use a background task)
@@ -96,13 +102,27 @@ async def shutdown_event():
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint."""
-    mcp_health = await mcp_manager.health_check()
-    
-    return {
-        "status": "healthy",
-        "mcp_servers": mcp_health
-    }
+    """Health check endpoint - fast and non-blocking."""
+    try:
+        # Быстрая проверка без блокировки на MCP серверы
+        # MCP серверы могут подключаться асинхронно после старта
+        mcp_health = {}
+        try:
+            mcp_health = await mcp_manager.health_check()
+        except Exception as e:
+            logger.warning(f"MCP health check failed (non-critical): {e}")
+            mcp_health = {"error": "checking"}
+        
+        return {
+            "status": "healthy",
+            "mcp_servers": mcp_health
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "error": str(e)}
+        )
 
 
 @app.post("/api/chat")

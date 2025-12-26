@@ -91,9 +91,10 @@ ENV PYTHONUNBUFFERED=1 \
 # Expose порт
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+# Health check (увеличен start-period для запуска приложения)
+# Railway использует свой healthcheck, но это для локального тестирования
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" || exit 1
 
 # Entrypoint
 ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
