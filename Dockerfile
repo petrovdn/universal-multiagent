@@ -35,13 +35,14 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --upgrade pip setuptools wheel
 
 # Устанавливаем основные зависимости сначала (для кеширования слоев)
-# Эти пакеты редко меняются и будут кешироваться
+# Эти пакеты редко меняются и будут кешироваться Docker
 COPY requirements-core.txt ./
 RUN pip install --no-cache-dir --timeout=600 --retries=5 -r requirements-core.txt
 
 # Устанавливаем остальные production зависимости
-COPY requirements-prod.txt ./requirements.txt
-RUN pip install --no-cache-dir --timeout=600 --retries=5 -r requirements.txt
+# Langchain, Google APIs и MCP - эти пакеты меняются чаще
+COPY requirements-prod.txt ./
+RUN pip install --no-cache-dir --timeout=600 --retries=5 -r requirements-prod.txt
 
 # Stage 3: Final image
 FROM python:3.10-slim
