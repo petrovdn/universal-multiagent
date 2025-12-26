@@ -1,0 +1,88 @@
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+type ExecutionMode = 'instant' | 'approval'
+type Theme = 'light' | 'dark'
+
+interface IntegrationInfo {
+  enabled: boolean
+  authenticated: boolean
+  email?: string
+}
+
+interface IntegrationsState {
+  googleCalendar: IntegrationInfo
+  gmail: IntegrationInfo
+  googleSheets: IntegrationInfo
+  googleWorkspace: IntegrationInfo & {
+    folderConfigured?: boolean
+    folderName?: string
+    folderId?: string
+  }
+}
+
+interface SettingsState {
+  executionMode: ExecutionMode
+  timezone: string
+  theme: Theme
+  integrations: IntegrationsState
+  setExecutionMode: (mode: ExecutionMode) => void
+  setTimezone: (tz: string) => void
+  setTheme: (theme: Theme) => void
+  setIntegrationStatus: (integration: keyof IntegrationsState, status: Partial<IntegrationsState[keyof IntegrationsState]>) => void
+}
+
+export const useSettingsStore = create<SettingsState>()(
+  persist(
+    (set) => ({
+      executionMode: 'instant',
+      timezone: 'Europe/Moscow',
+      theme: 'light',
+      integrations: {
+        googleCalendar: {
+          enabled: false,
+          authenticated: false,
+        },
+        gmail: {
+          enabled: false,
+          authenticated: false,
+        },
+        googleSheets: {
+          enabled: false,
+          authenticated: false,
+        },
+        googleWorkspace: {
+          enabled: false,
+          authenticated: false,
+          folderConfigured: false,
+        },
+      },
+      
+      setExecutionMode: (mode) =>
+        set({ executionMode: mode }),
+      
+      setTimezone: (tz) =>
+        set({ timezone: tz }),
+      
+      setTheme: (theme) =>
+        set({ theme }),
+      
+      setIntegrationStatus: (integration, status) =>
+        set((state) => ({
+          integrations: {
+            ...state.integrations,
+            [integration]: {
+              ...state.integrations[integration],
+              ...status,
+            },
+          },
+        })),
+    }),
+    {
+      name: 'settings-storage',
+    }
+  )
+)
+
+
+
