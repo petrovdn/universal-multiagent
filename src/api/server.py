@@ -3,6 +3,11 @@ FastAPI server with WebSocket support for the multi-agent system.
 Provides REST API endpoints and real-time WebSocket communication.
 """
 
+# #region agent log - DEBUG INSTRUMENTATION
+import sys
+print("[DEBUG][HYP-B] server.py: Starting imports...", flush=True)
+# #endregion
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -12,8 +17,28 @@ from pathlib import Path
 import uvicorn
 from uuid import uuid4
 
-from src.utils.config_loader import get_config, reload_config
-from src.utils.logging_config import setup_logging, get_logger
+# #region agent log - DEBUG INSTRUMENTATION
+print("[DEBUG][HYP-B] server.py: Standard imports OK, loading app modules...", flush=True)
+# #endregion
+
+try:
+    from src.utils.config_loader import get_config, reload_config
+    # #region agent log
+    print("[DEBUG][HYP-C] server.py: config_loader imported OK", flush=True)
+    # #endregion
+except Exception as e:
+    print(f"[DEBUG][HYP-C] server.py: config_loader import FAILED: {e}", flush=True)
+    raise
+
+try:
+    from src.utils.logging_config import setup_logging, get_logger
+    # #region agent log
+    print("[DEBUG][HYP-B] server.py: logging_config imported OK", flush=True)
+    # #endregion
+except Exception as e:
+    print(f"[DEBUG][HYP-B] server.py: logging_config import FAILED: {e}", flush=True)
+    raise
+
 from src.utils.mcp_loader import get_mcp_manager
 from src.api.session_manager import get_session_manager
 from src.api.websocket_manager import get_websocket_manager
@@ -23,14 +48,27 @@ from src.api.integration_routes import router as integration_router
 from src.core.context_manager import ConversationContext
 from src.agents.model_factory import get_available_models, get_model_info, MODELS
 
+# #region agent log - DEBUG INSTRUMENTATION
+print("[DEBUG][HYP-B] server.py: All imports completed successfully!", flush=True)
+# #endregion
+
 # Setup logging and config with error handling
 # Allow app to start even if some config is missing (for healthcheck)
+# #region agent log - DEBUG INSTRUMENTATION
+print("[DEBUG][HYP-C] server.py: Loading config...", flush=True)
+# #endregion
 try:
     config = get_config()
     setup_logging(config.log_level)
     logger = get_logger(__name__)
     logger.info("Configuration loaded successfully")
+    # #region agent log
+    print("[DEBUG][HYP-C] server.py: Config loaded OK", flush=True)
+    # #endregion
 except Exception as e:
+    # #region agent log
+    print(f"[DEBUG][HYP-C] server.py: Config FAILED: {e}", flush=True)
+    # #endregion
     # Fallback config for basic startup
     import logging
     logging.basicConfig(level=logging.INFO)
@@ -41,12 +79,20 @@ except Exception as e:
         api_cors_origins = ["*"]
     config = MinimalConfig()
 
+# #region agent log - DEBUG INSTRUMENTATION
+print("[DEBUG][HYP-B] server.py: Creating FastAPI app...", flush=True)
+# #endregion
+
 # Create FastAPI app
 app = FastAPI(
     title="Google Workspace Multi-Agent API",
     description="API for Google Workspace Multi-Agent System",
     version="1.0.0"
 )
+
+# #region agent log - DEBUG INSTRUMENTATION
+print("[DEBUG][HYP-B] server.py: FastAPI app created OK!", flush=True)
+# #endregion
 
 # CORS middleware
 app.add_middleware(
@@ -99,6 +145,9 @@ if hasattr(config, 'is_production') and config.is_production:
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup."""
+    # #region agent log - DEBUG INSTRUMENTATION
+    print("[DEBUG][HYP-B] startup_event() called - server is starting!", flush=True)
+    # #endregion
     logger.info("Starting up Multi-Agent API...")
     
     # Connect to MCP servers asynchronously (non-blocking)
@@ -113,6 +162,10 @@ async def startup_event():
     # Start MCP connection in background (non-blocking)
     import asyncio
     asyncio.create_task(connect_mcp_servers())
+    
+    # #region agent log - DEBUG INSTRUMENTATION
+    print("[DEBUG][HYP-B] startup_event() completed - server ready for requests!", flush=True)
+    # #endregion
     
     # Cleanup expired sessions periodically
     # (In production, use a background task)
@@ -131,6 +184,9 @@ async def health_check():
     Health check endpoint - максимально простой для Railway.
     Возвращает 200 OK сразу после запуска FastAPI, без проверок.
     """
+    # #region agent log - DEBUG INSTRUMENTATION
+    print("[DEBUG][HYP-A] Healthcheck endpoint called!", flush=True)
+    # #endregion
     # Простейший healthcheck - просто подтверждаем, что сервер работает
     # MCP серверы могут подключаться асинхронно, это не критично для healthcheck
     return {
