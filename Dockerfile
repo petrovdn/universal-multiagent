@@ -31,14 +31,17 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Копируем requirements
-COPY requirements.txt ./
+# Обновляем pip для лучшей производительности
+RUN pip install --upgrade pip setuptools wheel
 
-# Устанавливаем Python зависимости с оптимизацией для Railway
-# Используем только wheels (предкомпилированные пакеты) для ускорения
-RUN pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir --only-binary :all: --timeout=600 --retries=5 -r requirements.txt || \
-    pip install --no-cache-dir --timeout=600 --retries=5 -r requirements.txt
+# Устанавливаем основные зависимости сначала (для кеширования слоев)
+# Эти пакеты редко меняются и будут кешироваться
+COPY requirements-core.txt ./
+RUN pip install --no-cache-dir --timeout=600 --retries=5 -r requirements-core.txt
+
+# Устанавливаем остальные production зависимости
+COPY requirements-prod.txt ./requirements.txt
+RUN pip install --no-cache-dir --timeout=600 --retries=5 -r requirements.txt
 
 # Stage 3: Final image
 FROM python:3.10-slim

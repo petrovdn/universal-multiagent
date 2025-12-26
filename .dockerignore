@@ -74,6 +74,11 @@ mcp-servers/
 test_*.py
 tests/
 
+# Requirements files (используем только production версии)
+requirements.txt
+!requirements-prod.txt
+!requirements-core.txt
+
 # Scripts (кроме docker-entrypoint.sh)
 scripts/*.sh
 !scripts/docker-entrypoint.sh
