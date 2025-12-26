@@ -3,21 +3,21 @@
 # Stage 1: Frontend build
 FROM node:18-alpine AS frontend-builder
 
-WORKDIR /app
+WORKDIR /app/frontend
 
-# Копируем package files сначала для кеширования
-COPY frontend/package*.json ./frontend/
+# Копируем package files сначала для кеширования слоев
+COPY frontend/package.json frontend/package-lock.json* ./
 
 # Устанавливаем зависимости
-WORKDIR /app/frontend
 RUN npm ci
 
-# Копируем все остальные файлы frontend
-WORKDIR /app
-COPY frontend/ ./frontend/
+# Копируем конфигурационные файлы
+COPY frontend/tsconfig.json frontend/tsconfig.node.json frontend/vite.config.ts frontend/index.html ./
+
+# Копируем исходники frontend
+COPY frontend/src ./src
 
 # Собираем frontend
-WORKDIR /app/frontend
 RUN npm run build
 
 # Stage 2: Backend setup
