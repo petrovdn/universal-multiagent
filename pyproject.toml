@@ -1,0 +1,31 @@
+[tool.basedpyright]
+# Basedpyright configuration
+typeCheckingMode = "basic"
+reportMissingImports = "none"  # Set to "none" since packages are installed via pip
+reportMissingTypeStubs = false
+pythonVersion = "3.10"
+pythonPlatform = "All"
+
+# Include paths
+include = ["src"]
+exclude = [
+    "**/__pycache__",
+    "**/node_modules",
+    "**/.venv",
+    "**/venv",
+    "**/.*"
+]
+
+# Stub paths (if needed)
+stubPath = "typings"
+
+# Execution environment
+executionEnvironments = [
+    {
+        "root": ".",
+        "pythonVersion": "3.10",
+        "pythonPlatform": "All",
+        "extraPaths": []
+    }
+]
+
