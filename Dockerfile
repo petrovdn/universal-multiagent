@@ -3,18 +3,21 @@
 # Stage 1: Frontend build
 FROM node:18-alpine AS frontend-builder
 
-WORKDIR /app/frontend
+WORKDIR /app
 
-# Копируем package files
-COPY frontend/package*.json ./
+# Копируем package files сначала для кеширования
+COPY frontend/package*.json ./frontend/
 
 # Устанавливаем зависимости
+WORKDIR /app/frontend
 RUN npm ci
 
-# Копируем исходники frontend
-COPY frontend/ ./
+# Копируем все остальные файлы frontend
+WORKDIR /app
+COPY frontend/ ./frontend/
 
 # Собираем frontend
+WORKDIR /app/frontend
 RUN npm run build
 
 # Stage 2: Backend setup
