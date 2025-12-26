@@ -6,10 +6,10 @@ FROM node:18-alpine AS frontend-builder
 WORKDIR /app/frontend
 
 # Копируем package files сначала для кеширования слоев
-COPY frontend/package.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 
 # Устанавливаем зависимости (включая dev для сборки)
-RUN npm install --legacy-peer-deps --prefer-offline --no-audit --progress=false
+RUN npm ci --legacy-peer-deps --no-audit --progress=false
 
 # Копируем конфигурационные файлы
 COPY frontend/tsconfig.json frontend/tsconfig.node.json frontend/vite.config.ts frontend/index.html ./
