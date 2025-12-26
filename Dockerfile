@@ -35,8 +35,10 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt ./
 
 # Устанавливаем Python зависимости с оптимизацией для Railway
+# Используем только wheels (предкомпилированные пакеты) для ускорения
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir --timeout=300 --retries=3 -r requirements.txt
+    pip install --no-cache-dir --only-binary :all: --timeout=600 --retries=5 -r requirements.txt || \
+    pip install --no-cache-dir --timeout=600 --retries=5 -r requirements.txt
 
 # Stage 3: Final image
 FROM python:3.10-slim
