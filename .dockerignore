@@ -78,6 +78,9 @@ tests/
 requirements.txt
 !requirements-prod.txt
 !requirements-core.txt
+!requirements-ai.txt
+!requirements-google.txt
+!requirements-mcp.txt
 
 # Scripts (кроме docker-entrypoint.sh)
 scripts/*.sh

@@ -1,0 +1,5 @@
+# MCP Integration (легкие пакеты)
+mcp>=1.25.0
+httpx==0.25.2
+anyio>=4.12.0
+
