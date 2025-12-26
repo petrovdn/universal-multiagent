@@ -19,10 +19,12 @@ if [ -z "$GOOGLE_OAUTH_CLIENT_ID" ] || [ -z "$GOOGLE_OAUTH_CLIENT_SECRET" ]; the
 fi
 
 # Запускаем приложение
-echo "Starting FastAPI server..."
+# Railway предоставляет переменную $PORT, используем её или 8000 по умолчанию
+PORT=${PORT:-8000}
+echo "Starting FastAPI server on port $PORT..."
 exec python -m uvicorn src.api.server:app \
     --host 0.0.0.0 \
-    --port 8000 \
+    --port $PORT \
     --workers 1 \
     --log-level info
 
