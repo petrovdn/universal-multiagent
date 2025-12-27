@@ -297,6 +297,7 @@ def get_config() -> AppConfig:
     global _config
     
     if _config is None:
+        print("[DEBUG][CONFIG] Creating new AppConfig instance", flush=True)
         # #region agent log
         try:
             import os
