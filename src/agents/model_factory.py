@@ -54,15 +54,77 @@ def get_available_models() -> Dict[str, Dict[str, Any]]:
     Returns:
         Dictionary mapping model IDs to their configurations
     """
+    # #region agent log
+    try:
+        import json
+        import time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "model_factory.py:50", "message": "get_available_models called", "data": {"total_models": len(MODELS)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+    except: pass
+    # #endregion
+    
     config = get_config()
+    
+    # #region agent log
+    try:
+        import json
+        import time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "model_factory.py:58", "message": "Config retrieved, checking API keys", "data": {"anthropic_key_exists": bool(config.anthropic_api_key), "anthropic_key_non_empty": bool(config.anthropic_api_key and config.anthropic_api_key.strip()), "openai_key_exists": bool(config.openai_api_key), "openai_key_non_empty": bool(config.openai_api_key and config.openai_api_key.strip())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
+    except: pass
+    # #endregion
+    
     available = {}
     
     for model_id, model_config in MODELS.items():
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "model_factory.py:65", "message": "Checking model", "data": {"model_id": model_id, "provider": model_config["provider"]}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "F"}) + "\n")
+        except: pass
+        # #endregion
+        
         # Check if API key is available for the provider (must be non-empty string)
         if model_config["provider"] == "anthropic" and config.anthropic_api_key and config.anthropic_api_key.strip():
             available[model_id] = model_config
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"location": "model_factory.py:68", "message": "Model added (Anthropic)", "data": {"model_id": model_id}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "G"}) + "\n")
+            except: pass
+            # #endregion
         elif model_config["provider"] == "openai" and config.openai_api_key and config.openai_api_key.strip():
             available[model_id] = model_config
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"location": "model_factory.py:72", "message": "Model added (OpenAI)", "data": {"model_id": model_id}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H"}) + "\n")
+            except: pass
+            # #endregion
+        else:
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"location": "model_factory.py:75", "message": "Model skipped (no key)", "data": {"model_id": model_id, "provider": model_config["provider"], "anthropic_condition": bool(model_config["provider"] == "anthropic" and config.anthropic_api_key and config.anthropic_api_key.strip()), "openai_condition": bool(model_config["provider"] == "openai" and config.openai_api_key and config.openai_api_key.strip())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "I"}) + "\n")
+            except: pass
+            # #endregion
+    
+    # #region agent log
+    try:
+        import json
+        import time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "model_factory.py:80", "message": "get_available_models returning", "data": {"available_count": len(available), "available_models": list(available.keys())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "J"}) + "\n")
+    except: pass
+    # #endregion
     
     return available
 

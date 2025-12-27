@@ -248,7 +248,26 @@ def get_config() -> AppConfig:
     global _config
     
     if _config is None:
+        # #region agent log
+        try:
+            import os
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "config_loader.py:250", "message": "Creating AppConfig instance", "data": {"env_anthropic_set": bool(os.getenv("ANTHROPIC_API_KEY")), "env_openai_set": bool(os.getenv("OPENAI_API_KEY")), "env_anthropic_len": len(os.getenv("ANTHROPIC_API_KEY", "")), "env_openai_len": len(os.getenv("OPENAI_API_KEY", ""))}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
+        except: pass
+        # #endregion
+        
         _config = AppConfig()
+        
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "config_loader.py:253", "message": "AppConfig created, checking API keys", "data": {"anthropic_key_exists": bool(_config.anthropic_api_key), "anthropic_key_len": len(_config.anthropic_api_key) if _config.anthropic_api_key else 0, "anthropic_key_stripped_len": len(_config.anthropic_api_key.strip()) if _config.anthropic_api_key else 0, "openai_key_exists": bool(_config.openai_api_key), "openai_key_len": len(_config.openai_api_key) if _config.openai_api_key else 0, "openai_key_stripped_len": len(_config.openai_api_key.strip()) if _config.openai_api_key else 0}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
+        except: pass
+        # #endregion
         
         # Ensure directories exist
         _config.tokens_dir.mkdir(parents=True, exist_ok=True)
@@ -268,6 +287,15 @@ def get_config() -> AppConfig:
             has_anthropic = bool(_config.anthropic_api_key and _config.anthropic_api_key.strip())
             has_openai = bool(_config.openai_api_key and _config.openai_api_key.strip())
             logger.info(f"API keys status: Anthropic={'set' if has_anthropic else 'missing'}, OpenAI={'set' if has_openai else 'missing'}")
+        
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "config_loader.py:275", "message": "Config validation complete", "data": {"missing_count": len(missing), "has_anthropic": bool(_config.anthropic_api_key and _config.anthropic_api_key.strip()), "has_openai": bool(_config.openai_api_key and _config.openai_api_key.strip())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
+        except: pass
+        # #endregion
     
     return _config
 
