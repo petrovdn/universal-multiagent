@@ -321,23 +321,33 @@ async def list_models():
     Returns:
         List of available models with metadata
     """
-    config = get_config()
-    available_models = get_available_models()
-    
-    models_list = []
-    for model_id, model_config in MODELS.items():
-        if model_id in available_models:
-            model_info = get_model_info(model_id)
-            models_list.append({
-                "id": model_id,
-                "name": model_info.get("display_name", model_id),
-                "provider": model_config["provider"],
-                "supports_reasoning": model_config.get("supports_reasoning", False),
-                "reasoning_type": model_config.get("reasoning_type"),
-                "default": model_id == config.default_model
-            })
-    
-    return {"models": models_list}
+    try:
+        config = get_config()
+        available_models = get_available_models()
+        
+        # Log for debugging
+        logger.info(f"Available models count: {len(available_models)}")
+        logger.info(f"API keys status: Anthropic={'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI={'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}")
+        
+        models_list = []
+        for model_id, model_config in MODELS.items():
+            if model_id in available_models:
+                model_info = get_model_info(model_id)
+                models_list.append({
+                    "id": model_id,
+                    "name": model_info.get("display_name", model_id),
+                    "provider": model_config["provider"],
+                    "supports_reasoning": model_config.get("supports_reasoning", False),
+                    "reasoning_type": model_config.get("reasoning_type"),
+                    "default": model_id == config.default_model
+                })
+        
+        logger.info(f"Returning {len(models_list)} models to client")
+        return {"models": models_list}
+    except Exception as e:
+        logger.error(f"Error listing models: {e}", exc_info=True)
+        # Return empty list instead of failing
+        return {"models": []}
 
 
 @app.post("/api/session/model")
