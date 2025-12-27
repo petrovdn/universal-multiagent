@@ -366,19 +366,68 @@ class BaseAgent:
         # Create agent node with async support for streaming
         # Note: event_callback is passed via closure
         async def agent_node(state: AgentState):
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    import time
+                    f.write(json_lib.dumps({"location": "base_agent.py:368", "message": "agent_node called", "data": {"has_callback_handler": callback_handler is not None, "has_event_callback": event_callback is not None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "FF"}) + "\n")
+            except: pass
+            # #endregion
+            
             messages = state["messages"]
             response = prompt.invoke({"messages": messages})
-            # Use ainvoke with callback handler for streaming thinking tokens
+            
+            # Use astream with callback handler for streaming thinking tokens
+            # ainvoke doesn't call callbacks for thinking blocks, so we need astream
             if callback_handler:
-                response = await llm_with_tools.ainvoke(response.messages, config={"callbacks": [callback_handler]})
                 # #region agent log
                 try:
                     with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
                         import json as json_lib
                         import time
-                        f.write(json_lib.dumps({"location": "base_agent.py:358", "message": "agent_node called with callback", "data": {"has_callback_handler": callback_handler is not None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "FF"}) + "\n")
+                        f.write(json_lib.dumps({"location": "base_agent.py:381", "message": "starting astream in agent_node", "data": {"messages_count": len(response.messages)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "HH"}) + "\n")
                 except: pass
                 # #endregion
+                
+                # Collect chunks from astream
+                accumulated_response = None
+                chunk_count = 0
+                try:
+                    async for chunk in llm_with_tools.astream(response.messages, config={"callbacks": [callback_handler]}):
+                        chunk_count += 1
+                        accumulated_response = chunk
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                import json as json_lib
+                                import time
+                                chunk_type = type(chunk).__name__
+                                f.write(json_lib.dumps({"location": "base_agent.py:395", "message": "agent_node chunk from astream", "data": {"chunk_type": chunk_type, "chunk_count": chunk_count}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "GG"}) + "\n")
+                        except: pass
+                        # #endregion
+                except Exception as e:
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            import json as json_lib
+                            import time
+                            f.write(json_lib.dumps({"location": "base_agent.py:407", "message": "astream error in agent_node", "data": {"error": str(e), "error_type": type(e).__name__}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "II"}) + "\n")
+                    except: pass
+                    # #endregion
+                    self.logger.error(f"Error in astream: {e}")
+                
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json as json_lib
+                        import time
+                        f.write(json_lib.dumps({"location": "base_agent.py:415", "message": "astream completed in agent_node", "data": {"chunk_count": chunk_count, "has_accumulated_response": accumulated_response is not None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "JJ"}) + "\n")
+                except: pass
+                # #endregion
+                
+                # Use the last chunk as the final response
+                response = accumulated_response if accumulated_response else await llm_with_tools.ainvoke(response.messages)
             else:
                 response = await llm_with_tools.ainvoke(response.messages)
             # #region agent log
