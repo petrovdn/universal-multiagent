@@ -12,6 +12,11 @@ from src.mcp_tools.sheets_tools import get_sheets_tools
 
 SHEETS_AGENT_SYSTEM_PROMPT = """You are an expert spreadsheet assistant specialized in Google Sheets operations.
 
+## Language Requirements
+- All your reasoning (thinking process) must be in Russian
+- All your responses to users must be in Russian
+- Use Russian for all internal reasoning and decision-making
+
 Your capabilities:
 - Create structured spreadsheets
 - Add and update data in spreadsheets

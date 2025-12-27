@@ -7,8 +7,11 @@ from typing import Dict, Any, Optional
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from langchain_core.language_models.chat_models import BaseChatModel
+import logging
 
 from src.utils.config_loader import get_config
+
+logger = logging.getLogger(__name__)
 
 
 # Model configurations
@@ -54,15 +57,89 @@ def get_available_models() -> Dict[str, Dict[str, Any]]:
     Returns:
         Dictionary mapping model IDs to their configurations
     """
+    # #region agent log
+    try:
+        import json
+        import time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "model_factory.py:50", "message": "get_available_models called", "data": {"total_models": len(MODELS)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+    except: pass
+    logger.info(f"[DEBUG] get_available_models called, total models: {len(MODELS)}")
+    print(f"[DEBUG] get_available_models called, total models: {len(MODELS)}", flush=True)
+    # #endregion
+    
     config = get_config()
+    
+    # #region agent log
+    try:
+        import json
+        import time
+        anthropic_exists = bool(config.anthropic_api_key)
+        anthropic_non_empty = bool(config.anthropic_api_key and config.anthropic_api_key.strip())
+        openai_exists = bool(config.openai_api_key)
+        openai_non_empty = bool(config.openai_api_key and config.openai_api_key.strip())
+        anthropic_len = len(config.anthropic_api_key) if config.anthropic_api_key else 0
+        openai_len = len(config.openai_api_key) if config.openai_api_key else 0
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "model_factory.py:58", "message": "Config retrieved, checking API keys", "data": {"anthropic_key_exists": anthropic_exists, "anthropic_key_non_empty": anthropic_non_empty, "anthropic_key_len": anthropic_len, "openai_key_exists": openai_exists, "openai_key_non_empty": openai_non_empty, "openai_key_len": openai_len}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
+    except: pass
+    logger.info(f"[DEBUG] API keys status - Anthropic: exists={anthropic_exists}, non_empty={anthropic_non_empty}, len={anthropic_len}; OpenAI: exists={openai_exists}, non_empty={openai_non_empty}, len={openai_len}")
+    print(f"[DEBUG] API keys - Anthropic: exists={anthropic_exists}, non_empty={anthropic_non_empty}, len={anthropic_len}; OpenAI: exists={openai_exists}, non_empty={openai_non_empty}, len={openai_len}", flush=True)
+    # #endregion
+    
     available = {}
     
     for model_id, model_config in MODELS.items():
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "model_factory.py:65", "message": "Checking model", "data": {"model_id": model_id, "provider": model_config["provider"]}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "F"}) + "\n")
+        except: pass
+        # #endregion
+        
         # Check if API key is available for the provider (must be non-empty string)
         if model_config["provider"] == "anthropic" and config.anthropic_api_key and config.anthropic_api_key.strip():
             available[model_id] = model_config
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"location": "model_factory.py:68", "message": "Model added (Anthropic)", "data": {"model_id": model_id}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "G"}) + "\n")
+            except: pass
+            # #endregion
         elif model_config["provider"] == "openai" and config.openai_api_key and config.openai_api_key.strip():
             available[model_id] = model_config
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"location": "model_factory.py:72", "message": "Model added (OpenAI)", "data": {"model_id": model_id}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H"}) + "\n")
+            except: pass
+            # #endregion
+        else:
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"location": "model_factory.py:75", "message": "Model skipped (no key)", "data": {"model_id": model_id, "provider": model_config["provider"], "anthropic_condition": bool(model_config["provider"] == "anthropic" and config.anthropic_api_key and config.anthropic_api_key.strip()), "openai_condition": bool(model_config["provider"] == "openai" and config.openai_api_key and config.openai_api_key.strip())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "I"}) + "\n")
+            except: pass
+            # #endregion
+    
+    # #region agent log
+    try:
+        import json
+        import time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "model_factory.py:80", "message": "get_available_models returning", "data": {"available_count": len(available), "available_models": list(available.keys())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "J"}) + "\n")
+    except: pass
+    logger.info(f"[DEBUG] get_available_models returning {len(available)} models: {list(available.keys())}")
+    print(f"[DEBUG] get_available_models returning {len(available)} models: {list(available.keys())}", flush=True)
+    # #endregion
     
     return available
 

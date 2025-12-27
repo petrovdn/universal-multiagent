@@ -5,14 +5,17 @@ FROM node:18-alpine AS frontend-builder
 
 WORKDIR /app/frontend
 
-# Копируем package files
-COPY frontend/package*.json ./
+# Копируем package files сначала для кеширования слоев
+COPY frontend/package.json frontend/package-lock.json ./
 
-# Устанавливаем зависимости
-RUN npm ci
+# Устанавливаем зависимости (включая dev для сборки)
+RUN npm ci --legacy-peer-deps --no-audit --progress=false
+
+# Копируем конфигурационные файлы
+COPY frontend/tsconfig.json frontend/tsconfig.node.json frontend/vite.config.ts frontend/index.html ./
 
 # Копируем исходники frontend
-COPY frontend/ ./
+COPY frontend/src ./src
 
 # Собираем frontend
 RUN npm run build
@@ -28,11 +31,25 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Копируем requirements
-COPY requirements.txt ./
+# Обновляем pip для лучшей производительности
+RUN pip install --upgrade pip setuptools wheel
 
-# Устанавливаем Python зависимости
-RUN pip install --no-cache-dir -r requirements.txt
+# Этап 1: Основные зависимости (быстрые, кешируются)
+# Эти пакеты редко меняются и будут кешироваться Docker
+COPY requirements-core.txt ./
+RUN pip install --no-cache-dir --timeout=300 --retries=3 -r requirements-core.txt
+
+# Этап 2: MCP зависимости (легкие, устанавливаются быстро)
+COPY requirements-mcp.txt ./
+RUN pip install --no-cache-dir --timeout=300 --retries=3 -r requirements-mcp.txt
+
+# Этап 3: Google APIs (средние по размеру)
+COPY requirements-google.txt ./
+RUN pip install --no-cache-dir --timeout=300 --retries=3 -r requirements-google.txt
+
+# Этап 4: AI Framework (самые тяжелые - в конце, больше времени)
+COPY requirements-ai.txt ./
+RUN pip install --no-cache-dir --timeout=600 --retries=5 -r requirements-ai.txt
 
 # Stage 3: Final image
 FROM python:3.10-slim
@@ -74,9 +91,10 @@ ENV PYTHONUNBUFFERED=1 \
 # Expose порт
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/api/health || exit 1
+# Health check (увеличен start-period для запуска приложения)
+# Railway использует свой healthcheck, но это для локального тестирования
+HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')" || exit 1
 
 # Entrypoint
 ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]

@@ -1,0 +1,8 @@
+# AI Framework (самые тяжелые пакеты - устанавливаются отдельно)
+langchain>=0.3.0
+langgraph>=0.2.0
+langchain-anthropic>=0.2.0
+langchain-openai>=0.2.0
+anthropic>=0.34.0
+openai>=1.50.0
+

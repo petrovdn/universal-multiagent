@@ -4,81 +4,57 @@ __pycache__/
 *$py.class
 *.so
 .Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
 *.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual environments
+dist/
+build/
+.venv/
 venv/
-env/
 ENV/
-.venv
+env/
 
 # IDE
 .vscode/
 .idea/
-*.swp
-*.swo
-*~
+.DS_Store
+.cursor/
 
 # Environment variables
 .env
-config/.env
 *.env.local
-
-# Credentials
-config/token.json
-config/*_token.json
-config/*token*.json
-config/.env
-*.pem
-*.key
-gcp-oauth.keys.json
 
 # Logs
 logs/
 *.log
 
-# Data
-data/
-*.db
-*.sqlite
+# Data and tokens (sensitive!)
+config/*.json
+config/.env
+data/sessions/*.json
+data/tokens/
+gcp-oauth.keys.json
 
-# Frontend
+# Node
+node_modules/
 frontend/node_modules/
-frontend/dist/
 frontend/.vite/
-frontend/build/
+frontend/dist/
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
-.tox/
 
-# OS
+# Temporary files
+*.swp
+*.swo
+*~
 .DS_Store
-Thumbs.db
+restart-server.sh
 
-# MCP
-mcp-servers/
+# Backup files
+*.bak
+docs.prod.bak/
 
-# Docker
-.docker/
-docker-compose.override.yml
+# Test files (if you want to exclude them)
+test_*.py
 
-# Production specific
-*.prod.env
-config/prod/
