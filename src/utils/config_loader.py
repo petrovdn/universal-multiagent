@@ -191,11 +191,22 @@ class AppConfig(BaseSettings):
     @classmethod
     def exclude_properties_from_env(cls, values):
         """Exclude properties from env parsing."""
+        print(f"[DEBUG][MODEL_VALIDATOR] exclude_properties_from_env called with: {type(values)}", flush=True)
         if isinstance(values, dict):
+            print(f"[DEBUG][MODEL_VALIDATOR] Keys before removal: {list(values.keys())[:10]}", flush=True)
             # Remove api_cors_origins from env values if present
-            values.pop("api_cors_origins", None)
-            values.pop("API_CORS_ORIGINS", None)  # Also remove uppercase version
+            removed1 = values.pop("api_cors_origins", None)
+            removed2 = values.pop("API_CORS_ORIGINS", None)
+            print(f"[DEBUG][MODEL_VALIDATOR] Removed api_cors_origins: {removed1 is not None}, API_CORS_ORIGINS: {removed2 is not None}", flush=True)
         return values
+    
+    def __init__(self, **kwargs):
+        """Override __init__ to exclude api_cors_origins from kwargs."""
+        print(f"[DEBUG][INIT] AppConfig.__init__ called with keys: {list(kwargs.keys())[:10] if kwargs else []}", flush=True)
+        # Remove api_cors_origins before calling super().__init__
+        kwargs.pop("api_cors_origins", None)
+        kwargs.pop("API_CORS_ORIGINS", None)
+        super().__init__(**kwargs)
     
     @property
     def api_cors_origins(self):
