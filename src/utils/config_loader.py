@@ -157,16 +157,31 @@ class AppConfig(BaseSettings):
     # FastAPI settings
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
-    _api_cors_origins_str: str = Field(
+    api_cors_origins_raw: str = Field(
         default="http://localhost:5173,http://localhost:3000,http://localhost:3001",
-        alias="API_CORS_ORIGINS"
+        alias="API_CORS_ORIGINS",
+        validation_alias="API_CORS_ORIGINS"
     )
+    
+    @field_validator("api_cors_origins_raw", mode="before")
+    @classmethod
+    def parse_cors_origins_raw(cls, v):
+        """Parse CORS origins raw string, handling empty/invalid values."""
+        if v is None:
+            return "http://localhost:5173,http://localhost:3000,http://localhost:3001"
+        if isinstance(v, str):
+            v = v.strip()
+            if not v:
+                return "http://localhost:5173,http://localhost:3000,http://localhost:3001"
+            return v
+        # For any other type, convert to string
+        return str(v) if v else "http://localhost:5173,http://localhost:3000,http://localhost:3001"
     
     @computed_field
     @property
     def api_cors_origins(self) -> List[str]:
         """Parse CORS origins from string to list."""
-        v = self._api_cors_origins_str
+        v = self.api_cors_origins_raw
         # Handle None or empty string
         if not v or not v.strip():
             return ["http://localhost:5173", "http://localhost:3000", "http://localhost:3001"]
