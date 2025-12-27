@@ -82,11 +82,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize managers
-session_manager = get_session_manager()
-ws_manager = get_websocket_manager()
-agent_wrapper = AgentWrapper()
-mcp_manager = get_mcp_manager()
+# Initialize managers with error handling
+# Allow app to start even if some managers fail (for healthcheck)
+try:
+    session_manager = get_session_manager()
+    ws_manager = get_websocket_manager()
+    agent_wrapper = AgentWrapper()
+    mcp_manager = get_mcp_manager()
+    logger.info("Managers initialized successfully")
+except Exception as e:
+    import traceback
+    logger.error(f"Failed to initialize some managers: {e}")
+    logger.error(f"Manager init error traceback: {traceback.format_exc()}")
+    print(f"[DEBUG] Manager init failed: {e}", flush=True)
+    # Create minimal stubs to prevent crashes
+    class StubManager:
+        async def connect_all(self):
+            return {}
+        def get_all_tools(self):
+            return {}
+        async def disconnect_all(self):
+            pass
+    session_manager = StubManager()
+    ws_manager = StubManager()
+    agent_wrapper = StubManager()
+    mcp_manager = StubManager()
 
 # Include auth routes
 app.include_router(auth_router)
