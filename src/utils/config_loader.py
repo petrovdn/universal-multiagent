@@ -255,13 +255,19 @@ def get_config() -> AppConfig:
         _config.sessions_dir.mkdir(parents=True, exist_ok=True)
         _config.config_dir.mkdir(parents=True, exist_ok=True)
         
-        # Validate required credentials
+        # Validate required credentials (but don't fail startup - allow healthcheck to work)
         missing = _config.validate_required_credentials()
         if missing:
-            raise ValueError(
-                f"Missing required configuration: {', '.join(missing)}. "
-                f"Please check config/.env file or environment variables."
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Missing configuration: {', '.join(missing)}. "
+                f"Some features may not work. Please check environment variables."
             )
+            # Log API key status for debugging (without exposing keys)
+            has_anthropic = bool(_config.anthropic_api_key and _config.anthropic_api_key.strip())
+            has_openai = bool(_config.openai_api_key and _config.openai_api_key.strip())
+            logger.info(f"API keys status: Anthropic={'set' if has_anthropic else 'missing'}, OpenAI={'set' if has_openai else 'missing'}")
     
     return _config
 
