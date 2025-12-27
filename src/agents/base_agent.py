@@ -82,6 +82,17 @@ class StreamingCallbackHandler(AsyncCallbackHandler):
         **kwargs
     ) -> None:
         """Called when a new chunk is streamed from the chat model."""
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_lib
+                import time
+                chunk_type = type(chunk).__name__
+                has_content = hasattr(chunk, "content")
+                f.write(json_lib.dumps({"location": "base_agent.py:76", "message": "StreamingCallbackHandler.on_chat_model_stream called", "data": {"chunk_type": chunk_type, "has_content": has_content}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "CC"}) + "\n")
+        except: pass
+        # #endregion
+        
         if self.logger:
             self.logger.debug(f"[StreamingCallback] on_chat_model_stream called, chunk type: {type(chunk)}")
         
@@ -94,20 +105,49 @@ class StreamingCallbackHandler(AsyncCallbackHandler):
             
             # Handle list of content blocks (Claude format)
             if isinstance(content, list):
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json as json_lib
+                        import time
+                        f.write(json_lib.dumps({"location": "base_agent.py:96", "message": "StreamingCallbackHandler processing content list", "data": {"list_length": len(content)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "DD"}) + "\n")
+                except: pass
+                # #endregion
                 for block in content:
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            import json as json_lib
+                            import time
+                            block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                            f.write(json_lib.dumps({"location": "base_agent.py:100", "message": "StreamingCallbackHandler processing block", "data": {"block_type": block_type, "is_dict": isinstance(block, dict)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "EE"}) + "\n")
+                    except: pass
+                    # #endregion
                     # Check if it's a thinking block
-                    if hasattr(block, "type"):
-                        if block.type == "thinking":
-                            thinking_text = getattr(block, "text", "")
-                            if thinking_text:
-                                if self.logger:
-                                    self.logger.info(f"[StreamingCallback] Thinking token: {thinking_text[:100]}")
-                                self.accumulated_thinking += thinking_text
-                                if self.event_callback:
-                                    await self.event_callback(StreamEvent.THINKING, {
-                                        "step": "reasoning",
-                                        "message": self.accumulated_thinking
-                                    })
+                    block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                    if block_type == "thinking":
+                        # For thinking blocks, text is in 'thinking' key, not 'text'!
+                        thinking_text = block.get("thinking", "") if isinstance(block, dict) else getattr(block, "thinking", "")
+                        if not thinking_text:
+                            # Fallback to 'text' if 'thinking' is not available
+                            thinking_text = block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")
+                        if thinking_text:
+                            if self.logger:
+                                self.logger.info(f"[StreamingCallback] Thinking token: {thinking_text[:100]}")
+                            self.accumulated_thinking += thinking_text
+                            if self.event_callback:
+                                # #region agent log
+                                try:
+                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                        import json as json_lib
+                                        import time
+                                        f.write(json_lib.dumps({"location": "base_agent.py:106", "message": "StreamingCallbackHandler calling event_callback for THINKING", "data": {"accumulated_thinking_length": len(self.accumulated_thinking)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "BB"}) + "\n")
+                                except: pass
+                                # #endregion
+                                await self.event_callback(StreamEvent.THINKING, {
+                                    "step": "reasoning",
+                                    "message": self.accumulated_thinking
+                                })
                         elif block.type == "text":
                             text = getattr(block, "text", "")
                             if text:
@@ -277,9 +317,12 @@ class BaseAgent:
         
         return llm
     
-    def _build_graph(self) -> StateGraph:
+    def _build_graph(self, event_callback: Optional[Callable] = None) -> StateGraph:
         """
         Build LangGraph state graph for agent execution.
+        
+        Args:
+            event_callback: Optional callback for streaming events (passed via closure)
         
         Returns:
             Configured StateGraph
@@ -314,12 +357,30 @@ class BaseAgent:
         except: pass
         # #endregion
         
+        # Create callback handler for streaming thinking tokens
+        callback_handler = StreamingCallbackHandler(
+            event_callback=event_callback,
+            logger=self.logger
+        ) if event_callback else None
+        
         # Create agent node with async support for streaming
+        # Note: event_callback is passed via closure
         async def agent_node(state: AgentState):
             messages = state["messages"]
             response = prompt.invoke({"messages": messages})
-            # Use ainvoke for async execution (callbacks are passed via config)
-            response = await llm_with_tools.ainvoke(response.messages)
+            # Use ainvoke with callback handler for streaming thinking tokens
+            if callback_handler:
+                response = await llm_with_tools.ainvoke(response.messages, config={"callbacks": [callback_handler]})
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json as json_lib
+                        import time
+                        f.write(json_lib.dumps({"location": "base_agent.py:358", "message": "agent_node called with callback", "data": {"has_callback_handler": callback_handler is not None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "FF"}) + "\n")
+                except: pass
+                # #endregion
+            else:
+                response = await llm_with_tools.ainvoke(response.messages)
             # #region agent log
             try:
                 with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
@@ -608,7 +669,11 @@ class BaseAgent:
             accumulated_text = ""
             accumulated_thinking = ""
             
-            # Execute without callbacks - process chunks directly
+            # Rebuild graph with event_callback for streaming thinking tokens
+            # This ensures the callback handler is available in agent_node
+            graph_with_callback = self._build_graph(event_callback=event_callback)
+            
+            # Execute without callbacks in config - callbacks are handled in agent_node
             config = {"recursion_limit": 50}
             
             # Use astream to get streaming chunks
@@ -627,7 +692,7 @@ class BaseAgent:
             except: pass
             # #endregion
             
-            async for chunk in self.graph.astream(initial_state, config=config, stream_mode="messages"):
+            async for chunk in graph_with_callback.astream(initial_state, config=config, stream_mode="messages"):
                 chunk_count += 1
                 
                 # #region agent log

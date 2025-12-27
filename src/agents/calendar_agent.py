@@ -130,7 +130,10 @@ Always be helpful, proactive, and ensure scheduling accuracy."""
     )
 
 
-CALENDAR_AGENT_SYSTEM_PROMPT = get_calendar_system_prompt()
+# REMOVED: CALENDAR_AGENT_SYSTEM_PROMPT = get_calendar_system_prompt()
+# This was causing get_config() to be called during module import, which fails
+# if environment variables are not set. The prompt is now generated lazily
+# in CalendarAgent.__init__() when actually needed.
 
 
 class CalendarAgent(BaseAgent):

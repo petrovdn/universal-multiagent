@@ -66,10 +66,19 @@ class GoogleAuthConfig(BaseModel):
     @classmethod
     def from_env(cls) -> "GoogleAuthConfig":
         """Create GoogleAuthConfig from environment variables."""
+        # #region agent log - RUNTIME DEBUG
+        import sys
+        client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+        client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
+        redirect_uri = os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8000/auth/callback")
+        print(f"[GOOGLE-AUTH-DEBUG] GOOGLE_OAUTH_CLIENT_ID exists: {bool(client_id)}, length: {len(client_id)}", flush=True)
+        print(f"[GOOGLE-AUTH-DEBUG] GOOGLE_OAUTH_CLIENT_SECRET exists: {bool(client_secret)}, length: {len(client_secret)}", flush=True)
+        sys.stdout.flush()
+        # #endregion
         return cls(
-            GOOGLE_OAUTH_CLIENT_ID=os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
-            GOOGLE_OAUTH_CLIENT_SECRET=os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", ""),
-            GOOGLE_OAUTH_REDIRECT_URI=os.getenv("GOOGLE_OAUTH_REDIRECT_URI", "http://localhost:8000/auth/callback")
+            GOOGLE_OAUTH_CLIENT_ID=client_id,
+            GOOGLE_OAUTH_CLIENT_SECRET=client_secret,
+            GOOGLE_OAUTH_REDIRECT_URI=redirect_uri
         )
 
 
