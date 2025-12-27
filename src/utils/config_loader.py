@@ -6,7 +6,7 @@ Loads and validates environment variables for the application.
 import os
 from pathlib import Path
 from typing import Optional, List
-from pydantic import BaseModel, Field, field_validator, computed_field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
