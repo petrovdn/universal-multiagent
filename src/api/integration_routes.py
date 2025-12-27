@@ -10,6 +10,7 @@ from pathlib import Path
 import secrets
 import json
 import logging
+import os
 
 from src.utils.google_auth import AuthManager, OAuthAuth
 from src.utils.config_loader import get_config
@@ -17,6 +18,59 @@ from src.utils.audit import get_audit_logger
 from src.api.session_manager import get_session_manager
 
 logger = logging.getLogger(__name__)
+
+
+def get_base_url() -> str:
+    """
+    Get base URL for the application.
+    In production, uses Railway domain from environment variable.
+    In development, uses localhost.
+    """
+    # Check for Railway public domain first
+    railway_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN")
+    if railway_domain:
+        # Railway provides domain without protocol
+        return f"https://{railway_domain}"
+    
+    # Check for explicit API base URL
+    api_base_url = os.getenv("API_BASE_URL")
+    if api_base_url:
+        return api_base_url.rstrip('/')
+    
+    # Check if we're in production (use config redirect URI as fallback)
+    app_env = os.getenv("APP_ENV", "dev").lower()
+    if app_env == "production":
+        # Try to get from config
+        try:
+            config = get_config()
+            redirect_uri = config.google_auth.oauth_redirect_uri
+            # Extract base URL from redirect URI (remove /auth/callback)
+            if redirect_uri and redirect_uri != "http://localhost:8000/auth/callback":
+                base = redirect_uri.replace("/auth/callback", "").replace("/api/integrations/google-workspace/callback", "")
+                if base:
+                    return base
+        except Exception:
+            pass
+        # Fallback for production
+        return "http://localhost:8000"
+    
+    # Development default
+    return "http://localhost:8000"
+
+
+def get_frontend_url() -> str:
+    """
+    Get frontend URL for redirects.
+    In production, uses Railway domain (frontend served from same domain).
+    In development, uses localhost:5173.
+    """
+    base_url = get_base_url()
+    # In production, frontend is served from the same domain
+    app_env = os.getenv("APP_ENV", "dev").lower()
+    if app_env == "production":
+        return base_url
+    # In development, frontend runs on separate port
+    return "http://localhost:5173"
 
 router = APIRouter(prefix="/api/integrations", tags=["integrations"])
 
@@ -349,7 +403,8 @@ async def enable_calendar_integration(request: Request):
     try:
         config = get_config()
         # Use Calendar-specific redirect URI
-        calendar_redirect_uri = "http://localhost:8000/api/integrations/google-calendar/callback"
+        base_url = get_base_url()
+        calendar_redirect_uri = f"{base_url}/api/integrations/google-calendar/callback"
         oauth_auth = OAuthAuth(
             client_id=config.google_auth.oauth_client_id,
             client_secret=config.google_auth.oauth_client_secret,
@@ -426,7 +481,8 @@ async def calendar_oauth_callback(
     try:
         config = get_config()
         # Use Calendar-specific redirect URI
-        calendar_redirect_uri = "http://localhost:8000/api/integrations/google-calendar/callback"
+        base_url = get_base_url()
+        calendar_redirect_uri = f"{base_url}/api/integrations/google-calendar/callback"
         oauth_auth = OAuthAuth(
             client_id=config.google_auth.oauth_client_id,
             client_secret=config.google_auth.oauth_client_secret,
@@ -451,8 +507,9 @@ async def calendar_oauth_callback(
         )
         
         # Redirect to frontend with success
+        frontend_url = get_frontend_url()
         return RedirectResponse(
-            url="http://localhost:5173/?calendar_auth=success",
+            url=f"{frontend_url}/?calendar_auth=success",
             status_code=302
         )
         
@@ -607,7 +664,8 @@ async def enable_gmail_integration(request: Request):
     try:
         config = get_config()
         # Use Gmail-specific redirect URI
-        gmail_redirect_uri = "http://localhost:8000/api/integrations/gmail/callback"
+        base_url = get_base_url()
+        gmail_redirect_uri = f"{base_url}/api/integrations/gmail/callback"
         oauth_auth = OAuthAuth(
             client_id=config.google_auth.oauth_client_id,
             client_secret=config.google_auth.oauth_client_secret,
@@ -655,8 +713,9 @@ async def gmail_oauth_callback(
     """
     if error:
         # Redirect to frontend with error
+        frontend_url = get_frontend_url()
         return RedirectResponse(
-            url=f"http://localhost:5173/?gmail_auth=error&error={error}",
+            url=f"{frontend_url}/?gmail_auth=error&error={error}",
             status_code=302
         )
     
@@ -687,7 +746,8 @@ async def gmail_oauth_callback(
     try:
         config = get_config()
         # Use Gmail-specific redirect URI
-        gmail_redirect_uri = "http://localhost:8000/api/integrations/gmail/callback"
+        base_url = get_base_url()
+        gmail_redirect_uri = f"{base_url}/api/integrations/gmail/callback"
         oauth_auth = OAuthAuth(
             client_id=config.google_auth.oauth_client_id,
             client_secret=config.google_auth.oauth_client_secret,
@@ -718,15 +778,17 @@ async def gmail_oauth_callback(
         )
         
         # Redirect to frontend with success
+        frontend_url = get_frontend_url()
         return RedirectResponse(
-            url="http://localhost:5173/?gmail_auth=success",
+            url=f"{frontend_url}/?gmail_auth=success",
             status_code=302
         )
         
     except Exception as e:
         logger.error(f"Failed to complete Gmail OAuth flow: {e}")
+        frontend_url = get_frontend_url()
         return RedirectResponse(
-            url=f"http://localhost:5173/?gmail_auth=error&error={str(e)}",
+            url=f"{frontend_url}/?gmail_auth=error&error={str(e)}",
             status_code=302
         )
 
@@ -858,7 +920,8 @@ async def enable_sheets_integration(request: Request):
     try:
         config = get_config()
         # Use Sheets-specific redirect URI
-        sheets_redirect_uri = "http://localhost:8000/api/integrations/google-sheets/callback"
+        base_url = get_base_url()
+        sheets_redirect_uri = f"{base_url}/api/integrations/google-sheets/callback"
         oauth_auth = OAuthAuth(
             client_id=config.google_auth.oauth_client_id,
             client_secret=config.google_auth.oauth_client_secret,
@@ -906,8 +969,9 @@ async def sheets_oauth_callback(
     """
     if error:
         # Redirect to frontend with error
+        frontend_url = get_frontend_url()
         return RedirectResponse(
-            url=f"http://localhost:5173/?sheets_auth=error&error={error}",
+            url=f"{frontend_url}/?sheets_auth=error&error={error}",
             status_code=302
         )
     
@@ -938,7 +1002,8 @@ async def sheets_oauth_callback(
     try:
         config = get_config()
         # Use Sheets-specific redirect URI
-        sheets_redirect_uri = "http://localhost:8000/api/integrations/google-sheets/callback"
+        base_url = get_base_url()
+        sheets_redirect_uri = f"{base_url}/api/integrations/google-sheets/callback"
         oauth_auth = OAuthAuth(
             client_id=config.google_auth.oauth_client_id,
             client_secret=config.google_auth.oauth_client_secret,
@@ -963,15 +1028,17 @@ async def sheets_oauth_callback(
         )
         
         # Redirect to frontend with success
+        frontend_url = get_frontend_url()
         return RedirectResponse(
-            url="http://localhost:5173/?sheets_auth=success",
+            url=f"{frontend_url}/?sheets_auth=success",
             status_code=302
         )
         
     except Exception as e:
         logger.error(f"Failed to complete Google Sheets OAuth flow: {e}")
+        frontend_url = get_frontend_url()
         return RedirectResponse(
-            url=f"http://localhost:5173/?sheets_auth=error&error={str(e)}",
+            url=f"{frontend_url}/?sheets_auth=error&error={str(e)}",
             status_code=302
         )
 
@@ -1134,7 +1201,8 @@ async def enable_workspace_integration(request: Request):
     # Need to authenticate - initiate OAuth flow
     try:
         config = get_config()
-        workspace_redirect_uri = "http://localhost:8000/api/integrations/google-workspace/callback"
+        base_url = get_base_url()
+        workspace_redirect_uri = f"{base_url}/api/integrations/google-workspace/callback"
         oauth_auth = OAuthAuth(
             client_id=config.google_auth.oauth_client_id,
             client_secret=config.google_auth.oauth_client_secret,
@@ -1212,7 +1280,8 @@ async def workspace_oauth_callback(
     
     try:
         config = get_config()
-        workspace_redirect_uri = "http://localhost:8000/api/integrations/google-workspace/callback"
+        base_url = get_base_url()
+        workspace_redirect_uri = f"{base_url}/api/integrations/google-workspace/callback"
         oauth_auth = OAuthAuth(
             client_id=config.google_auth.oauth_client_id,
             client_secret=config.google_auth.oauth_client_secret,
@@ -1237,15 +1306,17 @@ async def workspace_oauth_callback(
         )
         
         # Redirect to frontend - will prompt for folder selection
+        frontend_url = get_frontend_url()
         return RedirectResponse(
-            url="http://localhost:5173/?workspace_auth=success",
+            url=f"{frontend_url}/?workspace_auth=success",
             status_code=302
         )
         
     except Exception as e:
         logger.error(f"Failed to complete Google Workspace OAuth flow: {e}")
+        frontend_url = get_frontend_url()
         return RedirectResponse(
-            url=f"http://localhost:5173/?workspace_auth=error&error={str(e)}",
+            url=f"{frontend_url}/?workspace_auth=error&error={str(e)}",
             status_code=302
         )
 

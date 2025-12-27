@@ -121,8 +121,10 @@ async def callback(
         )
         
         # Redirect to frontend
+        from src.api.integration_routes import get_frontend_url
+        frontend_url = get_frontend_url()
         return RedirectResponse(
-            url="http://localhost:5173/?auth=success",
+            url=f"{frontend_url}/?auth=success",
             status_code=302
         )
         
