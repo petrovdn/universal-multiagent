@@ -130,13 +130,23 @@ class MainAgent(BaseAgent):
         self.email_agent = self.factory.create_email_agent(model_name=model_name)
         self.calendar_agent = self.factory.create_calendar_agent(model_name=model_name)
         self.sheets_agent = self.factory.create_sheets_agent(model_name=model_name)
+        self.workspace_agent = self.factory.create_workspace_agent(model_name=model_name)
         
-        # Combine all tools from sub-agents
-        all_tools = (
+        # Combine all tools from sub-agents, removing duplicates by name
+        all_tools_list = (
             self.email_agent.get_tools() +
             self.calendar_agent.get_tools() +
-            self.sheets_agent.get_tools()
+            self.sheets_agent.get_tools() +
+            self.workspace_agent.get_tools()
         )
+        
+        # Remove duplicates by tool name (keep first occurrence)
+        seen_names = set()
+        all_tools = []
+        for tool in all_tools_list:
+            if tool.name not in seen_names:
+                seen_names.add(tool.name)
+                all_tools.append(tool)
         
         super().__init__(
             name="MainAgent",
@@ -325,7 +335,7 @@ Return a structured plan."""
         Delegate task to sub-agent.
         
         Args:
-            agent_name: Name of sub-agent (EmailAgent, CalendarAgent, SheetsAgent)
+            agent_name: Name of sub-agent (EmailAgent, CalendarAgent, SheetsAgent, WorkspaceAgent)
             task: Task description
             context: Conversation context
             
@@ -338,6 +348,8 @@ Return a structured plan."""
             return self.calendar_agent.execute(task, context)
         elif agent_name == "SheetsAgent":
             return self.sheets_agent.execute(task, context)
+        elif agent_name == "WorkspaceAgent":
+            return self.workspace_agent.execute(task, context)
         else:
             raise AgentError(f"Unknown agent: {agent_name}")
 
