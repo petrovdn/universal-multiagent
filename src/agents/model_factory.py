@@ -7,8 +7,11 @@ from typing import Dict, Any, Optional
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from langchain_core.language_models.chat_models import BaseChatModel
+import logging
 
 from src.utils.config_loader import get_config
+
+logger = logging.getLogger(__name__)
 
 
 # Model configurations
@@ -61,6 +64,7 @@ def get_available_models() -> Dict[str, Dict[str, Any]]:
         with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
             f.write(json.dumps({"location": "model_factory.py:50", "message": "get_available_models called", "data": {"total_models": len(MODELS)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
     except: pass
+    logger.info(f"[DEBUG] get_available_models called, total models: {len(MODELS)}")
     # #endregion
     
     config = get_config()
@@ -69,9 +73,14 @@ def get_available_models() -> Dict[str, Dict[str, Any]]:
     try:
         import json
         import time
+        anthropic_exists = bool(config.anthropic_api_key)
+        anthropic_non_empty = bool(config.anthropic_api_key and config.anthropic_api_key.strip())
+        openai_exists = bool(config.openai_api_key)
+        openai_non_empty = bool(config.openai_api_key and config.openai_api_key.strip())
         with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"location": "model_factory.py:58", "message": "Config retrieved, checking API keys", "data": {"anthropic_key_exists": bool(config.anthropic_api_key), "anthropic_key_non_empty": bool(config.anthropic_api_key and config.anthropic_api_key.strip()), "openai_key_exists": bool(config.openai_api_key), "openai_key_non_empty": bool(config.openai_api_key and config.openai_api_key.strip())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
+            f.write(json.dumps({"location": "model_factory.py:58", "message": "Config retrieved, checking API keys", "data": {"anthropic_key_exists": anthropic_exists, "anthropic_key_non_empty": anthropic_non_empty, "anthropic_key_len": len(config.anthropic_api_key) if config.anthropic_api_key else 0, "openai_key_exists": openai_exists, "openai_key_non_empty": openai_non_empty, "openai_key_len": len(config.openai_api_key) if config.openai_api_key else 0}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
     except: pass
+    logger.info(f"[DEBUG] API keys status - Anthropic: exists={anthropic_exists}, non_empty={anthropic_non_empty}, len={len(config.anthropic_api_key) if config.anthropic_api_key else 0}; OpenAI: exists={openai_exists}, non_empty={openai_non_empty}, len={len(config.openai_api_key) if config.openai_api_key else 0}")
     # #endregion
     
     available = {}
@@ -124,6 +133,7 @@ def get_available_models() -> Dict[str, Dict[str, Any]]:
         with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
             f.write(json.dumps({"location": "model_factory.py:80", "message": "get_available_models returning", "data": {"available_count": len(available), "available_models": list(available.keys())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "J"}) + "\n")
     except: pass
+    logger.info(f"[DEBUG] get_available_models returning {len(available)} models: {list(available.keys())}")
     # #endregion
     
     return available
