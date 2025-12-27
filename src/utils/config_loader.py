@@ -6,7 +6,7 @@ Loads and validates environment variables for the application.
 import os
 from pathlib import Path
 from typing import Optional, List
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 
@@ -136,7 +136,8 @@ class AppConfig(BaseSettings):
         env_file="config/.env",
         env_file_encoding="utf-8",
         case_sensitive=False,
-        extra="ignore"
+        extra="ignore",
+        env_ignore_empty=True  # Ignore empty environment variables
     )
     
     # Anthropic API
@@ -156,10 +157,40 @@ class AppConfig(BaseSettings):
     # FastAPI settings
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")
     api_port: int = Field(default=8000, alias="API_PORT")
-    api_cors_origins: List[str] = Field(
-        default=["http://localhost:5173", "http://localhost:3000", "http://localhost:3001"],
+    _api_cors_origins_str: str = Field(
+        default="http://localhost:5173,http://localhost:3000,http://localhost:3001",
         alias="API_CORS_ORIGINS"
     )
+    
+    @computed_field
+    @property
+    def api_cors_origins(self) -> List[str]:
+        """Parse CORS origins from string to list."""
+        v = self._api_cors_origins_str
+        # Handle None or empty string
+        if not v or not v.strip():
+            return ["http://localhost:5173", "http://localhost:3000", "http://localhost:3001"]
+        
+        v = v.strip()
+        
+        # Try to parse as JSON first (for Railway env vars that might be JSON)
+        try:
+            import json
+            parsed = json.loads(v)
+            if isinstance(parsed, list):
+                result = [str(origin).strip() for origin in parsed if origin and str(origin).strip()]
+                return result if result else ["http://localhost:5173", "http://localhost:3000", "http://localhost:3001"]
+            elif isinstance(parsed, str):
+                # If it's a JSON string, treat as comma-separated
+                origins = [origin.strip() for origin in parsed.split(",") if origin.strip()]
+                return origins if origins else ["http://localhost:5173", "http://localhost:3000", "http://localhost:3001"]
+        except (json.JSONDecodeError, ValueError, TypeError):
+            # Not JSON, treat as comma-separated string
+            pass
+        
+        # Parse as comma-separated string
+        origins = [origin.strip() for origin in v.split(",") if origin.strip()]
+        return origins if origins else ["http://localhost:5173", "http://localhost:3000", "http://localhost:3001"]
     
     # Session settings
     session_timeout_minutes: int = Field(default=30, alias="SESSION_TIMEOUT_MINUTES")
@@ -204,35 +235,6 @@ class AppConfig(BaseSettings):
             raise ValueError(f"Log level must be one of {allowed}")
         return v.upper()
     
-    @field_validator("api_cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, v):
-        # Handle empty string or None
-        if not v or (isinstance(v, str) and not v.strip()):
-            return ["http://localhost:5173", "http://localhost:3000", "http://localhost:3001"]
-        
-        if isinstance(v, str):
-            # Try to parse as JSON first (for Railway env vars that might be JSON)
-            try:
-                import json
-                parsed = json.loads(v)
-                if isinstance(parsed, list):
-                    return [str(origin).strip() for origin in parsed if origin]
-                elif isinstance(parsed, str):
-                    # If it's a JSON string, treat as comma-separated
-                    return [origin.strip() for origin in parsed.split(",") if origin.strip()]
-            except (json.JSONDecodeError, ValueError):
-                # Not JSON, treat as comma-separated string
-                pass
-            
-            # Parse as comma-separated string
-            origins = [origin.strip() for origin in v.split(",") if origin.strip()]
-            return origins if origins else ["http://localhost:5173", "http://localhost:3000", "http://localhost:3001"]
-        
-        if isinstance(v, list):
-            return [str(origin).strip() for origin in v if origin]
-        
-        return v
     
     def validate_required_credentials(self) -> List[str]:
         """
