@@ -321,13 +321,44 @@ async def list_models():
     Returns:
         List of available models with metadata
     """
+    # #region agent log
+    try:
+        import json
+        import time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "server.py:316", "message": "/api/models endpoint called", "data": {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "K"}) + "\n")
+    except: pass
+    logger.info("[DEBUG] /api/models endpoint called")
+    # #endregion
+    
     try:
         config = get_config()
+        
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:325", "message": "Before get_available_models call", "data": {"config_loaded": True}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "L"}) + "\n")
+        except: pass
+        logger.info("[DEBUG] Config loaded, calling get_available_models()")
+        # #endregion
+        
         available_models = get_available_models()
         
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:328", "message": "After get_available_models call", "data": {"available_count": len(available_models), "available_ids": list(available_models.keys())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "M"}) + "\n")
+        except: pass
+        # #endregion
+        
         # Log for debugging
-        logger.info(f"Available models count: {len(available_models)}")
-        logger.info(f"API keys status: Anthropic={'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI={'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}")
+        logger.info(f"[DEBUG] Available models count: {len(available_models)}, IDs: {list(available_models.keys())}")
+        logger.info(f"[DEBUG] API keys status: Anthropic={'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI={'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}")
+        logger.info(f"[DEBUG] Anthropic key length: {len(config.anthropic_api_key) if config.anthropic_api_key else 0}, OpenAI key length: {len(config.openai_api_key) if config.openai_api_key else 0}")
         
         models_list = []
         for model_id, model_config in MODELS.items():
@@ -342,10 +373,19 @@ async def list_models():
                     "default": model_id == config.default_model
                 })
         
-        logger.info(f"Returning {len(models_list)} models to client")
+        logger.info(f"[DEBUG] Returning {len(models_list)} models to client: {[m['id'] for m in models_list]}")
         return {"models": models_list}
     except Exception as e:
-        logger.error(f"Error listing models: {e}", exc_info=True)
+        logger.error(f"[DEBUG] Error listing models: {e}", exc_info=True)
+        # #region agent log
+        try:
+            import json
+            import time
+            import traceback
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:348", "message": "Exception in list_models", "data": {"error": str(e), "traceback": traceback.format_exc()}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "N"}) + "\n")
+        except: pass
+        # #endregion
         # Return empty list instead of failing
         return {"models": []}
 
