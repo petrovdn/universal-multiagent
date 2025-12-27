@@ -198,7 +198,7 @@ class AppConfig(BaseSettings):
         return values
     
     @property
-    def api_cors_origins(self) -> List[str]:
+    def api_cors_origins(self):
         """Parse CORS origins from string to list."""
         v = self.api_cors_origins_raw
         # Handle None or empty string
