@@ -536,8 +536,17 @@ class MCPServerManager:
             config: MCP configuration (uses global config if None)
         """
         if config is None:
-            from src.utils.config_loader import get_config
-            config = get_config().mcp
+            try:
+                from src.utils.config_loader import get_config
+                app_config = get_config()
+                config = app_config.mcp
+            except Exception as e:
+                # Fallback if config fails to load
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to load config in MCPServerManager: {e}. Using defaults.")
+                from src.utils.config_loader import MCPConfig, MCPServerConfig
+                config = MCPConfig.from_env()
         
         self.config = config
         self.connections: Dict[str, MCPConnection] = {}
