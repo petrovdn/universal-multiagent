@@ -23,10 +23,48 @@ from src.api.integration_routes import router as integration_router
 from src.core.context_manager import ConversationContext
 from src.agents.model_factory import get_available_models, get_model_info, MODELS
 
-# Setup logging
-config = get_config()
-setup_logging(config.log_level)
-logger = get_logger(__name__)
+# Setup logging and config with error handling
+# Allow app to start even if some config is missing (for healthcheck)
+try:
+    config = get_config()
+    setup_logging(config.log_level)
+    logger = get_logger(__name__)
+    logger.info("Configuration loaded successfully")
+    # #region agent log
+    try:
+        import json
+        import time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "server.py:32", "message": "Config loaded successfully at startup", "data": {"has_anthropic": bool(config.anthropic_api_key and config.anthropic_api_key.strip()), "has_openai": bool(config.openai_api_key and config.openai_api_key.strip())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "O"}) + "\n")
+    except: pass
+    print(f"[DEBUG] Config loaded - Anthropic: {'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI: {'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}", flush=True)
+    # #endregion
+except Exception as e:
+    # Fallback config for basic startup
+    import logging
+    import traceback
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Failed to load full config: {e}. Using defaults for startup.")
+    logger.error(f"Config error traceback: {traceback.format_exc()}")
+    print(f"[DEBUG] Config load failed: {e}", flush=True)
+    # #region agent log
+    try:
+        import json
+        import time
+        import traceback
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "server.py:48", "message": "Config load failed at startup", "data": {"error": str(e), "traceback": traceback.format_exc()}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "P"}) + "\n")
+    except: pass
+    # #endregion
+    # Create minimal config for CORS
+    class MinimalConfig:
+        api_cors_origins = ["*"]
+        is_production = True  # Assume production if config fails
+        anthropic_api_key = None
+        openai_api_key = None
+        log_level = "INFO"
+    config = MinimalConfig()
 
 # Create FastAPI app
 app = FastAPI(
