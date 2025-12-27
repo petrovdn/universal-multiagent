@@ -187,6 +187,16 @@ class AppConfig(BaseSettings):
         print(f"[DEBUG][CORS] Converted non-string to string: {result}", flush=True)
         return result
     
+    @model_validator(mode="before")
+    @classmethod
+    def exclude_properties_from_env(cls, values):
+        """Exclude properties from env parsing."""
+        if isinstance(values, dict):
+            # Remove api_cors_origins from env values if present
+            values.pop("api_cors_origins", None)
+            values.pop("API_CORS_ORIGINS", None)  # Also remove uppercase version
+        return values
+    
     @property
     def api_cors_origins(self) -> List[str]:
         """Parse CORS origins from string to list."""
