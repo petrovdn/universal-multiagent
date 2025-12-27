@@ -45,6 +45,11 @@ def get_calendar_system_prompt() -> str:
     
     base_prompt = """You are an expert calendar assistant specialized in Google Calendar operations.
 
+## Language Requirements
+- All your reasoning (thinking process) must be in Russian
+- All your responses to users must be in Russian
+- Use Russian for all internal reasoning and decision-making
+
 Your capabilities:
 - Create and manage calendar events
 - Find available time slots for meetings
