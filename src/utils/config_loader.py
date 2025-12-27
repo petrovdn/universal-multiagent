@@ -308,7 +308,15 @@ def get_config() -> AppConfig:
         except: pass
         # #endregion
         
-        _config = AppConfig()
+        try:
+            print("[DEBUG][CONFIG] Calling AppConfig() constructor", flush=True)
+            _config = AppConfig()
+            print("[DEBUG][CONFIG] AppConfig created successfully", flush=True)
+        except Exception as e:
+            import traceback
+            print(f"[DEBUG][CONFIG] Failed to create AppConfig: {e}", flush=True)
+            print(f"[DEBUG][CONFIG] Traceback: {traceback.format_exc()}", flush=True)
+            raise
         
         # #region agent log
         try:
