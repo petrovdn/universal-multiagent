@@ -329,6 +329,7 @@ async def list_models():
             f.write(json.dumps({"location": "server.py:316", "message": "/api/models endpoint called", "data": {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "K"}) + "\n")
     except: pass
     logger.info("[DEBUG] /api/models endpoint called")
+    print("[DEBUG] /api/models endpoint called", flush=True)
     # #endregion
     
     try:
@@ -342,6 +343,7 @@ async def list_models():
                 f.write(json.dumps({"location": "server.py:325", "message": "Before get_available_models call", "data": {"config_loaded": True}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "L"}) + "\n")
         except: pass
         logger.info("[DEBUG] Config loaded, calling get_available_models()")
+        print("[DEBUG] Config loaded, calling get_available_models()", flush=True)
         # #endregion
         
         available_models = get_available_models()
@@ -359,6 +361,8 @@ async def list_models():
         logger.info(f"[DEBUG] Available models count: {len(available_models)}, IDs: {list(available_models.keys())}")
         logger.info(f"[DEBUG] API keys status: Anthropic={'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI={'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}")
         logger.info(f"[DEBUG] Anthropic key length: {len(config.anthropic_api_key) if config.anthropic_api_key else 0}, OpenAI key length: {len(config.openai_api_key) if config.openai_api_key else 0}")
+        print(f"[DEBUG] Available models count: {len(available_models)}, IDs: {list(available_models.keys())}", flush=True)
+        print(f"[DEBUG] API keys - Anthropic: {'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'} (len={len(config.anthropic_api_key) if config.anthropic_api_key else 0}), OpenAI: {'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'} (len={len(config.openai_api_key) if config.openai_api_key else 0})", flush=True)
         
         models_list = []
         for model_id, model_config in MODELS.items():
@@ -374,6 +378,7 @@ async def list_models():
                 })
         
         logger.info(f"[DEBUG] Returning {len(models_list)} models to client: {[m['id'] for m in models_list]}")
+        print(f"[DEBUG] Returning {len(models_list)} models to client: {[m['id'] for m in models_list]}", flush=True)
         return {"models": models_list}
     except Exception as e:
         logger.error(f"[DEBUG] Error listing models: {e}", exc_info=True)
