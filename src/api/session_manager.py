@@ -17,10 +17,31 @@ class SessionManager:
     
     def __init__(self):
         """Initialize session manager."""
+        # #region agent log - RUNTIME DEBUG
+        import sys
+        print("[SESSION-INIT-A] SessionManager.__init__ START", flush=True)
+        sys.stdout.flush()
+        # #endregion
         self.sessions: Dict[str, ConversationContext] = {}
+        # #region agent log - RUNTIME DEBUG
+        print("[SESSION-INIT-B] Creating PersistentStorage...", flush=True)
+        sys.stdout.flush()
+        # #endregion
         self.storage = PersistentStorage()
+        # #region agent log - RUNTIME DEBUG
+        print("[SESSION-INIT-C] Calling get_config()...", flush=True)
+        sys.stdout.flush()
+        # #endregion
         self.config = get_config()
+        # #region agent log - RUNTIME DEBUG
+        print("[SESSION-INIT-D] get_config() SUCCESS!", flush=True)
+        sys.stdout.flush()
+        # #endregion
         self.timeout_minutes = self.config.session_timeout_minutes
+        # #region agent log - RUNTIME DEBUG
+        print("[SESSION-INIT-E] SessionManager.__init__ COMPLETE", flush=True)
+        sys.stdout.flush()
+        # #endregion
     
     def create_session(self, execution_mode: str = "instant") -> str:
         """

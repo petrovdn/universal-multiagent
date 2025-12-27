@@ -247,21 +247,57 @@ def get_config() -> AppConfig:
     """
     global _config
     
+    # #region agent log - RUNTIME DEBUG
+    import sys
+    print("[CONFIG-A] get_config() called", flush=True)
+    sys.stdout.flush()
+    # #endregion
+    
     if _config is None:
+        # #region agent log - RUNTIME DEBUG
+        print("[CONFIG-B] Creating new AppConfig...", flush=True)
+        sys.stdout.flush()
+        # #endregion
         _config = AppConfig()
+        # #region agent log - RUNTIME DEBUG
+        print("[CONFIG-C] AppConfig created, creating directories...", flush=True)
+        sys.stdout.flush()
+        # #endregion
         
         # Ensure directories exist
         _config.tokens_dir.mkdir(parents=True, exist_ok=True)
         _config.sessions_dir.mkdir(parents=True, exist_ok=True)
         _config.config_dir.mkdir(parents=True, exist_ok=True)
         
+        # #region agent log - RUNTIME DEBUG
+        print("[CONFIG-D] Directories created, validating credentials...", flush=True)
+        sys.stdout.flush()
+        # #endregion
+        
         # Validate required credentials
         missing = _config.validate_required_credentials()
+        # #region agent log - RUNTIME DEBUG
+        print(f"[CONFIG-E] Validation result - missing: {missing}", flush=True)
+        sys.stdout.flush()
+        # #endregion
         if missing:
+            # #region agent log - RUNTIME DEBUG
+            print(f"[CONFIG-ERROR] Missing credentials: {missing}", flush=True)
+            sys.stdout.flush()
+            # #endregion
             raise ValueError(
                 f"Missing required configuration: {', '.join(missing)}. "
                 f"Please check config/.env file or environment variables."
             )
+        # #region agent log - RUNTIME DEBUG
+        print("[CONFIG-F] get_config() SUCCESS - returning config", flush=True)
+        sys.stdout.flush()
+        # #endregion
+    else:
+        # #region agent log - RUNTIME DEBUG
+        print("[CONFIG-G] Returning cached config", flush=True)
+        sys.stdout.flush()
+        # #endregion
     
     return _config
 

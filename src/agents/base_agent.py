@@ -247,13 +247,35 @@ class BaseAgent:
         config = get_config()
         model_name = self.model_name or config.default_model
         
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_lib
+                import time
+                f.write(json_lib.dumps({"location": "base_agent.py:245", "message": "_create_llm called", "data": {"model_name": model_name, "agent_name": self.name}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "T"}) + "\n")
+        except: pass
+        # #endregion
+        
         # Get API keys from config
         api_keys = {
             "anthropic": config.anthropic_api_key,
             "openai": config.openai_api_key
         }
         
-        return create_llm(model_name, api_keys)
+        llm = create_llm(model_name, api_keys)
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_lib
+                import time
+                llm_type = type(llm).__name__
+                has_thinking = hasattr(llm, 'thinking') or (hasattr(llm, '_client') and hasattr(llm._client, 'thinking'))
+                f.write(json_lib.dumps({"location": "base_agent.py:256", "message": "LLM created", "data": {"llm_type": llm_type, "model_name": model_name, "has_thinking": has_thinking}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "U"}) + "\n")
+        except: pass
+        # #endregion
+        
+        return llm
     
     def _build_graph(self) -> StateGraph:
         """
@@ -275,10 +297,22 @@ class BaseAgent:
                 import json as json_lib
                 import time
                 tool_names = [tool.name for tool in self.tools]
-                f.write(json_lib.dumps({"location": "base_agent.py:272", "message": "binding tools to LLM", "data": {"tool_count": len(self.tools), "tool_names": tool_names}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "F"}) + "\n")
+                # Check if LLM has thinking parameter before bind_tools
+                llm_thinking = getattr(self.llm, 'thinking', None) if hasattr(self.llm, 'thinking') else None
+                f.write(json_lib.dumps({"location": "base_agent.py:272", "message": "binding tools to LLM", "data": {"tool_count": len(self.tools), "tool_names": tool_names, "llm_thinking_before": str(llm_thinking)[:100] if llm_thinking else None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "F"}) + "\n")
         except: pass
         # #endregion
         llm_with_tools = self.llm.bind_tools(self.tools)
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_lib
+                import time
+                # Check if thinking parameter is preserved after bind_tools
+                llm_thinking_after = getattr(llm_with_tools, 'thinking', None) if hasattr(llm_with_tools, 'thinking') else None
+                f.write(json_lib.dumps({"location": "base_agent.py:285", "message": "after bind_tools", "data": {"llm_thinking_after": str(llm_thinking_after)[:100] if llm_thinking_after else None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "Z"}) + "\n")
+        except: pass
+        # #endregion
         
         # Create agent node with async support for streaming
         async def agent_node(state: AgentState):
@@ -528,6 +562,15 @@ class BaseAgent:
             session_id_val = getattr(context, 'session_id', 'NOT SET')
             self.logger.info(f"[{self.name}] Starting streaming execute, session_id: {session_id_val}")
             
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    import time
+                    f.write(json_lib.dumps({"location": "base_agent.py:528", "message": "execute_with_streaming entry", "data": {"agent_name": self.name, "has_event_callback": event_callback is not None, "user_message_length": len(user_message)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "X"}) + "\n")
+            except: pass
+            # #endregion
+            
             # Prepare messages from context history
             langchain_messages = []
             
@@ -574,6 +617,15 @@ class BaseAgent:
             
             self.logger.info(f"[{self.name}] Starting astream")
             self.logger.info(f"[{self.name}] Initial state messages count: {len(initial_state.get('messages', []))}")
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    import time
+                    f.write(json_lib.dumps({"location": "base_agent.py:575", "message": "before graph.astream", "data": {"agent_name": self.name, "messages_count": len(initial_state.get('messages', []))}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "Y"}) + "\n")
+            except: pass
+            # #endregion
             
             async for chunk in self.graph.astream(initial_state, config=config, stream_mode="messages"):
                 chunk_count += 1
@@ -650,13 +702,32 @@ class BaseAgent:
                                                 with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
                                                     import json as json_lib
                                                     import time
-                                                    f.write(json_lib.dumps({"location": "base_agent.py:602", "message": "calling event_callback for THINKING", "data": {"accumulated_thinking_length": len(accumulated_thinking)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "K"}) + "\n")
+                                                    f.write(json_lib.dumps({"location": "base_agent.py:602", "message": "calling event_callback for THINKING", "data": {"accumulated_thinking_length": len(accumulated_thinking), "event_callback_type": type(event_callback).__name__}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "K"}) + "\n")
                                             except: pass
                                             # #endregion
-                                            await event_callback(StreamEvent.THINKING, {
-                                                "step": "reasoning",
-                                                "message": accumulated_thinking
-                                            })
+                                            try:
+                                                await event_callback(StreamEvent.THINKING, {
+                                                    "step": "reasoning",
+                                                    "message": accumulated_thinking
+                                                })
+                                                # #region agent log
+                                                try:
+                                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                                        import json as json_lib
+                                                        import time
+                                                        f.write(json_lib.dumps({"location": "base_agent.py:610", "message": "event_callback completed successfully", "data": {}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "R"}) + "\n")
+                                                except: pass
+                                                # #endregion
+                                            except Exception as e:
+                                                # #region agent log
+                                                try:
+                                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                                        import json as json_lib
+                                                        import time
+                                                        f.write(json_lib.dumps({"location": "base_agent.py:615", "message": "event_callback failed", "data": {"error": str(e), "error_type": type(e).__name__}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "S"}) + "\n")
+                                                except: pass
+                                                # #endregion
+                                                self.logger.error(f"Failed to call event_callback for THINKING: {e}")
                                 elif block_type == "text":
                                     # For text blocks, text is in 'text' key
                                     text_content = block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")

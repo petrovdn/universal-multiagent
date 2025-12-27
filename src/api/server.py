@@ -3,8 +3,13 @@ FastAPI server with WebSocket support for the multi-agent system.
 Provides REST API endpoints and real-time WebSocket communication.
 """
 
-# #region agent log - DEBUG INSTRUMENTATION
+# #region agent log - RUNTIME DEBUG
 import sys
+print("[BOOT-A] server.py module import START", flush=True)
+sys.stdout.flush()
+# #endregion
+
+# #region agent log - DEBUG INSTRUMENTATION
 print("[DEBUG][HYP-B] server.py: Starting imports...", flush=True)
 # #endregion
 
@@ -17,6 +22,11 @@ from pathlib import Path
 import uvicorn
 from uuid import uuid4
 
+# #region agent log - RUNTIME DEBUG
+print("[BOOT-B] FastAPI and standard imports OK", flush=True)
+sys.stdout.flush()
+# #endregion
+
 # #region agent log - DEBUG INSTRUMENTATION
 print("[DEBUG][HYP-B] server.py: Standard imports OK, loading app modules...", flush=True)
 # #endregion
@@ -26,8 +36,14 @@ try:
     # #region agent log
     print("[DEBUG][HYP-C] server.py: config_loader imported OK", flush=True)
     # #endregion
+    # #region agent log - RUNTIME DEBUG
+    print("[BOOT-C] config_loader import OK", flush=True)
+    sys.stdout.flush()
+    # #endregion
 except Exception as e:
     print(f"[DEBUG][HYP-C] server.py: config_loader import FAILED: {e}", flush=True)
+    print(f"[BOOT-ERROR] config_loader import FAILED: {e}", flush=True)
+    sys.stdout.flush()
     raise
 
 try:
@@ -35,18 +51,49 @@ try:
     # #region agent log
     print("[DEBUG][HYP-B] server.py: logging_config imported OK", flush=True)
     # #endregion
+    # #region agent log - RUNTIME DEBUG
+    print("[BOOT-D] logging_config import OK", flush=True)
+    sys.stdout.flush()
+    # #endregion
 except Exception as e:
     print(f"[DEBUG][HYP-B] server.py: logging_config import FAILED: {e}", flush=True)
+    print(f"[BOOT-ERROR] logging_config import FAILED: {e}", flush=True)
+    sys.stdout.flush()
     raise
 
+# #region agent log - RUNTIME DEBUG  
+print("[BOOT-E] Importing mcp_loader...", flush=True)
+sys.stdout.flush()
+# #endregion
 from src.utils.mcp_loader import get_mcp_manager
+# #region agent log - RUNTIME DEBUG
+print("[BOOT-F] mcp_loader OK, importing session_manager...", flush=True)
+sys.stdout.flush()
+# #endregion
 from src.api.session_manager import get_session_manager
+# #region agent log - RUNTIME DEBUG
+print("[BOOT-G] session_manager OK, importing websocket_manager...", flush=True)
+sys.stdout.flush()
+# #endregion
 from src.api.websocket_manager import get_websocket_manager
+# #region agent log - RUNTIME DEBUG
+print("[BOOT-H] websocket_manager OK, importing agent_wrapper...", flush=True)
+sys.stdout.flush()
+# #endregion
 from src.api.agent_wrapper import AgentWrapper
+# #region agent log - RUNTIME DEBUG
+print("[BOOT-I] agent_wrapper OK, importing routes...", flush=True)
+sys.stdout.flush()
+# #endregion
 from src.api.auth_routes import router as auth_router
 from src.api.integration_routes import router as integration_router
 from src.core.context_manager import ConversationContext
 from src.agents.model_factory import get_available_models, get_model_info, MODELS
+
+# #region agent log - RUNTIME DEBUG
+print("[BOOT-J] All imports completed!", flush=True)
+sys.stdout.flush()
+# #endregion
 
 # #region agent log - DEBUG INSTRUMENTATION
 print("[DEBUG][HYP-B] server.py: All imports completed successfully!", flush=True)
@@ -54,11 +101,19 @@ print("[DEBUG][HYP-B] server.py: All imports completed successfully!", flush=Tru
 
 # Setup logging and config with error handling
 # Allow app to start even if some config is missing (for healthcheck)
+# #region agent log - RUNTIME DEBUG
+print("[BOOT-K] Loading config with get_config()...", flush=True)
+sys.stdout.flush()
+# #endregion
 # #region agent log - DEBUG INSTRUMENTATION
 print("[DEBUG][HYP-C] server.py: Loading config...", flush=True)
 # #endregion
 try:
     config = get_config()
+    # #region agent log - RUNTIME DEBUG
+    print("[BOOT-L] get_config() SUCCESS!", flush=True)
+    sys.stdout.flush()
+    # #endregion
     setup_logging(config.log_level)
     logger = get_logger(__name__)
     logger.info("Configuration loaded successfully")
@@ -69,6 +124,11 @@ except Exception as e:
     # #region agent log
     print(f"[DEBUG][HYP-C] server.py: Config FAILED: {e}", flush=True)
     # #endregion
+    # #region agent log - RUNTIME DEBUG
+    print(f"[BOOT-ERROR] get_config() FAILED: {e}", flush=True)
+    print(f"[BOOT-M] Using fallback MinimalConfig", flush=True)
+    sys.stdout.flush()
+    # #endregion
     # Fallback config for basic startup
     import logging
     logging.basicConfig(level=logging.INFO)
@@ -77,7 +137,13 @@ except Exception as e:
     # Create minimal config for CORS
     class MinimalConfig:
         api_cors_origins = ["*"]
+        is_production = True  # Assume production if config fails
     config = MinimalConfig()
+
+# #region agent log - RUNTIME DEBUG
+print("[BOOT-N] Creating FastAPI app...", flush=True)
+sys.stdout.flush()
+# #endregion
 
 # #region agent log - DEBUG INSTRUMENTATION
 print("[DEBUG][HYP-B] server.py: Creating FastAPI app...", flush=True)
@@ -89,6 +155,11 @@ app = FastAPI(
     description="API for Google Workspace Multi-Agent System",
     version="1.0.0"
 )
+
+# #region agent log - RUNTIME DEBUG
+print("[BOOT-O] FastAPI app created SUCCESS!", flush=True)
+sys.stdout.flush()
+# #endregion
 
 # #region agent log - DEBUG INSTRUMENTATION
 print("[DEBUG][HYP-B] server.py: FastAPI app created OK!", flush=True)
@@ -105,13 +176,43 @@ app.add_middleware(
 
 # Initialize managers with error handling
 # Allow app to start even if some managers fail (for healthcheck)
+# #region agent log - RUNTIME DEBUG
+print("[BOOT-P] Initializing managers...", flush=True)
+sys.stdout.flush()
+# #endregion
 try:
+    # #region agent log - RUNTIME DEBUG
+    print("[BOOT-Q] Creating session_manager...", flush=True)
+    sys.stdout.flush()
+    # #endregion
     session_manager = get_session_manager()
+    # #region agent log - RUNTIME DEBUG
+    print("[BOOT-R] session_manager OK, creating ws_manager...", flush=True)
+    sys.stdout.flush()
+    # #endregion
     ws_manager = get_websocket_manager()
+    # #region agent log - RUNTIME DEBUG
+    print("[BOOT-S] ws_manager OK, creating agent_wrapper...", flush=True)
+    sys.stdout.flush()
+    # #endregion
     agent_wrapper = AgentWrapper()
+    # #region agent log - RUNTIME DEBUG
+    print("[BOOT-T] agent_wrapper OK, creating mcp_manager...", flush=True)
+    sys.stdout.flush()
+    # #endregion
     mcp_manager = get_mcp_manager()
+    # #region agent log - RUNTIME DEBUG
+    print("[BOOT-U] All managers initialized SUCCESS!", flush=True)
+    sys.stdout.flush()
+    # #endregion
     logger.info("Managers initialized successfully")
 except Exception as e:
+    # #region agent log - RUNTIME DEBUG
+    print(f"[BOOT-ERROR] Manager initialization FAILED: {e}", flush=True)
+    import traceback
+    print(f"[BOOT-ERROR] Traceback: {traceback.format_exc()}", flush=True)
+    sys.stdout.flush()
+    # #endregion
     logger.error(f"Failed to initialize some managers: {e}")
     # Create minimal stubs to prevent crashes
     class StubManager:
@@ -184,15 +285,24 @@ async def health_check():
     Health check endpoint - максимально простой для Railway.
     Возвращает 200 OK сразу после запуска FastAPI, без проверок.
     """
+    # #region agent log - RUNTIME DEBUG
+    print("[HEALTH] Healthcheck endpoint CALLED!", flush=True)
+    sys.stdout.flush()
+    # #endregion
     # #region agent log - DEBUG INSTRUMENTATION
     print("[DEBUG][HYP-A] Healthcheck endpoint called!", flush=True)
     # #endregion
     # Простейший healthcheck - просто подтверждаем, что сервер работает
     # MCP серверы могут подключаться асинхронно, это не критично для healthcheck
-    return {
+    response = {
         "status": "healthy",
         "service": "universal-multiagent"
     }
+    # #region agent log - RUNTIME DEBUG
+    print(f"[HEALTH] Returning: {response}", flush=True)
+    sys.stdout.flush()
+    # #endregion
+    return response
 
 
 @app.post("/api/chat")

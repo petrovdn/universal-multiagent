@@ -113,9 +113,25 @@ def create_llm(model_name: str, api_keys: Optional[Dict[str, str]] = None) -> Ba
                 "type": "enabled",
                 "budget_tokens": 10000  # Allocate tokens for thinking
             }
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    import time
+                    f.write(json_lib.dumps({"location": "model_factory.py:110", "message": "enabling extended_thinking", "data": {"model_name": model_name, "thinking_params": llm_params.get("thinking")}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "V"}) + "\n")
+            except: pass
+            # #endregion
         else:
             # Standard models without thinking
             llm_params["temperature"] = 1.0
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    import time
+                    f.write(json_lib.dumps({"location": "model_factory.py:118", "message": "thinking NOT enabled", "data": {"model_name": model_name, "supports_reasoning": model_config.get("supports_reasoning"), "reasoning_type": model_config.get("reasoning_type")}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "W"}) + "\n")
+            except: pass
+            # #endregion
         
         return ChatAnthropic(**llm_params)
     
