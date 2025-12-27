@@ -207,8 +207,31 @@ class AppConfig(BaseSettings):
     @field_validator("api_cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):
+        # Handle empty string or None
+        if not v or (isinstance(v, str) and not v.strip()):
+            return ["http://localhost:5173", "http://localhost:3000", "http://localhost:3001"]
+        
         if isinstance(v, str):
-            return [origin.strip() for origin in v.split(",")]
+            # Try to parse as JSON first (for Railway env vars that might be JSON)
+            try:
+                import json
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return [str(origin).strip() for origin in parsed if origin]
+                elif isinstance(parsed, str):
+                    # If it's a JSON string, treat as comma-separated
+                    return [origin.strip() for origin in parsed.split(",") if origin.strip()]
+            except (json.JSONDecodeError, ValueError):
+                # Not JSON, treat as comma-separated string
+                pass
+            
+            # Parse as comma-separated string
+            origins = [origin.strip() for origin in v.split(",") if origin.strip()]
+            return origins if origins else ["http://localhost:5173", "http://localhost:3000", "http://localhost:3001"]
+        
+        if isinstance(v, list):
+            return [str(origin).strip() for origin in v if origin]
+        
         return v
     
     def validate_required_credentials(self) -> List[str]:
