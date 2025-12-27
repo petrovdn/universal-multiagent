@@ -19,8 +19,18 @@ class SessionManager:
         """Initialize session manager."""
         self.sessions: Dict[str, ConversationContext] = {}
         self.storage = PersistentStorage()
-        self.config = get_config()
-        self.timeout_minutes = self.config.session_timeout_minutes
+        try:
+            self.config = get_config()
+            self.timeout_minutes = self.config.session_timeout_minutes
+        except Exception as e:
+            # Fallback if config fails to load
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to load config in SessionManager: {e}. Using defaults.")
+            class MinimalConfig:
+                session_timeout_minutes = 30
+            self.config = MinimalConfig()
+            self.timeout_minutes = 30
     
     def create_session(self, execution_mode: str = "instant") -> str:
         """
