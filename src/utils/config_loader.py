@@ -167,15 +167,24 @@ class AppConfig(BaseSettings):
     @classmethod
     def parse_cors_origins_raw(cls, v):
         """Parse CORS origins raw string, handling empty/invalid values."""
+        import logging
+        logger = logging.getLogger(__name__)
+        print(f"[DEBUG][CORS] parse_cors_origins_raw called with: type={type(v)}, value={repr(v)}", flush=True)
+        
         if v is None:
+            print("[DEBUG][CORS] Value is None, returning default", flush=True)
             return "http://localhost:5173,http://localhost:3000,http://localhost:3001"
         if isinstance(v, str):
             v = v.strip()
             if not v:
+                print("[DEBUG][CORS] Value is empty string, returning default", flush=True)
                 return "http://localhost:5173,http://localhost:3000,http://localhost:3001"
+            print(f"[DEBUG][CORS] Returning string value: {v}", flush=True)
             return v
         # For any other type, convert to string
-        return str(v) if v else "http://localhost:5173,http://localhost:3000,http://localhost:3001"
+        result = str(v) if v else "http://localhost:5173,http://localhost:3000,http://localhost:3001"
+        print(f"[DEBUG][CORS] Converted non-string to string: {result}", flush=True)
+        return result
     
     @computed_field
     @property
