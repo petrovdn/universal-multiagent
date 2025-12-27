@@ -37,6 +37,18 @@ class ListFilesTool(BaseTool):
     """
     args_schema: type = ListFilesInput
     
+    def _run(self, *args, **kwargs) -> str:
+        """Synchronous execution - should not be used."""
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_lib
+                import time
+                f.write(json_lib.dumps({"location": "workspace_tools.py:_run", "message": "ListFilesTool._run called (should use _arun)", "data": {"args": str(args), "kwargs": str(kwargs)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "I"}) + "\n")
+        except: pass
+        # #endregion
+        raise NotImplementedError("Use async execution")
+    
     @retry_on_mcp_error()
     async def _arun(
         self,
@@ -46,14 +58,47 @@ class ListFilesTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    import time
+                    f.write(json_lib.dumps({"location": "workspace_tools.py:41", "message": "ListFilesTool._arun entry", "data": {"mime_type": mime_type, "query": query, "max_results": max_results}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
+            except: pass
+            # #endregion
             args = {"maxResults": max_results}
             if mime_type:
                 args["mimeType"] = mime_type
             if query:
                 args["query"] = query
             
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    import time
+                    f.write(json_lib.dumps({"location": "workspace_tools.py:52", "message": "before get_mcp_manager", "data": {"args": args}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
+            except: pass
+            # #endregion
             mcp_manager = get_mcp_manager()
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    import time
+                    f.write(json_lib.dumps({"location": "workspace_tools.py:56", "message": "before call_tool", "data": {"tool_name": "workspace_list_files", "server_name": "google_workspace"}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
+            except: pass
+            # #endregion
             result = await mcp_manager.call_tool("workspace_list_files", args, server_name="google_workspace")
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    import time
+                    result_preview = str(result)[:200] if result else "None"
+                    f.write(json_lib.dumps({"location": "workspace_tools.py:57", "message": "after call_tool", "data": {"result_type": type(result).__name__, "result_preview": result_preview}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+            except: pass
+            # #endregion
             
             if isinstance(result, str):
                 result = json.loads(result)
@@ -465,6 +510,314 @@ class AppendToDocumentTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
+class FormatHeadingInput(BaseModel):
+    """Input schema for format_heading tool."""
+    
+    document_id: str = Field(description="Document ID or URL")
+    start_index: int = Field(description="Start character index (0-based)")
+    end_index: int = Field(description="End character index (exclusive)")
+    heading_level: int = Field(description="Heading level (1-6, where 1 is largest)")
+
+
+class FormatHeadingTool(BaseTool):
+    """Tool for formatting text as a heading in a Google Docs document."""
+    
+    name: str = "format_heading"
+    description: str = """
+    Format text as a heading (H1-H6) in a Google Docs document.
+    
+    Input:
+    - document_id: Document ID or URL
+    - start_index: Start character index (0-based)
+    - end_index: End character index (exclusive)
+    - heading_level: Heading level (1-6, where 1 is largest)
+    """
+    args_schema: type = FormatHeadingInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        document_id: str,
+        start_index: int,
+        end_index: int,
+        heading_level: int
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            if heading_level < 1 or heading_level > 6:
+                raise ValueError("Heading level must be between 1 and 6")
+            
+            args = {
+                "documentId": document_id,
+                "startIndex": start_index,
+                "endIndex": end_index,
+                "headingLevel": heading_level
+            }
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("docs_format_heading", args, server_name="google_workspace")
+            
+            return f"Text formatted as Heading {heading_level} successfully"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to format heading: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
+class CreateListInput(BaseModel):
+    """Input schema for create_list tool."""
+    
+    document_id: str = Field(description="Document ID or URL")
+    start_index: int = Field(description="Start character index where list begins (0-based)")
+    end_index: int = Field(description="End character index where list ends (exclusive)")
+    list_type: str = Field(description="Type of list: 'BULLET' for bulleted list, 'NUMBERED' for numbered list")
+
+
+class CreateListTool(BaseTool):
+    """Tool for creating a bulleted or numbered list in a Google Docs document."""
+    
+    name: str = "create_list"
+    description: str = """
+    Create a bulleted or numbered list in a Google Docs document.
+    
+    Input:
+    - document_id: Document ID or URL
+    - start_index: Start character index where list begins (0-based)
+    - end_index: End character index where list ends (exclusive)
+    - list_type: Type of list: 'BULLET' for bulleted list, 'NUMBERED' for numbered list
+    """
+    args_schema: type = CreateListInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        document_id: str,
+        start_index: int,
+        end_index: int,
+        list_type: str
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            if list_type not in ["BULLET", "NUMBERED"]:
+                raise ValueError("list_type must be 'BULLET' or 'NUMBERED'")
+            
+            args = {
+                "documentId": document_id,
+                "startIndex": start_index,
+                "endIndex": end_index,
+                "listType": list_type
+            }
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("docs_create_list", args, server_name="google_workspace")
+            
+            list_type_name = "bulleted" if list_type == "BULLET" else "numbered"
+            return f"{list_type_name.capitalize()} list created successfully"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to create list: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
+class SetAlignmentInput(BaseModel):
+    """Input schema for set_alignment tool."""
+    
+    document_id: str = Field(description="Document ID or URL")
+    start_index: int = Field(description="Start character index of paragraph (0-based)")
+    end_index: int = Field(description="End character index of paragraph (exclusive)")
+    alignment: str = Field(description="Text alignment: 'START' (left), 'CENTER', 'END' (right), 'JUSTIFY'")
+
+
+class SetAlignmentTool(BaseTool):
+    """Tool for setting paragraph alignment in a Google Docs document."""
+    
+    name: str = "set_alignment"
+    description: str = """
+    Set paragraph alignment in a Google Docs document.
+    
+    Input:
+    - document_id: Document ID or URL
+    - start_index: Start character index of paragraph (0-based)
+    - end_index: End character index of paragraph (exclusive)
+    - alignment: Text alignment: 'START' (left), 'CENTER', 'END' (right), 'JUSTIFY'
+    """
+    args_schema: type = SetAlignmentInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        document_id: str,
+        start_index: int,
+        end_index: int,
+        alignment: str
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            if alignment not in ["START", "CENTER", "END", "JUSTIFY"]:
+                raise ValueError("alignment must be 'START', 'CENTER', 'END', or 'JUSTIFY'")
+            
+            args = {
+                "documentId": document_id,
+                "startIndex": start_index,
+                "endIndex": end_index,
+                "alignment": alignment
+            }
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("docs_set_alignment", args, server_name="google_workspace")
+            
+            alignment_name = {
+                "START": "left",
+                "CENTER": "center",
+                "END": "right",
+                "JUSTIFY": "justified"
+            }.get(alignment, alignment.lower())
+            
+            return f"Paragraph alignment set to {alignment_name} successfully"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to set alignment: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
+class ApplyStyleInput(BaseModel):
+    """Input schema for apply_style tool."""
+    
+    document_id: str = Field(description="Document ID or URL")
+    start_index: int = Field(description="Start character index (0-based)")
+    end_index: int = Field(description="End character index (exclusive)")
+    style: str = Field(description="Named style: 'NORMAL_TEXT', 'HEADING_1' through 'HEADING_6', 'TITLE', 'SUBTITLE'")
+
+
+class ApplyStyleTool(BaseTool):
+    """Tool for applying a named style to text in a Google Docs document."""
+    
+    name: str = "apply_style"
+    description: str = """
+    Apply a named style to text in a Google Docs document (e.g., 'Heading 1', 'Heading 2', 'Title', 'Normal Text').
+    
+    Input:
+    - document_id: Document ID or URL
+    - start_index: Start character index (0-based)
+    - end_index: End character index (exclusive)
+    - style: Named style: 'NORMAL_TEXT', 'HEADING_1', 'HEADING_2', 'HEADING_3', 'HEADING_4', 'HEADING_5', 'HEADING_6', 'TITLE', 'SUBTITLE'
+    """
+    args_schema: type = ApplyStyleInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        document_id: str,
+        start_index: int,
+        end_index: int,
+        style: str
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            valid_styles = ["NORMAL_TEXT", "HEADING_1", "HEADING_2", "HEADING_3", "HEADING_4", "HEADING_5", "HEADING_6", "TITLE", "SUBTITLE"]
+            if style not in valid_styles:
+                raise ValueError(f"style must be one of: {', '.join(valid_styles)}")
+            
+            args = {
+                "documentId": document_id,
+                "startIndex": start_index,
+                "endIndex": end_index,
+                "style": style
+            }
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("docs_apply_named_style", args, server_name="google_workspace")
+            
+            style_name = style.replace("_", " ").title()
+            return f"Style '{style_name}' applied successfully"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to apply style: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
+class FindFileByNameInput(BaseModel):
+    """Input schema for find_file_by_name tool."""
+    
+    file_name: str = Field(description="Name of the file to find (exact match or partial match)")
+    exact_match: bool = Field(default=False, description="Whether to require exact name match")
+    file_type: str = Field(default="all", description="Filter by file type: 'docs', 'sheets', 'folders', or 'all'")
+
+
+class FindFileByNameTool(BaseTool):
+    """Tool for finding a file by name in the workspace folder."""
+    
+    name: str = "find_file_by_name"
+    description: str = """
+    Find a file by name in the workspace folder. Returns file ID and URL if found.
+    
+    Input:
+    - file_name: Name of the file to find (exact match or partial match)
+    - exact_match: Whether to require exact name match (default: false, uses contains)
+    - file_type: Filter by file type: 'docs', 'sheets', 'folders', or 'all' (default: 'all')
+    """
+    args_schema: type = FindFileByNameInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        file_name: str,
+        exact_match: bool = False,
+        file_type: str = "all"
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            args = {
+                "fileName": file_name,
+                "exactMatch": exact_match,
+                "fileType": file_type
+            }
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("workspace_find_file_by_name", args, server_name="google_workspace")
+            
+            if isinstance(result, str):
+                result = json.loads(result)
+            
+            if not result.get("found", False):
+                return f"File '{file_name}' not found in workspace folder"
+            
+            file_id = result.get("fileId", "unknown")
+            url = result.get("url", "")
+            mime_type = result.get("mimeType", "unknown")
+            
+            return f"File '{file_name}' found. ID: {file_id}, Type: {mime_type}, URL: {url}"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to find file: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
 # ========== SHEETS TOOLS ==========
 
 class CreateSpreadsheetInput(BaseModel):
@@ -491,21 +844,91 @@ class CreateSpreadsheetTool(BaseTool):
     async def _arun(self, title: str, sheet_names: Optional[List[str]] = None) -> str:
         """Execute the tool asynchronously."""
         try:
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    f.write(json_lib.dumps({"location": "workspace_tools.py:491", "message": "CreateSpreadsheetTool._arun entry", "data": {"title": title, "sheet_names": sheet_names}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "I"}) + "\n")
+            except: pass
+            # #endregion
             args = {"title": title}
             if sheet_names:
                 args["sheetNames"] = sheet_names
             
             mcp_manager = get_mcp_manager()
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    f.write(json_lib.dumps({"location": "workspace_tools.py:500", "message": "before call_tool", "data": {"server_name": "google_workspace", "tool_name": "sheets_create_spreadsheet"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "I"}) + "\n")
+            except: pass
+            # #endregion
             result = await mcp_manager.call_tool("sheets_create_spreadsheet", args, server_name="google_workspace")
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    result_type = type(result).__name__
+                    result_preview = str(result)[:200] if result else "None"
+                    f.write(json_lib.dumps({"location": "workspace_tools.py:502", "message": "after call_tool", "data": {"result_type": result_type, "result_preview": result_preview, "is_dict": isinstance(result, dict), "is_str": isinstance(result, str), "is_list": isinstance(result, list)}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "I"}) + "\n")
+            except: pass
+            # #endregion
             
+            # Handle string result (JSON)
             if isinstance(result, str):
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json as json_lib
+                        f.write(json_lib.dumps({"location": "workspace_tools.py:525", "message": "parsing string result", "data": {"result_length": len(result)}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "I"}) + "\n")
+                except: pass
+                # #endregion
                 result = json.loads(result)
+            # Handle list of TextContent (shouldn't happen after mcp_loader fix, but just in case)
+            elif isinstance(result, list) and len(result) > 0:
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json as json_lib
+                        f.write(json_lib.dumps({"location": "workspace_tools.py:532", "message": "handling list result", "data": {"list_length": len(result), "first_item_type": type(result[0]).__name__ if result else "empty"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "I"}) + "\n")
+                except: pass
+                # #endregion
+                # Extract text from first item if it's TextContent
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result = json.loads(first_item.text)
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result = json.loads(first_item['text'])
+                elif isinstance(first_item, str):
+                    result = json.loads(first_item)
+            
+            # Now result should be a dict
+            if not isinstance(result, dict):
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json as json_lib
+                        f.write(json_lib.dumps({"location": "workspace_tools.py:545", "message": "ERROR: result is not dict", "data": {"result_type": type(result).__name__, "result_value": str(result)[:200]}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "I"}) + "\n")
+                except: pass
+                # #endregion
+                raise ToolExecutionError(
+                    f"Unexpected result type: {type(result)}. Expected dict or JSON string.",
+                    tool_name=self.name
+                )
             
             spreadsheet_id = result.get("spreadsheetId", "unknown")
             spreadsheet_title = result.get("title", title)
             url = result.get("url", "")
             
-            return f"Spreadsheet '{spreadsheet_title}' created successfully. ID: {spreadsheet_id}. URL: {url}"
+            return_message = f"Spreadsheet '{spreadsheet_title}' created successfully. ID: {spreadsheet_id}. URL: {url}"
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_lib
+                    f.write(json_lib.dumps({"location": "workspace_tools.py:555", "message": "CreateSpreadsheetTool returning", "data": {"return_message": return_message[:100], "spreadsheet_id": spreadsheet_id}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "I"}) + "\n")
+            except: pass
+            # #endregion
+            return return_message
             
         except Exception as e:
             raise ToolExecutionError(
@@ -698,22 +1121,45 @@ def get_workspace_tools() -> List[BaseTool]:
     Returns:
         List of BaseTool instances for workspace operations
     """
-    return [
+    # #region agent log
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            import json as json_lib
+            import time
+            f.write(json_lib.dumps({"location": "workspace_tools.py:1072", "message": "get_workspace_tools called", "data": {}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
+    except: pass
+    # #endregion
+    tools = [
         # Drive tools
         ListFilesTool(),
         GetFileInfoTool(),
         CreateFolderTool(),
         DeleteFileTool(),
         SearchFilesTool(),
+        FindFileByNameTool(),
         # Docs tools
         CreateDocumentTool(),
         ReadDocumentTool(),
         UpdateDocumentTool(),
         AppendToDocumentTool(),
+        FormatHeadingTool(),
+        CreateListTool(),
+        SetAlignmentTool(),
+        ApplyStyleTool(),
         # Sheets tools
         CreateSpreadsheetTool(),
         ReadSpreadsheetTool(),
         WriteSpreadsheetTool(),
         AppendRowsTool(),
     ]
+    # #region agent log
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            import json as json_lib
+            import time
+            tool_names = [tool.name for tool in tools]
+            f.write(json_lib.dumps({"location": "workspace_tools.py:1100", "message": "get_workspace_tools returning", "data": {"tool_count": len(tools), "tool_names": tool_names}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
+    except: pass
+    # #endregion
+    return tools
 

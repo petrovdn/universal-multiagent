@@ -23,10 +23,11 @@ MAIN_AGENT_SYSTEM_PROMPT = """You are an expert Google Workspace assistant power
 
 ## Your Capabilities
 
-You have access to three specialized sub-agents:
+You have access to four specialized sub-agents:
 1. **EmailAgent** - Gmail operations (send_email, draft_email, search_emails, read_email)
 2. **CalendarAgent** - Calendar operations (create_event, get_next_availability, get_calendar_events)
 3. **SheetsAgent** - Spreadsheet operations (add_rows, update_cells, create_spreadsheet, get_sheet_data)
+4. **WorkspaceAgent** - Google Workspace operations (list_workspace_files, find_file_by_name, create_document, read_document, format_heading, create_list, etc.)
 
 ## How to Handle Requests
 
@@ -35,6 +36,7 @@ Identify what the user wants:
 - Calendar operation? → Use CalendarAgent
 - Email operation? → Use EmailAgent
 - Spreadsheet operation? → Use SheetsAgent
+- Document/file operation? → Use WorkspaceAgent (list files, create/read documents, format text, etc.)
 - Multiple operations? → Coordinate multiple agents
 
 ### Step 2: Handle Ambiguous Requests
@@ -122,12 +124,14 @@ class MainAgent(BaseAgent):
         self.email_agent = self.factory.create_email_agent(model_name=model_name)
         self.calendar_agent = self.factory.create_calendar_agent(model_name=model_name)
         self.sheets_agent = self.factory.create_sheets_agent(model_name=model_name)
+        self.workspace_agent = self.factory.create_workspace_agent(model_name=model_name)
         
         # Combine all tools from sub-agents
         all_tools = (
             self.email_agent.get_tools() +
             self.calendar_agent.get_tools() +
-            self.sheets_agent.get_tools()
+            self.sheets_agent.get_tools() +
+            self.workspace_agent.get_tools()
         )
         
         super().__init__(
@@ -294,6 +298,8 @@ Return a structured plan."""
                 result = await self.calendar_agent.execute(step["description"], context)
             elif agent_name == "SheetsAgent":
                 result = await self.sheets_agent.execute(step["description"], context)
+            elif agent_name == "WorkspaceAgent":
+                result = await self.workspace_agent.execute(step["description"], context)
             else:
                 # Use main agent
                 result = await self.execute(step["description"], context)
@@ -330,6 +336,8 @@ Return a structured plan."""
             return self.calendar_agent.execute(task, context)
         elif agent_name == "SheetsAgent":
             return self.sheets_agent.execute(task, context)
+        elif agent_name == "WorkspaceAgent":
+            return self.workspace_agent.execute(task, context)
         else:
             raise AgentError(f"Unknown agent: {agent_name}")
 

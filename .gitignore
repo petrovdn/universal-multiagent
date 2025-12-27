@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+.cursor/
+
+# Environment variables
+.env
+*.env.local
+
+# Logs
+logs/
+*.log
+
+# Data and tokens (sensitive!)
+config/*.json
+config/.env
+data/sessions/*.json
+data/tokens/
+gcp-oauth.keys.json
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/.vite/
+frontend/dist/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Temporary files
+*.swp
+*.swo
+*~
+.DS_Store
+restart-server.sh
+
+# Backup files
+*.bak
+docs.prod.bak/
+
+# Test files (if you want to exclude them)
+test_*.py
+

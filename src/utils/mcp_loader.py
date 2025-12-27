@@ -427,7 +427,10 @@ class MCPConnection:
                         # Extract text from content items
                         text_parts = []
                         for item in content:
-                            if isinstance(item, dict):
+                            # Handle TextContent objects (MCP format)
+                            if hasattr(item, 'text'):
+                                text_parts.append(item.text)
+                            elif isinstance(item, dict):
                                 if 'text' in item:
                                     text_parts.append(item['text'])
                                 elif 'type' in item and item.get('type') == 'text':

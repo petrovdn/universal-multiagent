@@ -181,6 +181,17 @@ def parse_datetime(
         
         return None, None
     
+    # Russian: "вчера" / "yesterday"
+    if date_str_lower.startswith("вчера") or date_str_lower.startswith("yesterday"):
+        hour, minute = extract_time(date_str_lower)
+        yesterday = now - timedelta(days=1)
+        if hour is not None:
+            dt = yesterday.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        else:
+            # Default to start of day for past dates
+            dt = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
+        return dt
+    
     # Russian: "сегодня" / "today"
     if date_str_lower.startswith("сегодня") or date_str_lower.startswith("today"):
         hour, minute = extract_time(date_str_lower)
@@ -190,11 +201,9 @@ def parse_datetime(
             if dt < now:
                 dt = dt + timedelta(days=1)
         else:
-            # Default to current time or 10:00 if current time is late
-            if now.hour >= 18:
-                dt = (now + timedelta(days=1)).replace(hour=10, minute=0, second=0, microsecond=0)
-            else:
-                dt = now.replace(second=0, microsecond=0)
+            # For date queries (like "events today"), return start of today
+            # This is used when querying calendar events for a specific day
+            dt = now.replace(hour=0, minute=0, second=0, microsecond=0)
         return dt
     
     # Russian: "завтра" / "tomorrow"
@@ -253,11 +262,44 @@ def parse_datetime(
             dt = future_date.replace(hour=10, minute=0, second=0, microsecond=0)
         return dt
     
+    # Relative time format: "-3d", "+1d", "-1w", "+2w", "-1m", "+1m"
+    # Supports: d (days), w (weeks), m (months), h (hours)
+    relative_match = re.match(r'^([+-])(\d+)([dwmh])$', date_str.strip())
+    if relative_match:
+        sign = relative_match.group(1)
+        amount = int(relative_match.group(2))
+        unit = relative_match.group(3)
+        
+        # Apply sign
+        if sign == '-':
+            amount = -amount
+        
+        # Calculate offset
+        if unit == 'd':
+            dt = now + timedelta(days=amount)
+        elif unit == 'w':
+            dt = now + timedelta(weeks=amount)
+        elif unit == 'm':
+            # Approximate: 30 days per month
+            dt = now + timedelta(days=amount * 30)
+        elif unit == 'h':
+            dt = now + timedelta(hours=amount)
+        else:
+            dt = now
+        
+        # Set time to start of day for past dates, 10:00 for future dates
+        if amount < 0:
+            dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            dt = dt.replace(hour=10, minute=0, second=0, microsecond=0)
+        
+        return dt
+    
     # If all parsing attempts fail, raise error
     raise ValidationError(
         f"Unable to parse date/time: {date_str}. "
-        f"Supported formats: ISO 8601, 'YYYY-MM-DD HH:MM', or natural language "
-        f"(сегодня, завтра, послезавтра, через неделю, через месяц, через N дней, "
+        f"Supported formats: ISO 8601, 'YYYY-MM-DD HH:MM', relative time (+/-Nd, +/-Nw, +/-Nm, +/-Nh), "
+        f"or natural language (сегодня, завтра, послезавтра, через неделю, через месяц, через N дней, "
         f"today, tomorrow, next week, next month, in N days)",
         field="datetime",
         value=date_str

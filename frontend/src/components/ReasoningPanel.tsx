@@ -1,10 +1,11 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { ChevronRight, ChevronDown, Wrench, CheckCircle, XCircle, Brain } from 'lucide-react'
 import { useChatStore, ReasoningStep } from '../store/chatStore'
 
 export function ReasoningPanel() {
   const [isOpen, setIsOpen] = useState(true)
   const { reasoningSteps, clearReasoningSteps } = useChatStore()
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   const getStepIcon = (type: ReasoningStep['type']) => {
     switch (type) {
@@ -20,6 +21,13 @@ export function ReasoningPanel() {
         return null
     }
   }
+
+  // Автоскролл к новым элементам
+  useEffect(() => {
+    if (scrollContainerRef.current && reasoningSteps.length > 0) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
+  }, [reasoningSteps.length])
 
   return (
     <div className="w-80 border-l border-slate-200/50 dark:border-slate-700/50 bg-white/60 dark:bg-slate-800/60 backdrop-blur-sm flex flex-col">
@@ -51,7 +59,11 @@ export function ReasoningPanel() {
       </div>
 
       {isOpen && (
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div 
+          ref={scrollContainerRef}
+          className="max-h-[50vh] min-h-0 overflow-y-auto p-4 space-y-2"
+          style={{ scrollBehavior: 'smooth' }}
+        >
           {reasoningSteps.length === 0 ? (
             <p className="text-sm text-slate-500 dark:text-slate-400 text-center mt-4">
               Пока нет шагов рассуждения. Здесь будут отображаться мысли агента.
@@ -60,15 +72,15 @@ export function ReasoningPanel() {
             reasoningSteps.map((step, index) => (
               <div
                 key={index}
-                className="border border-slate-200/50 dark:border-slate-700/50 rounded-xl p-3 bg-slate-50/50 dark:bg-slate-900/50 shadow-sm"
+                className="border border-slate-200/50 dark:border-slate-700/50 rounded-xl p-2 bg-slate-50/50 dark:bg-slate-900/50 shadow-sm"
               >
-                <div className="flex items-start space-x-2">
+                <div className="flex items-start space-x-1.5">
                   {getStepIcon(step.type)}
                   <div className="flex-1">
                     <div className="text-sm font-medium text-slate-800 dark:text-slate-100">
                       {step.type.replace('_', ' ').toUpperCase()}
                     </div>
-                    <div className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                    <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
                       {step.content}
                     </div>
                     {step.data && (

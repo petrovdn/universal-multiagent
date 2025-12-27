@@ -61,6 +61,7 @@ Current time: {current_time}
 Timezone: {timezone}
 
 When interpreting relative dates, use this information:
+- "вчера" / "yesterday" → {yesterday_date} (one day before {current_date})
 - "сегодня" / "today" → {current_date}
 - "завтра" / "tomorrow" → {tomorrow_date}
 - "послезавтра" / "day after tomorrow" → {day_after_tomorrow}
@@ -68,6 +69,12 @@ When interpreting relative dates, use this information:
 - "через месяц" / "next month" → calculate approximately 30 days from {current_date}
 - "в понедельник" / "on Monday" → find the next Monday from {current_date}
 - "в следующую пятницу" / "next Friday" → find the next Friday from {current_date}
+
+IMPORTANT for get_calendar_events tool:
+- When user asks about "вчера" / "yesterday", pass start_time="вчера" (not a specific date)
+- When user asks about "сегодня" / "today", pass start_time="сегодня" (not a specific date)
+- The tool will automatically parse these relative dates correctly
+- For date ranges, use natural language: start_time="вчера", end_time="сегодня"
 
 Guidelines:
 1. Always validate dates and times before creating events
@@ -106,7 +113,8 @@ Guidelines:
 
 Always be helpful, proactive, and ensure scheduling accuracy."""
     
-    # Calculate tomorrow and day after tomorrow
+    # Calculate yesterday, tomorrow and day after tomorrow
+    yesterday = now - timedelta(days=1)
     tomorrow = now + timedelta(days=1)
     day_after_tomorrow = now + timedelta(days=2)
     
@@ -116,6 +124,7 @@ Always be helpful, proactive, and ensure scheduling accuracy."""
         current_date=current_date_str,
         current_time=current_time_str,
         timezone=config.timezone,
+        yesterday_date=yesterday.strftime("%Y-%m-%d"),
         tomorrow_date=tomorrow.strftime("%Y-%m-%d"),
         day_after_tomorrow=day_after_tomorrow.strftime("%Y-%m-%d")
     )

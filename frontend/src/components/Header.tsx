@@ -136,29 +136,37 @@ export function Header() {
     try {
       if (enabled) {
         const result = await enableGoogleWorkspace()
+        console.log('Workspace enable result:', result)
+        
         if (result.status === 'oauth_required' && result.auth_url) {
           // Redirect directly to Google OAuth page instead of popup
           window.location.href = result.auth_url
           return // Don't set loading to false, as we're redirecting
-        } else {
+        } else if (result.status === 'enabled') {
           // Already authenticated - check if folder is configured
-          if (result.folder_configured) {
-            setIntegrationStatus('googleWorkspace', {
-              enabled: true,
-              authenticated: true,
-              folderConfigured: true,
-            })
+          const folderConfigured = result.folder_configured || false
+          setIntegrationStatus('googleWorkspace', {
+            enabled: folderConfigured,
+            authenticated: true,
+            folderConfigured: folderConfigured,
+            folderName: result.folder?.name,
+            folderId: result.folder?.id,
+          })
+          
+          if (folderConfigured) {
             setIsLoading(false)
+            // Reload status to ensure everything is synced
+            await loadIntegrationStatus()
           } else {
             // Need to configure folder
-            setIntegrationStatus('googleWorkspace', {
-              enabled: false,
-              authenticated: true,
-              folderConfigured: false,
-            })
             setIsLoading(false)
             setIsFolderSelectorOpen(true)
           }
+        } else {
+          // Unexpected response
+          console.warn('Unexpected response from enableGoogleWorkspace:', result)
+          setIsLoading(false)
+          await loadIntegrationStatus()
         }
       } else {
         await disableGoogleWorkspace()
@@ -168,11 +176,29 @@ export function Header() {
           folderConfigured: false,
         })
         setIsLoading(false)
+        // Reload status to ensure everything is synced
+        await loadIntegrationStatus()
       }
     } catch (error: any) {
       console.error('Failed to toggle Workspace integration:', error)
-      alert(error.message || 'Не удалось изменить настройки интеграции Google Workspace')
+      console.error('Error details:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+        stack: error.stack
+      })
+      
+      let errorMessage = 'Не удалось изменить настройки интеграции Google Workspace'
+      if (error.response?.data?.detail) {
+        errorMessage = error.response.data.detail
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      
+      alert(errorMessage)
       setIsLoading(false)
+      // Reload status to get current state
+      await loadIntegrationStatus()
     }
   }
 
