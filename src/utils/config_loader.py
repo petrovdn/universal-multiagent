@@ -137,7 +137,8 @@ class AppConfig(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
-        env_ignore_empty=True  # Ignore empty environment variables
+        env_ignore_empty=True,  # Ignore empty environment variables
+        env_prefix=""  # No prefix for env vars
     )
     
     # Anthropic API
@@ -186,7 +187,6 @@ class AppConfig(BaseSettings):
         print(f"[DEBUG][CORS] Converted non-string to string: {result}", flush=True)
         return result
     
-    @computed_field
     @property
     def api_cors_origins(self) -> List[str]:
         """Parse CORS origins from string to list."""
