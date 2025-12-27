@@ -7,7 +7,7 @@ from typing import List, Optional
 from langchain_core.tools import BaseTool
 
 from src.agents.base_agent import BaseAgent
-from src.mcp_tools.workspace_tools import get_workspace_tools
+from src.mcp_tools.sheets_tools import get_sheets_tools
 
 
 SHEETS_AGENT_SYSTEM_PROMPT = """You are an expert spreadsheet assistant specialized in Google Sheets operations.
@@ -71,17 +71,11 @@ class SheetsAgent(BaseAgent):
         Initialize Sheets Agent.
         
         Args:
-            tools: Custom tools (uses workspace tools with folder support by default)
+            tools: Custom tools (uses Sheets tools by default)
             model_name: Model identifier (optional, uses default from config if None)
         """
         if tools is None:
-            # Use workspace_tools instead of sheets_tools to enable folder saving
-            all_tools = get_workspace_tools()
-            # Filter to only spreadsheet-related tools
-            tools = [tool for tool in all_tools if tool.name in [
-                "create_spreadsheet", "read_spreadsheet", 
-                "write_spreadsheet", "append_rows"
-            ]]
+            tools = get_sheets_tools()
         
         super().__init__(
             name="SheetsAgent",

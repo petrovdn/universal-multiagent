@@ -165,26 +165,12 @@ class CreateSpreadsheetTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    import json as json_lib
-                    f.write(json_lib.dumps({"location": "sheets_tools.py:161", "message": "CreateSpreadsheetTool._arun entry (sheets_tools)", "data": {"title": title, "sheet_names": sheet_names}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "J"}) + "\n")
-            except: pass
-            # #endregion
             args = {"title": title}
             
             if sheet_names:
                 args["sheetNames"] = sheet_names
             
             mcp_manager = get_mcp_manager()
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    import json as json_lib
-                    f.write(json_lib.dumps({"location": "sheets_tools.py:175", "message": "before call_tool (sheets server)", "data": {"server_name": "sheets", "tool_name": "create_spreadsheet"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "J"}) + "\n")
-            except: pass
-            # #endregion
             result = await mcp_manager.call_tool("create_spreadsheet", args, server_name="sheets")
             
             spreadsheet_id = result.get("spreadsheetId", "unknown")

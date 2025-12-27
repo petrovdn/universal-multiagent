@@ -12,16 +12,8 @@ from pathlib import Path
 import uvicorn
 from uuid import uuid4
 
-try:
-    from src.utils.config_loader import get_config, reload_config
-except Exception as e:
-    raise
-
-try:
-    from src.utils.logging_config import setup_logging, get_logger
-except Exception as e:
-    raise
-
+from src.utils.config_loader import get_config, reload_config
+from src.utils.logging_config import setup_logging, get_logger
 from src.utils.mcp_loader import get_mcp_manager
 from src.api.session_manager import get_session_manager
 from src.api.websocket_manager import get_websocket_manager
@@ -31,24 +23,10 @@ from src.api.integration_routes import router as integration_router
 from src.core.context_manager import ConversationContext
 from src.agents.model_factory import get_available_models, get_model_info, MODELS
 
-# Setup logging and config with error handling
-# Allow app to start even if some config is missing (for healthcheck)
-try:
-    config = get_config()
-    setup_logging(config.log_level)
-    logger = get_logger(__name__)
-    logger.info("Configuration loaded successfully")
-except Exception as e:
-    # Fallback config for basic startup
-    import logging
-    logging.basicConfig(level=logging.INFO)
-    logger = logging.getLogger(__name__)
-    logger.warning(f"Failed to load full config: {e}. Using defaults for startup.")
-    # Create minimal config for CORS
-    class MinimalConfig:
-        api_cors_origins = ["*"]
-        is_production = True  # Assume production if config fails
-    config = MinimalConfig()
+# Setup logging
+config = get_config()
+setup_logging(config.log_level)
+logger = get_logger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
@@ -60,29 +38,17 @@ app = FastAPI(
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.api_cors_origins if hasattr(config, 'api_cors_origins') else ["*"],
+    allow_origins=config.api_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Initialize managers with error handling
-# Allow app to start even if some managers fail (for healthcheck)
-try:
-    session_manager = get_session_manager()
-    ws_manager = get_websocket_manager()
-    agent_wrapper = AgentWrapper()
-    mcp_manager = get_mcp_manager()
-    logger.info("Managers initialized successfully")
-except Exception as e:
-    logger.error(f"Failed to initialize some managers: {e}")
-    # Create minimal stubs to prevent crashes
-    class StubManager:
-        pass
-    session_manager = StubManager()
-    ws_manager = StubManager()
-    agent_wrapper = StubManager()
-    mcp_manager = StubManager()
+# Initialize managers
+session_manager = get_session_manager()
+ws_manager = get_websocket_manager()
+agent_wrapper = AgentWrapper()
+mcp_manager = get_mcp_manager()
 
 # Include auth routes
 app.include_router(auth_router)
@@ -90,7 +56,7 @@ app.include_router(auth_router)
 app.include_router(integration_router)
 
 # Serve static files in production
-if hasattr(config, 'is_production') and config.is_production:
+if config.is_production:
     frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
     if frontend_dist.exists():
         app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
@@ -110,18 +76,12 @@ async def startup_event():
     """Initialize services on startup."""
     logger.info("Starting up Multi-Agent API...")
     
-    # Connect to MCP servers asynchronously (non-blocking)
-    # This allows the app to start quickly even if MCP servers are slow to connect
-    async def connect_mcp_servers():
-        try:
-            results = await mcp_manager.connect_all()
-            logger.info(f"MCP connection results: {results}")
-        except Exception as e:
-            logger.error(f"Failed to connect to MCP servers: {e}")
-    
-    # Start MCP connection in background (non-blocking)
-    import asyncio
-    asyncio.create_task(connect_mcp_servers())
+    # Connect to MCP servers
+    try:
+        results = await mcp_manager.connect_all()
+        logger.info(f"MCP connection results: {results}")
+    except Exception as e:
+        logger.error(f"Failed to connect to MCP servers: {e}")
     
     # Cleanup expired sessions periodically
     # (In production, use a background task)
@@ -136,15 +96,12 @@ async def shutdown_event():
 
 @app.get("/api/health")
 async def health_check():
-    """
-    Health check endpoint - максимально простой для Railway.
-    Возвращает 200 OK сразу после запуска FastAPI, без проверок.
-    """
-    # Простейший healthcheck - просто подтверждаем, что сервер работает
-    # MCP серверы могут подключаться асинхронно, это не критично для healthcheck
+    """Health check endpoint."""
+    mcp_health = await mcp_manager.health_check()
+    
     return {
         "status": "healthy",
-        "service": "universal-multiagent"
+        "mcp_servers": mcp_health
     }
 
 

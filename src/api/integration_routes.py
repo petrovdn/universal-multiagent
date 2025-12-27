@@ -3,7 +3,7 @@ Integration management routes for Google Workspace services.
 Handles enabling/disabling integrations and OAuth flows.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Cookie, Query
+from fastapi import APIRouter, HTTPException, Request, Cookie
 from fastapi.responses import JSONResponse, RedirectResponse
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -15,12 +15,6 @@ from src.utils.google_auth import AuthManager, OAuthAuth
 from src.utils.config_loader import get_config
 from src.utils.audit import get_audit_logger
 from src.api.session_manager import get_session_manager
-
-# Import Google API errors at module level
-try:
-    from googleapiclient.errors import HttpError
-except ImportError:
-    HttpError = Exception  # Fallback if not available
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +59,9 @@ class DynamicPath:
     
     def __truediv__(self, other):
         return self._get_path() / other
+    
+    def parent(self):
+        return self._get_path().parent
     
     def read_text(self, encoding=None, errors=None):
         return self._get_path().read_text(encoding=encoding, errors=errors)
@@ -1354,11 +1351,7 @@ async def list_workspace_folders(request: Request):
 
 
 @router.post("/google-workspace/set-folder")
-async def set_workspace_folder(
-    request: Request,
-    folder_id: str = Query(...),
-    folder_name: Optional[str] = Query(None)
-):
+async def set_workspace_folder(request: Request, folder_id: str, folder_name: Optional[str] = None):
     """
     Set the workspace folder ID.
     
@@ -1366,10 +1359,6 @@ async def set_workspace_folder(
         folder_id: Google Drive folder ID
         folder_name: Optional folder name (will be fetched if not provided)
     """
-    from google.oauth2.credentials import Credentials
-    from google.auth.transport.requests import Request as GoogleRequest
-    from googleapiclient.discovery import build
-    
     if not WORKSPACE_TOKEN_PATH.exists():
         raise HTTPException(
             status_code=401,
@@ -1377,6 +1366,9 @@ async def set_workspace_folder(
         )
     
     try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request as GoogleRequest
+        from googleapiclient.discovery import build
         
         creds = Credentials.from_authorized_user_file(
             str(WORKSPACE_TOKEN_PATH),
@@ -1413,9 +1405,8 @@ async def set_workspace_folder(
             "folder_url": folder_url
         }
         
-        config_path = WORKSPACE_CONFIG_PATH._get_path()
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(config_path, 'w') as f:
+        WORKSPACE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(WORKSPACE_CONFIG_PATH, 'w') as f:
             json.dump(config, f, indent=2)
         
         # Log action
@@ -1434,21 +1425,18 @@ async def set_workspace_folder(
             "folder_url": folder_url
         }
         
+    except HttpError as e:
+        logger.error(f"Failed to set workspace folder: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid folder ID or access denied: {str(e)}"
+        )
     except Exception as e:
-        # Check if it's an HttpError from googleapiclient
-        error_type = type(e).__name__
-        if error_type == 'HttpError' or 'HttpError' in str(type(e)):
-            logger.error(f"Failed to set workspace folder (HttpError): {e}", exc_info=True)
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid folder ID or access denied: {str(e)}"
-            )
-        else:
-            logger.error(f"Failed to set workspace folder: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to set folder: {str(e)}"
-            )
+        logger.error(f"Failed to set workspace folder: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to set folder: {str(e)}"
+        )
 
 
 @router.get("/google-workspace/current-folder")

@@ -67,13 +67,6 @@ class GoogleWorkspaceMCPServer:
         if self._workspace_folder_id is None:
             config = self._load_config()
             self._workspace_folder_id = config.get("folder_id")
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    import json as json_lib
-                    f.write(json_lib.dumps({"location": "google_workspace_server.py:69", "message": "_get_workspace_folder_id", "data": {"folder_id": self._workspace_folder_id, "config_keys": list(config.keys())}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-            except: pass
-            # #endregion
         return self._workspace_folder_id
     
     def _get_credentials(self) -> Credentials:
@@ -162,12 +155,6 @@ class GoogleWorkspaceMCPServer:
                             "mimeType": {
                                 "type": "string",
                                 "description": "Filter by MIME type (e.g., 'application/vnd.google-apps.document', 'application/vnd.google-apps.spreadsheet')"
-                            },
-                            "fileType": {
-                                "type": "string",
-                                "description": "Filter by file type: 'docs' (Google Docs), 'sheets' (Google Sheets), 'folders' (folders), or 'all' (default)",
-                                "enum": ["all", "docs", "sheets", "folders"],
-                                "default": "all"
                             },
                             "query": {
                                 "type": "string",
@@ -270,45 +257,6 @@ class GoogleWorkspaceMCPServer:
                     inputSchema={
                         "type": "object",
                         "properties": {}
-                    }
-                ),
-                Tool(
-                    name="workspace_find_file_by_name",
-                    description="Find a file by name in the workspace folder. Returns file ID and URL if found.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "fileName": {
-                                "type": "string",
-                                "description": "Name of the file to find (exact match or partial match)"
-                            },
-                            "exactMatch": {
-                                "type": "boolean",
-                                "description": "Whether to require exact name match (default: false, uses contains)",
-                                "default": False
-                            },
-                            "fileType": {
-                                "type": "string",
-                                "description": "Filter by file type: 'docs', 'sheets', 'folders', or 'all' (default)",
-                                "enum": ["all", "docs", "sheets", "folders"],
-                                "default": "all"
-                            }
-                        },
-                        "required": ["fileName"]
-                    }
-                ),
-                Tool(
-                    name="workspace_get_folder_contents",
-                    description="Get contents of the workspace folder grouped by type (documents, spreadsheets, folders).",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "maxResults": {
-                                "type": "integer",
-                                "description": "Maximum number of results per type (default: 50)",
-                                "default": 50
-                            }
-                        }
                     }
                 ),
                 
@@ -435,133 +383,6 @@ class GoogleWorkspaceMCPServer:
                             }
                         },
                         "required": ["documentId", "startIndex", "endIndex"]
-                    }
-                ),
-                Tool(
-                    name="docs_format_heading",
-                    description="Format text as a heading (H1-H6) in a Google Docs document.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "documentId": {
-                                "type": "string",
-                                "description": "Document ID or URL"
-                            },
-                            "startIndex": {
-                                "type": "integer",
-                                "description": "Start character index (0-based)"
-                            },
-                            "endIndex": {
-                                "type": "integer",
-                                "description": "End character index (exclusive)"
-                            },
-                            "headingLevel": {
-                                "type": "integer",
-                                "description": "Heading level (1-6, where 1 is largest)",
-                                "minimum": 1,
-                                "maximum": 6
-                            }
-                        },
-                        "required": ["documentId", "startIndex", "endIndex", "headingLevel"]
-                    }
-                ),
-                Tool(
-                    name="docs_create_list",
-                    description="Create a bulleted or numbered list in a Google Docs document.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "documentId": {
-                                "type": "string",
-                                "description": "Document ID or URL"
-                            },
-                            "startIndex": {
-                                "type": "integer",
-                                "description": "Start character index where list begins (0-based)"
-                            },
-                            "endIndex": {
-                                "type": "integer",
-                                "description": "End character index where list ends (exclusive)"
-                            },
-                            "listType": {
-                                "type": "string",
-                                "description": "Type of list: 'BULLET' for bulleted list, 'NUMBERED' for numbered list",
-                                "enum": ["BULLET", "NUMBERED"]
-                            }
-                        },
-                        "required": ["documentId", "startIndex", "endIndex", "listType"]
-                    }
-                ),
-                Tool(
-                    name="docs_set_alignment",
-                    description="Set paragraph alignment in a Google Docs document.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "documentId": {
-                                "type": "string",
-                                "description": "Document ID or URL"
-                            },
-                            "startIndex": {
-                                "type": "integer",
-                                "description": "Start character index of paragraph (0-based)"
-                            },
-                            "endIndex": {
-                                "type": "integer",
-                                "description": "End character index of paragraph (exclusive)"
-                            },
-                            "alignment": {
-                                "type": "string",
-                                "description": "Text alignment: 'START' (left), 'CENTER', 'END' (right), 'JUSTIFY'",
-                                "enum": ["START", "CENTER", "END", "JUSTIFY"]
-                            }
-                        },
-                        "required": ["documentId", "startIndex", "endIndex", "alignment"]
-                    }
-                ),
-                Tool(
-                    name="docs_apply_named_style",
-                    description="Apply a named style to text in a Google Docs document (e.g., 'Heading 1', 'Heading 2', 'Title', 'Normal Text').",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "documentId": {
-                                "type": "string",
-                                "description": "Document ID or URL"
-                            },
-                            "startIndex": {
-                                "type": "integer",
-                                "description": "Start character index (0-based)"
-                            },
-                            "endIndex": {
-                                "type": "integer",
-                                "description": "End character index (exclusive)"
-                            },
-                            "style": {
-                                "type": "string",
-                                "description": "Named style: 'NORMAL_TEXT', 'HEADING_1', 'HEADING_2', 'HEADING_3', 'HEADING_4', 'HEADING_5', 'HEADING_6', 'TITLE', 'SUBTITLE'",
-                                "enum": ["NORMAL_TEXT", "HEADING_1", "HEADING_2", "HEADING_3", "HEADING_4", "HEADING_5", "HEADING_6", "TITLE", "SUBTITLE"]
-                            }
-                        },
-                        "required": ["documentId", "startIndex", "endIndex", "style"]
-                    }
-                ),
-                Tool(
-                    name="docs_insert_pagebreak",
-                    description="Insert a page break at a specific position in a Google Docs document.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "documentId": {
-                                "type": "string",
-                                "description": "Document ID or URL"
-                            },
-                            "index": {
-                                "type": "integer",
-                                "description": "Character index where to insert page break (0-based)"
-                            }
-                        },
-                        "required": ["documentId", "index"]
                     }
                 ),
                 
@@ -706,16 +527,6 @@ class GoogleWorkspaceMCPServer:
                     
                     query_parts = [f"'{folder_id}' in parents", "trashed=false"]
                     
-                    # Handle fileType filter
-                    file_type = arguments.get("fileType", "all")
-                    if file_type == "docs":
-                        query_parts.append("mimeType='application/vnd.google-apps.document'")
-                    elif file_type == "sheets":
-                        query_parts.append("mimeType='application/vnd.google-apps.spreadsheet'")
-                    elif file_type == "folders":
-                        query_parts.append("mimeType='application/vnd.google-apps.folder'")
-                    
-                    # mimeType parameter takes precedence if provided
                     mime_type = arguments.get("mimeType")
                     if mime_type:
                         query_parts.append(f"mimeType='{mime_type}'")
@@ -926,141 +737,6 @@ class GoogleWorkspaceMCPServer:
                                 "error": str(e)
                             }, indent=2)
                         )]
-                
-                elif name == "workspace_find_file_by_name":
-                    drive_service = self._get_drive_service()
-                    folder_id = self._get_workspace_folder_id()
-                    
-                    if not folder_id:
-                        return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "error": "Workspace folder not configured. Please set workspace folder first."
-                            }, indent=2)
-                        )]
-                    
-                    file_name = arguments.get("fileName")
-                    exact_match = arguments.get("exactMatch", False)
-                    file_type = arguments.get("fileType", "all")
-                    
-                    query_parts = [f"'{folder_id}' in parents", "trashed=false"]
-                    
-                    # Build name query
-                    if exact_match:
-                        query_parts.append(f"name='{file_name}'")
-                    else:
-                        query_parts.append(f"name contains '{file_name}'")
-                    
-                    # Add file type filter
-                    if file_type == "docs":
-                        query_parts.append("mimeType='application/vnd.google-apps.document'")
-                    elif file_type == "sheets":
-                        query_parts.append("mimeType='application/vnd.google-apps.spreadsheet'")
-                    elif file_type == "folders":
-                        query_parts.append("mimeType='application/vnd.google-apps.folder'")
-                    
-                    query = " and ".join(query_parts)
-                    
-                    results = drive_service.files().list(
-                        q=query,
-                        pageSize=10,
-                        fields="files(id, name, mimeType, webViewLink)",
-                        orderBy="modifiedTime desc"
-                    ).execute()
-                    
-                    files = results.get('files', [])
-                    
-                    if not files:
-                        return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "found": False,
-                                "fileName": file_name,
-                                "message": f"No file found with name '{file_name}'"
-                            }, indent=2)
-                        )]
-                    
-                    # Return first match
-                    file = files[0]
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "found": True,
-                            "fileName": file.get('name'),
-                            "fileId": file.get('id'),
-                            "mimeType": file.get('mimeType'),
-                            "url": file.get('webViewLink'),
-                            "matches": len(files)
-                        }, indent=2)
-                    )]
-                
-                elif name == "workspace_get_folder_contents":
-                    drive_service = self._get_drive_service()
-                    folder_id = self._get_workspace_folder_id()
-                    
-                    if not folder_id:
-                        return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "error": "Workspace folder not configured. Please set workspace folder first."
-                            }, indent=2)
-                        )]
-                    
-                    max_results = min(arguments.get("maxResults", 50), 100)
-                    
-                    # Get all files
-                    query = f"'{folder_id}' in parents and trashed=false"
-                    results = drive_service.files().list(
-                        q=query,
-                        pageSize=max_results,
-                        fields="files(id, name, mimeType, createdTime, modifiedTime, webViewLink)",
-                        orderBy="modifiedTime desc"
-                    ).execute()
-                    
-                    all_files = results.get('files', [])
-                    
-                    # Group by type
-                    documents = []
-                    spreadsheets = []
-                    folders = []
-                    other = []
-                    
-                    for f in all_files:
-                        mime_type = f.get('mimeType', '')
-                        file_info = {
-                            "id": f.get('id'),
-                            "name": f.get('name'),
-                            "mimeType": mime_type,
-                            "createdTime": f.get('createdTime'),
-                            "modifiedTime": f.get('modifiedTime'),
-                            "url": f.get('webViewLink')
-                        }
-                        
-                        if mime_type == 'application/vnd.google-apps.document':
-                            documents.append(file_info)
-                        elif mime_type == 'application/vnd.google-apps.spreadsheet':
-                            spreadsheets.append(file_info)
-                        elif mime_type == 'application/vnd.google-apps.folder':
-                            folders.append(file_info)
-                        else:
-                            other.append(file_info)
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "documents": documents,
-                            "spreadsheets": spreadsheets,
-                            "folders": folders,
-                            "other": other,
-                            "total": len(all_files),
-                            "counts": {
-                                "documents": len(documents),
-                                "spreadsheets": len(spreadsheets),
-                                "folders": len(folders),
-                                "other": len(other)
-                            }
-                        }, indent=2)
-                    )]
                 
                 # ========== DOCS OPERATIONS ==========
                 elif name == "docs_create":
@@ -1299,196 +975,11 @@ class GoogleWorkspaceMCPServer:
                         }, indent=2)
                     )]
                 
-                elif name == "docs_format_heading":
-                    docs_service = self._get_docs_service()
-                    document_id = self._extract_file_id(arguments.get("documentId"))
-                    start_index = arguments.get("startIndex")
-                    end_index = arguments.get("endIndex")
-                    heading_level = arguments.get("headingLevel")
-                    
-                    # Map heading level to named style
-                    style_map = {
-                        1: "HEADING_1",
-                        2: "HEADING_2",
-                        3: "HEADING_3",
-                        4: "HEADING_4",
-                        5: "HEADING_5",
-                        6: "HEADING_6"
-                    }
-                    named_style = style_map.get(heading_level, "HEADING_1")
-                    
-                    requests = [{
-                        "updateParagraphStyle": {
-                            "range": {
-                                "startIndex": start_index,
-                                "endIndex": end_index
-                            },
-                            "paragraphStyle": {
-                                "namedStyleType": named_style
-                            },
-                            "fields": "namedStyleType"
-                        }
-                    }]
-                    
-                    docs_service.documents().batchUpdate(
-                        documentId=document_id,
-                        body={"requests": requests}
-                    ).execute()
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "heading_formatted",
-                            "documentId": document_id,
-                            "headingLevel": heading_level
-                        }, indent=2)
-                    )]
-                
-                elif name == "docs_create_list":
-                    docs_service = self._get_docs_service()
-                    document_id = self._extract_file_id(arguments.get("documentId"))
-                    start_index = arguments.get("startIndex")
-                    end_index = arguments.get("endIndex")
-                    list_type = arguments.get("listType")
-                    
-                    requests = [{
-                        "createParagraphBullets": {
-                            "range": {
-                                "startIndex": start_index,
-                                "endIndex": end_index
-                            },
-                            "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE" if list_type == "BULLET" else "NUMBERED_DECIMAL_ALPHA_ROMAN"
-                        }
-                    }]
-                    
-                    docs_service.documents().batchUpdate(
-                        documentId=document_id,
-                        body={"requests": requests}
-                    ).execute()
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "list_created",
-                            "documentId": document_id,
-                            "listType": list_type
-                        }, indent=2)
-                    )]
-                
-                elif name == "docs_set_alignment":
-                    docs_service = self._get_docs_service()
-                    document_id = self._extract_file_id(arguments.get("documentId"))
-                    start_index = arguments.get("startIndex")
-                    end_index = arguments.get("endIndex")
-                    alignment = arguments.get("alignment")
-                    
-                    requests = [{
-                        "updateParagraphStyle": {
-                            "range": {
-                                "startIndex": start_index,
-                                "endIndex": end_index
-                            },
-                            "paragraphStyle": {
-                                "alignment": alignment
-                            },
-                            "fields": "alignment"
-                        }
-                    }]
-                    
-                    docs_service.documents().batchUpdate(
-                        documentId=document_id,
-                        body={"requests": requests}
-                    ).execute()
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "alignment_set",
-                            "documentId": document_id,
-                            "alignment": alignment
-                        }, indent=2)
-                    )]
-                
-                elif name == "docs_apply_named_style":
-                    docs_service = self._get_docs_service()
-                    document_id = self._extract_file_id(arguments.get("documentId"))
-                    start_index = arguments.get("startIndex")
-                    end_index = arguments.get("endIndex")
-                    style = arguments.get("style")
-                    
-                    requests = [{
-                        "updateParagraphStyle": {
-                            "range": {
-                                "startIndex": start_index,
-                                "endIndex": end_index
-                            },
-                            "paragraphStyle": {
-                                "namedStyleType": style
-                            },
-                            "fields": "namedStyleType"
-                        }
-                    }]
-                    
-                    docs_service.documents().batchUpdate(
-                        documentId=document_id,
-                        body={"requests": requests}
-                    ).execute()
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "style_applied",
-                            "documentId": document_id,
-                            "style": style
-                        }, indent=2)
-                    )]
-                
-                elif name == "docs_insert_pagebreak":
-                    docs_service = self._get_docs_service()
-                    document_id = self._extract_file_id(arguments.get("documentId"))
-                    index = arguments.get("index")
-                    
-                    requests = [{
-                        "insertPageBreak": {
-                            "location": {
-                                "index": index
-                            }
-                        }
-                    }]
-                    
-                    docs_service.documents().batchUpdate(
-                        documentId=document_id,
-                        body={"requests": requests}
-                    ).execute()
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "pagebreak_inserted",
-                            "documentId": document_id,
-                            "index": index
-                        }, indent=2)
-                    )]
-                
                 # ========== SHEETS OPERATIONS ==========
                 elif name == "sheets_create_spreadsheet":
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            import json as json_lib
-                            f.write(json_lib.dumps({"location": "google_workspace_server.py:979", "message": "sheets_create_spreadsheet entry", "data": {"title": arguments.get("title"), "sheetNames": arguments.get("sheetNames")}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-                    except: pass
-                    # #endregion
                     sheets_service = self._get_sheets_service()
                     drive_service = self._get_drive_service()
                     folder_id = self._get_workspace_folder_id()
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            import json as json_lib
-                            f.write(json_lib.dumps({"location": "google_workspace_server.py:984", "message": "folder_id retrieved", "data": {"folder_id": folder_id, "is_none": folder_id is None}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
-                    except: pass
-                    # #endregion
                     
                     title = arguments.get("title")
                     sheet_names = arguments.get("sheetNames", ["Sheet1"])
@@ -1501,98 +992,31 @@ class GoogleWorkspaceMCPServer:
                         ]
                     }
                     
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            import json as json_lib
-                            f.write(json_lib.dumps({"location": "google_workspace_server.py:996", "message": "before spreadsheet.create", "data": {"title": title}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
-                    except: pass
-                    # #endregion
                     spreadsheet = sheets_service.spreadsheets().create(
                         body=spreadsheet_body
                     ).execute()
                     
                     spreadsheet_id = spreadsheet.get('spreadsheetId')
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            import json as json_lib
-                            f.write(json_lib.dumps({"location": "google_workspace_server.py:1001", "message": "spreadsheet created", "data": {"spreadsheet_id": spreadsheet_id, "folder_id": folder_id}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
-                    except: pass
-                    # #endregion
                     
                     # Move to workspace folder
                     if folder_id:
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                import json as json_lib
-                                f.write(json_lib.dumps({"location": "google_workspace_server.py:1006", "message": "before move to folder", "data": {"spreadsheet_id": spreadsheet_id, "folder_id": folder_id}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
-                        except: pass
-                        # #endregion
-                        try:
-                            file_info = drive_service.files().get(
-                                fileId=spreadsheet_id,
-                                fields="parents"
-                            ).execute()
-                            previous_parents = ",".join(file_info.get('parents', []))
-                            # #region agent log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    import json as json_lib
-                                    f.write(json_lib.dumps({"location": "google_workspace_server.py:1011", "message": "before drive.files().update", "data": {"previous_parents": previous_parents, "target_folder_id": folder_id}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
-                            except: pass
-                            # #endregion
-                            drive_service.files().update(
-                                fileId=spreadsheet_id,
-                                addParents=folder_id,
-                                removeParents=previous_parents,
-                                fields="id, parents"
-                            ).execute()
-                            # #region agent log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    import json as json_lib
-                                    f.write(json_lib.dumps({"location": "google_workspace_server.py:1018", "message": "after drive.files().update", "data": {"spreadsheet_id": spreadsheet_id}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}) + "\n")
-                            except: pass
-                            # #endregion
-                        except Exception as move_error:
-                            # #region agent log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    import json as json_lib
-                                    f.write(json_lib.dumps({"location": "google_workspace_server.py:1020", "message": "error moving to folder", "data": {"error": str(move_error), "error_type": type(move_error).__name__}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "F"}) + "\n")
-                            except: pass
-                            # #endregion
-                            raise
-                    else:
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                import json as json_lib
-                                f.write(json_lib.dumps({"location": "google_workspace_server.py:1024", "message": "folder_id is None, skipping move", "data": {}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
-                        except: pass
-                        # #endregion
+                        file_info = drive_service.files().get(
+                            fileId=spreadsheet_id,
+                            fields="parents"
+                        ).execute()
+                        previous_parents = ",".join(file_info.get('parents', []))
+                        drive_service.files().update(
+                            fileId=spreadsheet_id,
+                            addParents=folder_id,
+                            removeParents=previous_parents,
+                            fields="id, parents"
+                        ).execute()
                     
                     # Get spreadsheet URL
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            import json as json_lib
-                            f.write(json_lib.dumps({"location": "google_workspace_server.py:1029", "message": "before get webViewLink", "data": {"spreadsheet_id": spreadsheet_id}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "G"}) + "\n")
-                    except: pass
-                    # #endregion
                     sheet_file = drive_service.files().get(
                         fileId=spreadsheet_id,
                         fields="webViewLink"
                     ).execute()
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            import json as json_lib
-                            f.write(json_lib.dumps({"location": "google_workspace_server.py:1036", "message": "sheets_create_spreadsheet success", "data": {"spreadsheet_id": spreadsheet_id, "url": sheet_file.get('webViewLink')}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H"}) + "\n")
-                    except: pass
-                    # #endregion
                     
                     return [TextContent(
                         type="text",

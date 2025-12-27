@@ -293,23 +293,7 @@ class AgentWrapper:
             if event_type == StreamEvent.THINKING:
                 # Send thinking/reasoning step
                 # message contains the accumulated thinking text
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        import json as json_lib
-                        import time
-                        f.write(json_lib.dumps({"location": "agent_wrapper.py:293", "message": "THINKING event received", "data": {"step": data.get("step"), "message_length": len(data.get("message", ""))}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "L"}) + "\n")
-                except: pass
-                # #endregion
                 thinking_message = data.get("message", data.get("step", "Обрабатываю..."))
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        import json as json_lib
-                        import time
-                        f.write(json_lib.dumps({"location": "agent_wrapper.py:297", "message": "sending thinking event to websocket", "data": {"session_id": session_id, "thinking_message_length": len(thinking_message)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "M"}) + "\n")
-                except: pass
-                # #endregion
                 await self.ws_manager.send_event(
                     session_id,
                     "thinking",
