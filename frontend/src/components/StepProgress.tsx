@@ -1,14 +1,30 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { CheckCircle, Circle, Loader2 } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
 import { ReasoningBlock } from './ReasoningBlock'
-import { AnswerBlock } from './AnswerBlock'
+import { StructuredAnswer } from './StructuredAnswer'
 
 export function StepProgress() {
-  const { workflowPlan, workflowSteps, currentWorkflowStep } = useChatStore()
+  // Use separate selectors to avoid shallow comparison issues - Zustand uses Object.is() for comparison
+  const workflowPlan = useChatStore((state) => state.workflowPlan)
+  const workflowSteps = useChatStore((state) => state.workflowSteps)
+  const currentWorkflowStep = useChatStore((state) => state.currentWorkflowStep)
 
+  // Removed useEffect logging to prevent infinite loops
+
+  // DEBUG MODE: Always show something, even if no plan
   if (!workflowPlan || !workflowPlan.steps || workflowPlan.steps.length === 0) {
-    return null
+    return (
+      <div style={{ padding: '15px', margin: '10px', background: '#fff3cd', border: '2px solid #ffc107', borderRadius: '8px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+          <Circle style={{ width: '20px', height: '20px', color: '#856404' }} />
+          <strong style={{ color: '#856404', fontSize: '16px' }}>StepProgress: Waiting for steps...</strong>
+        </div>
+        <div style={{ color: '#856404', fontSize: '14px' }}>
+          {!workflowPlan ? 'No workflow plan set yet' : 'No steps defined in plan'}
+        </div>
+      </div>
+    )
   }
 
   const stepsArray = workflowPlan.steps.map((stepTitle, index) => {
@@ -22,47 +38,69 @@ export function StepProgress() {
   })
 
   if (stepsArray.length === 0) {
-    return null
+    return (
+      <div style={{ padding: '15px', margin: '10px', background: '#fff3cd', border: '2px solid #ffc107', borderRadius: '8px' }}>
+        <strong style={{ color: '#856404', fontSize: '16px' }}>StepProgress: No steps to display</strong>
+      </div>
+    )
   }
 
+  // Removed useEffect logging to prevent infinite loops
+
   return (
-    <div className="step-progress">
-      <div className="step-progress-header">
-        <span className="step-progress-title">Выполнение шагов</span>
+    <div style={{ padding: '15px', margin: '10px', background: '#e7f3ff', border: '2px solid #004085', borderRadius: '8px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
+        <Loader2 style={{ width: '20px', height: '20px', color: '#004085' }} />
+        <strong style={{ color: '#004085', fontSize: '18px' }}>Прогресс шагов</strong>
       </div>
-      
-      <div className="step-progress-list">
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
         {stepsArray.map((step) => {
           const status = step.data?.status || 'pending'
-          const isActive = step.stepNumber === currentWorkflowStep
-          
+          const isActive = currentWorkflowStep === step.stepNumber
+
           return (
             <div
               key={step.stepNumber}
-              className={`step-progress-item step-progress-item-${status} ${isActive ? 'step-progress-item-active' : ''}`}
+              style={{
+                padding: '15px',
+                background: isActive ? '#fff3cd' : status === 'completed' ? '#d4edda' : '#f8f9fa',
+                border: `2px solid ${isActive ? '#ffc107' : status === 'completed' ? '#28a745' : '#dee2e6'}`,
+                borderRadius: '8px',
+              }}
             >
-              <div className="step-progress-item-header">
-                <div className="step-progress-item-number">
-                  {status === 'completed' ? (
-                    <CheckCircle className="step-icon step-icon-completed" />
-                  ) : status === 'in_progress' ? (
-                    <Loader2 className="step-icon step-icon-progress" />
-                  ) : (
-                    <Circle className="step-icon step-icon-pending" />
-                  )}
-                </div>
-                <div className="step-progress-item-title">
-                  <span className="step-number">Шаг {step.stepNumber}</span>
-                  <span className="step-title">{step.title}</span>
-                </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+                {status === 'completed' ? (
+                  <CheckCircle style={{ width: '20px', height: '20px', color: '#28a745' }} />
+                ) : isActive ? (
+                  <Loader2 style={{ width: '20px', height: '20px', color: '#ffc107', animation: 'spin 1s linear infinite' }} />
+                ) : (
+                  <Circle style={{ width: '20px', height: '20px', color: '#6c757d' }} />
+                )}
+                <span style={{ fontSize: '16px', fontWeight: 'bold', color: '#333' }}>
+                  Шаг {step.stepNumber}: {step.title}
+                </span>
+                <span
+                  style={{
+                    marginLeft: 'auto',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    fontWeight: 'bold',
+                    background: status === 'completed' ? '#28a745' : isActive ? '#ffc107' : '#6c757d',
+                    color: '#fff',
+                  }}
+                >
+                  {status}
+                </span>
               </div>
 
               {/* Show thinking and response for active step */}
               {isActive && step.data && (
-                <div className="step-progress-item-content">
-                  {/* Thinking block */}
+                <div style={{ marginTop: '15px' }}>
+                  {/* Thinking block - using ReasoningBlock component */}
                   {step.data.thinking && (
-                    <div className="step-thinking-block">
+                    <div style={{ marginBottom: '10px' }}>
                       <ReasoningBlock
                         block={{
                           id: `step-${step.stepNumber}-thinking`,
@@ -71,21 +109,16 @@ export function StepProgress() {
                           timestamp: new Date().toISOString(),
                         }}
                         isVisible={true}
-                        shouldAutoCollapse={false}
                       />
                     </div>
                   )}
 
-                  {/* Response block */}
+                  {/* Response block - structured */}
                   {step.data.response && (
-                    <div className="step-response-block">
-                      <AnswerBlock
-                        block={{
-                          id: `step-${step.stepNumber}-response`,
-                          content: step.data.response,
-                          isStreaming: status === 'in_progress',
-                          timestamp: new Date().toISOString(),
-                        }}
+                    <div style={{ marginTop: '10px' }}>
+                      <StructuredAnswer 
+                        content={step.data.response} 
+                        isStreaming={status === 'in_progress'}
                       />
                     </div>
                   )}
@@ -94,17 +127,11 @@ export function StepProgress() {
 
               {/* Show completed response for completed steps */}
               {status === 'completed' && step.data?.response && !isActive && (
-                <div className="step-progress-item-content">
-                  <div className="step-response-block">
-                    <AnswerBlock
-                      block={{
-                        id: `step-${step.stepNumber}-response`,
-                        content: step.data.response,
-                        isStreaming: false,
-                        timestamp: new Date().toISOString(),
-                      }}
-                    />
-                  </div>
+                <div style={{ marginTop: '10px' }}>
+                  <StructuredAnswer 
+                    content={step.data.response} 
+                    isStreaming={false}
+                  />
                 </div>
               )}
             </div>
@@ -114,4 +141,3 @@ export function StepProgress() {
     </div>
   )
 }
-

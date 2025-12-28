@@ -366,16 +366,16 @@ export function ChatInterface() {
           return null
         })}
         
-        {/* Show workflow plan and steps (global, not per message) */}
-        <PlanBlock />
-        <StepProgress />
-        
-        {/* Render streaming assistant messages */}
+        {/* Render streaming assistant messages FIRST - they might contain reasoning blocks */}
         {Object.values(assistantMessages).map((assistantMsg) => (
           <div key={assistantMsg.id} className="assistant-message-wrapper">
             <ChatMessage message={assistantMsg} />
           </div>
         ))}
+        
+        {/* Show workflow plan and steps AFTER messages - so they're always visible */}
+        <PlanBlock />
+        <StepProgress />
         
         {/* Welcome screen */}
         {messages.length === 0 && Object.keys(assistantMessages).length === 0 && (

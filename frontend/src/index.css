@@ -905,14 +905,20 @@ body {
   overflow: hidden;
   margin-top: 12px;
   margin-bottom: 16px;
-  transition: opacity 0.3s ease, max-height 0.3s ease, margin 0.3s ease;
+  transition: opacity 0.3s ease, max-height 0.3s ease, margin 0.3s ease, border-color 0.3s ease, background 0.3s ease;
   flex-shrink: 0;
+}
+
+.reasoning-block-streaming {
+  border-color: var(--accent-primary);
+  background: #e8f2ff;
+  box-shadow: 0 2px 12px rgba(59, 130, 246, 0.15);
 }
 
 .reasoning-block-visible {
   opacity: 1;
-  max-height: 25vh;
-  min-height: 200px;
+  max-height: none;
+  min-height: auto;
 }
 
 .reasoning-block-hidden {
@@ -927,8 +933,8 @@ body {
 .reasoning-block-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 6px;
+  padding: 5px 7px;
   border-bottom: 1px solid var(--border-secondary);
   background: rgba(255, 255, 255, 0.5);
   flex-shrink: 0;
@@ -936,8 +942,8 @@ body {
 }
 
 .reasoning-block-collapsed {
-  max-height: 50px !important; /* Только header */
-  min-height: 50px !important;
+  max-height: 25px !important; /* Только header (уменьшено в 2 раза) */
+  min-height: 25px !important;
 }
 
 .reasoning-block-collapsed .reasoning-block-content {
@@ -962,8 +968,8 @@ body {
 }
 
 .reasoning-block-chevron {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   transition: transform var(--transition-fast);
 }
 
@@ -975,18 +981,18 @@ body {
 }
 
 .reasoning-block-icon {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
 .reasoning-block-title {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  text-transform: none;
+  letter-spacing: 0.3px;
 }
 
 .reasoning-block-streaming-indicator {
@@ -1008,13 +1014,13 @@ body {
 }
 
 .reasoning-block-content {
-  height: calc(25vh - 60px);
-  min-height: 150px;
-  max-height: calc(25vh - 60px);
+  height: 84px;
+  min-height: 84px;
+  max-height: 84px;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 12px 14px;
-  font-size: 13px;
+  font-size: 11px;
   line-height: 1.6;
   color: #111;
   white-space: pre-wrap;

@@ -67,17 +67,13 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
     }
   }, [block.isStreaming, isCollapsed, hasEverStreamed, block.id])
 
-  // Auto-scroll to bottom when content updates (only if already at bottom and not collapsed)
+  // Auto-scroll to bottom when content updates (scroll inside contentRef, not containerRef)
   useEffect(() => {
     if (contentRef.current && block.isStreaming && !isCollapsed) {
-      const container = containerRef.current
-      if (container) {
-        const isNearBottom =
-          container.scrollHeight - container.scrollTop - container.clientHeight < 50
-        if (isNearBottom) {
-          container.scrollTop = container.scrollHeight
-        }
-      }
+      // contentRef is the scrollable element with overflow-y: auto
+      const scrollableElement = contentRef.current
+      // Always scroll to bottom when streaming (show latest content)
+      scrollableElement.scrollTop = scrollableElement.scrollHeight
     }
   }, [block.content, block.isStreaming, isCollapsed])
 
@@ -90,7 +86,7 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
   return (
     <div
       ref={containerRef}
-      className={`reasoning-block reasoning-block-visible ${isCollapsed ? 'reasoning-block-collapsed' : ''}`}
+      className={`reasoning-block reasoning-block-visible ${isCollapsed ? 'reasoning-block-collapsed' : ''} ${block.isStreaming ? 'reasoning-block-streaming' : ''}`}
     >
       <div 
         className="reasoning-block-header"
@@ -98,7 +94,7 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
         style={{ cursor: 'pointer' }}
       >
         <Brain className="reasoning-block-icon" />
-        <span className="reasoning-block-title">Размышление</span>
+        <span className="reasoning-block-title">думаю...</span>
         {block.isStreaming && (
           <span className="reasoning-block-streaming-indicator" />
         )}
