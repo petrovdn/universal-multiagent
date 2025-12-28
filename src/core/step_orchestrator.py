@@ -16,6 +16,7 @@ from src.core.context_manager import ConversationContext
 from src.api.websocket_manager import WebSocketManager
 from src.agents.model_factory import create_llm
 from src.utils.logging_config import get_logger
+from src.utils.capabilities import get_available_capabilities, build_step_executor_prompt, build_planning_prompt
 
 logger = get_logger(__name__)
 
@@ -238,6 +239,21 @@ class StepOrchestrator:
                         }
                     )
                     
+                    # Check if step requires user help (critical error)
+                    if "🛑 ТРЕБУЕТСЯ ПОМОЩЬ ПОЛЬЗОВАТЕЛЯ" in step_result:
+                        logger.warning(f"[StepOrchestrator] Step {step_index} requires user help, stopping execution")
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "workflow_paused",
+                            {
+                                "reason": "Шаг требует помощи пользователя",
+                                "step": step_index,
+                                "remaining_steps": len(plan_steps) - step_index
+                            }
+                        )
+                        # Stop executing remaining steps
+                        break
+                    
                 except Exception as e:
                     logger.error(f"[StepOrchestrator] Error executing step {step_index}: {e}")
                     await self.ws_manager.send_event(
@@ -296,21 +312,8 @@ class StepOrchestrator:
         Returns:
             Dict with "plan" (text) and "steps" (list of step titles)
         """
-        system_prompt = """You are an expert planning assistant. Your task is to create a detailed, step-by-step execution plan for the user's request.
-
-Requirements:
-1. Break down the request into clear, actionable steps
-2. Each step should be specific and executable
-3. Steps should be ordered logically
-4. Provide a clear plan description and numbered step titles
-
-Format your response as JSON:
-{
-    "plan": "Detailed plan description explaining the overall approach",
-    "steps": ["Step 1 title", "Step 2 title", "Step 3 title", ...]
-}
-
-Return ONLY valid JSON, no additional text."""
+        # Use dynamic planning prompt
+        system_prompt = build_planning_prompt()
 
         # Prepare messages
         messages = [
@@ -329,11 +332,44 @@ Return ONLY valid JSON, no additional text."""
                 messages.append(AIMessage(content=content))
         
         try:
-            # Call LLM to generate plan
-            response = await self.llm.ainvoke(messages)
-            response_text = response.content if hasattr(response, 'content') else str(response)
+            # Stream LLM response with thinking
+            accumulated_thinking = ""
+            accumulated_response = ""
+            
+            async for chunk in self.llm.astream(messages):
+                if hasattr(chunk, 'content'):
+                    content = chunk.content
+                    
+                    # Handle list of content blocks (Claude format with thinking)
+                    if isinstance(content, list):
+                        for block in content:
+                            block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                            
+                            if block_type == "thinking":
+                                # Extract thinking text
+                                thinking_text = block.get("thinking", "") if isinstance(block, dict) else getattr(block, "thinking", "")
+                                if thinking_text:
+                                    accumulated_thinking += thinking_text
+                                    # Stream thinking chunk to UI
+                                    await self.ws_manager.send_event(
+                                        self.session_id,
+                                        "plan_thinking_chunk",
+                                        {"content": thinking_text}
+                                    )
+                            
+                            elif block_type == "text":
+                                # Extract response text
+                                text_content = block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")
+                                if text_content:
+                                    accumulated_response += text_content
+                    
+                    # Handle simple string content
+                    elif isinstance(content, str):
+                        accumulated_response += content
             
             # Parse JSON response
+            response_text = accumulated_response
+            
             # Try to extract JSON from response (handle cases where LLM adds markdown code blocks)
             json_match = re.search(r'\{[\s\S]*\}', response_text)
             if json_match:
@@ -350,7 +386,7 @@ Return ONLY valid JSON, no additional text."""
                 # Fallback: create a simple single-step plan
                 steps = ["Execute request"]
             
-            logger.info(f"[StepOrchestrator] Generated plan with {len(steps)} steps")
+            logger.info(f"[StepOrchestrator] Generated plan with {len(steps)} steps (thinking: {len(accumulated_thinking)} chars)")
             return {
                 "plan": plan_text,
                 "steps": steps
@@ -389,31 +425,58 @@ Return ONLY valid JSON, no additional text."""
         Returns:
             Step execution result
         """
+        # Get available capabilities for dynamic prompt generation
+        try:
+            capabilities = await get_available_capabilities()
+        except Exception as e:
+            logger.warning(f"[StepOrchestrator] Could not get capabilities: {e}, using defaults")
+            capabilities = {"enabled_servers": [], "tools_by_category": {}}
+        
+        # Read workspace folder configuration for context
+        workspace_folder_info = None
+        try:
+            from src.utils.config_loader import get_config
+            config = get_config()
+            workspace_config_path = config.config_dir / "workspace_config.json"
+            
+            if workspace_config_path.exists():
+                workspace_config = json.loads(workspace_config_path.read_text())
+                folder_id = workspace_config.get("folder_id")
+                folder_name = workspace_config.get("folder_name")
+                if folder_id:
+                    workspace_folder_info = f"""
+⚠️ ВАЖНО: Пользователь выбрал рабочую папку:
+  Название: {folder_name}
+  ID: {folder_id}
+  
+  ВСЕГДА начинай поиск файлов с ЭТОЙ папки!
+  Используй соответствующие инструменты для работы с выбранной папкой, указывая folder_id={folder_id}
+"""
+        except Exception as e:
+            logger.warning(f"[StepOrchestrator] Could not read workspace config: {e}")
+        
         # Build context for this step
         step_context = f"""
-Original Request: {user_request}
+Оригинальный запрос: {user_request}
 
-Overall Plan: {plan_text}
-
-Previous Steps Completed:
+Общий план: {plan_text}
+"""
+        if workspace_folder_info:
+            step_context += workspace_folder_info
+        
+        step_context += """
+Выполненные шаги:
 """
         for i, result in enumerate(previous_results, start=1):
             step_context += f"  {i}. {result['title']}: {result['result']}\n"
         
         step_context += f"""
-Current Step ({step_index} of {len(all_steps)}): {step_title}
+Текущий шаг ({step_index} из {len(all_steps)}): {step_title}
 
-Execute this step. Provide a clear, actionable response."""
+Выполни этот шаг. Предоставь четкий, конкретный ответ."""
 
-        system_prompt = """You are an expert execution assistant. Execute the current step of the plan efficiently and accurately.
-
-Requirements:
-- Be specific and actionable
-- Reference previous steps when relevant
-- Complete the step thoroughly
-- Provide clear results
-
-All responses should be in Russian."""
+        # Build dynamic system prompt based on available capabilities
+        system_prompt = build_step_executor_prompt(capabilities, workspace_folder_info)
         
         # Prepare messages
         messages = [

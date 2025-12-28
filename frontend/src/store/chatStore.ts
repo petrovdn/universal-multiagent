@@ -61,6 +61,8 @@ export interface WorkflowPlan {
   steps: string[]
   confirmationId: string | null
   awaitingConfirmation: boolean
+  planThinking: string // Reasoning/thinking during plan generation
+  planThinkingIsStreaming: boolean // Whether plan thinking is currently streaming
 }
 
 // Workflow step structure
@@ -112,6 +114,7 @@ interface ChatState {
   
   // Workflow methods
   setWorkflowPlan: (plan: string, steps: string[], confirmationId: string | null) => void
+  updatePlanThinking: (content: string) => void
   setAwaitingConfirmation: (awaiting: boolean) => void
   startWorkflowStep: (stepNumber: number, title: string) => void
   updateStepThinking: (stepNumber: number, content: string) => void
@@ -517,17 +520,27 @@ export const useChatStore = create<ChatState>()(
       },
       
       // Workflow methods
-      setWorkflowPlan: (plan: string, steps: string[], confirmationId: string | null) =>
-        set({
+      setWorkflowPlan: (plan: string, steps: string[], confirmationId: string | null) => {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setWorkflowPlan-entry',message:'setWorkflowPlan called',data:{planLength:plan.length,stepsCount:steps.length,confirmationId},timestamp:Date.now(),sessionId:'debug-session',runId:'verify',hypothesisId:'STORE'})}).catch(()=>{});
+        // #endregion
+        set((state) => ({
           workflowPlan: {
             plan,
             steps,
             confirmationId,
             awaitingConfirmation: false,
+            planThinking: state.workflowPlan?.planThinking || '', // Preserve existing thinking if any
+            planThinkingIsStreaming: false, // Plan generation is complete, stop streaming
           },
           workflowSteps: {},
           currentWorkflowStep: null,
-        }),
+        }))
+        // #region agent log
+        const state = get()
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setWorkflowPlan-after',message:'After setWorkflowPlan',data:{hasWorkflowPlan:!!state.workflowPlan,planLength:state.workflowPlan?.plan.length||0,stepsCount:state.workflowPlan?.steps.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'verify',hypothesisId:'STORE'})}).catch(()=>{});
+        // #endregion
+      },
       
       setAwaitingConfirmation: (awaiting: boolean) =>
         set((state) => ({
@@ -535,6 +548,31 @@ export const useChatStore = create<ChatState>()(
             ? { ...state.workflowPlan, awaitingConfirmation: awaiting }
             : null,
         })),
+      
+      updatePlanThinking: (content: string) =>
+        set((state) => {
+          // If workflowPlan doesn't exist yet, initialize it
+          if (!state.workflowPlan) {
+            return {
+              workflowPlan: {
+                plan: '',
+                steps: [],
+                confirmationId: null,
+                awaitingConfirmation: false,
+                planThinking: content,
+                planThinkingIsStreaming: true,
+              },
+            }
+          }
+          // Otherwise, update existing plan thinking
+          return {
+            workflowPlan: {
+              ...state.workflowPlan,
+              planThinking: state.workflowPlan.planThinking + content,
+              planThinkingIsStreaming: true, // Mark as streaming when content is added
+            },
+          }
+        }),
       
       startWorkflowStep: (stepNumber: number, title: string) =>
         set((state) => {
@@ -602,11 +640,19 @@ export const useChatStore = create<ChatState>()(
         }),
       
       completeWorkflow: () =>
-        set({
-          workflowPlan: null,
-          workflowSteps: {},
+        set((state) => ({
+          ...state, // Preserve all state fields including workflowPlan
+          // Don't clear workflowPlan - keep it visible so user can see what was completed
+          // Only clear active step tracking
           currentWorkflowStep: null,
-        }),
+          // Mark all steps as completed if they exist
+          workflowSteps: Object.fromEntries(
+            Object.entries(state.workflowSteps).map(([key, step]) => [
+              key,
+              { ...step, status: 'completed' as const }
+            ])
+          ),
+        })),
       
       clearWorkflow: () =>
         set({
@@ -636,6 +682,7 @@ export const useChatStore = create<ChatState>()(
       partialize: (state) => ({
         messages: state.messages,
         currentSession: state.currentSession,
+        workflowPlan: state.workflowPlan, // Persist workflow plan for debugging
         // Don't persist assistantMessages or streamingMessages - they're temporary
       }),
     }
