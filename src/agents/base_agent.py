@@ -6,7 +6,7 @@ Provides common functionality for all agents in the system.
 from typing import TypedDict, List, Dict, Any, Optional, Annotated, AsyncGenerator, Callable
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.tools import BaseTool
-from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage, AIMessageChunk, ToolMessage
 from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
@@ -547,9 +547,68 @@ class BaseAgent:
                 
                 # Handle different chunk formats
                 if isinstance(chunk, tuple):
-                    # (AIMessageChunk, metadata) format in messages mode
+                    # (MessageChunk, metadata) format in messages mode
                     msg_chunk = chunk[0]
                     metadata = chunk[1] if len(chunk) > 1 else {}
+                    
+                    # #region agent log
+                    msg_type = type(msg_chunk).__name__
+                    msg_module = type(msg_chunk).__module__
+                    has_content = hasattr(msg_chunk, "content")
+                    content_preview = str(msg_chunk.content)[:200] if has_content else "no content"
+                    self.logger.info(f"[{self.name}] Chunk {chunk_count}: message type={msg_type}, module={msg_module}, content_preview={content_preview[:100]}")
+                    import os
+                    log_data = {
+                        "location": "base_agent.py:561",
+                        "message": "Processing chunk from astream",
+                        "data": {
+                            "chunk_count": chunk_count,
+                            "msg_type": msg_type,
+                            "msg_module": msg_module,
+                            "is_ai_message": isinstance(msg_chunk, (AIMessage, AIMessageChunk)),
+                            "is_tool_message": isinstance(msg_chunk, ToolMessage),
+                            "has_content": has_content,
+                            "content_type": type(msg_chunk.content).__name__ if has_content else None,
+                            "content_preview": content_preview[:200] if has_content else None,
+                        },
+                        "timestamp": int(os.times()[4] * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "B"
+                    }
+                    try:
+                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                            import json as json_module
+                            f.write(json_module.dumps(log_data) + "\n")
+                    except:
+                        pass
+                    # #endregion
+                    
+                    # Only process AIMessage chunks - skip ToolMessage, HumanMessage, etc.
+                    if not isinstance(msg_chunk, (AIMessage, AIMessageChunk)):
+                        self.logger.debug(f"[{self.name}] Skipping non-AI message chunk: {msg_type}")
+                        # #region agent log
+                        import os
+                        log_data = {
+                            "location": "base_agent.py:567",
+                            "message": "Skipping non-AI message chunk",
+                            "data": {
+                                "msg_type": msg_type,
+                                "is_tool_message": isinstance(msg_chunk, ToolMessage),
+                            },
+                            "timestamp": int(os.times()[4] * 1000),
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "B"
+                        }
+                        try:
+                            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                                import json as json_module
+                                f.write(json_module.dumps(log_data) + "\n")
+                        except:
+                            pass
+                        # #endregion
+                        continue
                     
                     # Extract text from the message chunk
                     if hasattr(msg_chunk, "content"):
@@ -558,6 +617,29 @@ class BaseAgent:
                             for block in content:
                                 # Get block type - handle both dict and object formats
                                 block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                                
+                                # #region agent log
+                                import os
+                                log_block_data = {
+                                    "location": "base_agent.py:622",
+                                    "message": "Processing content block",
+                                    "data": {
+                                        "block_type": block_type,
+                                        "is_dict": isinstance(block, dict),
+                                        "block_keys": list(block.keys()) if isinstance(block, dict) else None,
+                                    },
+                                    "timestamp": int(os.times()[4] * 1000),
+                                    "sessionId": "debug-session",
+                                    "runId": "run1",
+                                    "hypothesisId": "C"
+                                }
+                                try:
+                                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                                        import json as json_module
+                                        f.write(json_module.dumps(log_block_data) + "\n")
+                                except:
+                                    pass
+                                # #endregion
                                 
                                 if block_type == "thinking":
                                     # For thinking blocks, text is in 'thinking' key, not 'text'!
@@ -580,9 +662,34 @@ class BaseAgent:
                                                 "token": text_content,
                                                 "accumulated": accumulated_text
                                             })
+                                elif block_type == "tool_use" or block_type == "input_json_delta":
+                                    # Skip tool_use and input_json_delta blocks - these are not user-facing content
+                                    # tool_use is for tool calls, input_json_delta is for streaming JSON input
+                                    self.logger.debug(f"[{self.name}] Skipping {block_type} block (tool call data)")
                                 else:
                                     # Log unknown block types for debugging
                                     self.logger.debug(f"[{self.name}] Unknown block type: {block_type}, block: {block}")
+                                    # #region agent log
+                                    import os
+                                    log_unknown_block = {
+                                        "location": "base_agent.py:648",
+                                        "message": "Unknown block type encountered",
+                                        "data": {
+                                            "block_type": block_type,
+                                            "block_str": str(block)[:200],
+                                        },
+                                        "timestamp": int(os.times()[4] * 1000),
+                                        "sessionId": "debug-session",
+                                        "runId": "run1",
+                                        "hypothesisId": "C"
+                                    }
+                                    try:
+                                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                                            import json as json_module
+                                            f.write(json_module.dumps(log_unknown_block) + "\n")
+                                    except:
+                                        pass
+                                    # #endregion
                         elif isinstance(content, str) and content:
                             accumulated_text += content
                             if event_callback:
@@ -738,9 +845,44 @@ class BaseAgent:
             import traceback
             self.logger.error(f"[{self.name}] Traceback: {traceback.format_exc()}")
             if event_callback:
+                # Send error event first
                 await event_callback(StreamEvent.ERROR, {
                     "error": str(e)
                 })
+                # Try to send any accumulated response before failing
+                # Send DONE event with accumulated text if any, so agent_wrapper can send message_complete
+                try:
+                    await event_callback(StreamEvent.DONE, {
+                        "response": accumulated_text if accumulated_text else ""
+                    })
+                except:
+                    pass
+            
+            # #region agent log
+            import os
+            log_error_data = {
+                "location": "base_agent.py:812",
+                "message": "Exception in execute_with_streaming",
+                "data": {
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "accumulated_text_length": len(accumulated_text),
+                    "accumulated_thinking_length": len(accumulated_thinking),
+                    "has_event_callback": event_callback is not None,
+                },
+                "timestamp": int(os.times()[4] * 1000),
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "D"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    import json as json_module
+                    f.write(json_module.dumps(log_error_data) + "\n")
+            except:
+                pass
+            # #endregion
+            
             raise AgentError(
                 f"Agent streaming execution failed: {e}",
                 agent_name=self.name

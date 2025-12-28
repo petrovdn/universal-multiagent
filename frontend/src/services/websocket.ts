@@ -1,5 +1,6 @@
 import { useChatStore } from '../store/chatStore'
 import { useSettingsStore } from '../store/settingsStore'
+import type { DebugChunkType } from '../store/chatStore'
 
 export interface WebSocketEvent {
   type: string
@@ -13,6 +14,11 @@ export class WebSocketClient {
   private reconnectAttempts = 0
   private maxReconnectAttempts = 5
   private reconnectDelay = 1000
+  
+  // Track current reasoning/answer block IDs per message
+  private currentReasoningBlockId: string | null = null
+  private currentAnswerBlockId: string | null = null
+  private currentMessageId: string | null = null
 
   connect(sessionId: string): void {
     this.sessionId = sessionId
@@ -25,20 +31,17 @@ export class WebSocketClient {
       return
     }
 
-    // Close existing connection if any (but only if it's already open or connecting)
     if (this.ws) {
       const state = this.ws.readyState
       if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) {
         console.log('[WebSocket] Closing existing connection before creating new one, state:', state)
-        this.ws.onclose = null // Prevent reconnect attempt
-        this.ws.onerror = null // Prevent error handling
+        this.ws.onclose = null
+        this.ws.onerror = null
         this.ws.close()
         this.ws = null
-        // Small delay to ensure connection is fully closed
         setTimeout(() => this._doConnect(), 50)
         return
       } else if (state === WebSocket.CLOSING) {
-        // Wait for closing to complete
         console.log('[WebSocket] Waiting for existing connection to close')
         this.ws.onclose = () => {
           this.ws = null
@@ -70,9 +73,69 @@ export class WebSocketClient {
         try {
           const data: WebSocketEvent = JSON.parse(event.data)
           console.log('[WebSocket] Event received:', data.type, data)
+          
+          // #region agent log - WebSocket events log
+          // Логируем все события в отдельный файл для анализа порядка
+          const eventLog = {
+            timestamp: Date.now(),
+            eventType: data.type,
+            eventData: {
+              // Логируем основные поля события
+              message_id: data.data?.message_id || null,
+              content: data.data?.content ? (typeof data.data.content === 'string' ? data.data.content.substring(0, 200) : String(data.data.content).substring(0, 200)) : null,
+              contentLength: data.data?.content ? (typeof data.data.content === 'string' ? data.data.content.length : String(data.data.content).length) : null,
+              message: data.data?.message ? (typeof data.data.message === 'string' ? data.data.message.substring(0, 200) : String(data.data.message).substring(0, 200)) : null,
+              messageLength: data.data?.message ? (typeof data.data.message === 'string' ? data.data.message.length : String(data.data.message).length) : null,
+              step: data.data?.step || null,
+              tool_name: data.data?.tool_name || data.data?.name || null,
+              arguments: data.data?.arguments || data.data?.args || null,
+              result: data.data?.result ? (typeof data.data.result === 'string' ? data.data.result.substring(0, 200) : String(data.data.result).substring(0, 200)) : null,
+              stop_reason: data.data?.stop_reason || null,
+              role: data.data?.role || null,
+              // Полный объект data для детального анализа (ограничиваем размер)
+              fullData: JSON.stringify(data.data).substring(0, 1000),
+            },
+            rawEvent: JSON.stringify(data).substring(0, 2000), // Полное событие (ограничено)
+          }
+          
+          // Записываем в отдельный файл лога WebSocket событий
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              location: 'websocket.ts:onmessage',
+              message: 'WebSocket event received from backend',
+              data: eventLog,
+              timestamp: Date.now(),
+              sessionId: 'debug-session',
+              runId: 'websocket-events',
+              hypothesisId: 'EVENTS'
+            })
+          }).catch(() => {})
+          // #endregion
+          
           this.handleEvent(data)
         } catch (error) {
           console.error('[WebSocket] Error handling message:', error, event.data)
+          
+          // #region agent log - Error logging
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              location: 'websocket.ts:onmessage-error',
+              message: 'Error parsing WebSocket event',
+              data: {
+                error: String(error),
+                rawData: String(event.data).substring(0, 500),
+              },
+              timestamp: Date.now(),
+              sessionId: 'debug-session',
+              runId: 'websocket-events',
+              hypothesisId: 'EVENTS'
+            })
+          }).catch(() => {})
+          // #endregion
         }
       }
 
@@ -85,7 +148,6 @@ export class WebSocketClient {
         console.log('[WebSocket] Connection closed. Code:', event.code, 'Reason:', event.reason, 'WasClean:', event.wasClean)
         useChatStore.getState().setConnectionStatus(false)
         
-        // Only attempt reconnect if connection was established before (not initial connection failure)
         if (event.wasClean || this.reconnectAttempts > 0) {
           this._attemptReconnect()
         } else {
@@ -110,24 +172,30 @@ export class WebSocketClient {
 
   private handleEvent(event: WebSocketEvent): void {
     const chatStore = useChatStore.getState()
+    const settingsStore = useSettingsStore.getState()
+    const debugMode = settingsStore.debugMode
     console.log('[WebSocket] Received event:', event.type, event.data)
+    
+    // Helper function to add debug chunk if debug mode is enabled
+    const addDebugChunkIfEnabled = (messageId: string, chunkType: DebugChunkType, content: string, metadata?: Record<string, any>) => {
+      if (debugMode) {
+        const msgId = messageId || this.currentMessageId || `msg-${Date.now()}`
+        chatStore.addDebugChunk(msgId, chunkType, content, metadata)
+      }
+    }
 
     switch (event.type) {
       case 'message':
-        console.log('[WebSocket] Processing message event, role:', event.data.role)
-        // Handle different message roles
+        // Legacy message event (non-streaming)
         if (event.data.role === 'assistant' || event.data.role === 'system') {
-          console.log('[WebSocket] Adding assistant/system message:', event.data.content.substring(0, 50))
+          const messageTimestamp = new Date().toISOString()
           chatStore.addMessage({
             role: event.data.role,
             content: event.data.content,
-            timestamp: new Date().toISOString(),
+            timestamp: messageTimestamp,
           })
           chatStore.setAgentTyping(false)
-          console.log('[WebSocket] Set agent typing to false')
         } else if (event.data.role === 'user') {
-          // User messages are already added in handleSend, but if they come from WebSocket
-          // (e.g., after reconnection), add them only if not already present
           const allMessages = chatStore.getDisplayMessages()
           const lastMessage = allMessages[allMessages.length - 1]
           if (!lastMessage || lastMessage.content !== event.data.content || lastMessage.role !== 'user') {
@@ -141,78 +209,408 @@ export class WebSocketClient {
         break
 
       case 'message_start':
-        // Start streaming message
-        console.log('Starting streaming message:', event.data.message_id)
-        chatStore.startStreamingMessage(event.data.message_id, {
-          role: event.data.role,
-          content: '',
-          timestamp: new Date().toISOString(),
-        })
+        // Start of a new assistant message
+        const messageId = event.data.message_id || `msg-${Date.now()}`
+        this.currentMessageId = messageId
+        this.currentReasoningBlockId = null
+        this.currentAnswerBlockId = null
         chatStore.setAgentTyping(true)
-        break
-
-      case 'message_chunk':
-        // Update streaming message with new chunk
-        console.log('Updating streaming message:', event.data.message_id, 'chunk length:', event.data.chunk?.length)
-        chatStore.updateStreamingMessage(event.data.message_id, event.data.content)
-        break
-
-      case 'message_complete':
-        // Complete streaming message
-        console.log('Completing streaming message:', event.data.message_id)
-        chatStore.completeStreamingMessage(event.data.message_id, event.data.content)
-        chatStore.setAgentTyping(false)
+        addDebugChunkIfEnabled(messageId, 'message_start', 'Начало сообщения', event.data)
+        console.log('[WebSocket] Starting new message:', messageId)
         break
 
       case 'thinking':
-        console.log('[WebSocket] Thinking event:', event.data)
+        // Reasoning/thinking event
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-entry',message:'THINKING event received',data:{hasCurrentMessageId:!!this.currentMessageId,currentMessageId:this.currentMessageId,hasCurrentReasoningBlockId:!!this.currentReasoningBlockId,currentReasoningBlockId:this.currentReasoningBlockId,hasCurrentAnswerBlockId:!!this.currentAnswerBlockId,currentAnswerBlockId:this.currentAnswerBlockId,messageLength:event.data.message?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,D'})}).catch(()=>{});
+        // #endregion
         chatStore.setAgentTyping(true)
         const thinkingMessage = event.data.message || event.data.step || 'Thinking...'
-        console.log('[WebSocket] Adding reasoning step (thought):', thinkingMessage)
-        chatStore.addReasoningStep({
-          type: 'thought',
-          content: thinkingMessage,
-          timestamp: new Date().toISOString(),
-          data: event.data,
-        })
+        
+        // Get or create current message ID
+        if (!this.currentMessageId) {
+          this.currentMessageId = `msg-${Date.now()}`
+        }
+        const thinkingMsgId = this.currentMessageId
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-before-update',message:'Before reasoning block update',data:{thinkingMsgId,hasReasoningBlockId:!!this.currentReasoningBlockId,reasoningBlockId:this.currentReasoningBlockId,thinkingMessageLength:thinkingMessage.length,assistantMessagesCount:Object.keys(chatStore.assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,E'})}).catch(()=>{});
+        // #endregion
+        
+        // #region agent log
+        const beforeThinkingState = useChatStore.getState()
+        const currentMessage = beforeThinkingState.assistantMessages[thinkingMsgId]
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-before-logic',message:'Before reasoning block logic',data:{thinkingMsgId,hasCurrentReasoningBlockId:!!this.currentReasoningBlockId,currentReasoningBlockId:this.currentReasoningBlockId,hasCurrentAnswerBlockId:!!this.currentAnswerBlockId,currentAnswerBlockId:this.currentAnswerBlockId,existingReasoningBlocksCount:currentMessage?.reasoningBlocks.length||0,existingAnswerBlocksCount:currentMessage?.answerBlocks.length||0,lastReasoningIsStreaming:currentMessage?.reasoningBlocks[currentMessage?.reasoningBlocks.length-1]?.isStreaming,lastAnswerIsStreaming:currentMessage?.answerBlocks[currentMessage?.answerBlocks.length-1]?.isStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'A,B,C,D'})}).catch(()=>{});
+        // #endregion
+        
+        // Check if we need to create a NEW reasoning block or continue existing one
+        let shouldCreateNewReasoningBlock = false
+        
+        // Case 1: If we have an active answer block, this is a new reasoning cycle
+        if (this.currentAnswerBlockId && !this.currentAnswerBlockId.includes('reasoning')) {
+          // This means we're starting a new reasoning cycle after an answer
+          // Complete the answer block first
+          chatStore.completeAnswerBlock(thinkingMsgId, this.currentAnswerBlockId)
+          // We need a new reasoning block
+          this.currentReasoningBlockId = null
+          this.currentAnswerBlockId = null
+          shouldCreateNewReasoningBlock = true
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-new-cycle',message:'Starting new reasoning cycle after answer',data:{thinkingMsgId,completedAnswerBlockId:this.currentAnswerBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+        }
+        // Case 2: If we have a reasoning block, check if it's still streaming
+        else if (this.currentReasoningBlockId) {
+          const currentMessage = useChatStore.getState().assistantMessages[thinkingMsgId]
+          const currentReasoningBlock = currentMessage?.reasoningBlocks.find((b: any) => b.id === this.currentReasoningBlockId)
+          
+          if (currentReasoningBlock) {
+            if (currentReasoningBlock.isStreaming) {
+              // Reasoning block is still streaming - this is a CONTINUATION of the same block
+              // We should UPDATE it, not create a new one
+              shouldCreateNewReasoningBlock = false
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-continue-existing',message:'Continuing existing reasoning block',data:{thinkingMsgId,reasoningBlockId:this.currentReasoningBlockId,isStreaming:currentReasoningBlock.isStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'})}).catch(()=>{});
+              // #endregion
+            } else {
+              // Reasoning block is completed - this is a NEW reasoning block
+              shouldCreateNewReasoningBlock = true
+              this.currentReasoningBlockId = null
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-old-completed',message:'Previous reasoning block completed, creating new one',data:{thinkingMsgId,oldReasoningBlockId:this.currentReasoningBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'})}).catch(()=>{});
+              // #endregion
+            }
+          } else {
+            // Reasoning block not found in store - create new one
+            const missingReasoningBlockId = this.currentReasoningBlockId
+            shouldCreateNewReasoningBlock = true
+            this.currentReasoningBlockId = null
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-block-not-found',message:'Reasoning block not found in store, creating new',data:{thinkingMsgId,missingReasoningBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+          }
+        }
+        // Case 3: No reasoning block exists - create new one
+        else {
+          shouldCreateNewReasoningBlock = true
+        }
+        
+        // Create new reasoning block if needed
+        if (shouldCreateNewReasoningBlock) {
+          this.currentReasoningBlockId = `reasoning-${Date.now()}`
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-start-block',message:'Starting new reasoning block',data:{thinkingMsgId,reasoningBlockId:this.currentReasoningBlockId,reasoningBlockTimestamp:new Date().toISOString()},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A,C'})}).catch(()=>{});
+          // #endregion
+          chatStore.startReasoningBlock(thinkingMsgId, this.currentReasoningBlockId)
+        }
+        
+        // Update reasoning block content (replace, not append - backend sends accumulated content)
+        // At this point, currentReasoningBlockId must be set (either existing or newly created)
+        if (!this.currentReasoningBlockId) {
+          console.error('[WebSocket] ERROR: currentReasoningBlockId is null when trying to update reasoning block')
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-error-no-block-id',message:'ERROR: currentReasoningBlockId is null',data:{thinkingMsgId,contentLength:thinkingMessage.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          break
+        }
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-before-update-call',message:'Before updateReasoningBlock call',data:{thinkingMsgId,reasoningBlockId:this.currentReasoningBlockId,contentLength:thinkingMessage.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+        chatStore.updateReasoningBlock(thinkingMsgId, this.currentReasoningBlockId, thinkingMessage)
+        addDebugChunkIfEnabled(thinkingMsgId, 'thinking', thinkingMessage, event.data)
+        // #region agent log
+        const afterUpdateState = useChatStore.getState()
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-after-update',message:'After reasoning block update',data:{thinkingMsgId,reasoningBlockId:this.currentReasoningBlockId,hasMessage:!!afterUpdateState.assistantMessages[thinkingMsgId],reasoningBlocksCount:afterUpdateState.assistantMessages[thinkingMsgId]?.reasoningBlocks.length||0,lastReasoningContentLength:afterUpdateState.assistantMessages[thinkingMsgId]?.reasoningBlocks[afterUpdateState.assistantMessages[thinkingMsgId]?.reasoningBlocks.length-1]?.content.length||0,lastReasoningIsStreaming:afterUpdateState.assistantMessages[thinkingMsgId]?.reasoningBlocks[afterUpdateState.assistantMessages[thinkingMsgId]?.reasoningBlocks.length-1]?.isStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,E'})}).catch(()=>{});
+        // #endregion
+        console.log('[WebSocket] Updated reasoning block:', this.currentReasoningBlockId, 'content length:', thinkingMessage.length)
+        break
+
+      case 'message_chunk':
+        // Streaming answer content
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-entry',message:'MESSAGE_CHUNK event received',data:{hasCurrentMessageId:!!this.currentMessageId,currentMessageId:this.currentMessageId,eventMessageId:event.data.message_id,hasCurrentReasoningBlockId:!!this.currentReasoningBlockId,currentReasoningBlockId:this.currentReasoningBlockId,hasCurrentAnswerBlockId:!!this.currentAnswerBlockId,currentAnswerBlockId:this.currentAnswerBlockId,chunkLength:event.data.content?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C,F'})}).catch(()=>{});
+        // #endregion
+        const chunkContent = event.data.content || ''
+        
+        // CRITICAL FIX: If event.data.message_id exists and differs from currentMessageId,
+        // and we have a reasoning block, we need to move the reasoning block to the new message
+        const eventMessageId = event.data.message_id
+        let chunkMsgId: string
+        
+        if (!this.currentMessageId) {
+          // No current message, use event message_id or create new
+          chunkMsgId = eventMessageId || `msg-${Date.now()}`
+          this.currentMessageId = chunkMsgId
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-created-messageid',message:'Created new messageId from message_chunk',data:{newMessageId:chunkMsgId,eventMessageId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+          // #endregion
+        } else if (eventMessageId && eventMessageId !== this.currentMessageId) {
+          // Event has different message_id - copy reasoning block to new message
+          const oldMessageId = this.currentMessageId
+          chunkMsgId = eventMessageId
+          
+          // CRITICAL: Complete any active reasoning block in old message before switching
+          if (this.currentReasoningBlockId && oldMessageId) {
+            const state = useChatStore.getState()
+            const oldMessage = state.assistantMessages[oldMessageId]
+            if (oldMessage) {
+              const reasoningBlock = oldMessage.reasoningBlocks.find((b: any) => b.id === this.currentReasoningBlockId)
+              if (reasoningBlock && reasoningBlock.isStreaming) {
+                // Complete the reasoning block in old message before copying
+                chatStore.completeReasoningBlock(oldMessageId, this.currentReasoningBlockId)
+              }
+            }
+          }
+          
+          this.currentMessageId = chunkMsgId
+          
+          // Copy reasoning blocks to new message if they exist
+          // Check both currentReasoningBlockId and all reasoning blocks in old message
+          const state = useChatStore.getState()
+          const oldMessage = state.assistantMessages[oldMessageId]
+          if (oldMessage && oldMessage.reasoningBlocks.length > 0) {
+            // Copy all reasoning blocks from old message to new message
+            const existing = state.assistantMessages[chunkMsgId]
+            const reasoningBlocksToCopy = oldMessage.reasoningBlocks.filter((b: any) => 
+              !existing?.reasoningBlocks.some((eb: any) => eb.id === b.id)
+            )
+            
+            if (reasoningBlocksToCopy.length > 0) {
+              // Create new message or update existing
+              if (!existing) {
+                useChatStore.setState((state) => ({
+                  assistantMessages: {
+                    ...state.assistantMessages,
+                    [chunkMsgId]: {
+                      id: chunkMsgId,
+                      role: 'assistant',
+                      timestamp: new Date().toISOString(),
+                      reasoningBlocks: reasoningBlocksToCopy,
+                      answerBlocks: [],
+                      isComplete: false,
+                    },
+                  },
+                }))
+              } else {
+                useChatStore.setState((state) => ({
+                  assistantMessages: {
+                    ...state.assistantMessages,
+                    [chunkMsgId]: {
+                      ...existing,
+                      reasoningBlocks: [...existing.reasoningBlocks, ...reasoningBlocksToCopy],
+                    },
+                  },
+                }))
+              }
+              
+              // Update currentReasoningBlockId to the last reasoning block if it was set
+              if (this.currentReasoningBlockId) {
+                const reasoningBlock = reasoningBlocksToCopy.find((b: any) => b.id === this.currentReasoningBlockId)
+                if (reasoningBlock) {
+                  // Keep currentReasoningBlockId
+                } else {
+                  // Use the last reasoning block from old message
+                  const lastReasoningBlock = oldMessage.reasoningBlocks[oldMessage.reasoningBlocks.length - 1]
+                  if (lastReasoningBlock) {
+                    this.currentReasoningBlockId = lastReasoningBlock.id
+                  }
+                }
+              } else {
+                // Use the last reasoning block from old message
+                const lastReasoningBlock = oldMessage.reasoningBlocks[oldMessage.reasoningBlocks.length - 1]
+                if (lastReasoningBlock) {
+                  this.currentReasoningBlockId = lastReasoningBlock.id
+                }
+              }
+              
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-copied-reasoning',message:'Copied reasoning blocks to new message',data:{oldMessageId,newMessageId:chunkMsgId,reasoningBlocksCount:reasoningBlocksToCopy.length,reasoningBlockIds:reasoningBlocksToCopy.map((b:any)=>b.id),currentReasoningBlockId:this.currentReasoningBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+              // #endregion
+            }
+          } else if (this.currentReasoningBlockId && oldMessage) {
+            // Fallback: copy single reasoning block if currentReasoningBlockId is set
+            const reasoningBlock = oldMessage.reasoningBlocks.find((b: any) => b.id === this.currentReasoningBlockId)
+            if (reasoningBlock) {
+                // Create reasoning block in new message with same content
+                // Use existing methods, then update timestamp to preserve order
+                const state = useChatStore.getState()
+                const existing = state.assistantMessages[chunkMsgId]
+                
+                if (!existing) {
+                  // Create new message with reasoning block
+                  useChatStore.getState().startReasoningBlock(chunkMsgId, this.currentReasoningBlockId)
+                  useChatStore.getState().updateReasoningBlock(chunkMsgId, this.currentReasoningBlockId, reasoningBlock.content)
+                  // Update timestamp to preserve original order
+                  const updatedState = useChatStore.getState()
+                  const updatedMessage = updatedState.assistantMessages[chunkMsgId]
+                  if (updatedMessage) {
+                    const updatedBlocks = updatedMessage.reasoningBlocks.map(b =>
+                      b.id === this.currentReasoningBlockId
+                        ? { ...b, timestamp: reasoningBlock.timestamp }
+                        : b
+                    )
+                    useChatStore.setState((state) => ({
+                      assistantMessages: {
+                        ...state.assistantMessages,
+                        [chunkMsgId]: {
+                          ...updatedMessage,
+                          reasoningBlocks: updatedBlocks,
+                        },
+                      },
+                    }))
+                  }
+                } else {
+                  // Add to existing message
+                  useChatStore.getState().startReasoningBlock(chunkMsgId, this.currentReasoningBlockId)
+                  useChatStore.getState().updateReasoningBlock(chunkMsgId, this.currentReasoningBlockId, reasoningBlock.content)
+                  // Update timestamp to preserve original order
+                  const updatedState = useChatStore.getState()
+                  const updatedMessage = updatedState.assistantMessages[chunkMsgId]
+                  if (updatedMessage) {
+                    const updatedBlocks = updatedMessage.reasoningBlocks.map(b =>
+                      b.id === this.currentReasoningBlockId
+                        ? { ...b, timestamp: reasoningBlock.timestamp }
+                        : b
+                    )
+                    useChatStore.setState((state) => ({
+                      assistantMessages: {
+                        ...state.assistantMessages,
+                        [chunkMsgId]: {
+                          ...updatedMessage,
+                          reasoningBlocks: updatedBlocks,
+                        },
+                      },
+                    }))
+                  }
+                }
+                // #region agent log
+                fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-copied-reasoning',message:'Copied reasoning block to new message with preserved timestamp',data:{oldMessageId,newMessageId:chunkMsgId,reasoningBlockId:this.currentReasoningBlockId,reasoningContentLength:reasoningBlock.content.length,originalTimestamp:reasoningBlock.timestamp},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+                // #endregion
+              }
+            }
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-switched-messageid',message:'Switched messageId for message_chunk',data:{oldMessageId,newMessageId:chunkMsgId,eventMessageId,hasReasoningBlock:!!this.currentReasoningBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+          // #endregion
+        } else {
+          // Use existing currentMessageId
+          chunkMsgId = this.currentMessageId as string
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-using-existing',message:'Using existing messageId for message_chunk',data:{existingMessageId:chunkMsgId,eventMessageId,messageIdsMatch:chunkMsgId===eventMessageId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+          // #endregion
+        }
+        
+        // CRITICAL: If we have an active reasoning block, complete it (answer is starting)
+        // This must happen AFTER we've handled message_id switching, so we use the correct chunkMsgId
+        if (this.currentReasoningBlockId) {
+          // Verify the reasoning block exists in the current message before completing
+          const state = useChatStore.getState()
+          const currentMessage = state.assistantMessages[chunkMsgId]
+          if (currentMessage) {
+            const reasoningBlock = currentMessage.reasoningBlocks.find((b: any) => b.id === this.currentReasoningBlockId)
+            if (reasoningBlock) {
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-complete-reasoning',message:'Completing reasoning block before answer',data:{chunkMsgId,reasoningBlockId:this.currentReasoningBlockId,reasoningIsStreaming:reasoningBlock.isStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C,F'})}).catch(()=>{});
+              // #endregion
+              chatStore.completeReasoningBlock(chunkMsgId, this.currentReasoningBlockId)
+            }
+          }
+          this.currentReasoningBlockId = null
+        }
+        
+        // Get or create answer block
+        if (!this.currentAnswerBlockId) {
+          this.currentAnswerBlockId = `answer-${Date.now()}`
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-start-answer',message:'Starting new answer block',data:{chunkMsgId,answerBlockId:this.currentAnswerBlockId,answerBlockTimestamp:new Date().toISOString(),hasActiveReasoning:!!this.currentReasoningBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'B,D'})}).catch(()=>{});
+          // #endregion
+          chatStore.startAnswerBlock(chunkMsgId, this.currentAnswerBlockId)
+        }
+        
+        // Update answer block content (replace, not append - backend sends accumulated content)
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-before-update',message:'Before answer block update',data:{chunkMsgId,answerBlockId:this.currentAnswerBlockId,contentLength:chunkContent.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+        // #endregion
+        chatStore.updateAnswerBlock(chunkMsgId, this.currentAnswerBlockId, chunkContent)
+        addDebugChunkIfEnabled(chunkMsgId, 'message_chunk', chunkContent, { ...event.data, chunk: event.data.chunk })
+        // #region agent log
+        const afterAnswerUpdate = useChatStore.getState()
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-after-update',message:'After answer block update',data:{chunkMsgId,answerBlockId:this.currentAnswerBlockId,hasMessage:!!afterAnswerUpdate.assistantMessages[chunkMsgId],answerBlocksCount:afterAnswerUpdate.assistantMessages[chunkMsgId]?.answerBlocks.length||0,lastAnswerContentLength:afterAnswerUpdate.assistantMessages[chunkMsgId]?.answerBlocks[afterAnswerUpdate.assistantMessages[chunkMsgId]?.answerBlocks.length-1]?.content.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C,E'})}).catch(()=>{});
+        // #endregion
+        console.log('[WebSocket] Updated answer block:', this.currentAnswerBlockId, 'content length:', chunkContent.length)
+        break
+
+      case 'message_complete':
+        // Complete the message
+        const completeMessageId = event.data.message_id || this.currentMessageId
+        if (completeMessageId) {
+          // Complete any active blocks
+          if (this.currentReasoningBlockId) {
+            chatStore.completeReasoningBlock(completeMessageId, this.currentReasoningBlockId)
+          }
+          if (this.currentAnswerBlockId) {
+            chatStore.completeAnswerBlock(completeMessageId, this.currentAnswerBlockId)
+          }
+          
+          // Complete the message (moves to regular messages)
+          chatStore.completeMessage(completeMessageId)
+          addDebugChunkIfEnabled(completeMessageId, 'message_complete', event.data.content || 'Сообщение завершено', event.data)
+          
+          // Reset state for next message
+          // Note: We keep currentMessageId in case there's another reasoning cycle
+          // It will be reset when a new message_start arrives
+          this.currentReasoningBlockId = null
+          this.currentAnswerBlockId = null
+        }
+        chatStore.setAgentTyping(false)
+        console.log('[WebSocket] Completed message:', completeMessageId)
         break
 
       case 'tool_call':
-        console.log('[WebSocket] Tool call event:', event.data)
+        // Tool call event (add to reasoning block)
+        chatStore.setAgentTyping(true)
         const toolName = event.data.tool_name || event.data.name || 'Unknown tool'
         const toolArgs = event.data.arguments || event.data.args || {}
-        // Make tool call description more compact
-        let toolCallContent = toolName
-        if (Object.keys(toolArgs).length > 0) {
-          // Show only key parameter names, not full values
-          const paramKeys = Object.keys(toolArgs).slice(0, 3)
-          toolCallContent += ` (${paramKeys.join(', ')}${Object.keys(toolArgs).length > 3 ? '...' : ''})`
+        
+        // Get or create message ID
+        const toolMsgId = this.currentMessageId || `msg-${Date.now()}`
+        if (!this.currentMessageId) {
+          this.currentMessageId = toolMsgId
         }
-        console.log('[WebSocket] Adding reasoning step (tool_call):', toolCallContent)
-        chatStore.addReasoningStep({
-          type: 'tool_call',
-          content: toolCallContent,
-          timestamp: new Date().toISOString(),
-          data: event.data,
-        })
+        
+        // Get or create reasoning block
+        if (!this.currentReasoningBlockId) {
+          this.currentReasoningBlockId = `reasoning-${Date.now()}`
+          chatStore.startReasoningBlock(toolMsgId, this.currentReasoningBlockId)
+        }
+        
+        // Append tool call info to reasoning
+        const toolCallText = `Вызываю инструмент: ${toolName}${Object.keys(toolArgs).length > 0 ? ` (${Object.keys(toolArgs).slice(0, 3).join(', ')}${Object.keys(toolArgs).length > 3 ? '...' : ''})` : ''}`
+        const currentReasoning = chatStore.assistantMessages[toolMsgId]?.reasoningBlocks
+          .find((b: any) => b.id === this.currentReasoningBlockId)?.content || ''
+        chatStore.updateReasoningBlock(toolMsgId, this.currentReasoningBlockId, currentReasoning + (currentReasoning ? '\n' : '') + toolCallText)
+        addDebugChunkIfEnabled(toolMsgId, 'tool_call', toolCallText, { tool_name: toolName, arguments: toolArgs })
         break
 
       case 'tool_result':
-        console.log('[WebSocket] Tool result event:', event.data)
+        // Tool result event (add to reasoning block)
         const resultContent = event.data.result || event.data.content || 'Выполнение завершено'
-        // Keep result text compact - don't add "Результат: " prefix, ThinkingBlock will handle formatting
         const resultText = typeof resultContent === 'string' ? resultContent : JSON.stringify(resultContent)
-        // Truncate very long results
         const compactResult = resultText.length > 1000 
           ? resultText.substring(0, 1000) + '\n\n... (результат обрезан) ...'
           : resultText
-        console.log('[WebSocket] Adding reasoning step (tool_result):', compactResult.substring(0, 100))
-        chatStore.addReasoningStep({
-          type: 'tool_result',
-          content: compactResult,
-          timestamp: new Date().toISOString(),
-          data: event.data,
-        })
+        
+        // Add to reasoning if we have an active block
+        if (!this.currentMessageId) {
+          this.currentMessageId = `msg-${Date.now()}`
+        }
+        const resultMsgId = this.currentMessageId
+        if (this.currentReasoningBlockId) {
+          const currentReasoning = chatStore.assistantMessages[resultMsgId]?.reasoningBlocks
+            .find((b: any) => b.id === this.currentReasoningBlockId)?.content || ''
+          chatStore.updateReasoningBlock(resultMsgId, this.currentReasoningBlockId, currentReasoning + (currentReasoning ? '\n' : '') + `Результат: ${compactResult}`)
+        }
+        addDebugChunkIfEnabled(resultMsgId, 'tool_result', compactResult, event.data)
         break
 
       case 'plan_request':
@@ -220,12 +618,15 @@ export class WebSocketClient {
         break
 
       case 'error':
+        const errorMsgId = this.currentMessageId || `msg-${Date.now()}`
+        addDebugChunkIfEnabled(errorMsgId, 'error', event.data.message || 'Ошибка', event.data)
         chatStore.addMessage({
           role: 'system',
           content: `Error: ${event.data.message}`,
           timestamp: new Date().toISOString(),
         })
-        chatStore.setAgentTyping(false)
+        // Don't set agentTyping to false here - let message_complete handle it
+        // This ensures proper cleanup if message_complete arrives after error
         break
     }
   }
@@ -273,8 +674,11 @@ export class WebSocketClient {
       this.ws.close()
       this.ws = null
     }
+    // Reset state
+    this.currentMessageId = null
+    this.currentReasoningBlockId = null
+    this.currentAnswerBlockId = null
   }
 }
 
 export const wsClient = new WebSocketClient()
-

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from src.utils.mcp_loader import get_mcp_manager
 from src.utils.exceptions import ToolExecutionError
 from src.utils.retry import retry_on_mcp_error
+from src.utils.validators import validate_spreadsheet_range
 
 
 # ========== DRIVE TOOLS ==========
@@ -55,17 +56,98 @@ class ListFilesTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("workspace_list_files", args, server_name="google_workspace")
             
+            # #region agent log
+            import os
+            log_data = {
+                "location": "workspace_tools.py:56",
+                "message": "Result from call_tool before parsing",
+                "data": {
+                    "result_type": type(result).__name__,
+                    "is_list": isinstance(result, list),
+                    "is_dict": isinstance(result, dict),
+                    "is_str": isinstance(result, str),
+                    "list_length": len(result) if isinstance(result, list) else None,
+                    "has_getattr": hasattr(result, 'get') if result is not None else None,
+                },
+                "timestamp": int(os.times()[4] * 1000),
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    import json as json_module
+                    f.write(json_module.dumps(log_data) + "\n")
+            except:
+                pass
+            # #endregion
+            
             if isinstance(result, str):
                 result = json.loads(result)
             
-            files = result.get("files", [])
-            count = result.get("count", len(files))
+            # #region agent log
+            log_data2 = {
+                "location": "workspace_tools.py:76",
+                "message": "Result after JSON parsing",
+                "data": {
+                    "result_type": type(result).__name__,
+                    "is_list": isinstance(result, list),
+                    "is_dict": isinstance(result, dict),
+                    "list_length": len(result) if isinstance(result, list) else None,
+                    "has_getattr": hasattr(result, 'get') if result is not None else None,
+                    "dict_keys": list(result.keys()) if isinstance(result, dict) else None,
+                    "first_item": str(result[0])[:100] if isinstance(result, list) and len(result) > 0 else None,
+                },
+                "timestamp": int(os.times()[4] * 1000),
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    f.write(json_module.dumps(log_data2) + "\n")
+            except:
+                pass
+            # #endregion
+            
+            # Handle both dict and list results
+            if isinstance(result, dict):
+                files = result.get("files", [])
+                count = result.get("count", len(files))
+            elif isinstance(result, list):
+                # If result is a list, treat it as the files list directly
+                files = result
+                count = len(files)
+            else:
+                files = []
+                count = 0
+            
+            # #region agent log
+            log_data3 = {
+                "location": "workspace_tools.py:125",
+                "message": "After type checking",
+                "data": {
+                    "files_type": type(files).__name__,
+                    "files_length": len(files) if isinstance(files, list) else None,
+                    "count": count,
+                },
+                "timestamp": int(os.times()[4] * 1000),
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    f.write(json_module.dumps(log_data3) + "\n")
+            except:
+                pass
+            # #endregion
             
             if count == 0:
                 return "No files found in workspace folder."
             
             file_list = "\n".join([
-                f"- {f.get('name')} ({f.get('mimeType', 'unknown type')}) - ID: {f.get('id')}"
+                f"- {f.get('name') if isinstance(f, dict) else str(f)} ({f.get('mimeType', 'unknown type') if isinstance(f, dict) else 'unknown'}) - ID: {f.get('id') if isinstance(f, dict) else 'N/A'}"
                 for f in files[:20]  # Limit to first 20 for readability
             ])
             
@@ -254,11 +336,74 @@ class SearchFilesTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("workspace_search_files", args, server_name="google_workspace")
             
+            # #region agent log
+            import os
+            log_data = {
+                "location": "workspace_tools.py:255",
+                "message": "Result from call_tool",
+                "data": {
+                    "result_type": type(result).__name__,
+                    "is_list": isinstance(result, list),
+                    "is_dict": isinstance(result, dict),
+                    "is_str": isinstance(result, str),
+                    "list_length": len(result) if isinstance(result, list) else None,
+                    "first_item_type": type(result[0]).__name__ if isinstance(result, list) and len(result) > 0 else None,
+                },
+                "timestamp": int(os.times()[4] * 1000),
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A,B,C"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    import json as json_module
+                    f.write(json_module.dumps(log_data) + "\n")
+            except:
+                pass
+            # #endregion
+            
+            # Parse result - handle TextContent list (similar to gmail_tools.py)
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result = first_item.text
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result = first_item['text']
+            
             if isinstance(result, str):
                 result = json.loads(result)
             
-            files = result.get("files", [])
-            count = result.get("count", len(files))
+            # #region agent log
+            log_data2 = {
+                "location": "workspace_tools.py:275",
+                "message": "After parsing result",
+                "data": {
+                    "result_type": type(result).__name__,
+                    "is_dict": isinstance(result, dict),
+                    "has_files_key": "files" in result if isinstance(result, dict) else False,
+                },
+                "timestamp": int(os.times()[4] * 1000),
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A,B,C"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    f.write(json_module.dumps(log_data2) + "\n")
+            except:
+                pass
+            # #endregion
+            
+            # Handle both dict and list results
+            if isinstance(result, dict):
+                files = result.get("files", [])
+                count = result.get("count", len(files))
+            elif isinstance(result, list):
+                files = result
+                count = len(files)
+            else:
+                files = []
+                count = 0
             
             if count == 0:
                 return f"No files found matching query: {query}"
@@ -549,10 +694,65 @@ class ReadSpreadsheetTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("sheets_read_range", args, server_name="google_workspace")
             
+            # #region agent log
+            import os
+            log_data = {
+                "location": "workspace_tools.py:695",
+                "message": "Result from sheets_read_range before parsing",
+                "data": {
+                    "result_type": type(result).__name__,
+                    "is_list": isinstance(result, list),
+                    "is_dict": isinstance(result, dict),
+                    "is_str": isinstance(result, str),
+                    "list_length": len(result) if isinstance(result, list) else None,
+                },
+                "timestamp": int(os.times()[4] * 1000),
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "A"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    import json as json_module
+                    f.write(json_module.dumps(log_data) + "\n")
+            except:
+                pass
+            # #endregion
+            
             if isinstance(result, str):
                 result = json.loads(result)
             
-            values = result.get("values", [])
+            # Handle both dict and list results
+            # MCP server may return list directly or dict with "values" key
+            if isinstance(result, dict):
+                values = result.get("values", [])
+            elif isinstance(result, list):
+                # If result is a list, treat it as the values array directly
+                values = result
+            else:
+                values = []
+            
+            # #region agent log
+            log_values = {
+                "location": "workspace_tools.py:725",
+                "message": "Extracted values after parsing",
+                "data": {
+                    "values_type": type(values).__name__,
+                    "values_length": len(values) if isinstance(values, list) else None,
+                    "first_row_preview": str(values[0])[:100] if isinstance(values, list) and len(values) > 0 else None,
+                },
+                "timestamp": int(os.times()[4] * 1000),
+                "sessionId": "debug-session",
+                "runId": "run1",
+                "hypothesisId": "B"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    import json as json_module
+                    f.write(json_module.dumps(log_values) + "\n")
+            except:
+                pass
+            # #endregion
             
             if not values:
                 return f"No data found in range '{range}'"
@@ -715,5 +915,272 @@ def get_workspace_tools() -> List[BaseTool]:
         ReadSpreadsheetTool(),
         WriteSpreadsheetTool(),
         AppendRowsTool(),
+    ]
+
+
+def get_workspace_sheets_tools() -> List[BaseTool]:
+    """
+    Get Google Sheets tools compatible with sheets_tools interface, but using Workspace MCP server.
+    
+    These tools have the same names and interfaces as sheets_tools, but use the google_workspace
+    MCP server instead of the sheets server.
+    
+    Returns:
+        List of BaseTool instances for Sheets operations via Workspace
+    """
+    # Define input schemas compatible with sheets_tools
+    class GetSheetDataInput(BaseModel):
+        """Input schema for get_sheet_data tool."""
+        spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID")
+        range: str = Field(description="Cell range in A1 notation")
+        sheet_name: Optional[str] = Field(default=None, description="Sheet name within spreadsheet (if not in range)")
+    
+    class AddRowsInput(BaseModel):
+        """Input schema for add_rows tool."""
+        spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID")
+        sheet_name: str = Field(description="Sheet name within spreadsheet")
+        values: List[List[Any]] = Field(description="Rows of data to add (list of lists)")
+    
+    class UpdateCellsInput(BaseModel):
+        """Input schema for update_cells tool."""
+        spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID")
+        range: str = Field(description="Cell range in A1 notation")
+        values: List[List[Any]] = Field(description="2D array of values (rows of cells)")
+    
+    class CreateSpreadsheetToolWrapper(BaseTool):
+        """Tool for creating a spreadsheet (Workspace version with sheets_tools interface)."""
+        name: str = "create_spreadsheet"
+        description: str = """
+        Create a new Google Sheets spreadsheet.
+        
+        Input:
+        - title: Title of the spreadsheet
+        - sheet_names: Optional list of initial sheet names (default: ['Sheet1'])
+        """
+        args_schema: type = CreateSpreadsheetInput
+        
+        @retry_on_mcp_error()
+        async def _arun(
+            self,
+            title: str,
+            sheet_names: Optional[List[str]] = None
+        ) -> str:
+            """Execute the tool asynchronously."""
+            try:
+                args = {"title": title}
+                if sheet_names:
+                    args["sheetNames"] = sheet_names
+                
+                mcp_manager = get_mcp_manager()
+                result = await mcp_manager.call_tool("sheets_create_spreadsheet", args, server_name="google_workspace")
+                
+                if isinstance(result, str):
+                    result = json.loads(result)
+                
+                spreadsheet_id = result.get("spreadsheetId", "unknown")
+                spreadsheet_title = result.get("title", title)
+                url = result.get("url", "")
+                
+                return f"Spreadsheet '{spreadsheet_title}' created successfully. ID: {spreadsheet_id}. URL: {url}"
+                
+            except Exception as e:
+                raise ToolExecutionError(
+                    f"Failed to create spreadsheet: {e}",
+                    tool_name=self.name
+                ) from e
+        
+        def _run(self, *args, **kwargs) -> str:
+            raise NotImplementedError("Use async execution")
+    
+    class GetSheetDataTool(BaseTool):
+        """Tool for reading data from a spreadsheet (Workspace version)."""
+        name: str = "get_sheet_data"
+        description: str = """
+        Read data from a Google Sheets spreadsheet.
+        
+        Input:
+        - spreadsheet_id: The ID of the spreadsheet
+        - range: Cell range in A1 notation (e.g., 'Sheet1!A1:D10' or 'A1:B5')
+        - sheet_name: Optional sheet name (if not included in range)
+        """
+        args_schema: type = GetSheetDataInput
+        
+        @retry_on_mcp_error()
+        async def _arun(self, spreadsheet_id: str, range: str, sheet_name: Optional[str] = None) -> str:
+            """Execute the tool asynchronously."""
+            try:
+                # Construct range with sheet name if provided
+                if sheet_name and not '!' in range:
+                    validated_range = f"{sheet_name}!{range}"
+                else:
+                    validated_range = validate_spreadsheet_range(range)
+                
+                args = {
+                    "spreadsheetId": spreadsheet_id,
+                    "range": validated_range
+                }
+                
+                mcp_manager = get_mcp_manager()
+                result = await mcp_manager.call_tool("sheets_read_range", args, server_name="google_workspace")
+                
+                # #region agent log
+                import os
+                log_data = {
+                    "location": "workspace_tools.py:1024",
+                    "message": "Result from sheets_read_range (GetSheetDataTool) before parsing",
+                    "data": {
+                        "result_type": type(result).__name__,
+                        "is_list": isinstance(result, list),
+                        "is_dict": isinstance(result, dict),
+                        "is_str": isinstance(result, str),
+                        "list_length": len(result) if isinstance(result, list) else None,
+                    },
+                    "timestamp": int(os.times()[4] * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "C"
+                }
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        import json as json_module
+                        f.write(json_module.dumps(log_data) + "\n")
+                except:
+                    pass
+                # #endregion
+                
+                if isinstance(result, str):
+                    result = json.loads(result)
+                
+                # Handle both dict and list results
+                # MCP server may return list directly or dict with "values" key
+                if isinstance(result, dict):
+                    values = result.get("values", [])
+                elif isinstance(result, list):
+                    # If result is a list, treat it as the values array directly
+                    values = result
+                else:
+                    values = []
+                
+                return f"Retrieved {len(values)} row(s) from range '{validated_range}'"
+                
+            except Exception as e:
+                raise ToolExecutionError(
+                    f"Failed to get sheet data: {e}",
+                    tool_name=self.name
+                ) from e
+        
+        def _run(self, *args, **kwargs) -> str:
+            raise NotImplementedError("Use async execution")
+    
+    class AddRowsTool(BaseTool):
+        """Tool for adding rows to a spreadsheet (Workspace version)."""
+        name: str = "add_rows"
+        description: str = """
+        Add rows of data to a Google Sheets spreadsheet.
+        
+        Input:
+        - spreadsheet_id: The ID of the spreadsheet
+        - sheet_name: Name of the sheet within the spreadsheet
+        - values: List of rows, where each row is a list of cell values
+        """
+        args_schema: type = AddRowsInput
+        
+        @retry_on_mcp_error()
+        async def _arun(
+            self,
+            spreadsheet_id: str,
+            sheet_name: str,
+            values: List[List[Any]]
+        ) -> str:
+            """Execute the tool asynchronously."""
+            try:
+                if not values:
+                    raise ValueError("No values provided to add")
+                
+                # Use sheet name as range (e.g., 'Sheet1!A:A' to append to column A)
+                range_str = f"{sheet_name}!A:A"
+                
+                args = {
+                    "spreadsheetId": spreadsheet_id,
+                    "range": range_str,
+                    "values": values
+                }
+                
+                mcp_manager = get_mcp_manager()
+                result = await mcp_manager.call_tool("sheets_append_rows", args, server_name="google_workspace")
+                
+                if isinstance(result, str):
+                    result = json.loads(result)
+                
+                rows_added = len(values)
+                return f"Successfully added {rows_added} row(s) to sheet '{sheet_name}'"
+                
+            except Exception as e:
+                raise ToolExecutionError(
+                    f"Failed to add rows: {e}",
+                    tool_name=self.name
+                ) from e
+        
+        def _run(self, *args, **kwargs) -> str:
+            raise NotImplementedError("Use async execution")
+    
+    class UpdateCellsTool(BaseTool):
+        """Tool for updating cells in a spreadsheet (Workspace version)."""
+        name: str = "update_cells"
+        description: str = """
+        Update cells in a Google Sheets spreadsheet.
+        
+        Input:
+        - spreadsheet_id: The ID of the spreadsheet
+        - range: Cell range in A1 notation (e.g., 'Sheet1!A1:D10')
+        - values: 2D array of values (list of rows, where each row is a list of cell values)
+        """
+        args_schema: type = UpdateCellsInput
+        
+        @retry_on_mcp_error()
+        async def _arun(
+            self,
+            spreadsheet_id: str,
+            range: str,
+            values: List[List[Any]]
+        ) -> str:
+            """Execute the tool asynchronously."""
+            try:
+                if not values:
+                    raise ValueError("No values provided to update")
+                
+                validated_range = validate_spreadsheet_range(range)
+                
+                args = {
+                    "spreadsheetId": spreadsheet_id,
+                    "range": validated_range,
+                    "values": values
+                }
+                
+                mcp_manager = get_mcp_manager()
+                result = await mcp_manager.call_tool("sheets_write_range", args, server_name="google_workspace")
+                
+                if isinstance(result, str):
+                    result = json.loads(result)
+                
+                updated_cells = result.get("updatedCells", 0)
+                updated_rows = result.get("updatedRows", 0)
+                
+                return f"Successfully updated {updated_cells} cell(s) in {updated_rows} row(s) in range '{validated_range}'"
+                
+            except Exception as e:
+                raise ToolExecutionError(
+                    f"Failed to update cells: {e}",
+                    tool_name=self.name
+                ) from e
+        
+        def _run(self, *args, **kwargs) -> str:
+            raise NotImplementedError("Use async execution")
+    
+    return [
+        CreateSpreadsheetToolWrapper(),
+        GetSheetDataTool(),
+        AddRowsTool(),
+        UpdateCellsTool(),
     ]
 

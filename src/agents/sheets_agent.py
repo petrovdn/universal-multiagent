@@ -5,9 +5,57 @@ Handles data recording, spreadsheet creation, and data management.
 
 from typing import List, Optional
 from langchain_core.tools import BaseTool
+from pathlib import Path
 
 from src.agents.base_agent import BaseAgent
 from src.mcp_tools.sheets_tools import get_sheets_tools
+from src.mcp_tools.workspace_tools import get_workspace_sheets_tools
+from src.utils.config_loader import get_config
+
+
+def _is_workspace_integration_enabled() -> bool:
+    """
+    Check if Google Workspace integration is enabled and authenticated.
+    
+    Returns:
+        True if Workspace token exists and is valid, False otherwise
+    """
+    try:
+        config = get_config()
+        workspace_token_path = config.tokens_dir / "google_workspace_token.json"
+        
+        if not workspace_token_path.exists():
+            return False
+        
+        # Try to validate token
+        try:
+            from google.oauth2.credentials import Credentials
+            from google.auth.transport.requests import Request as GoogleRequest
+            
+            creds = Credentials.from_authorized_user_file(
+                str(workspace_token_path),
+                [
+                    "https://www.googleapis.com/auth/drive",
+                    "https://www.googleapis.com/auth/documents",
+                    "https://www.googleapis.com/auth/spreadsheets",
+                ]
+            )
+            
+            # Check if token is valid (not expired or can be refreshed)
+            if creds.expired and creds.refresh_token:
+                try:
+                    creds.refresh(GoogleRequest())
+                    # Save refreshed token
+                    with open(workspace_token_path, 'w') as token:
+                        token.write(creds.to_json())
+                except Exception:
+                    return False
+            
+            return creds.valid
+        except Exception:
+            return False
+    except Exception:
+        return False
 
 
 SHEETS_AGENT_SYSTEM_PROMPT = """You are an expert spreadsheet assistant specialized in Google Sheets operations.
@@ -75,12 +123,22 @@ class SheetsAgent(BaseAgent):
         """
         Initialize Sheets Agent.
         
+        If Google Workspace integration is enabled, uses Workspace Sheets tools
+        (which use the google_workspace MCP server). Otherwise, uses standalone
+        Sheets tools (which use the sheets MCP server).
+        
         Args:
-            tools: Custom tools (uses Sheets tools by default)
+            tools: Custom tools (uses Sheets tools by default, or Workspace Sheets tools if Workspace is enabled)
             model_name: Model identifier (optional, uses default from config if None)
         """
         if tools is None:
-            tools = get_sheets_tools()
+            # Check if Workspace integration is enabled
+            if _is_workspace_integration_enabled():
+                # Use Workspace Sheets tools (they use google_workspace MCP server)
+                tools = get_workspace_sheets_tools()
+            else:
+                # Use standalone Sheets tools (they use sheets MCP server)
+                tools = get_sheets_tools()
         
         super().__init__(
             name="SheetsAgent",

@@ -384,6 +384,22 @@ body {
   background: #6366F1;
 }
 
+.workspace-toggle {
+  background: #D1D5DB;
+}
+
+.workspace-toggle.active {
+  background: #22C55E;
+}
+
+.debug-toggle {
+  background: #D1D5DB;
+}
+
+.debug-toggle.active {
+  background: #10B981;
+}
+
 /* Session title bar removed - не используется */
 
 /* ============================================
@@ -621,6 +637,236 @@ body {
 .thinking-text-content {
   white-space: pre-wrap;
   word-wrap: break-word;
+}
+
+/* ============================================
+   REASONING BLOCK (NEW ARCHITECTURE)
+   ============================================ */
+.reasoning-block {
+  position: relative;
+  max-width: 900px;
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  background: #f5f5f7;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+  margin-top: 12px;
+  margin-bottom: 16px;
+  transition: opacity 0.3s ease, max-height 0.3s ease, margin 0.3s ease;
+  flex-shrink: 0;
+}
+
+.reasoning-block-visible {
+  opacity: 1;
+  max-height: 25vh;
+  min-height: 200px;
+}
+
+.reasoning-block-hidden {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+  margin-bottom: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.reasoning-block-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-secondary);
+  background: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.reasoning-block-collapsed {
+  max-height: 50px !important; /* Только header */
+  min-height: 50px !important;
+}
+
+.reasoning-block-collapsed .reasoning-block-content {
+  display: none;
+}
+
+.reasoning-block-toggle {
+  margin-left: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  transition: color var(--transition-fast);
+}
+
+.reasoning-block-toggle:hover {
+  color: var(--text-secondary);
+}
+
+.reasoning-block-chevron {
+  width: 16px;
+  height: 16px;
+  transition: transform var(--transition-fast);
+}
+
+.reasoning-answer-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.reasoning-block-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.reasoning-block-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.reasoning-block-streaming-indicator {
+  width: 8px;
+  height: 8px;
+  background: var(--accent-primary);
+  border-radius: 50%;
+  animation: pulse 1.5s ease-in-out infinite;
+  margin-left: auto;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.reasoning-block-content {
+  height: calc(25vh - 60px);
+  min-height: 150px;
+  max-height: calc(25vh - 60px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #111;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+  background: #fafafa;
+}
+
+/* Custom scrollbar for reasoning block */
+.reasoning-block-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.reasoning-block-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+}
+
+.reasoning-block-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.reasoning-block-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+/* ============================================
+   ANSWER BLOCK
+   ============================================ */
+.answer-block {
+  width: 100%;
+  margin-top: 16px;
+  margin-bottom: 16px;
+}
+
+.answer-block-content {
+  width: 100%;
+}
+
+.answer-block-placeholder {
+  padding: 12px 0;
+  color: var(--text-tertiary);
+}
+
+.answer-block-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 16px;
+  background: var(--accent-primary);
+  margin-left: 2px;
+  animation: blink 1s infinite;
+  vertical-align: baseline;
+}
+
+@keyframes blink {
+  0%, 50% {
+    opacity: 1;
+  }
+  51%, 100% {
+    opacity: 0;
+  }
+}
+
+/* ============================================
+   CHAT MESSAGE CONTAINER
+   ============================================ */
+.chat-message {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.chat-message-placeholder {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 20px 0;
+}
+
+/* Debug mode styles */
+.chat-message.debug-mode {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.debug-chunk {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+  line-height: 1.5;
+}
+
+.debug-chunk pre {
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 4px;
+  overflow-x: auto;
 }
 
 /* ============================================
@@ -1120,5 +1366,17 @@ body {
   .mode-selector-button {
     padding: 6px 10px;
     font-size: 12px;
+  }
+  
+  /* Mobile: reasoning block should not exceed 50% of viewport */
+  .reasoning-block-visible {
+    max-height: 50vh;
+    min-height: 150px;
+  }
+  
+  .reasoning-block-content {
+    height: calc(50vh - 60px);
+    max-height: calc(50vh - 60px);
+    min-height: 100px;
   }
 }

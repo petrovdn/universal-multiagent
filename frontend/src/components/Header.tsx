@@ -9,7 +9,7 @@ export function Header() {
   const [isLoading, setIsLoading] = useState(false)
   const [isFolderSelectorOpen, setIsFolderSelectorOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
-  const { integrations, setIntegrationStatus } = useSettingsStore()
+  const { integrations, setIntegrationStatus, debugMode, setDebugMode } = useSettingsStore()
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -232,7 +232,32 @@ export function Header() {
 
           {isSettingsOpen && (
             <div className="settings-dropdown">
-              {/* Integrations only - убрали режим выполнения */}
+              {/* Debug Mode */}
+              <div className="settings-section">
+                <h3 className="settings-section-title">
+                  Отладка
+                </h3>
+                <div className="space-y-3">
+                  <div className="integration-row">
+                    <div className="flex items-center space-x-3">
+                      <div>
+                        <div className="integration-name">Отладочный режим</div>
+                        <div className="integration-status">
+                          {debugMode ? 'Включен' : 'Выключен'}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setDebugMode(!debugMode)}
+                      className="toggle-button"
+                    >
+                      <div className={`toggle-slider debug-toggle ${debugMode ? 'active' : ''}`}></div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Integrations */}
               <div className="settings-section">
                 <h3 className="settings-section-title">
                   Интеграции

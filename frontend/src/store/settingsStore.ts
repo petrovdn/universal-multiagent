@@ -25,10 +25,12 @@ interface SettingsState {
   executionMode: ExecutionMode
   timezone: string
   theme: Theme
+  debugMode: boolean
   integrations: IntegrationsState
   setExecutionMode: (mode: ExecutionMode) => void
   setTimezone: (tz: string) => void
   setTheme: (theme: Theme) => void
+  setDebugMode: (enabled: boolean) => void
   setIntegrationStatus: (integration: keyof IntegrationsState, status: Partial<IntegrationsState[keyof IntegrationsState]>) => void
 }
 
@@ -38,6 +40,7 @@ export const useSettingsStore = create<SettingsState>()(
       executionMode: 'instant',
       timezone: 'Europe/Moscow',
       theme: 'light',
+      debugMode: false,
       integrations: {
         googleCalendar: {
           enabled: false,
@@ -66,6 +69,9 @@ export const useSettingsStore = create<SettingsState>()(
       
       setTheme: (theme) =>
         set({ theme }),
+      
+      setDebugMode: (enabled) =>
+        set({ debugMode: enabled }),
       
       setIntegrationStatus: (integration, status) =>
         set((state) => ({

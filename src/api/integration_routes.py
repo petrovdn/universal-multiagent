@@ -3,7 +3,7 @@ Integration management routes for Google Workspace services.
 Handles enabling/disabling integrations and OAuth flows.
 """
 
-from fastapi import APIRouter, HTTPException, Request, Cookie
+from fastapi import APIRouter, HTTPException, Request, Cookie, Query
 from fastapi.responses import JSONResponse, RedirectResponse
 from typing import Dict, Any, Optional
 from pathlib import Path
@@ -301,9 +301,9 @@ async def get_integrations_status(request: Request):
             # Check if folder is configured
             if WORKSPACE_CONFIG_PATH.exists():
                 try:
-                    with open(WORKSPACE_CONFIG_PATH, 'r') as f:
-                        config = json.load(f)
-                        status["google_workspace"]["folder_configured"] = bool(config.get("folder_id"))
+                    config_text = WORKSPACE_CONFIG_PATH.read_text()
+                    config = json.loads(config_text)
+                    status["google_workspace"]["folder_configured"] = bool(config.get("folder_id"))
                 except Exception:
                     pass
         except Exception as e:
@@ -1113,16 +1113,16 @@ async def get_workspace_status():
             # Check folder configuration
             if WORKSPACE_CONFIG_PATH.exists():
                 try:
-                    with open(WORKSPACE_CONFIG_PATH, 'r') as f:
-                        config = json.load(f)
-                        folder_id = config.get("folder_id")
-                        folder_configured = bool(folder_id)
-                        if folder_id:
-                            folder_info = {
-                                "id": folder_id,
-                                "name": config.get("folder_name"),
-                                "url": config.get("folder_url")
-                            }
+                    config_text = WORKSPACE_CONFIG_PATH.read_text()
+                    config = json.loads(config_text)
+                    folder_id = config.get("folder_id")
+                    folder_configured = bool(folder_id)
+                    if folder_id:
+                        folder_info = {
+                            "id": folder_id,
+                            "name": config.get("folder_name"),
+                            "url": config.get("folder_url")
+                        }
                 except Exception as e:
                     logger.warning(f"Failed to load workspace config: {e}")
         except Exception as e:
@@ -1173,9 +1173,9 @@ async def enable_workspace_integration(request: Request):
                 folder_configured = False
                 if WORKSPACE_CONFIG_PATH.exists():
                     try:
-                        with open(WORKSPACE_CONFIG_PATH, 'r') as f:
-                            config = json.load(f)
-                            folder_configured = bool(config.get("folder_id"))
+                        config_text = WORKSPACE_CONFIG_PATH.read_text()
+                        config = json.loads(config_text)
+                        folder_configured = bool(config.get("folder_id"))
                     except Exception:
                         pass
                 
@@ -1422,7 +1422,11 @@ async def list_workspace_folders(request: Request):
 
 
 @router.post("/google-workspace/set-folder")
-async def set_workspace_folder(request: Request, folder_id: str, folder_name: Optional[str] = None):
+async def set_workspace_folder(
+    request: Request,
+    folder_id: str = Query(..., description="Google Drive folder ID"),
+    folder_name: Optional[str] = Query(None, description="Optional folder name")
+):
     """
     Set the workspace folder ID.
     
@@ -1476,9 +1480,12 @@ async def set_workspace_folder(request: Request, folder_id: str, folder_name: Op
             "folder_url": folder_url
         }
         
-        WORKSPACE_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(WORKSPACE_CONFIG_PATH, 'w') as f:
-            json.dump(config, f, indent=2)
+        # Get actual path from DynamicPath and ensure parent directory exists
+        config_path = WORKSPACE_CONFIG_PATH._get_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write configuration using write_text method
+        WORKSPACE_CONFIG_PATH.write_text(json.dumps(config, indent=2))
         
         # Log action
         session_id = request.cookies.get("session_id")
@@ -1526,8 +1533,8 @@ async def get_current_workspace_folder():
         }
     
     try:
-        with open(WORKSPACE_CONFIG_PATH, 'r') as f:
-            config = json.load(f)
+        config_text = WORKSPACE_CONFIG_PATH.read_text()
+        config = json.loads(config_text)
         
         return {
             "folder_id": config.get("folder_id"),
@@ -1544,7 +1551,11 @@ async def get_current_workspace_folder():
 
 
 @router.post("/google-workspace/create-folder")
-async def create_workspace_folder(request: Request, folder_name: str, parent_folder_id: Optional[str] = None):
+async def create_workspace_folder(
+    request: Request,
+    folder_name: str = Query(..., description="Name of the folder to create"),
+    parent_folder_id: Optional[str] = Query(None, description="Optional parent folder ID")
+):
     """
     Create a new folder in Google Drive.
     If parent_folder_id is not provided, creates in Drive root.
