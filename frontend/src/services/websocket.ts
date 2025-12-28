@@ -614,7 +614,58 @@ export class WebSocketClient {
         break
 
       case 'plan_request':
-        // Handle plan approval request
+        // Handle plan approval request (legacy - keep for compatibility)
+        break
+
+      case 'plan_generated':
+        // Save plan to chatStore
+        chatStore.setWorkflowPlan(
+          event.data.plan || '',
+          event.data.steps || [],
+          event.data.confirmation_id || null
+        )
+        console.log('[WebSocket] Plan generated:', event.data.plan)
+        break
+
+      case 'awaiting_confirmation':
+        // Show confirmation buttons
+        chatStore.setAwaitingConfirmation(true)
+        console.log('[WebSocket] Awaiting confirmation')
+        break
+
+      case 'step_start':
+        // Start a new workflow step
+        chatStore.startWorkflowStep(event.data.step, event.data.title || `Step ${event.data.step}`)
+        console.log('[WebSocket] Step started:', event.data.step, event.data.title)
+        break
+
+      case 'thinking_chunk':
+        // Add thinking chunk to current step (streaming)
+        const currentStep = chatStore.currentWorkflowStep
+        if (currentStep !== null) {
+          chatStore.updateStepThinking(currentStep, event.data.content || '')
+        }
+        break
+
+      case 'response_chunk':
+        // Add response chunk to current step (streaming)
+        const currentStepForResponse = chatStore.currentWorkflowStep
+        if (currentStepForResponse !== null) {
+          chatStore.updateStepResponse(currentStepForResponse, event.data.content || '')
+        }
+        break
+
+      case 'step_complete':
+        // Complete a workflow step
+        chatStore.completeWorkflowStep(event.data.step)
+        console.log('[WebSocket] Step completed:', event.data.step)
+        break
+
+      case 'workflow_complete':
+        // Complete the entire workflow
+        chatStore.completeWorkflow()
+        chatStore.setAgentTyping(false)
+        console.log('[WebSocket] Workflow completed')
         break
 
       case 'error':
@@ -657,6 +708,7 @@ export class WebSocketClient {
         type: 'approve_plan',
         confirmation_id: confirmationId,
       }))
+      console.log('[WebSocket] Plan approved:', confirmationId)
     }
   }
 
@@ -666,6 +718,9 @@ export class WebSocketClient {
         type: 'reject_plan',
         confirmation_id: confirmationId,
       }))
+      console.log('[WebSocket] Plan rejected:', confirmationId)
+      // Clear workflow state after rejection
+      useChatStore.getState().clearWorkflow()
     }
   }
 

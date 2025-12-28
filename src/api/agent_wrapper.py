@@ -10,6 +10,7 @@ import logging
 from src.agents.main_agent import MainAgent
 from src.agents.base_agent import StreamEvent
 from src.core.context_manager import ConversationContext
+from src.core.step_orchestrator import StepOrchestrator
 from src.api.websocket_manager import get_websocket_manager
 from src.utils.audit import get_audit_logger
 from src.utils.config_loader import get_config
@@ -28,6 +29,8 @@ class AgentWrapper:
         self._main_agent_cache: Dict[str, MainAgent] = {}
         self.ws_manager = get_websocket_manager()
         self.audit_logger = get_audit_logger()
+        # Store active orchestrators for plan confirmation
+        self._active_orchestrators: Dict[str, StepOrchestrator] = {}
     
     def get_main_agent(self, model_name: Optional[str] = None) -> MainAgent:
         """
@@ -110,46 +113,46 @@ class AgentWrapper:
         )
         
         try:
-            # Get MainAgent instance with model from context
-            main_agent = self.get_main_agent(context.model_name)
-            
-            # Execute agent based on execution mode
+            # Use StepOrchestrator for multi-step execution
+            # Map execution_mode to orchestrator mode
             if context.execution_mode == "approval":
-                result = await main_agent.execute_with_mode(
-                    user_message,
-                    context,
-                    execution_mode="approval"
-                )
-                
-                if result.get("type") == "plan_request":
-                    # Send plan request event
-                    await self.ws_manager.send_event(
-                        session_id,
-                        "plan_request",
-                        {
-                            "confirmation_id": result["confirmation_id"],
-                            "plan": result["plan"]
-                        }
-                    )
-                    return result
+                orchestrator_mode = "plan_and_confirm"
             else:
-                # Execute immediately with streaming
-                result = await self._execute_with_streaming(
-                    user_message,
-                    context,
-                    session_id
-                )
-                
-                # Stream the response (already done in _execute_with_streaming)
-                # Just log the action
-                self.audit_logger.log_agent_action(
-                    "MainAgent",
-                    "execute",
-                    {"message": user_message, "result": "success"},
-                    session_id=session_id
-                )
-                
-                return result
+                orchestrator_mode = "plan_and_execute"
+            
+            # Create StepOrchestrator for this session
+            orchestrator = StepOrchestrator(
+                ws_manager=self.ws_manager,
+                session_id=session_id,
+                model_name=context.model_name
+            )
+            
+            # Store orchestrator for confirmation handling
+            self._active_orchestrators[session_id] = orchestrator
+            
+            # Execute orchestrator
+            # For plan_and_confirm: this will generate plan, wait for confirmation, then execute steps
+            # For plan_and_execute: this will generate plan and execute immediately
+            result = await orchestrator.execute(
+                user_request=user_message,
+                mode=orchestrator_mode,
+                context=context
+            )
+            
+            # Log the action
+            self.audit_logger.log_agent_action(
+                "StepOrchestrator",
+                "execute",
+                {"message": user_message, "mode": orchestrator_mode, "result": result.get("status", "unknown")},
+                session_id=session_id
+            )
+            
+            # Clean up orchestrator after execution is complete
+            if result.get("status") in ("completed", "rejected", "timeout"):
+                if session_id in self._active_orchestrators:
+                    del self._active_orchestrators[session_id]
+            
+            return result
             
         except Exception as e:
             # Extract detailed error message
@@ -577,7 +580,7 @@ class AgentWrapper:
         session_id: str
     ) -> Dict[str, Any]:
         """
-        Execute an approved plan.
+        Execute an approved plan using StepOrchestrator.
         
         Args:
             confirmation_id: Confirmation ID
@@ -587,33 +590,63 @@ class AgentWrapper:
         Returns:
             Execution result
         """
-        await self.ws_manager.send_event(
-            session_id,
-            "thinking",
-            {
-                "step": "executing_plan",
-                "message": "Executing approved plan..."
+        # Get active orchestrator for this session
+        orchestrator = self._active_orchestrators.get(session_id)
+        
+        if orchestrator:
+            # Verify confirmation_id matches
+            if orchestrator.get_confirmation_id() != confirmation_id:
+                logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
+            
+            # Confirm the plan in orchestrator
+            # This will unblock the execute() method that is waiting for confirmation
+            orchestrator.confirm_plan()
+            
+            # The orchestrator.execute() method is already running (was called from process_message)
+            # and is waiting for confirmation. Now that we've confirmed, it will continue execution.
+            # We return immediately - the execution continues in the background
+            return {
+                "status": "approved",
+                "message": "Plan approved, execution started"
             }
-        )
-        
-        # Get MainAgent instance with model from context
-        main_agent = self.get_main_agent(context.model_name)
-        
-        result = await main_agent.execute_approved_plan(
-            confirmation_id,
-            context
-        )
-        
-        await self.ws_manager.send_event(
-            session_id,
-            "message",
-            {
-                "role": "assistant",
-                "content": "Plan executed successfully"
-            }
-        )
-        
-        return result
+        else:
+            # Fallback to old logic if orchestrator not found
+            logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}, using fallback")
+            await self.ws_manager.send_event(
+                session_id,
+                "thinking",
+                {
+                    "step": "executing_plan",
+                    "message": "Executing approved plan..."
+                }
+            )
+            
+            # Get MainAgent instance with model from context
+            main_agent = self.get_main_agent(context.model_name)
+            
+            # Try to execute approved plan (if MainAgent supports it)
+            try:
+                if hasattr(main_agent, 'execute_approved_plan'):
+                    result = await main_agent.execute_approved_plan(
+                        confirmation_id,
+                        context
+                    )
+                else:
+                    result = {"status": "not_supported"}
+            except Exception as e:
+                logger.error(f"[AgentWrapper] Error executing approved plan: {e}")
+                result = {"status": "error", "message": str(e)}
+            
+            await self.ws_manager.send_event(
+                session_id,
+                "message",
+                {
+                    "role": "assistant",
+                    "content": "Plan executed successfully"
+                }
+            )
+            
+            return result
     
     async def reject_plan(
         self,
@@ -622,21 +655,52 @@ class AgentWrapper:
         session_id: str
     ) -> None:
         """
-        Reject a plan.
+        Reject a plan using StepOrchestrator.
         
         Args:
             confirmation_id: Confirmation ID
             context: Conversation context
             session_id: Session identifier
         """
-        context.resolve_confirmation(confirmation_id, approved=False)
+        # Get active orchestrator for this session
+        orchestrator = self._active_orchestrators.get(session_id)
         
-        await self.ws_manager.send_event(
-            session_id,
-            "message",
-            {
-                "role": "assistant",
-                "content": "Plan rejected. How would you like to proceed?"
-            }
-        )
+        if orchestrator:
+            # Verify confirmation_id matches
+            if orchestrator.get_confirmation_id() != confirmation_id:
+                logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
+            
+            # Reject the plan in orchestrator
+            # This will unblock the execute() method that is waiting for confirmation
+            orchestrator.reject_plan()
+            
+            # Clean up orchestrator after rejection
+            # The execute() method will return with status="rejected"
+            if session_id in self._active_orchestrators:
+                del self._active_orchestrators[session_id]
+        else:
+            # Fallback to old logic
+            logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}, using fallback")
+            context.resolve_confirmation(confirmation_id, approved=False)
+            
+            await self.ws_manager.send_event(
+                session_id,
+                "message",
+                {
+                    "role": "assistant",
+                    "content": "Plan rejected. How would you like to proceed?"
+                }
+            )
+    
+    def get_orchestrator(self, session_id: str) -> Optional[StepOrchestrator]:
+        """
+        Get active orchestrator for a session.
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            StepOrchestrator instance or None
+        """
+        return self._active_orchestrators.get(session_id)
 

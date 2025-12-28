@@ -7,6 +7,8 @@ import { wsClient } from '../services/websocket'
 import { sendMessage, createSession, updateSettings, setSessionModel } from '../services/api'
 import { ChatMessage } from './ChatMessage'
 import { Header } from './Header'
+import { PlanBlock } from './PlanBlock'
+import { StepProgress } from './StepProgress'
 
 export function ChatInterface() {
   const [input, setInput] = useState('')
@@ -363,6 +365,10 @@ export function ChatInterface() {
           
           return null
         })}
+        
+        {/* Show workflow plan and steps (global, not per message) */}
+        <PlanBlock />
+        <StepProgress />
         
         {/* Render streaming assistant messages */}
         {Object.values(assistantMessages).map((assistantMsg) => (

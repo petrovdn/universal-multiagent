@@ -55,12 +55,34 @@ export interface AssistantMessage {
   isComplete: boolean
 }
 
+// Workflow plan structure
+export interface WorkflowPlan {
+  plan: string
+  steps: string[]
+  confirmationId: string | null
+  awaitingConfirmation: boolean
+}
+
+// Workflow step structure
+export interface WorkflowStep {
+  stepNumber: number
+  title: string
+  status: 'pending' | 'in_progress' | 'completed'
+  thinking: string
+  response: string
+}
+
 interface ChatState {
   messages: Message[]
   assistantMessages: Record<string, AssistantMessage> // message_id -> AssistantMessage
   currentSession: string | null
   isConnected: boolean
   isAgentTyping: boolean
+  
+  // Workflow state
+  workflowPlan: WorkflowPlan | null
+  workflowSteps: Record<number, WorkflowStep> // step_number -> WorkflowStep
+  currentWorkflowStep: number | null
   
   // Legacy support (will be removed)
   streamingMessages: Record<string, Message>
@@ -88,6 +110,16 @@ interface ChatState {
   
   completeMessage: (messageId: string) => void
   
+  // Workflow methods
+  setWorkflowPlan: (plan: string, steps: string[], confirmationId: string | null) => void
+  setAwaitingConfirmation: (awaiting: boolean) => void
+  startWorkflowStep: (stepNumber: number, title: string) => void
+  updateStepThinking: (stepNumber: number, content: string) => void
+  updateStepResponse: (stepNumber: number, content: string) => void
+  completeWorkflowStep: (stepNumber: number) => void
+  completeWorkflow: () => void
+  clearWorkflow: () => void
+  
   // Legacy methods (for compatibility during transition)
   startStreamingMessage: (messageId: string, message: Message) => void
   updateStreamingMessage: (messageId: string, content: string) => void
@@ -107,6 +139,9 @@ export const useChatStore = create<ChatState>()(
       currentSession: null,
       isConnected: false,
       isAgentTyping: false,
+      workflowPlan: null,
+      workflowSteps: {},
+      currentWorkflowStep: null,
       streamingMessages: {},
       reasoningSteps: [],
       reasoningStartTime: null,
@@ -123,6 +158,9 @@ export const useChatStore = create<ChatState>()(
           streamingMessages: {},
           reasoningSteps: [],
           reasoningStartTime: null,
+          workflowPlan: null,
+          workflowSteps: {},
+          currentWorkflowStep: null,
         }),
       
       startNewSession: () =>
@@ -134,6 +172,9 @@ export const useChatStore = create<ChatState>()(
           isAgentTyping: false,
           reasoningSteps: [],
           reasoningStartTime: null,
+          workflowPlan: null,
+          workflowSteps: {},
+          currentWorkflowStep: null,
         }),
       
       setCurrentSession: (sessionId) =>
@@ -474,6 +515,105 @@ export const useChatStore = create<ChatState>()(
         if (!state.reasoningStartTime) return 0
         return Math.floor((Date.now() - state.reasoningStartTime) / 1000)
       },
+      
+      // Workflow methods
+      setWorkflowPlan: (plan: string, steps: string[], confirmationId: string | null) =>
+        set({
+          workflowPlan: {
+            plan,
+            steps,
+            confirmationId,
+            awaitingConfirmation: false,
+          },
+          workflowSteps: {},
+          currentWorkflowStep: null,
+        }),
+      
+      setAwaitingConfirmation: (awaiting: boolean) =>
+        set((state) => ({
+          workflowPlan: state.workflowPlan
+            ? { ...state.workflowPlan, awaitingConfirmation: awaiting }
+            : null,
+        })),
+      
+      startWorkflowStep: (stepNumber: number, title: string) =>
+        set((state) => {
+          const newSteps = { ...state.workflowSteps }
+          newSteps[stepNumber] = {
+            stepNumber,
+            title,
+            status: 'in_progress',
+            thinking: '',
+            response: '',
+          }
+          return {
+            workflowSteps: newSteps,
+            currentWorkflowStep: stepNumber,
+          }
+        }),
+      
+      updateStepThinking: (stepNumber: number, content: string) =>
+        set((state) => {
+          const step = state.workflowSteps[stepNumber]
+          if (!step) return state
+          
+          return {
+            workflowSteps: {
+              ...state.workflowSteps,
+              [stepNumber]: {
+                ...step,
+                thinking: step.thinking + content, // Append for streaming
+              },
+            },
+          }
+        }),
+      
+      updateStepResponse: (stepNumber: number, content: string) =>
+        set((state) => {
+          const step = state.workflowSteps[stepNumber]
+          if (!step) return state
+          
+          return {
+            workflowSteps: {
+              ...state.workflowSteps,
+              [stepNumber]: {
+                ...step,
+                response: step.response + content, // Append for streaming
+              },
+            },
+          }
+        }),
+      
+      completeWorkflowStep: (stepNumber: number) =>
+        set((state) => {
+          const step = state.workflowSteps[stepNumber]
+          if (!step) return state
+          
+          return {
+            workflowSteps: {
+              ...state.workflowSteps,
+              [stepNumber]: {
+                ...step,
+                status: 'completed',
+              },
+            },
+            currentWorkflowStep: state.currentWorkflowStep === stepNumber ? null : state.currentWorkflowStep,
+          }
+        }),
+      
+      completeWorkflow: () =>
+        set({
+          workflowPlan: null,
+          workflowSteps: {},
+          currentWorkflowStep: null,
+        }),
+      
+      clearWorkflow: () =>
+        set({
+          workflowPlan: null,
+          workflowSteps: {},
+          currentWorkflowStep: null,
+        }),
     }),
     {
       name: 'chat-storage',

@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Step Orchestrator Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a1a;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            margin-bottom: 20px;
+            color: #fff;
+        }
+        
+        .controls {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .control-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #ccc;
+        }
+        
+        select, textarea, input {
+            width: 100%;
+            padding: 8px;
+            background: #1a1a1a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            color: #e0e0e0;
+            font-size: 14px;
+        }
+        
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background: #4a9eff;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        
+        button:hover {
+            background: #3a8eef;
+        }
+        
+        button:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        
+        button.danger {
+            background: #ff4444;
+        }
+        
+        button.danger:hover {
+            background: #ee3333;
+        }
+        
+        button.success {
+            background: #44ff44;
+            color: #1a1a1a;
+        }
+        
+        button.success:hover {
+            background: #33ee33;
+        }
+        
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        
+        .status.connected {
+            background: #2a4a2a;
+            color: #8aff8a;
+        }
+        
+        .status.disconnected {
+            background: #4a2a2a;
+            color: #ff8a8a;
+        }
+        
+        .events {
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .event {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #1a1a1a;
+            border-radius: 4px;
+            border-left: 3px solid #4a9eff;
+        }
+        
+        .event.plan_generated {
+            border-left-color: #ffaa00;
+        }
+        
+        .event.awaiting_confirmation {
+            border-left-color: #ffaa00;
+            background: #2a2a1a;
+        }
+        
+        .event.step_start {
+            border-left-color: #4aff4a;
+        }
+        
+        .event.thinking_chunk {
+            border-left-color: #aa44ff;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+        
+        .event.response_chunk {
+            border-left-color: #44aaff;
+        }
+        
+        .event.step_complete {
+            border-left-color: #44ff44;
+        }
+        
+        .event.workflow_complete {
+            border-left-color: #44ff44;
+            background: #1a2a1a;
+        }
+        
+        .event.error {
+            border-left-color: #ff4444;
+            background: #2a1a1a;
+        }
+        
+        .event-type {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #4a9eff;
+        }
+        
+        .event-data {
+            color: #ccc;
+            white-space: pre-wrap;
+            font-size: 13px;
+        }
+        
+        .plan-steps {
+            margin-top: 10px;
+        }
+        
+        .plan-steps ol {
+            margin-left: 20px;
+            margin-top: 5px;
+        }
+        
+        .plan-steps li {
+            margin-bottom: 5px;
+        }
+        
+        .confirmation-buttons {
+            margin-top: 15px;
+        }
+        
+        .timestamp {
+            font-size: 11px;
+            color: #888;
+            float: right;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Step Orchestrator Test</h1>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label>Session ID:</label>
+                <input type="text" id="sessionId" placeholder="Leave empty to create new session">
+            </div>
+            
+            <div class="control-group">
+                <label>Mode:</label>
+                <select id="mode">
+                    <option value="plan_and_execute">Plan and Execute (instant)</option>
+                    <option value="plan_and_confirm">Plan and Confirm (approval)</option>
+                </select>
+            </div>
+            
+            <div class="control-group">
+                <label>User Request:</label>
+                <textarea id="userRequest" placeholder="Enter your request here...">Build a todo app</textarea>
+            </div>
+            
+            <button id="connectBtn" onclick="connect()">Connect WebSocket</button>
+            <button id="sendBtn" onclick="sendRequest()" disabled>Send Request</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Disconnect</button>
+            
+            <div id="status" class="status disconnected">Disconnected</div>
+            
+            <div id="confirmationButtons" class="confirmation-buttons" style="display: none;">
+                <button class="success" onclick="approvePlan()">Approve Plan</button>
+                <button class="danger" onclick="rejectPlan()">Reject Plan</button>
+            </div>
+        </div>
+        
+        <div class="events" id="events">
+            <div class="event">
+                <div class="event-type">Ready</div>
+                <div class="event-data">Connect WebSocket and send a request to start testing.</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let ws = null;
+        let sessionId = null;
+        let confirmationId = null;
+        let currentMode = 'plan_and_execute';
+        
+        function connect() {
+            const inputSessionId = document.getElementById('sessionId').value.trim();
+            sessionId = inputSessionId || generateSessionId();
+            document.getElementById('sessionId').value = sessionId;
+            
+            const wsUrl = `ws://localhost:8000/ws/${sessionId}`;
+            ws = new WebSocket(wsUrl);
+            
+            ws.onopen = () => {
+                updateStatus('connected', 'Connected');
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('sendBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = false;
+                addEvent('WebSocket', 'Connected to ' + wsUrl);
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleEvent(data);
+            };
+            
+            ws.onerror = (error) => {
+                addEvent('error', 'WebSocket error: ' + error);
+            };
+            
+            ws.onclose = () => {
+                updateStatus('disconnected', 'Disconnected');
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('sendBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = true;
+                addEvent('WebSocket', 'Disconnected');
+            };
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+        
+        function sendRequest() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert('WebSocket not connected');
+                return;
+            }
+            
+            const request = document.getElementById('userRequest').value.trim();
+            currentMode = document.getElementById('mode').value;
+            
+            if (!request) {
+                alert('Please enter a request');
+                return;
+            }
+            
+            // Clear events
+            document.getElementById('events').innerHTML = '';
+            
+            // Send message via WebSocket
+            ws.send(JSON.stringify({
+                type: 'message',
+                content: request
+            }));
+            
+            addEvent('user_request', 'Sending request: ' + request);
+        }
+        
+        function approvePlan() {
+            if (!ws || !confirmationId) return;
+            
+            ws.send(JSON.stringify({
+                type: 'approve_plan',
+                confirmation_id: confirmationId
+            }));
+            
+            document.getElementById('confirmationButtons').style.display = 'none';
+            addEvent('user_action', 'Plan approved');
+        }
+        
+        function rejectPlan() {
+            if (!ws || !confirmationId) return;
+            
+            ws.send(JSON.stringify({
+                type: 'reject_plan',
+                confirmation_id: confirmationId
+            }));
+            
+            document.getElementById('confirmationButtons').style.display = 'none';
+            addEvent('user_action', 'Plan rejected');
+        }
+        
+        function handleEvent(event) {
+            const eventType = event.type;
+            const eventData = event.data || {};
+            
+            switch(eventType) {
+                case 'plan_generated':
+                    addEvent('plan_generated', 'Plan Generated', {
+                        plan: eventData.plan,
+                        steps: eventData.steps,
+                        confirmation_id: eventData.confirmation_id
+                    });
+                    // Store confirmation_id for approve/reject buttons
+                    if (eventData.confirmation_id) {
+                        confirmationId = eventData.confirmation_id;
+                    }
+                    break;
+                    
+                case 'awaiting_confirmation':
+                    addEvent('awaiting_confirmation', 'Awaiting Confirmation', {});
+                    document.getElementById('confirmationButtons').style.display = 'block';
+                    // Extract confirmation_id from pending_confirmations if needed
+                    // For now, we'll get it from the plan_generated event context
+                    break;
+                    
+                case 'step_start':
+                    addEvent('step_start', `Step ${eventData.step}: ${eventData.title}`, eventData);
+                    break;
+                    
+                case 'thinking_chunk':
+                    appendToLastEvent('thinking_chunk', eventData.content);
+                    break;
+                    
+                case 'response_chunk':
+                    appendToLastEvent('response_chunk', eventData.content);
+                    break;
+                    
+                case 'step_complete':
+                    addEvent('step_complete', `Step ${eventData.step} Complete`, eventData);
+                    break;
+                    
+                case 'workflow_complete':
+                    addEvent('workflow_complete', 'Workflow Complete!', eventData);
+                    break;
+                    
+                case 'error':
+                    addEvent('error', 'Error: ' + eventData.message, eventData);
+                    break;
+                    
+                default:
+                    addEvent(eventType, 'Event received', eventData);
+            }
+        }
+        
+        function addEvent(type, title, data = {}) {
+            const eventsDiv = document.getElementById('events');
+            const eventDiv = document.createElement('div');
+            eventDiv.className = 'event ' + type;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            
+            let content = `<div class="event-type">${title}<span class="timestamp">${timestamp}</span></div>`;
+            
+            if (type === 'plan_generated' && data.steps) {
+                content += `<div class="event-data">${escapeHtml(data.plan)}</div>`;
+                content += '<div class="plan-steps"><ol>';
+                data.steps.forEach((step, idx) => {
+                    content += `<li>${escapeHtml(step)}</li>`;
+                });
+                content += '</ol></div>';
+            } else if (type === 'thinking_chunk' || type === 'response_chunk') {
+                content += `<div class="event-data">${escapeHtml(String(data.content || ''))}</div>`;
+            } else {
+                content += `<div class="event-data">${escapeHtml(JSON.stringify(data, null, 2))}</div>`;
+            }
+            
+            eventDiv.innerHTML = content;
+            eventsDiv.appendChild(eventDiv);
+            
+            // Store confirmation_id from plan if available
+            if (type === 'plan_generated') {
+                // We'll need to extract confirmation_id from context or store it separately
+                // For now, we'll try to get it from the backend response
+            }
+            
+            // Scroll to bottom
+            eventsDiv.scrollTop = eventsDiv.scrollHeight;
+        }
+        
+        let lastEventDiv = null;
+        let lastEventType = null;
+        
+        function appendToLastEvent(type, content) {
+            const eventsDiv = document.getElementById('events');
+            
+            // Check if last event is of the same type (thinking_chunk or response_chunk)
+            if (lastEventDiv && lastEventType === type) {
+                const dataDiv = lastEventDiv.querySelector('.event-data');
+                if (dataDiv) {
+                    dataDiv.textContent += content;
+                }
+            } else {
+                // Create new event
+                lastEventDiv = document.createElement('div');
+                lastEventDiv.className = 'event ' + type;
+                lastEventType = type;
+                
+                const timestamp = new Date().toLocaleTimeString();
+                const title = type === 'thinking_chunk' ? 'Thinking' : 'Response';
+                
+                lastEventDiv.innerHTML = `
+                    <div class="event-type">${title}<span class="timestamp">${timestamp}</span></div>
+                    <div class="event-data">${escapeHtml(content)}</div>
+                `;
+                
+                eventsDiv.appendChild(lastEventDiv);
+            }
+            
+            // Scroll to bottom
+            eventsDiv.scrollTop = eventsDiv.scrollHeight;
+        }
+        
+        function updateStatus(status, text) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'status ' + status;
+            statusDiv.textContent = text;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function generateSessionId() {
+            return 'test-' + Math.random().toString(36).substring(2, 15);
+        }
+        
+        // Handle mode change - update confirmation_id handling
+        document.getElementById('mode').addEventListener('change', (e) => {
+            currentMode = e.target.value;
+            document.getElementById('confirmationButtons').style.display = 'none';
+        });
+    </script>
+</body>
+</html>
+

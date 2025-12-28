@@ -2,6 +2,8 @@ import React, { useMemo } from 'react'
 import { AssistantMessage, DebugChunkType } from '../store/chatStore'
 import { ReasoningBlock } from './ReasoningBlock'
 import { AnswerBlock } from './AnswerBlock'
+import { PlanBlock } from './PlanBlock'
+import { StepProgress } from './StepProgress'
 import { useSettingsStore } from '../store/settingsStore'
 
 interface ChatMessageProps {
