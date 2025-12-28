@@ -3,6 +3,7 @@ Google Calendar MCP tool wrappers for LangChain.
 Provides validated interfaces to calendar operations with timezone handling.
 """
 
+import json
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from langchain_core.tools import BaseTool
@@ -186,10 +187,13 @@ class GetNextAvailabilityTool(BaseTool):
                 args["timeMin"] = start_dt.isoformat()
             
             mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("get_next_availability", args, server_name="calendar")
-            
-            available_time = result.get("start", "unknown")
-            return f"Next available time slot: {available_time} for {len(attendee_emails)} attendees"
+            # Note: get_next_availability is not implemented in the MCP server yet
+            # For now, return an error message suggesting to use list_events instead
+            raise ToolExecutionError(
+                "get_next_availability is not yet implemented. "
+                "Please use get_calendar_events to check calendar availability manually.",
+                tool_name=self.name
+            )
             
         except Exception as e:
             raise ToolExecutionError(
@@ -238,10 +242,70 @@ class GetCalendarEventsTool(BaseTool):
                 args["timeMax"] = end_dt.isoformat()
             
             mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("get_calendar_events", args, server_name="calendar")
+            # #region agent log
+            import os
+            log_data = {
+                "location": "calendar_tools.py:call_tool",
+                "message": "Calling list_events MCP tool",
+                "data": {"args": args, "server_name": "calendar"},
+                "timestamp": int(os.times()[4] * 1000),
+                "sessionId": "debug-session",
+                "runId": "post-fix",
+                "hypothesisId": "C"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    import json as json_module
+                    f.write(json_module.dumps(log_data) + "\n")
+            except:
+                pass
+            # #endregion
             
-            events = result.get("items", [])
-            return f"Found {len(events)} events"
+            # Fix: Use "list_events" instead of "get_calendar_events" to match MCP server
+            result = await mcp_manager.call_tool("list_events", args, server_name="calendar")
+            
+            # #region agent log
+            log_data2 = {
+                "location": "calendar_tools.py:call_tool_result",
+                "message": "Received result from list_events",
+                "data": {"result_type": type(result).__name__, "is_list": isinstance(result, list), "is_dict": isinstance(result, dict)},
+                "timestamp": int(os.times()[4] * 1000),
+                "sessionId": "debug-session",
+                "runId": "post-fix",
+                "hypothesisId": "C"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    f.write(json_module.dumps(log_data2) + "\n")
+            except:
+                pass
+            # #endregion
+            
+            # Handle MCP result format (TextContent list or dict)
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result_text = first_item.text
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result_text = first_item['text']
+                else:
+                    result_text = str(first_item)
+                
+                # Parse JSON string
+                try:
+                    result = json.loads(result_text)
+                except:
+                    result = {"items": [], "count": 0}
+            elif isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except:
+                    result = {"items": [], "count": 0}
+            
+            events = result.get("items", []) if isinstance(result, dict) else []
+            count = result.get("count", len(events)) if isinstance(result, dict) else len(events) if isinstance(events, list) else 0
+            
+            return f"Found {count} events"
             
         except Exception as e:
             raise ToolExecutionError(

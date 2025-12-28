@@ -1,0 +1,273 @@
+{
+  "summary": {
+    "total_tests": 17,
+    "passed": 15,
+    "failed": 2,
+    "success_rate": "88.2%"
+  },
+  "results": [
+    {
+      "name": "config_load",
+      "success": true,
+      "message": "Configuration loaded successfully",
+      "error": null,
+      "details": {}
+    },
+    {
+      "name": "mcp_manager_init",
+      "success": true,
+      "message": "MCP manager initialized",
+      "error": null,
+      "details": {}
+    },
+    {
+      "name": "connection_gmail",
+      "success": true,
+      "message": "Connected successfully with 19 tools discovered",
+      "error": null,
+      "details": {
+        "tools_count": 19,
+        "tools": [
+          "gmail_list_messages",
+          "gmail_get_message",
+          "gmail_search",
+          "gmail_get_thread",
+          "gmail_list_labels",
+          "gmail_get_unread_count",
+          "gmail_send_email",
+          "gmail_reply",
+          "gmail_forward",
+          "gmail_create_draft",
+          "gmail_mark_read",
+          "gmail_mark_unread",
+          "gmail_star_message",
+          "gmail_archive_message",
+          "gmail_trash_message",
+          "gmail_add_label",
+          "gmail_remove_label",
+          "gmail_get_important_emails",
+          "gmail_get_profile"
+        ]
+      }
+    },
+    {
+      "name": "connection_calendar",
+      "success": true,
+      "message": "Connected successfully with 7 tools discovered",
+      "error": null,
+      "details": {
+        "tools_count": 7,
+        "tools": [
+          "list_calendars",
+          "list_events",
+          "get_event",
+          "create_event",
+          "update_event",
+          "delete_event",
+          "quick_add_event"
+        ]
+      }
+    },
+    {
+      "name": "connection_sheets",
+      "success": false,
+      "message": "Connection failed - check server configuration and tokens",
+      "error": "Connection failed",
+      "details": {}
+    },
+    {
+      "name": "connection_google_workspace",
+      "success": true,
+      "message": "Connected successfully with 18 tools discovered",
+      "error": null,
+      "details": {
+        "tools_count": 18,
+        "tools": [
+          "workspace_list_files",
+          "workspace_get_file_info",
+          "workspace_create_folder",
+          "workspace_delete_file",
+          "workspace_move_file",
+          "workspace_search_files",
+          "workspace_get_folder_path",
+          "docs_create",
+          "docs_read",
+          "docs_update",
+          "docs_append",
+          "docs_insert",
+          "docs_format_text",
+          "sheets_create_spreadsheet",
+          "sheets_read_range",
+          "sheets_write_range",
+          "sheets_append_rows",
+          "sheets_get_info"
+        ]
+      }
+    },
+    {
+      "name": "tool_discovery_registry",
+      "success": true,
+      "message": "Registry discovered 24 tools",
+      "error": null,
+      "details": {
+        "tools": [
+          "send_email",
+          "draft_email",
+          "search_emails",
+          "read_email",
+          "list_emails",
+          "create_event",
+          "get_next_availability",
+          "get_calendar_events",
+          "add_rows",
+          "update_cells",
+          "create_spreadsheet",
+          "get_sheet_data",
+          "list_workspace_files",
+          "get_workspace_file_info",
+          "create_workspace_folder",
+          "delete_workspace_file",
+          "search_workspace_files",
+          "create_document",
+          "read_document",
+          "update_document",
+          "append_to_document",
+          "read_spreadsheet",
+          "write_spreadsheet",
+          "append_rows"
+        ]
+      }
+    },
+    {
+      "name": "tool_discovery_gmail",
+      "success": true,
+      "message": "Discovered 19 tools",
+      "error": null,
+      "details": {
+        "tools": [
+          "gmail_list_messages",
+          "gmail_get_message",
+          "gmail_search",
+          "gmail_get_thread",
+          "gmail_list_labels",
+          "gmail_get_unread_count",
+          "gmail_send_email",
+          "gmail_reply",
+          "gmail_forward",
+          "gmail_create_draft",
+          "gmail_mark_read",
+          "gmail_mark_unread",
+          "gmail_star_message",
+          "gmail_archive_message",
+          "gmail_trash_message",
+          "gmail_add_label",
+          "gmail_remove_label",
+          "gmail_get_important_emails",
+          "gmail_get_profile"
+        ],
+        "missing_expected": []
+      }
+    },
+    {
+      "name": "tool_discovery_calendar",
+      "success": true,
+      "message": "Discovered 7 tools",
+      "error": null,
+      "details": {
+        "tools": [
+          "list_calendars",
+          "list_events",
+          "get_event",
+          "create_event",
+          "update_event",
+          "delete_event",
+          "quick_add_event"
+        ],
+        "missing_expected": []
+      }
+    },
+    {
+      "name": "tool_discovery_sheets",
+      "success": false,
+      "message": "Server not connected, cannot discover tools",
+      "error": null,
+      "details": {}
+    },
+    {
+      "name": "tool_discovery_google_workspace",
+      "success": true,
+      "message": "Discovered 18 tools",
+      "error": null,
+      "details": {
+        "tools": [
+          "workspace_list_files",
+          "workspace_get_file_info",
+          "workspace_create_folder",
+          "workspace_delete_file",
+          "workspace_move_file",
+          "workspace_search_files",
+          "workspace_get_folder_path",
+          "docs_create",
+          "docs_read",
+          "docs_update",
+          "docs_append",
+          "docs_insert",
+          "docs_format_text",
+          "sheets_create_spreadsheet",
+          "sheets_read_range",
+          "sheets_write_range",
+          "sheets_append_rows",
+          "sheets_get_info"
+        ],
+        "missing_expected": []
+      }
+    },
+    {
+      "name": "gmail_list_messages",
+      "success": true,
+      "message": "Successfully listed messages",
+      "error": null,
+      "details": {
+        "result_preview": "[TextContent(type='text', text='{\\n  \"count\": 1,\\n  \"messages\": [\\n    {\\n      \"id\": \"19b6427c8d4852c0\",\\n      \"threadId\": \"19b6427c8d4852c0\",\\n      \"snippet\": \"Affordable Travel Insurance for your"
+      }
+    },
+    {
+      "name": "gmail_search",
+      "success": true,
+      "message": "Successfully searched emails",
+      "error": null,
+      "details": {}
+    },
+    {
+      "name": "calendar_list_calendars",
+      "success": true,
+      "message": "Successfully listed calendars",
+      "error": null,
+      "details": {}
+    },
+    {
+      "name": "calendar_list_events",
+      "success": true,
+      "message": "Successfully listed events",
+      "error": null,
+      "details": {}
+    },
+    {
+      "name": "workspace_list_files",
+      "success": true,
+      "message": "Successfully listed files",
+      "error": null,
+      "details": {
+        "result_preview": "[TextContent(type='text', text='{\\n  \"files\": [\\n    {\\n      \"id\": \"1hl8lV-v4F60NkvKGYlQyJIPaXOAGY_W59U5ZDhulu3Q\",\\n      \"name\": \"\\\\u043f\\\\u043e\\\\u0437\\\\u0434\\\\u0440\\\\u0430\\\\u0432\\\\u043b\\\\u0435\\\\u04"
+      }
+    },
+    {
+      "name": "workspace_search_files",
+      "success": true,
+      "message": "Successfully searched files",
+      "error": null,
+      "details": {}
+    }
+  ],
+  "timestamp": "2025-12-28T12:33:28.171537"
+}

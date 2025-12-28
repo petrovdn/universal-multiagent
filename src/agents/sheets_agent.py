@@ -58,7 +58,7 @@ def _is_workspace_integration_enabled() -> bool:
         return False
 
 
-SHEETS_AGENT_SYSTEM_PROMPT = """You are an expert spreadsheet assistant specialized in Google Sheets operations.
+SHEETS_AGENT_SYSTEM_PROMPT = """You are an expert spreadsheet assistant specialized in spreadsheet operations.
 
 ## Language Requirements
 - All your reasoning (thinking process) must be in Russian

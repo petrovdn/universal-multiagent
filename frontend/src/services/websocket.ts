@@ -617,54 +617,74 @@ export class WebSocketClient {
         // Handle plan approval request (legacy - keep for compatibility)
         break
 
+      case 'plan_thinking_chunk':
+        // Accumulate thinking during plan generation
+        useChatStore.getState().updatePlanThinking(event.data.content || '')
+        console.log('[WebSocket] Plan thinking chunk:', event.data.content?.substring(0, 50))
+        break
+
       case 'plan_generated':
-        // Save plan to chatStore
-        chatStore.setWorkflowPlan(
+        // Save plan to chatStore - use getState() to get fresh state after set
+        useChatStore.getState().setWorkflowPlan(
           event.data.plan || '',
           event.data.steps || [],
           event.data.confirmation_id || null
         )
+        // #region agent log
+        const stateAfterPlan = useChatStore.getState()
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated-verify',message:'Verify plan set',data:{hasPlan:!!stateAfterPlan.workflowPlan,stepsCount:stateAfterPlan.workflowPlan?.steps.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'verify',hypothesisId:'VERIFY'})}).catch(()=>{});
+        // #endregion
         console.log('[WebSocket] Plan generated:', event.data.plan)
         break
 
       case 'awaiting_confirmation':
-        // Show confirmation buttons
-        chatStore.setAwaitingConfirmation(true)
+        // Show confirmation buttons - use getState() to get fresh state
+        useChatStore.getState().setAwaitingConfirmation(true)
         console.log('[WebSocket] Awaiting confirmation')
         break
 
       case 'step_start':
-        // Start a new workflow step
-        chatStore.startWorkflowStep(event.data.step, event.data.title || `Step ${event.data.step}`)
+        // Start a new workflow step - use getState() to get fresh state after set
+        useChatStore.getState().startWorkflowStep(event.data.step, event.data.title || `Step ${event.data.step}`)
         console.log('[WebSocket] Step started:', event.data.step, event.data.title)
         break
 
       case 'thinking_chunk':
-        // Add thinking chunk to current step (streaming)
-        const currentStep = chatStore.currentWorkflowStep
+        // Add thinking chunk to current step (streaming) - use getState() to get fresh state
+        const currentStateForThinking = useChatStore.getState()
+        const currentStep = currentStateForThinking.currentWorkflowStep
         if (currentStep !== null) {
-          chatStore.updateStepThinking(currentStep, event.data.content || '')
+          currentStateForThinking.updateStepThinking(currentStep, event.data.content || '')
         }
         break
 
       case 'response_chunk':
-        // Add response chunk to current step (streaming)
-        const currentStepForResponse = chatStore.currentWorkflowStep
+        // Add response chunk to current step (streaming) - use getState() to get fresh state
+        const currentStateForResponse = useChatStore.getState()
+        const currentStepForResponse = currentStateForResponse.currentWorkflowStep
         if (currentStepForResponse !== null) {
-          chatStore.updateStepResponse(currentStepForResponse, event.data.content || '')
+          currentStateForResponse.updateStepResponse(currentStepForResponse, event.data.content || '')
         }
         break
 
       case 'step_complete':
-        // Complete a workflow step
-        chatStore.completeWorkflowStep(event.data.step)
+        // Complete a workflow step - use getState() to get fresh state
+        useChatStore.getState().completeWorkflowStep(event.data.step)
         console.log('[WebSocket] Step completed:', event.data.step)
         break
 
+      case 'workflow_paused':
+        console.log('[WebSocket] Workflow paused - requires user help:', event.data)
+        // Workflow paused due to critical error requiring user help
+        // The step result will contain the help request
+        useChatStore.getState().setAgentTyping(false)
+        break
+
       case 'workflow_complete':
-        // Complete the entire workflow
-        chatStore.completeWorkflow()
-        chatStore.setAgentTyping(false)
+        // Complete the entire workflow - use getState() to get fresh state
+        const finalState = useChatStore.getState()
+        finalState.completeWorkflow()
+        finalState.setAgentTyping(false)
         console.log('[WebSocket] Workflow completed')
         break
 
