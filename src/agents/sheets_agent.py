@@ -10,6 +10,7 @@ from pathlib import Path
 from src.agents.base_agent import BaseAgent
 from src.mcp_tools.sheets_tools import get_sheets_tools
 from src.mcp_tools.workspace_tools import get_workspace_sheets_tools
+from src.mcp_tools.code_execution_tools import get_code_execution_tools
 from src.utils.config_loader import get_config
 
 
@@ -110,6 +111,19 @@ Guidelines:
    - Invalid range → suggest correct format
    - Missing spreadsheet → offer to create one
    - Permission errors → suggest sharing settings
+   
+9. Выполнение Python кода для сложных преобразований:
+   - Используй инструмент execute_python_code когда нужны комплексные трансформации данных
+   - Доступны: встроенные функции Python, math, datetime, json
+   - Входные данные передаются через input_data, результат возвращается через переменную result
+   - Типичные сценарии: конвертация валют, расчет НДС, математические операции, агрегация
+   
+   Пример workflow:
+   1. Прочитай данные: get_sheet_data(spreadsheet_id, range)
+   2. Извлеки значения из результата
+   3. Сгенерируй Python код для преобразования
+   4. Выполни: execute_python_code(code, input_data={...})
+   5. Запиши результат: update_cells(spreadsheet_id, range, values)
 
 Always be organized, accurate, and maintain data integrity."""
 
@@ -135,10 +149,14 @@ class SheetsAgent(BaseAgent):
             # Check if Workspace integration is enabled
             if _is_workspace_integration_enabled():
                 # Use Workspace Sheets tools (they use google_workspace MCP server)
-                tools = get_workspace_sheets_tools()
+                base_tools = get_workspace_sheets_tools()
             else:
                 # Use standalone Sheets tools (they use sheets MCP server)
-                tools = get_sheets_tools()
+                base_tools = get_sheets_tools()
+            
+            # Add code execution tools for dynamic data transformations
+            code_tools = get_code_execution_tools()
+            tools = base_tools + code_tools
         
         super().__init__(
             name="SheetsAgent",
