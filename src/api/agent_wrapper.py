@@ -253,6 +253,44 @@ class AgentWrapper:
             else:
                 friendly_message = f"Ошибка: {error_message}"
             
+            # Error events are already sent from base_agent and stream_event_callback
+            # But if error occurs before execute_with_streaming is called, we need to send message_complete here
+            
+            # Send system message with error
+            await self.ws_manager.send_event(
+                session_id,
+                "message",
+                {
+                    "role": "system",
+                    "content": f"Ошибка: {friendly_message}"
+                }
+            )
+            
+            # Send message_complete to ensure frontend knows streaming is done
+            # Use the message_id from the streaming session if available
+            try:
+                message_id = getattr(self, '_current_streaming_message_id', None)
+                if not message_id:
+                    import asyncio
+                    message_id = f"stream_{session_id}_{asyncio.get_event_loop().time()}"
+                
+                logger.info(f"[AgentWrapper] Sending message_complete after exception in _execute_with_streaming, message_id: {message_id}")
+                await self.ws_manager.send_event(
+                    session_id,
+                    "message_complete",
+                    {
+                        "role": "assistant",
+                        "message_id": message_id,
+                        "content": ""
+                    }
+                )
+            except Exception as send_error:
+                logger.error(f"[AgentWrapper] Failed to send message_complete after error: {send_error}")
+            finally:
+                # Clean up
+                if hasattr(self, '_current_streaming_message_id'):
+                    delattr(self, '_current_streaming_message_id')
+            
             raise Exception(friendly_message) from e
     
     async def _execute_with_event_streaming(
@@ -280,13 +318,16 @@ class AgentWrapper:
         # Generate unique message ID for this streaming response
         message_id = f"stream_{session_id}_{asyncio.get_event_loop().time()}"
         
+        # Store message_id so exception handler can access it
+        self._current_streaming_message_id = message_id
+        
         # Track if we've sent message_start
         message_started = False
         accumulated_tokens = ""
         
         async def stream_event_callback(event_type: str, data: Dict[str, Any]):
             """Callback to handle streaming events and send to WebSocket."""
-            nonlocal message_started, accumulated_tokens
+            nonlocal message_started, accumulated_tokens, message_id
             
             logger.debug(f"[AgentWrapper] Stream event: {event_type}, data keys: {list(data.keys())}")
             
@@ -401,11 +442,29 @@ class AgentWrapper:
             
             elif event_type == StreamEvent.ERROR:
                 # Send error
+                error_msg = data.get("error", "Unknown error")
                 await self.ws_manager.send_event(
                     session_id,
                     "error",
                     {
-                        "message": data.get("error", "Unknown error")
+                        "message": error_msg
+                    }
+                )
+                # #region agent log
+                logger.info(f"[AgentWrapper] ERROR event sent: {error_msg[:100]}, message_started: {message_started}")
+                # #endregion
+                
+                # Always send message_complete after error to signal end of streaming
+                # This ensures the frontend knows streaming is done even after error
+                # If message was started, complete it. If not, still send message_complete with empty content
+                logger.info(f"[AgentWrapper] Sending message_complete after error, message_id: {message_id}, message_started: {message_started}")
+                await self.ws_manager.send_event(
+                    session_id,
+                    "message_complete",
+                    {
+                        "role": "assistant",
+                        "message_id": message_id,
+                        "content": accumulated_tokens if accumulated_tokens else ""
                     }
                 )
         
@@ -414,13 +473,18 @@ class AgentWrapper:
         # Get MainAgent instance with model from context
         main_agent = self.get_main_agent(context.model_name)
         
-        result = await main_agent.execute_with_streaming(
-            user_message,
-            context,
-            event_callback=stream_event_callback
-        )
-        
-        logger.info(f"[AgentWrapper] Streaming execution complete, response length: {len(result.get('response', ''))}")
+        try:
+            result = await main_agent.execute_with_streaming(
+                user_message,
+                context,
+                event_callback=stream_event_callback
+            )
+            
+            logger.info(f"[AgentWrapper] Streaming execution complete, response length: {len(result.get('response', ''))}")
+        finally:
+            # Clean up message_id after streaming is done
+            if hasattr(self, '_current_streaming_message_id'):
+                delattr(self, '_current_streaming_message_id')
         
         return result
     

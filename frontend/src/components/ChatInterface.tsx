@@ -1,181 +1,74 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Send, Loader2, Sparkles, Plus, Paperclip, Zap, ChevronDown, Brain } from 'lucide-react'
+import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
 import { useSettingsStore } from '../store/settingsStore'
 import { useModelStore } from '../store/modelStore'
 import { wsClient } from '../services/websocket'
 import { sendMessage, createSession, updateSettings, setSessionModel } from '../services/api'
-import { MessageBubble } from './MessageBubble'
-import { ThinkingBlock } from './ThinkingBlock'
+import { ChatMessage } from './ChatMessage'
 import { Header } from './Header'
 
 export function ChatInterface() {
   const [input, setInput] = useState('')
   const [isSending, setIsSending] = useState(false)
-  const [thinkingDuration, setThinkingDuration] = useState(0)
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false)
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
-  const [lastUserQuery, setLastUserQuery] = useState<string | null>(null) // Сохраняем последний запрос пользователя
-  const [shouldScrollToNew, setShouldScrollToNew] = useState(false) // Флаг для скролла к новому сообщению
-  const currentInteractionRef = useRef<HTMLDivElement>(null) // Реф для начала текущего взаимодействия
+  const [shouldScrollToNew, setShouldScrollToNew] = useState(false)
+  const currentInteractionRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const thinkingIntervalRef = useRef<number | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const modeDropdownRef = useRef<HTMLDivElement>(null)
   const modelDropdownRef = useRef<HTMLDivElement>(null)
-  const shouldAutoScrollRef = useRef(true) // Флаг для автоскролла вниз
-  const isUserScrollingRef = useRef(false) // Флаг, что пользователь скроллит вручную
   
   const {
     currentSession,
     isAgentTyping,
-    reasoningSteps,
-    reasoningStartTime,
-    streamingMessages,
+    messages,
+    assistantMessages,
     setCurrentSession,
     startNewSession,
     addMessage,
-    getDisplayMessages,
     setAgentTyping,
-    getReasoningDuration,
-    clearReasoningSteps,
   } = useChatStore()
   
   const { executionMode, setExecutionMode } = useSettingsStore()
   const { models, selectedModel, setSelectedModel, fetchModels, isLoading: isLoadingModels, error: modelsError } = useModelStore()
   
-  const messages = getDisplayMessages()
+  // Find last user message index
+  const lastUserIndexInMessages = messages.map(m => m.role).lastIndexOf('user')
   
-  // Находим индекс последнего сообщения пользователя в общем массиве
-  const lastUserIndexInMessages = messages.map(m => m.role).lastIndexOf('user');
-
-  // Показываем блок ризонинга, если агент что-то делает (печатает или есть шаги), 
-  // но только до момента появления основного текста ответа на ТЕКУЩИЙ запрос.
-  const isAssistantThinking = isAgentTyping || reasoningSteps.length > 0
-  
-  // Проверяем, есть ли ответ ассистента после последнего вопроса (включая streaming)
-  const assistantResponseToLastUser = lastUserIndexInMessages !== -1 
-    ? messages.slice(lastUserIndexInMessages + 1).find(m => m.role === 'assistant')
-    : null
-  
-  // Проверяем наличие streaming сообщений ассистента С НЕПУСТЫМ контентом
-  const streamingAssistantMessages = Object.values(streamingMessages).filter(m => m.role === 'assistant')
-  const hasStreamingAssistantWithContent = streamingAssistantMessages.some(m => m.content && m.content.trim().length > 0)
-  
-  // Считаем, что ассистент начал отвечать ТОЛЬКО если есть реальный текст:
-  // 1. Есть сообщение ассистента после последнего вопроса с непустым контентом
-  // 2. ИЛИ есть streaming сообщение ассистента с непустым контентом
-  const hasAssistantStarted = 
-    (assistantResponseToLastUser && assistantResponseToLastUser.content.trim().length > 0) || 
-    hasStreamingAssistantWithContent
-  
-  const showThinking = isAssistantThinking && !hasAssistantStarted
-
-  // Get common message references
-  const lastUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0]
-  const lastAssistantMessage = messages.filter(m => m.role === 'assistant').slice(-1)[0]
-  const hasStreamingAnswer = Object.values(streamingMessages).some(m => m.role === 'assistant')
-
-  // Update thinking duration every second when reasoning is active
+  // Auto-resize textarea
   useEffect(() => {
-    if (reasoningStartTime || (isAgentTyping && reasoningSteps.length > 0)) {
-      const updateDuration = () => {
-        const duration = getReasoningDuration()
-        setThinkingDuration(duration)
-      }
-      
-      updateDuration()
-      thinkingIntervalRef.current = window.setInterval(updateDuration, 1000)
-      
-      return () => {
-        if (thinkingIntervalRef.current) {
-          window.clearInterval(thinkingIntervalRef.current)
-        }
-      }
-    } else {
-      setThinkingDuration(0)
-      if (thinkingIntervalRef.current) {
-        window.clearInterval(thinkingIntervalRef.current)
-      }
-    }
-  }, [reasoningStartTime, isAgentTyping, reasoningSteps.length, getReasoningDuration])
-
-  // Обработчик скролла больше не нужен - в Perplexity-style нет автоскролла
-
-  // Скролл к последнему сообщению пользователя (Perplexity style) - КРИТИЧНО для правильного поведения
-  useEffect(() => {
-    if (shouldScrollToNew && currentInteractionRef.current && messagesContainerRef.current) {
-      console.log('[ChatInterface] Attempting to scroll to new user message')
-      
-      // Используем requestAnimationFrame для гарантии, что браузер отрендерил изменения
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (currentInteractionRef.current && messagesContainerRef.current) {
-            console.log('[ChatInterface] Scrolling to new message')
-            
-            // Прокручиваем контейнер так, чтобы элемент был в самом верху
-            const container = messagesContainerRef.current
-            const element = currentInteractionRef.current
-            const offsetTop = element.offsetTop - 52 // 52px = высота Header
-            
-            container.scrollTo({
-              top: offsetTop,
-              behavior: 'smooth'
-            })
-            
-            setShouldScrollToNew(false)
-            
-            // КРИТИЧНО: Отключаем автоскролл вниз (как в Perplexity)
-            // Страница должна оставаться на месте во время генерации ответа
-            shouldAutoScrollRef.current = false
-            isUserScrollingRef.current = true
-            
-            console.log('[ChatInterface] Auto-scroll disabled after scrolling to question')
-          }
-        })
-      })
-    }
-  }, [shouldScrollToNew, messages.length])
-
-  // УБИРАЕМ автоскролл вниз - в Perplexity-style страница не скроллится во время генерации
-  // Контент просто заполняет страницу сверху вниз, но страница остается на месте
-  // useEffect для автоскролла удален - не нужен для Perplexity-style поведения
-
-  useEffect(() => {
-    // Auto-resize textarea
     if (textareaRef.current) {
       textareaRef.current.style.height = '44px'
       const newHeight = Math.min(textareaRef.current.scrollHeight, 200)
       textareaRef.current.style.height = `${newHeight}px`
     }
   }, [input])
-
-  // Clear session on first page load (when browser is opened)
+  
+  // Clear session on first page load
   useEffect(() => {
     const isFirstLoad = !sessionStorage.getItem('chat-initialized')
     
     if (isFirstLoad) {
-      // Mark as initialized for this browser session
       sessionStorage.setItem('chat-initialized', 'true')
-      
-      // Clear old session and messages on first load
       console.log('[ChatInterface] First page load - clearing old session')
       startNewSession()
       wsClient.disconnect()
     }
-  }, []) // Run only once on mount
-
+  }, [])
+  
+  // Connect WebSocket when session is available
   useEffect(() => {
-    // Connect WebSocket when session is available
     if (currentSession) {
       wsClient.connect(currentSession)
     }
-
+    
     return () => {
       wsClient.disconnect()
     }
   }, [currentSession])
-
+  
   // Timeout to reset agent typing state if it gets stuck
   useEffect(() => {
     if (isAgentTyping) {
@@ -183,18 +76,17 @@ export function ChatInterface() {
         console.warn('[ChatInterface] Agent typing timeout - resetting state')
         setAgentTyping(false)
       }, 60000) // 60 seconds timeout
-
+      
       return () => clearTimeout(timeout)
     }
   }, [isAgentTyping, setAgentTyping])
-
+  
   // Fetch models on mount
   useEffect(() => {
     console.log('[ChatInterface] Fetching models on mount')
     fetchModels().catch((err) => {
       console.error('[ChatInterface] Error fetching models:', err)
     })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   
   // Close mode and model dropdowns when clicking outside
@@ -210,7 +102,33 @@ export function ChatInterface() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
-
+  
+  // Scroll to new user message
+  useEffect(() => {
+    if (shouldScrollToNew && currentInteractionRef.current && messagesContainerRef.current) {
+      console.log('[ChatInterface] Attempting to scroll to new user message')
+      
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (currentInteractionRef.current && messagesContainerRef.current) {
+            console.log('[ChatInterface] Scrolling to new message')
+            
+            const container = messagesContainerRef.current
+            const element = currentInteractionRef.current
+            const offsetTop = element.offsetTop - 52
+            
+            container.scrollTo({
+              top: offsetTop,
+              behavior: 'smooth'
+            })
+            
+            setShouldScrollToNew(false)
+          }
+        })
+      })
+    }
+  }, [shouldScrollToNew, messages.length])
+  
   const handleSend = async () => {
     if (!input.trim() || isSending) return
 
@@ -229,16 +147,10 @@ export function ChatInterface() {
       timestamp: new Date().toISOString(),
     })
 
-    // Сохраняем последний запрос пользователя, чтобы блок оставался видимым
-    setLastUserQuery(userMessage)
-
-    // Активируем скролл к новому сообщению пользователя (чтобы вопрос был сверху)
+    // Activate scroll to new message
     setShouldScrollToNew(true)
-
-    // Clear previous reasoning steps
-    clearReasoningSteps()
     
-    // Сразу помечаем, что агент начал работу, чтобы появился блок ризонинга
+    // Mark agent as typing
     setAgentTyping(true)
 
     try {
@@ -255,7 +167,6 @@ export function ChatInterface() {
         console.warn('[ChatInterface] WebSocket not connected, using REST API')
         wsClient.connect(currentSession)
         
-        // Use REST API as fallback
         console.log('[ChatInterface] Sending via REST API (fallback)')
         await sendMessage({
           message: userMessage,
@@ -326,27 +237,20 @@ export function ChatInterface() {
       }
     }
   }
-
+  
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
     }
   }
-
+  
   const handleNewSession = () => {
-    // Disconnect WebSocket
     wsClient.disconnect()
-    
-    // Clear chat and start new session
     startNewSession()
-    
-    // Reset input and thinking state
     setInput('')
-    setThinkingDuration(0)
-    setLastUserQuery(null) // Очищаем сохраненный запрос
   }
-
+  
   const handleExecutionModeChange = async (mode: 'instant' | 'approval') => {
     setExecutionMode(mode)
     if (currentSession) {
@@ -381,7 +285,6 @@ export function ChatInterface() {
         await setSessionModel(currentSession, modelId)
       } catch (error) {
         console.error('[ChatInterface] Failed to set session model:', error)
-        // Revert selection on error
         const previousModel = models.find(m => m.id !== modelId && m.id === selectedModel) || models[0]
         if (previousModel) {
           setSelectedModel(previousModel.id)
@@ -389,66 +292,22 @@ export function ChatInterface() {
       }
     }
   }
-
-  // Generate dialog title from first user message
-  const getDialogTitle = () => {
-    const firstUserMessage = messages.find(m => m.role === 'user')
-    if (firstUserMessage) {
-      const title = firstUserMessage.content.substring(0, 60)
-      return title.length < firstUserMessage.content.length ? title + '...' : title
-    }
-    return 'New Chat'
-  }
-
-  // Format reasoning steps for display
-  const getReasoningText = () => {
-    const text = reasoningSteps.map(step => {
-      let displayContent = step.content
-      try {
-        const parsed = JSON.parse(step.content)
-        if (parsed && typeof parsed === 'object' && parsed.message) {
-          displayContent = parsed.message
-        }
-      } catch {
-        // Not JSON, use as is
-      }
-      return displayContent
-    }).join(' ')
-    
-    console.log('[ChatInterface] Formatting reasoning text, steps count:', reasoningSteps.length, 'text length:', text.length)
-    return text
-  }
-
-  // Debug logging
-  console.log('[ChatInterface] State:', {
-    messagesCount: messages.length,
-    messages: messages.map(m => ({ role: m.role, contentLength: m.content?.length })),
-    streamingMessagesCount: Object.keys(streamingMessages).length,
-    streamingMessages: Object.entries(streamingMessages).map(([id, m]) => ({ id, role: m.role, contentLength: m.content?.length })),
-    lastUserIndexInMessages,
-    assistantResponseToLastUser: assistantResponseToLastUser?.content?.substring(0, 30),
-    hasStreamingAssistantWithContent,
-    hasAssistantStarted,
-    showThinking,
-    reasoningStepsCount: reasoningSteps.length,
-    isAgentTyping,
-  })
-
+  
   return (
     <div className="chat-container">
-      {/* Header - Settings (Настройки) */}
+      {/* Header */}
       <Header />
 
-      {/* Messages Container - scrollable */}
+      {/* Messages Container */}
       <div className="messages-container" ref={messagesContainerRef}>
-        {/* Render all messages in history */}
+        {/* Render all messages */}
         {messages.map((message, index) => {
-          const isLastUserMessage = index === lastUserIndexInMessages;
+          const isLastUserMessage = index === lastUserIndexInMessages
           
           if (message.role === 'user') {
             return (
               <div 
-                key={index} 
+                key={`user-${index}-${message.timestamp}`}
                 ref={isLastUserMessage ? currentInteractionRef : null}
                 className="user-query-flow-block"
               >
@@ -458,27 +317,62 @@ export function ChatInterface() {
           }
           
           if (message.role === 'assistant') {
-            console.log('[ChatInterface] Rendering assistant message, index:', index, 'content length:', message.content?.length)
+            // Check if this message has metadata with reasoning blocks
+            const hasReasoningMetadata = message.metadata?.reasoningBlocks
+            if (hasReasoningMetadata) {
+              // This is a completed message with reasoning - render as regular message
+              return (
+                <div key={`assistant-${index}-${message.timestamp}`} className="assistant-message-wrapper">
+                  <div className="w-full">
+                    <div className="prose max-w-none 
+                      prose-p:text-gray-900 
+                      prose-p:leading-6 prose-p:my-3 prose-p:text-[15px]
+                      prose-h1:text-gray-900 prose-h1:text-[20px] prose-h1:font-semibold prose-h1:mb-3 prose-h1:mt-6 prose-h1:first:mt-0 prose-h1:leading-tight
+                      prose-h2:text-gray-900 prose-h2:text-[18px] prose-h2:font-semibold prose-h2:mb-2 prose-h2:mt-5 prose-h2:leading-tight
+                      prose-h3:text-gray-900 prose-h3:text-[16px] prose-h3:font-semibold prose-h3:mb-2 prose-h3:mt-4 prose-h3:leading-tight
+                      prose-strong:text-gray-900 prose-strong:font-semibold
+                      prose-code:text-gray-900 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[13px] prose-code:border prose-code:border-gray-200
+                      prose-pre:bg-gray-100 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200 prose-pre:text-[13px] prose-pre:rounded-lg prose-pre:p-4
+                      prose-ul:text-gray-900 prose-ul:my-3
+                      prose-li:text-gray-900 prose-li:my-1.5 prose-li:text-[15px]
+                      prose-a:text-blue-600 prose-a:underline hover:prose-a:text-blue-700
+                      prose-blockquote:text-gray-600 prose-blockquote:border-l-gray-300 prose-blockquote:pl-4 prose-blockquote:my-3
+                      prose-table:w-full prose-table:border-collapse prose-table:my-4
+                      prose-th:border prose-th:border-gray-300 prose-th:bg-gray-50 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
+                      prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2
+                      prose-tr:hover:bg-gray-50">
+                      {message.content}
+                    </div>
+                  </div>
+                </div>
+              )
+            }
+          }
+          
+          if (message.role === 'system') {
             return (
-              <div key={index} className="assistant-message-wrapper">
-                <MessageBubble message={message} />
+              <div key={`system-${index}-${message.timestamp}`} className="w-full">
+                <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                  <div className="text-sm text-amber-900">
+                    {message.content}
+                  </div>
+                </div>
               </div>
             )
           }
           
           return null
         })}
-
-        {/* Thinking Block - показываем после последнего сообщения пользователя, если ассистент думает */}
-        {showThinking && (
-          <ThinkingBlock 
-            thinking={getReasoningText() || 'Анализирую запрос...'}
-            duration={thinkingDuration}
-          />
-        )}
-
-        {/* Welcome screen - компактный (Perplexity style) */}
-        {messages.length === 0 && (
+        
+        {/* Render streaming assistant messages */}
+        {Object.values(assistantMessages).map((assistantMsg) => (
+          <div key={assistantMsg.id} className="assistant-message-wrapper">
+            <ChatMessage message={assistantMsg} />
+          </div>
+        ))}
+        
+        {/* Welcome screen */}
+        {messages.length === 0 && Object.keys(assistantMessages).length === 0 && (
           <div className="start-dialog-container-compact">
             <div className="start-dialog-content-compact">
               <div className="start-dialog-icon-compact">
@@ -490,23 +384,12 @@ export function ChatInterface() {
             </div>
           </div>
         )}
-
-        {/* Typing Indicator - показываем только если нет ответа и идет обработка */}
-        {(isAssistantThinking && !hasAssistantStarted && messages.length > 0) && (
-          <div className="typing-indicator">
-            <div className="typing-dots">
-              <div className="typing-dot" style={{ animationDelay: '0s' }} />
-              <div className="typing-dot" style={{ animationDelay: '0.2s' }} />
-              <div className="typing-dot" style={{ animationDelay: '0.4s' }} />
-            </div>
-          </div>
-        )}
         
-        {/* Spacer для возможности скролла любого сообщения к верху (как в Perplexity) */}
+        {/* Scroll spacer */}
         <div className="scroll-spacer" />
       </div>
 
-      {/* Input Area - fixed bottom */}
+      {/* Input Area */}
       <div className="input-area">
         <div className="input-fade"></div>
         
@@ -514,7 +397,7 @@ export function ChatInterface() {
           <div className="input-wrapper">
             {/* Left Side: Mode Selector + Model Selector + Icons */}
             <div className="input-left-section">
-              {/* Execution Mode Selector - Dropdown (как в Cursor) */}
+              {/* Execution Mode Selector */}
               <div className="relative" ref={modeDropdownRef}>
                 <button
                   type="button"
@@ -552,13 +435,12 @@ export function ChatInterface() {
                 )}
               </div>
               
-              {/* Model Selector - Dropdown (как в Cursor) */}
+              {/* Model Selector */}
               <div className="relative" ref={modelDropdownRef}>
                 <button
                   type="button"
                   onClick={(e) => {
                     e.stopPropagation()
-                    console.log('[ChatInterface] Model selector clicked, current state:', { isModelDropdownOpen, modelsCount: models.length })
                     setIsModelDropdownOpen(!isModelDropdownOpen)
                   }}
                   className="model-selector-dropdown-button"
