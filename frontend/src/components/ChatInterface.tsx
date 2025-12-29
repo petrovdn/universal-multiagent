@@ -235,17 +235,11 @@ export function ChatInterface() {
     // The workflow will be managed per user message through metadata
 
     // Add user message immediately to show it in UI
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend',message:'BEFORE addMessage - adding user message to UI',data:{userMessage,userMessageLength:userMessage.length,messagesCountBefore:messages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     addMessage({
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString(),
     })
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend',message:'AFTER addMessage - user message added to UI',data:{userMessage,messagesCountAfter:messages.length+1},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
 
     // Activate scroll to new message
     setShouldScrollToNew(true)
@@ -437,9 +431,6 @@ export function ChatInterface() {
           const isLastUserMessage = index === lastUserIndexInMessages
           
           if (message.role === 'user') {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render-user',message:'Rendering user message with workflow blocks',data:{messageIndex:index,messageTimestamp:message.timestamp,messageContent:message.content.substring(0,50),isLastUserMessage,allWorkflowIds:Object.keys(useChatStore.getState().workflows),activeWorkflowId:useChatStore.getState().activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'RENDER'})}).catch(()=>{});
-            // #endregion
             return (
               <React.Fragment key={`user-${index}-${message.timestamp}`}>
                 <div 
@@ -459,6 +450,11 @@ export function ChatInterface() {
             // Check if this message has metadata with reasoning blocks
             const hasReasoningMetadata = message.metadata?.reasoningBlocks
             if (hasReasoningMetadata) {
+              // CRITICAL FIX: Don't render empty assistant messages
+              // This prevents empty blocks from appearing when message.content is empty
+              if (!message.content || message.content.trim().length === 0) {
+                return null
+              }
               // This is a completed message with reasoning - render as regular message
               return (
                 <div key={`assistant-${index}-${message.timestamp}`} className="assistant-message-wrapper">
@@ -504,7 +500,16 @@ export function ChatInterface() {
         })}
         
         {/* Render streaming assistant messages FIRST - they might contain reasoning blocks */}
-        {Object.values(assistantMessages).map((assistantMsg) => {
+        {(() => {
+          const assistantMessagesArray = Object.values(assistantMessages)
+          const isEmpty = assistantMessagesArray.length === 0
+          
+          // CRITICAL: If no assistant messages, return null immediately to prevent empty wrapper
+          if (isEmpty) {
+            return null
+          }
+          
+          return assistantMessagesArray.map((assistantMsg) => {
           // Проверяем, есть ли реальный контент в блоках (не только их наличие)
           const hasReasoningContent = assistantMsg.reasoningBlocks.some(block => 
             block.content && block.content.trim().length > 0
@@ -514,15 +519,55 @@ export function ChatInterface() {
           )
           const hasContent = hasReasoningContent || hasAnswerContent
           
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render-assistant-message',message:'Rendering assistant message wrapper',data:{messageId:assistantMsg.id,reasoningBlocksCount:assistantMsg.reasoningBlocks.length,answerBlocksCount:assistantMsg.answerBlocks.length,hasReasoningContent,hasAnswerContent,hasContent,reasoningBlocksWithContent:assistantMsg.reasoningBlocks.filter(b=>b.content&&b.content.trim().length>0).length,assistantMessagesCount:Object.keys(assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,C'})}).catch(()=>{});
-          // #endregion
-          
           // Если нет реального контента, не рендерим wrapper (ChatMessage вернет null)
           if (!hasContent) {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:skip-empty-wrapper',message:'Skipping empty assistant-message-wrapper - no real content',data:{messageId:assistantMsg.id,reasoningBlocksCount:assistantMsg.reasoningBlocks.length,answerBlocksCount:assistantMsg.answerBlocks.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-            // #endregion
+            return null
+          }
+          
+          // CRITICAL FIX: Mimic ChatMessage logic to check if it will render content
+          // This prevents empty wrapper divs from appearing when ChatMessage would return null
+          // ChatMessage returns null if:
+          // 1. reasoningAnswerPairs.length === 0 (no pairs)
+          // 2. allPairsHaveContent === false (all pairs are empty)
+          // We need to check this BEFORE rendering the wrapper to avoid empty blocks
+          
+          // Simulate the reasoningAnswerPairs grouping logic from ChatMessage
+          const willChatMessageRender = (() => {
+            // If no content blocks at all, ChatMessage will return null
+            if (!hasContent) {
+              return false
+            }
+            
+            // Check if there will be any valid pairs (mimicking ChatMessage logic)
+            // A pair is valid if it has at least one block with content
+            const hasValidReasoning = assistantMsg.reasoningBlocks.some(block => 
+              block.content && block.content.trim().length > 0
+            )
+            const hasValidAnswer = assistantMsg.answerBlocks.some(block => 
+              block.content && block.content.trim().length > 0
+            )
+            
+            // If we have at least one valid block, there will be at least one pair
+            // But we also need to check that the pair will actually render content
+            // (ReasoningBlock and AnswerBlock can return null if content is empty)
+            if (!hasValidReasoning && !hasValidAnswer) {
+              return false
+            }
+            
+            // Additional check: verify that blocks will actually render
+            // ReasoningBlock returns null if content is empty (even if isStreaming)
+            // So we need to ensure content exists
+            const willRenderReasoning = assistantMsg.reasoningBlocks.some(block => 
+              block.content && block.content.trim().length > 0
+            )
+            const willRenderAnswer = assistantMsg.answerBlocks.some(block => 
+              block.content && block.content.trim().length > 0
+            )
+            
+            return willRenderReasoning || willRenderAnswer
+          })()
+          
+          if (!willChatMessageRender) {
             return null
           }
           
@@ -531,7 +576,8 @@ export function ChatInterface() {
               <ChatMessage message={assistantMsg} />
             </div>
           )
-        })}
+        })
+        })()}
         
         {/* Welcome screen */}
         {messages.length === 0 && Object.keys(assistantMessages).length === 0 && (

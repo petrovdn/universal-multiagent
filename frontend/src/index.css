@@ -524,7 +524,20 @@ body {
   box-sizing: border-box;
   /* Создаем минимальную высоту для заполнения страницы - критично для Perplexity-style */
   /* Когда контент пустой или маленький, блок занимает всю видимую область */
-  min-height: calc(100vh - 200px); /* Высота экрана минус header (~50px) и input area (~120px) и отступы */
+  /* CRITICAL FIX: min-height only applies when there's actual content - removed to prevent empty blocks */
+  /* min-height: calc(100vh - 200px); */ /* Высота экрана минус header (~50px) и input area (~120px) и отступы */
+}
+
+/* CRITICAL FIX: Hide empty assistant-message-wrapper to prevent visual empty blocks */
+/* This handles cases where ChatMessage returns null but wrapper still renders */
+.assistant-message-wrapper:empty,
+.assistant-message-wrapper:has(:empty:only-child),
+.assistant-message-wrapper:not(:has(*)) {
+  display: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  height: 0 !important;
+  min-height: 0 !important;
 }
 
 /* Убеждаемся, что содержимое сообщений заполняет всю доступную ширину */

@@ -747,6 +747,14 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             # Receive message from client
             data = await websocket.receive_json()
             
+            # #region agent log
+            import json
+            import time
+            log_data = json.dumps({"location": "server.py:websocket-receive", "message": "WebSocket message received", "data": {"session_id": session_id, "message_type": data.get("type"), "full_data": str(data)[:200]}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                f.write(log_data + b'\n')
+            # #endregion
+            
             message_type = data.get("type")
             
             if message_type == "message":
@@ -793,6 +801,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     session_manager.update_session(session_id, context)
             
             elif message_type == "stop_generation":
+                # #region agent log
+                import json
+                import time
+                log_data = json.dumps({"location": "server.py:websocket-stop_generation", "message": "stop_generation message received", "data": {"session_id": session_id, "message_type": message_type}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                    f.write(log_data + b'\n')
+                # #endregion
                 # Stop generation
                 await agent_wrapper.stop_generation(session_id)
     

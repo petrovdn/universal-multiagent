@@ -721,10 +721,22 @@ class AgentWrapper:
         Args:
             session_id: Session identifier
         """
+        # #region agent log
+        import json
+        import time
+        log_data = json.dumps({"location": "agent_wrapper.py:stop_generation", "message": "stop_generation called", "data": {"session_id": session_id, "active_orchestrators_keys": list(self._active_orchestrators.keys()), "has_orchestrator": session_id in self._active_orchestrators}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         # Get active orchestrator for this session
         orchestrator = self._active_orchestrators.get(session_id)
         
         if orchestrator:
+            # #region agent log
+            log_data = json.dumps({"location": "agent_wrapper.py:stop_generation", "message": "Orchestrator found, calling stop()", "data": {"session_id": session_id, "orchestrator_id": id(orchestrator)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                f.write(log_data + b'\n')
+            # #endregion
             logger.info(f"[AgentWrapper] Stopping generation for session {session_id}")
             orchestrator.stop()
             

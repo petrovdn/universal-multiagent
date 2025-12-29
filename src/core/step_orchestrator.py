@@ -59,12 +59,28 @@ class StepOrchestrator:
         self._plan_text: str = ""
         self._confirmation_id: Optional[str] = None
         self._stop_requested: bool = False
+        self._streaming_task: Optional[asyncio.Task] = None
         
         logger.info(f"[StepOrchestrator] Initialized for session {session_id} with model {model_name or 'default'}")
     
     def stop(self):
         """Request stop of execution."""
+        # #region agent log
+        import json
+        import time
+        log_data = json.dumps({"location": "step_orchestrator.py:stop", "message": "stop() called", "data": {"session_id": self.session_id, "current_stop_requested": self._stop_requested, "has_streaming_task": self._streaming_task is not None, "streaming_task_done": self._streaming_task.done() if self._streaming_task else None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,B,C"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         self._stop_requested = True
+        if self._streaming_task and not self._streaming_task.done():
+            self._streaming_task.cancel()
+            logger.info(f"[StepOrchestrator] Cancelled streaming task for session {self.session_id}")
+        # #region agent log
+        log_data = json.dumps({"location": "step_orchestrator.py:stop", "message": "stop() completed", "data": {"session_id": self.session_id, "stop_requested_set": self._stop_requested, "streaming_task_cancelled": self._streaming_task is not None and self._streaming_task.done() if self._streaming_task else False}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,B,C"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         logger.info(f"[StepOrchestrator] Stop requested for session {self.session_id}")
     
     def _create_llm_with_thinking(self) -> BaseChatModel:
@@ -131,6 +147,23 @@ class StepOrchestrator:
             logger.info(f"[StepOrchestrator] Generating plan for request: {user_request[:100]}")
             plan_result = await self._generate_plan(user_request, context, file_ids)
             
+            # Check if stop was requested during plan generation
+            if self._stop_requested:
+                logger.info(f"[StepOrchestrator] Stop requested during plan generation")
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "workflow_stopped",
+                    {
+                        "reason": "Остановлено пользователем",
+                        "step": 0,
+                        "remaining_steps": 0
+                    }
+                )
+                return {
+                    "status": "stopped",
+                    "message": "Генерация остановлена пользователем"
+                }
+            
             plan_text = plan_result["plan"]
             plan_steps = plan_result["steps"]
             
@@ -148,6 +181,25 @@ class StepOrchestrator:
                     "confirmation_id": self._confirmation_id
                 }
             )
+            
+            # Check if stop was requested after plan generation
+            if self._stop_requested:
+                logger.info(f"[StepOrchestrator] Stop requested after plan generation")
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "workflow_stopped",
+                    {
+                        "reason": "Остановлено пользователем",
+                        "step": 0,
+                        "remaining_steps": len(plan_steps)
+                    }
+                )
+                return {
+                    "status": "stopped",
+                    "message": "Генерация остановлена пользователем",
+                    "plan": plan_text,
+                    "steps": plan_steps
+                }
             
             # Step 2: Handle confirmation based on mode
             if mode == "plan_and_confirm":
@@ -170,10 +222,36 @@ class StepOrchestrator:
                 confirmation_timeout = 300  # 5 minutes timeout
                 
                 try:
-                    await asyncio.wait_for(
-                        self._confirmation_event.wait(),
-                        timeout=confirmation_timeout
-                    )
+                    # Wait for confirmation with periodic stop checks
+                    while not self._confirmation_event.is_set():
+                        if self._stop_requested:
+                            logger.info(f"[StepOrchestrator] Stop requested during confirmation wait")
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "workflow_stopped",
+                                {
+                                    "reason": "Остановлено пользователем",
+                                    "step": 0,
+                                    "remaining_steps": len(plan_steps)
+                                }
+                            )
+                            # Reset confirmation state
+                            self._confirmation_event = None
+                            self._confirmation_result = None
+                            return {
+                                "status": "stopped",
+                                "message": "Генерация остановлена пользователем"
+                            }
+                        
+                        try:
+                            await asyncio.wait_for(
+                                self._confirmation_event.wait(),
+                                timeout=0.5  # Check every 0.5 seconds
+                            )
+                            break
+                        except asyncio.TimeoutError:
+                            # Continue checking _stop_requested
+                            continue
                 except asyncio.TimeoutError:
                     logger.warning(f"[StepOrchestrator] Confirmation timeout for session {self.session_id}")
                     await self.ws_manager.send_event(
@@ -188,6 +266,26 @@ class StepOrchestrator:
                     return {
                         "status": "timeout",
                         "message": "Confirmation timeout"
+                    }
+                
+                # Check if stop was requested after confirmation
+                if self._stop_requested:
+                    logger.info(f"[StepOrchestrator] Stop requested after confirmation")
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "workflow_stopped",
+                        {
+                            "reason": "Остановлено пользователем",
+                            "step": 0,
+                            "remaining_steps": len(plan_steps)
+                        }
+                    )
+                    # Reset confirmation state
+                    self._confirmation_event = None
+                    self._confirmation_result = None
+                    return {
+                        "status": "stopped",
+                        "message": "Генерация остановлена пользователем"
                     }
                 
                 if not self._confirmation_result:
@@ -211,9 +309,14 @@ class StepOrchestrator:
             step_results = []
             
             for step_index, step_title in enumerate(plan_steps, start=1):
-                # Check if stop was requested
+                # #region agent log
+                log_data = json.dumps({"location": "step_orchestrator.py:execute-loop", "message": "Loop iteration start", "data": {"step_index": step_index, "step_title": step_title, "stop_requested": self._stop_requested, "total_steps": len(plan_steps)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C,E"}).encode('utf-8')
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                    f.write(log_data + b'\n')
+                # #endregion
+                # Check if stop was requested before starting step
                 if self._stop_requested:
-                    logger.info(f"[StepOrchestrator] Stop requested, stopping execution at step {step_index}")
+                    logger.info(f"[StepOrchestrator] Stop requested, stopping execution before step {step_index}")
                     await self.ws_manager.send_event(
                         self.session_id,
                         "workflow_stopped",
@@ -223,9 +326,33 @@ class StepOrchestrator:
                             "remaining_steps": len(plan_steps) - step_index + 1
                         }
                     )
+                    # #region agent log
+                    log_data = json.dumps({"location": "step_orchestrator.py:execute-break-1", "message": "Breaking loop due to stop_requested (before step)", "data": {"step_index": step_index}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}).encode('utf-8')
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                        f.write(log_data + b'\n')
+                    # #endregion
                     break
                 
                 try:
+                    # Check again before sending step_start event
+                    if self._stop_requested:
+                        logger.info(f"[StepOrchestrator] Stop requested before step {step_index} start event")
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "workflow_stopped",
+                            {
+                                "reason": "Остановлено пользователем",
+                                "step": step_index - 1,
+                                "remaining_steps": len(plan_steps) - step_index + 1
+                            }
+                        )
+                        # #region agent log
+                        log_data = json.dumps({"location": "step_orchestrator.py:execute-break-2", "message": "Breaking loop due to stop_requested (before step_start)", "data": {"step_index": step_index}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}).encode('utf-8')
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                            f.write(log_data + b'\n')
+                        # #endregion
+                        break
+                    
                     # Send step_start event
                     await self.ws_manager.send_event(
                         self.session_id,
@@ -236,6 +363,11 @@ class StepOrchestrator:
                         }
                     )
                     
+                    # #region agent log
+                    log_data = json.dumps({"location": "step_orchestrator.py:execute-before-step", "message": "Before _execute_step call", "data": {"step_index": step_index, "stop_requested": self._stop_requested}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C,F"}).encode('utf-8')
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                        f.write(log_data + b'\n')
+                    # #endregion
                     # Execute step with streaming
                     step_result = await self._execute_step(
                         step_index,
@@ -247,6 +379,70 @@ class StepOrchestrator:
                         context,
                         file_ids
                     )
+                    # #region agent log
+                    log_data = json.dumps({"location": "step_orchestrator.py:execute-after-step", "message": "After _execute_step call", "data": {"step_index": step_index, "stop_requested": self._stop_requested, "step_result_length": len(str(step_result)) if step_result else 0, "step_result_preview": str(step_result)[:100] if step_result else None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C,F"}).encode('utf-8')
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                        f.write(log_data + b'\n')
+                    # #endregion
+                    # Check if stop was requested after step execution
+                    if self._stop_requested:
+                        logger.info(f"[StepOrchestrator] Stop requested after step {step_index} execution")
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "workflow_stopped",
+                            {
+                                "reason": "Остановлено пользователем",
+                                "step": step_index,
+                                "remaining_steps": len(plan_steps) - step_index
+                            }
+                        )
+                        # #region agent log
+                        log_data = json.dumps({"location": "step_orchestrator.py:execute-break-3", "message": "Breaking loop due to stop_requested (after step execution)", "data": {"step_index": step_index}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}).encode('utf-8')
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                            f.write(log_data + b'\n')
+                        # #endregion
+                        break
+                    
+                except Exception as e:
+                    # #region agent log
+                    log_data = json.dumps({"location": "step_orchestrator.py:execute-except", "message": "Exception caught in step loop", "data": {"step_index": step_index, "exception_type": type(e).__name__, "exception_message": str(e), "stop_requested": self._stop_requested}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}).encode('utf-8')
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                        f.write(log_data + b'\n')
+                    # #endregion
+                    # Проверить, является ли это исключением остановки
+                    from src.utils.exceptions import AgentError
+                    if isinstance(e, AgentError) and "остановлено" in str(e).lower():
+                        # #region agent log
+                        log_data = json.dumps({"location": "step_orchestrator.py:execute-except-stop", "message": "Stop exception detected, breaking loop", "data": {"step_index": step_index}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}).encode('utf-8')
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                            f.write(log_data + b'\n')
+                        # #endregion
+                        logger.info(f"[StepOrchestrator] Stop exception caught for step {step_index}")
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "workflow_stopped",
+                            {
+                                "reason": "Остановлено пользователем",
+                                "step": step_index,
+                                "remaining_steps": len(plan_steps) - step_index
+                            }
+                        )
+                        # #region agent log
+                        log_data = json.dumps({"location": "step_orchestrator.py:execute-break-except", "message": "Breaking loop due to stop exception", "data": {"step_index": step_index}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D,E"}).encode('utf-8')
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                            f.write(log_data + b'\n')
+                        # #endregion
+                        break
+                    # Если это не исключение остановки, пробросить дальше
+                    logger.error(f"[StepOrchestrator] Error executing step {step_index}: {e}")
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "error",
+                        {
+                            "message": f"Error in step {step_index}: {str(e)}"
+                        }
+                    )
+                    raise
                     
                     step_results.append({
                         "step": step_index,
@@ -262,6 +458,25 @@ class StepOrchestrator:
                             "step": step_index
                         }
                     )
+                    
+                    # Check if stop was requested after sending step_complete
+                    if self._stop_requested:
+                        logger.info(f"[StepOrchestrator] Stop requested after step {step_index} completion")
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "workflow_stopped",
+                            {
+                                "reason": "Остановлено пользователем",
+                                "step": step_index,
+                                "remaining_steps": len(plan_steps) - step_index
+                            }
+                        )
+                        # #region agent log
+                        log_data = json.dumps({"location": "step_orchestrator.py:execute-break-4", "message": "Breaking loop due to stop_requested (after step_complete)", "data": {"step_index": step_index}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}).encode('utf-8')
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                            f.write(log_data + b'\n')
+                        # #endregion
+                        break
                     
                     # Check if step requires user help (critical error)
                     if "🛑 ТРЕБУЕТСЯ ПОМОЩЬ ПОЛЬЗОВАТЕЛЯ" in step_result:
@@ -289,7 +504,26 @@ class StepOrchestrator:
                     )
                     raise
             
-            # Step 4: Send workflow_complete event
+            # #region agent log
+            log_data = json.dumps({"location": "step_orchestrator.py:execute-after-loop", "message": "After step execution loop", "data": {"stop_requested": self._stop_requested, "steps_completed": len(step_results), "total_steps": len(plan_steps)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}).encode('utf-8')
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                f.write(log_data + b'\n')
+            # #endregion
+            # Step 4: Check if stop was requested before sending workflow_complete
+            if self._stop_requested:
+                logger.info(f"[StepOrchestrator] Stop requested, workflow not completed")
+                # Reset confirmation state
+                self._confirmation_event = None
+                self._confirmation_result = None
+                return {
+                    "status": "stopped",
+                    "message": "Генерация остановлена пользователем",
+                    "steps": step_results,
+                    "plan": plan_text,
+                    "confirmation_id": self._confirmation_id
+                }
+            
+            # Send workflow_complete event only if not stopped
             await self.ws_manager.send_event(
                 self.session_id,
                 "workflow_complete",
@@ -464,40 +698,97 @@ class StepOrchestrator:
         # #endregion
         
         try:
+            # Check if stop was requested before starting streaming
+            if self._stop_requested:
+                logger.info(f"[StepOrchestrator] Stop requested before plan generation")
+                return {
+                    "plan": "Execution plan (stopped)",
+                    "steps": ["Execute request"]
+                }
+            
             # Stream LLM response with thinking
             accumulated_thinking = ""
             accumulated_response = ""
             
-            async for chunk in self.llm.astream(messages):
-                if hasattr(chunk, 'content'):
-                    content = chunk.content
+            # Создать задачу для стриминга, чтобы можно было её отменить
+            async def stream_plan():
+                nonlocal accumulated_thinking, accumulated_response
+                async for chunk in self.llm.astream(messages):
+                    if self._stop_requested:
+                        break
                     
-                    # Handle list of content blocks (Claude format with thinking)
-                    if isinstance(content, list):
-                        for block in content:
-                            block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
-                            
-                            if block_type == "thinking":
-                                # Extract thinking text
-                                thinking_text = block.get("thinking", "") if isinstance(block, dict) else getattr(block, "thinking", "")
-                                if thinking_text:
-                                    accumulated_thinking += thinking_text
-                                    # Stream thinking chunk to UI
-                                    await self.ws_manager.send_event(
-                                        self.session_id,
-                                        "plan_thinking_chunk",
-                                        {"content": thinking_text}
-                                    )
-                            
-                            elif block_type == "text":
-                                # Extract response text
-                                text_content = block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")
-                                if text_content:
-                                    accumulated_response += text_content
-                    
-                    # Handle simple string content
-                    elif isinstance(content, str):
-                        accumulated_response += content
+                    if hasattr(chunk, 'content'):
+                        content = chunk.content
+                        
+                        # Handle list of content blocks (Claude format with thinking)
+                        if isinstance(content, list):
+                            for block in content:
+                                block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                                
+                                if block_type == "thinking":
+                                    # Extract thinking text
+                                    thinking_text = block.get("thinking", "") if isinstance(block, dict) else getattr(block, "thinking", "")
+                                    if thinking_text:
+                                        accumulated_thinking += thinking_text
+                                        # Stream thinking chunk to UI
+                                        await self.ws_manager.send_event(
+                                            self.session_id,
+                                            "plan_thinking_chunk",
+                                            {"content": thinking_text}
+                                        )
+                                
+                                elif block_type == "text":
+                                    # Extract response text
+                                    text_content = block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")
+                                    if text_content:
+                                        accumulated_response += text_content
+                        
+                        # Handle simple string content
+                        elif isinstance(content, str):
+                            accumulated_response += content
+            
+            # Запустить задачу и сохранить ссылку
+            self._streaming_task = asyncio.create_task(stream_plan())
+            
+            try:
+                await self._streaming_task
+            except asyncio.CancelledError:
+                logger.info(f"[StepOrchestrator] Plan streaming cancelled")
+                if self._stop_requested:
+                    return {
+                        "plan": "Execution plan (stopped)",
+                        "steps": ["Execute request"]
+                    }
+                raise
+            finally:
+                self._streaming_task = None
+            
+            # Check if stop was requested after streaming
+            if self._stop_requested:
+                logger.info(f"[StepOrchestrator] Stop requested after plan generation, returning partial plan")
+                # Return partial plan if we have something
+                if accumulated_response:
+                    try:
+                        json_match = re.search(r'\{[\s\S]*\}', accumulated_response)
+                        if json_match:
+                            json_str = json_match.group(0)
+                            plan_data = json.loads(json_str)
+                            plan_text = plan_data.get("plan", "Execution plan (partial)")
+                            steps = plan_data.get("steps", [])
+                        else:
+                            plan_text = accumulated_response[:500] if accumulated_response else "Execution plan (partial)"
+                            steps = ["Execute request"]
+                    except:
+                        plan_text = accumulated_response[:500] if accumulated_response else "Execution plan (partial)"
+                        steps = ["Execute request"]
+                else:
+                    plan_text = "Execution plan (stopped)"
+                    steps = ["Execute request"]
+                
+                return {
+                    "plan": plan_text,
+                    "steps": steps
+                }
             
             # Parse JSON response
             response_text = accumulated_response
@@ -673,74 +964,124 @@ class StepOrchestrator:
             step_message
         ]
         
+        # #region agent log
+        log_data = json.dumps({"location": "step_orchestrator.py:_execute_step-entry", "message": "_execute_step called", "data": {"step_index": step_index, "step_title": step_title, "stop_requested": self._stop_requested}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "F"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
+        # Check if stop was requested before starting streaming
+        if self._stop_requested:
+            # #region agent log
+            log_data = json.dumps({"location": "step_orchestrator.py:_execute_step-stop-before", "message": "Stop requested before streaming, raising exception", "data": {"step_index": step_index}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "F"}).encode('utf-8')
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                f.write(log_data + b'\n')
+            # #endregion
+            logger.info(f"[StepOrchestrator] Stop requested before step {step_index} execution")
+            # Выбросить исключение, чтобы прервать выполнение цикла шагов
+            from src.utils.exceptions import AgentError
+            raise AgentError("Выполнение остановлено пользователем")
+        
         # Stream the response with thinking
         accumulated_thinking = ""
         accumulated_response = ""
         
         try:
-            # Stream the response with thinking support
-            # LangChain ChatAnthropic with thinking enabled streams thinking and text separately
-            async for chunk in self.llm.astream(messages):
-                # Process chunk - chunks are AIMessageChunk objects
-                if hasattr(chunk, 'content'):
-                    content = chunk.content
+            # Создать задачу для стриминга, чтобы можно было её отменить
+            async def stream_step():
+                nonlocal accumulated_thinking, accumulated_response
+                # Stream the response with thinking support
+                # LangChain ChatAnthropic with thinking enabled streams thinking and text separately
+                async for chunk in self.llm.astream(messages):
+                    if self._stop_requested:
+                        break
                     
-                    # Handle list of content blocks (Claude format with thinking)
-                    if isinstance(content, list):
-                        for block in content:
-                            # Handle both dict and object formats
-                            block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
-                            
-                            if block_type == "thinking":
-                                # For thinking blocks, text is in 'thinking' key, not 'text'!
-                                thinking_text = block.get("thinking", "") if isinstance(block, dict) else getattr(block, "thinking", "")
-                                if thinking_text:
-                                    accumulated_thinking += thinking_text
-                                    # Send thinking chunk
-                                    await self.ws_manager.send_event(
-                                        self.session_id,
-                                        "thinking_chunk",
-                                        {"content": thinking_text}
-                                    )
-                            elif block_type == "text":
-                                # For text blocks, text is in 'text' key
-                                text_content = block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")
-                                if text_content:
-                                    accumulated_response += text_content
-                                    # Send response chunk
-                                    await self.ws_manager.send_event(
-                                        self.session_id,
-                                        "response_chunk",
-                                        {"content": text_content}
-                                    )
-                    # Handle string content (fallback)
-                    elif isinstance(content, str) and content:
-                        accumulated_response += content
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "response_chunk",
-                            {"content": content}
-                        )
-                # Fallback: if chunk doesn't have content attribute, try to extract text
-                elif hasattr(chunk, 'text'):
-                    text = chunk.text
-                    if text:
-                        accumulated_response += text
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "response_chunk",
-                            {"content": text}
-                        )
-                else:
-                    # Last resort: convert to string
-                    chunk_str = str(chunk)
-                    if chunk_str and chunk_str not in ['', 'None']:
-                        accumulated_response += chunk_str
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "response_chunk",
-                            {"content": chunk_str}
-                        )
+                    # Process chunk - chunks are AIMessageChunk objects
+                    if hasattr(chunk, 'content'):
+                        content = chunk.content
+                        
+                        # Handle list of content blocks (Claude format with thinking)
+                        if isinstance(content, list):
+                            for block in content:
+                                # Handle both dict and object formats
+                                block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                                
+                                if block_type == "thinking":
+                                    # For thinking blocks, text is in 'thinking' key, not 'text'!
+                                    thinking_text = block.get("thinking", "") if isinstance(block, dict) else getattr(block, "thinking", "")
+                                    if thinking_text:
+                                        accumulated_thinking += thinking_text
+                                        # Send thinking chunk
+                                        await self.ws_manager.send_event(
+                                            self.session_id,
+                                            "thinking_chunk",
+                                            {"content": thinking_text}
+                                        )
+                                elif block_type == "text":
+                                    # For text blocks, text is in 'text' key
+                                    text_content = block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")
+                                    if text_content:
+                                        accumulated_response += text_content
+                                        # Send response chunk
+                                        await self.ws_manager.send_event(
+                                            self.session_id,
+                                            "response_chunk",
+                                            {"content": text_content}
+                                        )
+                        # Handle string content (fallback)
+                        elif isinstance(content, str) and content:
+                            accumulated_response += content
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "response_chunk",
+                                {"content": content}
+                            )
+                    # Fallback: if chunk doesn't have content attribute, try to extract text
+                    elif hasattr(chunk, 'text'):
+                        text = chunk.text
+                        if text:
+                            accumulated_response += text
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "response_chunk",
+                                {"content": text}
+                            )
+                    else:
+                        # Last resort: convert to string
+                        chunk_str = str(chunk)
+                        if chunk_str and chunk_str not in ['', 'None']:
+                            accumulated_response += chunk_str
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "response_chunk",
+                                {"content": chunk_str}
+                            )
+            
+            # Запустить задачу и сохранить ссылку
+            self._streaming_task = asyncio.create_task(stream_step())
+            
+            try:
+                await self._streaming_task
+            except asyncio.CancelledError:
+                logger.info(f"[StepOrchestrator] Step {step_index} streaming cancelled")
+                if self._stop_requested:
+                    # Выбросить исключение, чтобы прервать выполнение цикла шагов
+                    from src.utils.exceptions import AgentError
+                    raise AgentError("Выполнение остановлено пользователем")
+                raise
+            finally:
+                self._streaming_task = None
+            
+            # Check if stop was requested after streaming
+            if self._stop_requested:
+                # #region agent log
+                log_data = json.dumps({"location": "step_orchestrator.py:_execute_step-stop-after", "message": "Stop requested after streaming, raising exception", "data": {"step_index": step_index, "accumulated_response_length": len(accumulated_response)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "F"}).encode('utf-8')
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                    f.write(log_data + b'\n')
+                # #endregion
+                logger.info(f"[StepOrchestrator] Stop requested after step {step_index} streaming")
+                # Выбросить исключение, чтобы прервать выполнение цикла шагов
+                from src.utils.exceptions import AgentError
+                raise AgentError("Выполнение остановлено пользователем")
             
             logger.info(f"[StepOrchestrator] Step {step_index} completed, response length: {len(accumulated_response)}")
             return accumulated_response

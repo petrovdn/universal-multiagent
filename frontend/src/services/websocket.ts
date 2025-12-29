@@ -830,14 +830,27 @@ export class WebSocketClient {
   }
 
   stopGeneration(): void {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:stopGeneration',message:'stopGeneration called',data:{hasWs:!!this.ws,readyState:this.ws?.readyState,isOpen:this.ws?.readyState===WebSocket.OPEN},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:stopGeneration',message:'Sending stop_generation message',data:{readyState:this.ws.readyState},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       this.ws.send(JSON.stringify({
         type: 'stop_generation',
       }))
       console.log('[WebSocket] Stop generation requested')
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:stopGeneration',message:'stop_generation message sent, NOT disconnecting',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      // NOTE: Do NOT disconnect here - it closes the connection before the server can process the stop_generation message
+      // The connection should remain open to receive workflow_stopped event
+    } else {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:stopGeneration',message:'WebSocket not open, cannot send stop_generation',data:{hasWs:!!this.ws,readyState:this.ws?.readyState},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
     }
-    // Also disconnect to ensure clean state
-    this.disconnect()
   }
 
   disconnect(): void {

@@ -117,15 +117,9 @@ export function ChatMessage({ message }: ChatMessageProps) {
     )
   }
   
-  // #region agent log
-  React.useEffect(() => {
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:render',message:'ChatMessage render',data:{messageId:message.id,reasoningBlocksCount:message.reasoningBlocks.length,answerBlocksCount:message.answerBlocks.length,hasReasoningBlocks:message.reasoningBlocks.length>0,hasAnswerBlocks:message.answerBlocks.length>0,isComplete:message.isComplete},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,C'})}).catch(()=>{});
-  }, [message.id, message.reasoningBlocks.length, message.answerBlocks.length, message.isComplete]);
-  // #endregion
 
   // Группируем reasoning и answer блоки в пары (подход B) - улучшенный алгоритм
   const reasoningAnswerPairs = useMemo<ReasoningAnswerPair[]>(() => {
-    // #region agent log
     const reasoningTimestamps = message.reasoningBlocks.map((b, i) => ({
       index: i,
       id: b.id,
@@ -140,8 +134,6 @@ export function ChatMessage({ message }: ChatMessageProps) {
       timestampMs: new Date(b.timestamp).getTime(),
       isStreaming: b.isStreaming,
     }))
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:grouping-start',message:'Starting block grouping',data:{messageId:message.id,reasoningBlocksCount:message.reasoningBlocks.length,answerBlocksCount:message.answerBlocks.length,reasoningTimestamps,answerTimestamps},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'D,E'})}).catch(()=>{});
-    // #endregion
     
     // Создаем массив всех элементов с их типами, timestamp и индексом для стабильной сортировки
     const allItems: Array<{
@@ -211,9 +203,6 @@ export function ChatMessage({ message }: ChatMessageProps) {
             // Не проверяем timestamp, так как порядок в allItems уже правильный
             pair.answer = { blockId: nextItem.blockId, index: nextItem.index }
             usedAnswerIndices.add(nextItem.index)
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:pair-created',message:'Created reasoning-answer pair',data:{pairIndex:pair.pairIndex,reasoningTimestamp:item.timestamp,answerTimestamp:nextItem.timestamp,timestampDiff:nextItem.timestamp - item.timestamp},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'D'})}).catch(()=>{});
-            // #endregion
             break // Берем только первый подходящий answer
           }
         }
@@ -247,60 +236,45 @@ export function ChatMessage({ message }: ChatMessageProps) {
       return a.pairIndex - b.pairIndex
     })
     
-    // #region agent log
-    const sortedPairs = pairs.map((p, idx) => ({
-      position: idx,
-      pairIndex: p.pairIndex,
-      timestamp: p.timestamp,
-      hasReasoning: !!p.reasoning,
-      hasAnswer: !!p.answer,
-      reasoningId: p.reasoning?.blockId,
-      answerId: p.answer?.blockId,
-    }))
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:grouping-complete',message:'Block grouping complete',data:{totalPairs:pairs.length,sortedPairs},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'D,E'})}).catch(()=>{});
-    // #endregion
-    
     return pairs
   }, [message.reasoningBlocks, message.answerBlocks])
 
-  // #region agent log
-  React.useEffect(() => {
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:after-grouping',message:'After reasoningAnswerPairs grouping',data:{messageId:message.id,reasoningAnswerPairsCount:reasoningAnswerPairs.length,willRenderEmptyDiv:reasoningAnswerPairs.length===0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-  }, [message.id, reasoningAnswerPairs.length]);
-  // #endregion
-
   // Если нет пар, возвращаем null вместо пустого div
   if (reasoningAnswerPairs.length === 0) {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:return-null',message:'Returning null - no pairs',data:{messageId:message.id,reasoningBlocksCount:message.reasoningBlocks.length,answerBlocksCount:message.answerBlocks.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
+    return null
+  }
+
+  // Проверяем, есть ли контент в парах
+  const allPairsHaveContent = reasoningAnswerPairs.every(pair => {
+    const hasReasoningContent = pair.reasoning ? (message.reasoningBlocks[pair.reasoning.index]?.content?.trim().length || 0) > 0 : true
+    const hasAnswerContent = pair.answer ? (message.answerBlocks[pair.answer.index]?.content?.trim().length || 0) > 0 : true
+    return hasReasoningContent || hasAnswerContent
+  })
+  
+  // Если все пары пустые, не рендерим div
+  if (!allPairsHaveContent) {
     return null
   }
 
   return (
     <div className="chat-message">
       {reasoningAnswerPairs.map((pair) => {
-        // #region agent log
         const reasoningBlock = pair.reasoning ? message.reasoningBlocks[pair.reasoning.index] : null
         const answerBlock = pair.answer ? message.answerBlocks[pair.answer.index] : null
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:render-pair',message:'Rendering pair',data:{pairIndex:pair.pairIndex,hasReasoning:!!pair.reasoning,hasAnswer:!!pair.answer,reasoningTimestamp:reasoningBlock?.timestamp,reasoningTimestampMs:reasoningBlock ? new Date(reasoningBlock.timestamp).getTime() : null,answerTimestamp:answerBlock?.timestamp,answerTimestampMs:answerBlock ? new Date(answerBlock.timestamp).getTime() : null,reasoningIsStreaming:reasoningBlock?.isStreaming,answerIsStreaming:answerBlock?.isStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'D,E'})}).catch(()=>{});
-        // #endregion
         
         return (
           <div key={`pair-${pair.pairIndex}`} className="reasoning-answer-pair">
             {/* CRITICAL: Reasoning всегда идет ПЕРВЫМ в паре, независимо от timestamp */}
             {pair.reasoning && (() => {
               const reasoningBlock = message.reasoningBlocks[pair.reasoning.index]
-              // Не показывать ReasoningBlock, если content пустой И плана еще нет
-              // Рендерим только если есть контент
+              // CRITICAL FIX: Don't render ReasoningBlock if content is empty AND not streaming
+              // ReasoningBlock will show "Анализирую запрос..." only if isStreaming=true, but we should
+              // not render it at all if there's no content and it's not streaming
               const hasContent = reasoningBlock.content && reasoningBlock.content.trim().length > 0
+              const shouldRender = hasContent || reasoningBlock.isStreaming
               
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:should-render-reasoning',message:'Checking if should render ReasoningBlock',data:{messageId:message.id,reasoningBlockId:reasoningBlock.id,hasContent,contentLength:reasoningBlock.content?.length||0,isStreaming:reasoningBlock.isStreaming,willRender:hasContent},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-              // #endregion
-              
-              // Рендерим только если есть контент
-              if (!hasContent) {
+              // CRITICAL FIX: Don't render if no content AND not streaming (prevents empty blocks)
+              if (!shouldRender) {
                 return null
               }
               
@@ -314,12 +288,19 @@ export function ChatMessage({ message }: ChatMessageProps) {
                 />
               )
             })()}
-            {pair.answer && (
-              <AnswerBlock
-                key={`answer-${pair.answer.blockId}`}
-                block={message.answerBlocks[pair.answer.index]}
-              />
-            )}
+            {pair.answer && (() => {
+              const answerBlock = message.answerBlocks[pair.answer.index]
+              const hasContent = answerBlock.content && answerBlock.content.trim().length > 0
+              if (!hasContent) {
+                return null
+              }
+              return (
+                <AnswerBlock
+                  key={`answer-${pair.answer.blockId}`}
+                  block={answerBlock}
+                />
+              )
+            })()}
           </div>
         )
       })}

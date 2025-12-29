@@ -195,18 +195,26 @@ export const useChatStore = create<ChatState>()(
       startReasoningBlock: (messageId: string, blockId: string) =>
         set((state) => {
           const existing = state.assistantMessages[messageId]
-          const newBlock: ReasoningBlock = {
-            id: blockId,
-            content: '',
-            isStreaming: true,
-            timestamp: new Date().toISOString(),
-          }
           
           // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startReasoningBlock',message:'startReasoningBlock called',data:{messageId,blockId,hasExisting:!!existing,existingReasoningBlocksCount:existing?.reasoningBlocks.length||0,existingAnswerBlocksCount:existing?.answerBlocks.length||0,creatingNewMessage:!existing},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startReasoningBlock',message:'startReasoningBlock called - NOT creating message yet',data:{messageId,blockId,hasExisting:!!existing,existingReasoningBlocksCount:existing?.reasoningBlocks.length||0,existingAnswerBlocksCount:existing?.answerBlocks.length||0,willCreateInUpdate:!existing},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
           // #endregion
           
+          // CRITICAL FIX: Don't create assistant message with empty block
+          // Message will be created in updateReasoningBlock when content is available
+          // This prevents empty blocks from being rendered
           if (existing) {
+            // If message exists, we still need to add the block, but only if it doesn't exist
+            const blockExists = existing.reasoningBlocks.some(b => b.id === blockId)
+            if (blockExists) {
+              return state // Block already exists, no change needed
+            }
+            const newBlock: ReasoningBlock = {
+              id: blockId,
+              content: '',
+              isStreaming: true,
+              timestamp: new Date().toISOString(),
+            }
             return {
               assistantMessages: {
                 ...state.assistantMessages,
@@ -217,24 +225,9 @@ export const useChatStore = create<ChatState>()(
               },
             }
           } else {
-            const newMessage = {
-              id: messageId,
-              role: 'assistant' as const,
-              timestamp: new Date().toISOString(),
-              reasoningBlocks: [newBlock],
-              answerBlocks: [],
-              debugChunks: [],
-              isComplete: false,
-            }
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:createAssistantMessage',message:'Creating new assistantMessage',data:{messageId,reasoningBlocksCount:newMessage.reasoningBlocks.length,answerBlocksCount:newMessage.answerBlocks.length,assistantMessagesCount:Object.keys(state.assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-            // #endregion
-            return {
-              assistantMessages: {
-                ...state.assistantMessages,
-                [messageId]: newMessage,
-              },
-            }
+            // Message doesn't exist - don't create it yet, wait for updateReasoningBlock
+            // This prevents empty blocks from appearing in the UI
+            return state
           }
         }),
       
@@ -245,18 +238,66 @@ export const useChatStore = create<ChatState>()(
           fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:updateReasoningBlock-entry',message:'updateReasoningBlock called',data:{messageId,blockId,contentLength:content.length,hasMessage:!!state.assistantMessages[messageId],reasoningBlocksCount:state.assistantMessages[messageId]?.reasoningBlocks.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,E'})}).catch(()=>{});
           // #endregion
           const message = state.assistantMessages[messageId]
+          
+          // CRITICAL FIX: Create message here if it doesn't exist and we have content
+          // This ensures messages are only created when there's actual content to display
           if (!message) {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:updateReasoningBlock-no-message',message:'Message not found in assistantMessages',data:{messageId,allMessageIds:Object.keys(state.assistantMessages)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-            // #endregion
-            return state
+            // Only create message if we have content (non-empty)
+            if (content && content.trim().length > 0) {
+              const newBlock: ReasoningBlock = {
+                id: blockId,
+                content,
+                isStreaming: true,
+                timestamp: new Date().toISOString(),
+              }
+              const newMessage = {
+                id: messageId,
+                role: 'assistant' as const,
+                timestamp: new Date().toISOString(),
+                reasoningBlocks: [newBlock],
+                answerBlocks: [],
+                debugChunks: [],
+                isComplete: false,
+              }
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:createAssistantMessage-in-update',message:'Creating new assistantMessage in updateReasoningBlock with content',data:{messageId,reasoningBlocksCount:newMessage.reasoningBlocks.length,answerBlocksCount:newMessage.answerBlocks.length,firstReasoningBlockContentLength:newBlock.content.length,assistantMessagesCount:Object.keys(state.assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,C'})}).catch(()=>{});
+              // #endregion
+              return {
+                assistantMessages: {
+                  ...state.assistantMessages,
+                  [messageId]: newMessage,
+                },
+              }
+            } else {
+              // No content yet, don't create message - wait for next update
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:updateReasoningBlock-no-message-no-content',message:'Message not found and no content yet - skipping',data:{messageId,contentLength:content.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+              // #endregion
+              return state
+            }
           }
           
-          const updatedBlocks = message.reasoningBlocks.map((block) =>
-            block.id === blockId
-              ? { ...block, content, isStreaming: true }
-              : block
-          )
+          // Message exists - update the block
+          const blockExists = message.reasoningBlocks.some(b => b.id === blockId)
+          let updatedBlocks: ReasoningBlock[]
+          
+          if (blockExists) {
+            // Block exists, update it
+            updatedBlocks = message.reasoningBlocks.map((block) =>
+              block.id === blockId
+                ? { ...block, content, isStreaming: true }
+                : block
+            )
+          } else {
+            // Block doesn't exist, create it (this can happen if startReasoningBlock was skipped)
+            const newBlock: ReasoningBlock = {
+              id: blockId,
+              content,
+              isStreaming: true,
+              timestamp: new Date().toISOString(),
+            }
+            updatedBlocks = [...message.reasoningBlocks, newBlock]
+          }
           
           // #region agent log
           const foundBlock = updatedBlocks.find(b => b.id === blockId)
@@ -299,14 +340,26 @@ export const useChatStore = create<ChatState>()(
       startAnswerBlock: (messageId: string, blockId: string) =>
         set((state) => {
           const existing = state.assistantMessages[messageId]
-          const newBlock: AnswerBlock = {
-            id: blockId,
-            content: '',
-            isStreaming: true,
-            timestamp: new Date().toISOString(),
-          }
           
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startAnswerBlock',message:'startAnswerBlock called - NOT creating message yet',data:{messageId,blockId,hasExisting:!!existing,existingReasoningBlocksCount:existing?.reasoningBlocks.length||0,existingAnswerBlocksCount:existing?.answerBlocks.length||0,willCreateInUpdate:!existing},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          
+          // CRITICAL FIX: Don't create assistant message with empty block
+          // Message will be created in updateAnswerBlock when content is available
+          // This prevents empty blocks from being rendered
           if (existing) {
+            // If message exists, we still need to add the block, but only if it doesn't exist
+            const blockExists = existing.answerBlocks.some(b => b.id === blockId)
+            if (blockExists) {
+              return state // Block already exists, no change needed
+            }
+            const newBlock: AnswerBlock = {
+              id: blockId,
+              content: '',
+              isStreaming: true,
+              timestamp: new Date().toISOString(),
+            }
             return {
               assistantMessages: {
                 ...state.assistantMessages,
@@ -317,20 +370,9 @@ export const useChatStore = create<ChatState>()(
               },
             }
           } else {
-            return {
-              assistantMessages: {
-                ...state.assistantMessages,
-                [messageId]: {
-                  id: messageId,
-                  role: 'assistant',
-                  timestamp: new Date().toISOString(),
-                  reasoningBlocks: [],
-                  answerBlocks: [newBlock],
-                  debugChunks: [],
-                  isComplete: false,
-                },
-              },
-            }
+            // Message doesn't exist - don't create it yet, wait for updateAnswerBlock
+            // This prevents empty blocks from appearing in the UI
+            return state
           }
         }),
       
@@ -338,13 +380,66 @@ export const useChatStore = create<ChatState>()(
       updateAnswerBlock: (messageId: string, blockId: string, content: string) =>
         set((state) => {
           const message = state.assistantMessages[messageId]
-          if (!message) return state
           
-          const updatedBlocks = message.answerBlocks.map((block) =>
-            block.id === blockId
-              ? { ...block, content, isStreaming: true }
-              : block
-          )
+          // CRITICAL FIX: Create message here if it doesn't exist and we have content
+          // This ensures messages are only created when there's actual content to display
+          if (!message) {
+            // Only create message if we have content (non-empty)
+            if (content && content.trim().length > 0) {
+              const newBlock: AnswerBlock = {
+                id: blockId,
+                content,
+                isStreaming: true,
+                timestamp: new Date().toISOString(),
+              }
+              const newMessage = {
+                id: messageId,
+                role: 'assistant' as const,
+                timestamp: new Date().toISOString(),
+                reasoningBlocks: [],
+                answerBlocks: [newBlock],
+                debugChunks: [],
+                isComplete: false,
+              }
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:createAssistantMessage-in-update-answer',message:'Creating new assistantMessage in updateAnswerBlock with content',data:{messageId,reasoningBlocksCount:newMessage.reasoningBlocks.length,answerBlocksCount:newMessage.answerBlocks.length,firstAnswerBlockContentLength:newBlock.content.length,assistantMessagesCount:Object.keys(state.assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,C'})}).catch(()=>{});
+              // #endregion
+              return {
+                assistantMessages: {
+                  ...state.assistantMessages,
+                  [messageId]: newMessage,
+                },
+              }
+            } else {
+              // No content yet, don't create message - wait for next update
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:updateAnswerBlock-no-message-no-content',message:'Message not found and no content yet - skipping',data:{messageId,contentLength:content.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+              // #endregion
+              return state
+            }
+          }
+          
+          // Message exists - update the block
+          const blockExists = message.answerBlocks.some(b => b.id === blockId)
+          let updatedBlocks: AnswerBlock[]
+          
+          if (blockExists) {
+            // Block exists, update it
+            updatedBlocks = message.answerBlocks.map((block) =>
+              block.id === blockId
+                ? { ...block, content, isStreaming: true }
+                : block
+            )
+          } else {
+            // Block doesn't exist, create it (this can happen if startAnswerBlock was skipped)
+            const newBlock: AnswerBlock = {
+              id: blockId,
+              content,
+              isStreaming: true,
+              timestamp: new Date().toISOString(),
+            }
+            updatedBlocks = [...message.answerBlocks, newBlock]
+          }
           
           return {
             assistantMessages: {
@@ -402,20 +497,14 @@ export const useChatStore = create<ChatState>()(
               },
             }
           } else {
-            return {
-              assistantMessages: {
-                ...state.assistantMessages,
-                [messageId]: {
-                  id: messageId,
-                  role: 'assistant',
-                  timestamp: new Date().toISOString(),
-                  reasoningBlocks: [],
-                  answerBlocks: [],
-                  debugChunks: [newChunk],
-                  isComplete: false,
-                },
-              },
-            }
+            // CRITICAL FIX: Don't create assistant message with only debug chunks and no content blocks
+            // Debug chunks are only shown in debug mode, and we don't want empty messages in normal mode
+            // Only create message if we have actual content (reasoning or answer blocks will be added later)
+            // For now, skip creating message - it will be created when reasoning/answer blocks are added
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:addDebugChunk-skip-create',message:'Skipping assistant message creation from addDebugChunk - will create when content blocks arrive',data:{messageId,chunkType:chunkType,chunkContent:content.substring(0,50),assistantMessagesCount:Object.keys(state.assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
+            return state
           }
         }),
       
