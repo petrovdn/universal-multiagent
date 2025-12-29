@@ -1,0 +1,19 @@
+{
+  "admin": {
+    "password": "admin",
+    "username": "admin"
+  },
+  "demo": {
+    "password": "petrov@lad24.ru",
+    "username": "bottleneck2025"
+  },
+  "user1": {
+    "password": "password1",
+    "username": "user1"
+  },
+  "user2": {
+    "password": "password2",
+    "username": "user2"
+  }
+}
+
