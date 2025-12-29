@@ -773,6 +773,16 @@ export class WebSocketClient {
         console.log('[WebSocket] Workflow completed')
         break
 
+      case 'final_result':
+        // Set final result for the active workflow
+        const finalResultWorkflowId = ensureActiveWorkflow()
+        if (finalResultWorkflowId) {
+          chatStore.setWorkflowFinalResult(finalResultWorkflowId, event.data.content)
+        }
+        chatStore.setAgentTyping(false)
+        console.log('[WebSocket] Final result received')
+        break
+
       case 'error':
         const errorMsgId = this.currentMessageId || `msg-${Date.now()}`
         addDebugChunkIfEnabled(errorMsgId, 'error', event.data.message || 'Ошибка', event.data)

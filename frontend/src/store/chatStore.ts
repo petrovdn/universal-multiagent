@@ -86,6 +86,7 @@ interface ChatState {
     plan: WorkflowPlan
     steps: Record<number, WorkflowStep> // step_number -> WorkflowStep
     currentStep: number | null
+    finalResult: string | null
   }>
   activeWorkflowId: string | null // timestamp of the active (currently streaming) workflow
   
@@ -126,6 +127,7 @@ interface ChatState {
   updateStepResponse: (stepNumber: number, content: string) => void // Works on active workflow
   completeWorkflowStep: (stepNumber: number) => void // Works on active workflow
   completeWorkflow: () => void // Works on active workflow
+  setWorkflowFinalResult: (workflowId: string, finalResult: string) => void // Set final result for a workflow
   clearWorkflow: () => void // Clear all workflows (for testing/reset)
   
   // Legacy methods (for compatibility during transition)
@@ -637,6 +639,7 @@ export const useChatStore = create<ChatState>()(
                   },
                   steps: {},
                   currentStep: null,
+                  finalResult: null,
                 },
               },
               activeWorkflowId: workflowId,
@@ -894,6 +897,22 @@ export const useChatStore = create<ChatState>()(
             },
             // Don't clear activeWorkflowId - keep it so workflow remains visible
             // It will be replaced when a new workflow starts
+          }
+        }),
+      
+      setWorkflowFinalResult: (workflowId: string, finalResult: string) =>
+        set((state) => {
+          const workflow = state.workflows[workflowId]
+          if (!workflow) return state
+          
+          return {
+            workflows: {
+              ...state.workflows,
+              [workflowId]: {
+                ...workflow,
+                finalResult: finalResult,
+              },
+            },
           }
         }),
       

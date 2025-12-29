@@ -1,8 +1,9 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { CheckCircle, XCircle, FileText } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
 import { wsClient } from '../services/websocket'
 import { ReasoningBlock } from './ReasoningBlock'
+import { PlanEditor } from './PlanEditor'
 
 interface PlanBlockProps {
   workflowId: string
@@ -14,6 +15,7 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
   const workflowPlan = workflow?.plan
   const setAwaitingConfirmation = useChatStore((state) => state.setAwaitingConfirmation)
   const activeWorkflowId = useChatStore((state) => state.activeWorkflowId)
+  const [isEditingPlan, setIsEditingPlan] = useState(false)
 
   // #region agent log
   React.useEffect(() => {
@@ -53,6 +55,17 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
   }
 
   // Removed useEffect logging to prevent infinite loops
+
+  // If editing, show PlanEditor instead
+  if (isEditingPlan && workflowPlan) {
+    return (
+      <PlanEditor
+        workflowId={workflowId}
+        initialPlan={workflowPlan}
+        onClose={() => setIsEditingPlan(false)}
+      />
+    )
+  }
 
   return (
     <div style={{ padding: '15px', margin: '10px', background: '#d1ecf1', border: '2px solid #0c5460', borderRadius: '8px' }}>
@@ -98,6 +111,20 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
 
       {workflowPlan.awaitingConfirmation && (
         <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+          <button
+            onClick={() => setIsEditingPlan(true)}
+            style={{
+              padding: '8px 16px',
+              background: '#17a2b8',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            Редактировать план
+          </button>
           <button
             onClick={handleApprove}
             style={{

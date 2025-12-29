@@ -3,6 +3,7 @@ import { CheckCircle, Circle, Loader2 } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
 import { ReasoningBlock } from './ReasoningBlock'
 import { StructuredAnswer } from './StructuredAnswer'
+import { FinalResultBlock } from './FinalResultBlock'
 
 interface StepProgressProps {
   workflowId: string
@@ -134,6 +135,11 @@ export function StepProgress({ workflowId }: StepProgressProps) {
           )
         })}
       </div>
+      
+      {/* Display final result if available */}
+      {workflow?.finalResult && (
+        <FinalResultBlock content={workflow.finalResult} />
+      )}
     </div>
   )
 }

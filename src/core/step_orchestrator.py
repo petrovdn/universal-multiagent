@@ -384,7 +384,57 @@ class StepOrchestrator:
                     with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
                         f.write(log_data + b'\n')
                     # #endregion
-                    # Check if stop was requested after step execution
+                    # Add step result
+                    step_results.append({
+                        "step": step_index,
+                        "title": step_title,
+                        "result": step_result
+                    })
+                    
+                    # Send step_complete event
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "step_complete",
+                        {
+                            "step": step_index
+                        }
+                    )
+                    
+                    # Check if stop was requested after sending step_complete
+                    if self._stop_requested:
+                        logger.info(f"[StepOrchestrator] Stop requested after step {step_index} completion")
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "workflow_stopped",
+                            {
+                                "reason": "Остановлено пользователем",
+                                "step": step_index,
+                                "remaining_steps": len(plan_steps) - step_index
+                            }
+                        )
+                        # #region agent log
+                        log_data = json.dumps({"location": "step_orchestrator.py:execute-break-4", "message": "Breaking loop due to stop_requested (after step_complete)", "data": {"step_index": step_index}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}).encode('utf-8')
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                            f.write(log_data + b'\n')
+                        # #endregion
+                        break
+                    
+                    # Check if step requires user help (critical error)
+                    if "🛑 ТРЕБУЕТСЯ ПОМОЩЬ ПОЛЬЗОВАТЕЛЯ" in step_result:
+                        logger.warning(f"[StepOrchestrator] Step {step_index} requires user help, stopping execution")
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "workflow_paused",
+                            {
+                                "reason": "Шаг требует помощи пользователя",
+                                "step": step_index,
+                                "remaining_steps": len(plan_steps) - step_index
+                            }
+                        )
+                        # Stop executing remaining steps
+                        break
+                    
+                    # Check if stop was requested after step execution (before adding result)
                     if self._stop_requested:
                         logger.info(f"[StepOrchestrator] Stop requested after step {step_index} execution")
                         await self.ws_manager.send_event(
@@ -443,66 +493,6 @@ class StepOrchestrator:
                         }
                     )
                     raise
-                    
-                    step_results.append({
-                        "step": step_index,
-                        "title": step_title,
-                        "result": step_result
-                    })
-                    
-                    # Send step_complete event
-                    await self.ws_manager.send_event(
-                        self.session_id,
-                        "step_complete",
-                        {
-                            "step": step_index
-                        }
-                    )
-                    
-                    # Check if stop was requested after sending step_complete
-                    if self._stop_requested:
-                        logger.info(f"[StepOrchestrator] Stop requested after step {step_index} completion")
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "workflow_stopped",
-                            {
-                                "reason": "Остановлено пользователем",
-                                "step": step_index,
-                                "remaining_steps": len(plan_steps) - step_index
-                            }
-                        )
-                        # #region agent log
-                        log_data = json.dumps({"location": "step_orchestrator.py:execute-break-4", "message": "Breaking loop due to stop_requested (after step_complete)", "data": {"step_index": step_index}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}).encode('utf-8')
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
-                            f.write(log_data + b'\n')
-                        # #endregion
-                        break
-                    
-                    # Check if step requires user help (critical error)
-                    if "🛑 ТРЕБУЕТСЯ ПОМОЩЬ ПОЛЬЗОВАТЕЛЯ" in step_result:
-                        logger.warning(f"[StepOrchestrator] Step {step_index} requires user help, stopping execution")
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "workflow_paused",
-                            {
-                                "reason": "Шаг требует помощи пользователя",
-                                "step": step_index,
-                                "remaining_steps": len(plan_steps) - step_index
-                            }
-                        )
-                        # Stop executing remaining steps
-                        break
-                    
-                except Exception as e:
-                    logger.error(f"[StepOrchestrator] Error executing step {step_index}: {e}")
-                    await self.ws_manager.send_event(
-                        self.session_id,
-                        "error",
-                        {
-                            "message": f"Error in step {step_index}: {str(e)}"
-                        }
-                    )
-                    raise
             
             # #region agent log
             log_data = json.dumps({"location": "step_orchestrator.py:execute-after-loop", "message": "After step execution loop", "data": {"stop_requested": self._stop_requested, "steps_completed": len(step_results), "total_steps": len(plan_steps)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "E"}).encode('utf-8')
@@ -531,6 +521,31 @@ class StepOrchestrator:
             )
             
             logger.info(f"[StepOrchestrator] Workflow completed successfully")
+            
+            # Generate and send final result
+            try:
+                final_result = await self._generate_final_result(
+                    user_request,
+                    plan_text,
+                    step_results,
+                    context
+                )
+                
+                # Send final_result event
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "final_result",
+                    {
+                        "content": final_result,
+                        "summary": True
+                    }
+                )
+                
+                logger.info(f"[StepOrchestrator] Final result generated and sent")
+            except Exception as e:
+                logger.error(f"[StepOrchestrator] Error generating final result: {e}")
+                # Don't fail the whole workflow if result generation fails
+                # Just log the error and continue
             
             # Reset confirmation state
             self._confirmation_event = None
@@ -1096,6 +1111,101 @@ class StepOrchestrator:
             )
             raise
     
+    async def _generate_final_result(
+        self,
+        user_request: str,
+        plan_text: str,
+        step_results: List[Dict[str, Any]],
+        context: ConversationContext
+    ) -> str:
+        """
+        Generate final result summary after all steps are completed.
+        
+        Args:
+            user_request: Original user request
+            plan_text: Overall plan description
+            step_results: Results from all executed steps
+            context: Conversation context
+            
+        Returns:
+            Final result text summarizing the execution
+        """
+        # Build summary of all steps
+        steps_summary = ""
+        for step_result in step_results:
+            step_num = step_result.get("step", 0)
+            step_title = step_result.get("title", "Unknown step")
+            step_content = step_result.get("result", "")
+            # Extract slice outside f-string to avoid syntax errors
+            step_content_preview = step_content[:500] if len(step_content) > 500 else step_content
+            step_content_suffix = '...' if len(step_content) > 500 else ''
+            steps_summary += f"\nШаг {step_num}: {step_title}\n"
+            steps_summary += f"Результат: {step_content_preview}{step_content_suffix}\n"
+        
+        # Create prompt for final result generation
+        system_prompt = """Ты эксперт по созданию итоговых отчетов. Создай краткий, но информативный финальный ответ пользователю.
+
+⚠️ ВАЖНО: ВСЕ ответы должны быть на РУССКОМ языке! ⚠️
+
+Твоя задача:
+1. Обобщить результаты выполнения всех шагов
+2. Создать понятный финальный ответ на исходный запрос пользователя
+3. Выделить ключевые результаты и достижения
+4. Ответ должен быть структурированным и понятным
+
+Формат ответа:
+- Краткое введение (что было сделано)
+- Ключевые результаты (основные достижения)
+- Заключение (итог выполнения)
+
+Будь конкретным и информативным, но не избыточным."""
+
+        user_prompt = f"""Исходный запрос пользователя: {user_request}
+
+План выполнения:
+{plan_text}
+
+Результаты выполнения шагов:
+{steps_summary}
+
+Создай финальный ответ пользователю, обобщающий результаты выполнения всех шагов."""
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ]
+        
+        try:
+            # Generate final result using LLM
+            response = await self.llm.ainvoke(messages)
+            final_result = response.content.strip()
+            
+            logger.info(f"[StepOrchestrator] Generated final result, length: {len(final_result)}")
+            return final_result
+            
+        except Exception as e:
+            logger.error(f"[StepOrchestrator] Error generating final result: {e}")
+            # Fallback: create simple summary
+            # Extract list comprehension and indexing outside f-string
+            first_three_results = step_results[:3]
+            results_lines = []
+            for r in first_three_results:
+                r_title = r.get('title', 'Шаг')
+                r_result = r.get('result', '')
+                r_result_preview = r_result[:200] if len(r_result) > 200 else r_result
+                results_lines.append(f"• {r_title}: {r_result_preview}")
+            results_text = chr(10).join(results_lines)
+            
+            return f"""✅ Выполнение завершено
+
+Исходный запрос: {user_request}
+
+Выполнено шагов: {len(step_results)}
+
+Основные результаты:
+{results_text}
+"""
+    
     def confirm_plan(self) -> None:
         """
         Confirm the pending plan for execution.
@@ -1119,4 +1229,28 @@ class StepOrchestrator:
     def get_confirmation_id(self) -> Optional[str]:
         """Get the confirmation ID for the current plan."""
         return self._confirmation_id
+    
+    def update_pending_plan(self, updated_plan: Dict[str, Any]) -> None:
+        """
+        Update the pending plan before execution.
+        
+        Args:
+            updated_plan: Dictionary with "plan" (text) and "steps" (list of step titles)
+        """
+        logger.info(f"[StepOrchestrator] Updating pending plan for session {self.session_id}")
+        self._plan_text = updated_plan.get("plan", self._plan_text)
+        self._plan_steps = updated_plan.get("steps", self._plan_steps)
+        
+        # Send updated plan event to frontend
+        asyncio.create_task(
+            self.ws_manager.send_event(
+                self.session_id,
+                "plan_updated",
+                {
+                    "plan": self._plan_text,
+                    "steps": self._plan_steps,
+                    "confirmation_id": self._confirmation_id
+                }
+            )
+        )
 

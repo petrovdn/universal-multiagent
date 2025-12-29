@@ -13,6 +13,7 @@ from src.agents.main_agent import MainAgent
 from src.agents.base_agent import StreamEvent
 from src.core.context_manager import ConversationContext
 from src.core.step_orchestrator import StepOrchestrator
+from src.core.task_classifier import TaskClassifier, TaskType
 from src.api.websocket_manager import get_websocket_manager
 from src.utils.audit import get_audit_logger
 from src.utils.config_loader import get_config
@@ -33,6 +34,8 @@ class AgentWrapper:
         self.audit_logger = get_audit_logger()
         # Store active orchestrators for plan confirmation
         self._active_orchestrators: Dict[str, StepOrchestrator] = {}
+        # Task classifier for determining task complexity
+        self.task_classifier = TaskClassifier()
     
     def get_main_agent(self, model_name: Optional[str] = None) -> MainAgent:
         """
@@ -134,12 +137,29 @@ class AgentWrapper:
         )
         
         try:
-            # Use StepOrchestrator for multi-step execution
-            # Map execution_mode to orchestrator mode
-            if context.execution_mode == "approval":
-                orchestrator_mode = "plan_and_confirm"
+            # Classify task complexity
+            task_type = await self.task_classifier.classify_task(user_message, context)
+            
+            # Route to appropriate execution path
+            if task_type == TaskType.SIMPLE and context.execution_mode != "approval":
+                # Simple task - execute directly without workflow
+                logger.info(f"[AgentWrapper] Simple task detected, executing directly without workflow")
+                result = await self._execute_simple_task(
+                    user_message,
+                    context,
+                    session_id,
+                    file_ids
+                )
+                return result
             else:
-                orchestrator_mode = "plan_and_execute"
+                # Complex task or approval mode - use StepOrchestrator with planning
+                logger.info(f"[AgentWrapper] Complex task detected, using StepOrchestrator")
+                # Use StepOrchestrator for multi-step execution
+                # Map execution_mode to orchestrator mode
+                if context.execution_mode == "approval":
+                    orchestrator_mode = "plan_and_confirm"
+                else:
+                    orchestrator_mode = "plan_and_execute"
             
             # Create StepOrchestrator for this session
             orchestrator = StepOrchestrator(
@@ -317,6 +337,137 @@ class AgentWrapper:
                     delattr(self, '_current_streaming_message_id')
             
             raise Exception(friendly_message) from e
+    
+    async def _execute_simple_task(
+        self,
+        user_message: str,
+        context: ConversationContext,
+        session_id: str,
+        file_ids: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute simple task directly without workflow/planning.
+        
+        Args:
+            user_message: User's message
+            context: Conversation context
+            session_id: Session identifier
+            file_ids: Optional list of file IDs to attach
+            
+        Returns:
+            Execution result
+        """
+        file_ids = file_ids or []
+        logger.info(f"[AgentWrapper] Executing simple task: {user_message[:50]}")
+        
+        # Use direct streaming execution (no workflow)
+        result = await self._execute_with_streaming(
+            user_message,
+            context,
+            session_id
+        )
+        
+        # Generate final result summary
+        try:
+            final_result = await self._generate_simple_task_result(
+                user_message,
+                result.get("response", ""),
+                context
+            )
+            
+            # Send final_result event
+            await self.ws_manager.send_event(
+                session_id,
+                "final_result",
+                {
+                    "content": final_result,
+                    "summary": True
+                }
+            )
+        except Exception as e:
+            logger.error(f"[AgentWrapper] Error generating final result for simple task: {e}")
+            # Don't fail the whole task if result generation fails
+        
+        # Log the action
+        self.audit_logger.log_agent_action(
+            "AgentWrapper",
+            "execute_simple_task",
+            {"message": user_message, "result": "completed"},
+            session_id=session_id
+        )
+        
+        return {
+            "status": "completed",
+            "response": result.get("response", ""),
+            "type": "simple_execution"
+        }
+    
+    async def _generate_simple_task_result(
+        self,
+        user_request: str,
+        response: str,
+        context: ConversationContext
+    ) -> str:
+        """
+        Generate final result summary for simple task.
+        
+        Args:
+            user_request: Original user request
+            response: Agent response
+            context: Conversation context
+            
+        Returns:
+            Final result text
+        """
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from src.agents.model_factory import create_llm
+        
+        system_prompt = """Ты эксперт по созданию итоговых отчетов. Создай краткий, но информативный финальный ответ пользователю.
+
+⚠️ ВАЖНО: ВСЕ ответы должны быть на РУССКОМ языке! ⚠️
+
+Твоя задача:
+1. Обобщить результат выполнения запроса
+2. Создать понятный финальный ответ на исходный запрос пользователя
+3. Ответ должен быть структурированным и понятным
+
+Формат ответа:
+- Краткое введение (что было сделано)
+- Основной результат
+- Заключение (если необходимо)
+
+Будь конкретным и информативным, но не избыточным."""
+
+        user_prompt = f"""Исходный запрос пользователя: {user_request}
+
+Результат выполнения:
+{response}
+
+Создай финальный ответ пользователю, обобщающий результат выполнения запроса."""
+
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ]
+        
+        try:
+            # Use fast model for result generation
+            llm = create_llm("claude-3-haiku")
+            llm_response = await llm.ainvoke(messages)
+            final_result = llm_response.content.strip()
+            
+            logger.info(f"[AgentWrapper] Generated final result for simple task, length: {len(final_result)}")
+            return final_result
+        except Exception as e:
+            logger.error(f"[AgentWrapper] Error generating final result: {e}")
+            # Fallback: return simple summary
+            return f"""✅ Запрос выполнен
+
+Исходный запрос: {user_request}
+
+Результат:
+{response[:500]}{'...' if len(response) > 500 else ''}
+"""
     
     async def _execute_with_event_streaming(
         self,
@@ -762,4 +913,42 @@ class AgentWrapper:
             StepOrchestrator instance or None
         """
         return self._active_orchestrators.get(session_id)
+    
+    async def update_plan(
+        self,
+        confirmation_id: str,
+        updated_plan: Dict[str, Any],
+        context: ConversationContext,
+        session_id: str
+    ) -> Dict[str, Any]:
+        """
+        Update a pending plan before execution.
+        
+        Args:
+            confirmation_id: Confirmation ID
+            updated_plan: Updated plan with "plan" and "steps"
+            context: Conversation context
+            session_id: Session identifier
+            
+        Returns:
+            Update result
+        """
+        # Get active orchestrator for this session
+        orchestrator = self._active_orchestrators.get(session_id)
+        
+        if orchestrator:
+            # Verify confirmation_id matches
+            if orchestrator.get_confirmation_id() != confirmation_id:
+                logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
+            
+            # Update the plan in orchestrator
+            orchestrator.update_pending_plan(updated_plan)
+            
+            return {
+                "status": "updated",
+                "message": "Plan updated successfully"
+            }
+        else:
+            logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}")
+            raise Exception("No active orchestrator found for this session")
 

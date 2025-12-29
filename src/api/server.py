@@ -366,6 +366,33 @@ async def reject_plan(request: Dict[str, Any]):
     
     return {"status": "rejected"}
 
+@app.post("/api/plan/update")
+async def update_plan(request: Dict[str, Any]):
+    """Update a pending plan."""
+    session_id = request.get("session_id")
+    confirmation_id = request.get("confirmation_id")
+    updated_plan = request.get("updated_plan")
+
+    if not session_id or not confirmation_id or not updated_plan:
+        raise HTTPException(status_code=400, detail="Session ID, confirmation ID, and updated plan required")
+
+    context = session_manager.get_session(session_id)
+    if not context:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    try:
+        result = await agent_wrapper.update_plan(
+            confirmation_id,
+            updated_plan,
+            context,
+            session_id
+        )
+        session_manager.update_session(session_id, context)
+        return {"status": "updated", "result": result}
+    except Exception as e:
+        logger.error(f"Error updating plan: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/api/tools")
 async def list_tools():

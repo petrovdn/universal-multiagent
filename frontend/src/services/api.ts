@@ -109,6 +109,19 @@ export const rejectPlan = async (sessionId: string, confirmationId: string) => {
   return response.data
 }
 
+export const updatePlan = async (
+  sessionId: string,
+  confirmationId: string,
+  updatedPlan: { plan: string; steps: string[] }
+) => {
+  const response = await api.post('/plan/update', {
+    session_id: sessionId,
+    confirmation_id: confirmationId,
+    updated_plan: updatedPlan,
+  })
+  return response.data
+}
+
 export const healthCheck = async () => {
   const response = await api.get('/health')
   return response.data
