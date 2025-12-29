@@ -19,7 +19,15 @@ api.interceptors.response.use(
       // Server responded with error status
       const status = error.response.status
       if (status === 404) {
-        error.message = 'Сессия не найдена'
+        // Don't override message for /auth/me endpoint - let it use the detail from server
+        const url = error.config?.url || ''
+        if (!url.includes('/auth/me')) {
+          error.message = 'Сессия не найдена'
+        } else {
+          error.message = error.response.data?.detail || 'Сессия не найдена'
+        }
+      } else if (status === 401) {
+        error.message = error.response.data?.detail || 'Требуется авторизация'
       } else if (status === 500) {
         error.message = error.response.data?.detail || 'Внутренняя ошибка сервера'
       } else if (status === 400) {
@@ -46,6 +54,17 @@ export interface SendMessageRequest {
   message: string
   session_id?: string
   execution_mode?: 'instant' | 'approval'
+  file_ids?: string[]
+}
+
+export interface UploadFileResponse {
+  file_id: string
+  filename: string
+  type: string
+  size: number
+  data?: string  // base64 encoded image data
+  text?: string  // extracted PDF text
+  media_type?: string
 }
 
 export interface SendMessageResponse {
@@ -213,5 +232,59 @@ export const setSessionModel = async (sessionId: string, modelId: string) => {
     model_name: modelId,
   })
   return response.data
+}
+
+export const uploadFile = async (file: File, sessionId: string): Promise<UploadFileResponse> => {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('session_id', sessionId)
+  
+  const response = await api.post<UploadFileResponse>('/upload', formData, {
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
+  })
+  return response.data
+}
+
+// Authentication APIs
+export const login = async (username: string, password: string) => {
+  try {
+    const response = await api.post('/auth/login', { username, password })
+    return response.data
+  } catch (error: any) {
+    // Log error for debugging
+    console.error('Login error:', error)
+    if (error.response?.status === 401) {
+      throw new Error(error.response?.data?.detail || 'Неверное имя пользователя или пароль')
+    }
+    throw error
+  }
+}
+
+export const logout = async () => {
+  const response = await api.post('/auth/logout')
+  return response.data
+}
+
+export const getCurrentUser = async () => {
+  // #region agent log
+  const startTime = Date.now()
+  fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getCurrentUser',message:'getCurrentUser request started',data:{startTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,D'})}).catch(()=>{});
+  // #endregion
+  try {
+    const response = await api.get('/auth/me')
+    // #region agent log
+    const endTime = Date.now()
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getCurrentUser',message:'getCurrentUser request success',data:{duration:endTime-startTime,username:response.data.username},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,D'})}).catch(()=>{});
+    // #endregion
+    return response.data
+  } catch (err: any) {
+    // #region agent log
+    const endTime = Date.now()
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getCurrentUser',message:'getCurrentUser request error',data:{duration:endTime-startTime,status:err.response?.status,error:err.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,D'})}).catch(()=>{});
+    // #endregion
+    throw err
+  }
 }
 

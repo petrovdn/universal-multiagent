@@ -63,7 +63,7 @@ type ReasoningAnswerPair = {
 
 export function ChatMessage({ message }: ChatMessageProps) {
   const { debugMode } = useSettingsStore()
-  const workflowPlan = useChatStore((state) => state.workflowPlan)
+  // Note: workflowPlan is no longer used here as workflows are now per user message
   
   // В отладочном режиме показываем все чанки последовательно
   if (debugMode && message.debugChunks && message.debugChunks.length > 0) {
@@ -292,21 +292,15 @@ export function ChatMessage({ message }: ChatMessageProps) {
             {pair.reasoning && (() => {
               const reasoningBlock = message.reasoningBlocks[pair.reasoning.index]
               // Не показывать ReasoningBlock, если content пустой И плана еще нет
-              // Это предотвращает показ серого блока "Анализирую запрос..." до появления плана
+              // Рендерим только если есть контент
               const hasContent = reasoningBlock.content && reasoningBlock.content.trim().length > 0
-              const hasPlan = workflowPlan && (
-                workflowPlan.planThinking || 
-                workflowPlan.planThinkingIsStreaming || 
-                (workflowPlan.plan && workflowPlan.plan.trim()) ||
-                (workflowPlan.steps && workflowPlan.steps.length > 0)
-              )
               
               // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:should-render-reasoning',message:'Checking if should render ReasoningBlock',data:{messageId:message.id,reasoningBlockId:reasoningBlock.id,hasContent,hasPlan,contentLength:reasoningBlock.content?.length||0,isStreaming:reasoningBlock.isStreaming,willRender:hasContent||hasPlan},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:should-render-reasoning',message:'Checking if should render ReasoningBlock',data:{messageId:message.id,reasoningBlockId:reasoningBlock.id,hasContent,contentLength:reasoningBlock.content?.length||0,isStreaming:reasoningBlock.isStreaming,willRender:hasContent},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
               // #endregion
               
-              // Рендерим только если есть контент ИЛИ есть план
-              if (!hasContent && !hasPlan) {
+              // Рендерим только если есть контент
+              if (!hasContent) {
                 return null
               }
               

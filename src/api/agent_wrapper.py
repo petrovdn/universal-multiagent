@@ -3,7 +3,7 @@ Wrapper for agent execution that emits WebSocket events.
 Captures intermediate steps and streams them to frontend.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import asyncio
 import logging
 import json
@@ -54,7 +54,8 @@ class AgentWrapper:
         self,
         user_message: str,
         context: ConversationContext,
-        session_id: str
+        session_id: str,
+        file_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """
         Process user message through agent and emit events.
@@ -63,10 +64,18 @@ class AgentWrapper:
             user_message: User's message
             context: Conversation context
             session_id: Session identifier
+            file_ids: Optional list of file IDs to attach to the message
             
         Returns:
             Final execution result
         """
+        file_ids = file_ids or []
+        # #region agent log
+        log_data = json.dumps({"location": "agent_wrapper.py:process_message", "message": "process_message called", "data": {"user_message": user_message, "user_message_length": len(user_message), "user_message_preview": user_message[:200], "context_messages_count": len(context.messages), "last_context_message": context.messages[-1].get("content", "")[:100] if context.messages else None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "DUPLICATE"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
+        
         # Wait for WebSocket connection BEFORE sending any events
         # This ensures events can be sent to the frontend
         import logging
@@ -148,7 +157,8 @@ class AgentWrapper:
             result = await orchestrator.execute(
                 user_request=user_message,
                 mode=orchestrator_mode,
-                context=context
+                context=context,
+                file_ids=file_ids
             )
             
             # Log the action
@@ -703,6 +713,31 @@ class AgentWrapper:
                     "content": "Plan rejected. How would you like to proceed?"
                 }
             )
+    
+    async def stop_generation(self, session_id: str) -> None:
+        """
+        Stop generation for a session.
+        
+        Args:
+            session_id: Session identifier
+        """
+        # Get active orchestrator for this session
+        orchestrator = self._active_orchestrators.get(session_id)
+        
+        if orchestrator:
+            logger.info(f"[AgentWrapper] Stopping generation for session {session_id}")
+            orchestrator.stop()
+            
+            # Send stop event to client
+            await self.ws_manager.send_event(
+                session_id,
+                "workflow_stopped",
+                {
+                    "reason": "Остановлено пользователем"
+                }
+            )
+        else:
+            logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}")
     
     def get_orchestrator(self, session_id: str) -> Optional[StepOrchestrator]:
         """

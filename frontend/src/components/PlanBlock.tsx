@@ -4,12 +4,22 @@ import { useChatStore } from '../store/chatStore'
 import { wsClient } from '../services/websocket'
 import { ReasoningBlock } from './ReasoningBlock'
 
-export function PlanBlock() {
-  // Simple selector - Zustand should handle reactivity automatically
-  const workflowPlan = useChatStore((state) => state.workflowPlan)
-  const setAwaitingConfirmation = useChatStore((state) => state.setAwaitingConfirmation)
+interface PlanBlockProps {
+  workflowId: string
+}
 
-  // Removed useEffect logging to prevent infinite loops
+export function PlanBlock({ workflowId }: PlanBlockProps) {
+  // Get workflow by ID from store
+  const workflow = useChatStore((state) => state.workflows[workflowId])
+  const workflowPlan = workflow?.plan
+  const setAwaitingConfirmation = useChatStore((state) => state.setAwaitingConfirmation)
+  const activeWorkflowId = useChatStore((state) => state.activeWorkflowId)
+
+  // #region agent log
+  React.useEffect(() => {
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlanBlock.tsx:render',message:'PlanBlock render',data:{workflowId,activeWorkflowId,hasWorkflow:!!workflow,hasPlan:!!workflowPlan,allWorkflowIds:Object.keys(useChatStore.getState().workflows)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'RENDER'})}).catch(()=>{});
+  }, [workflowId, workflow, workflowPlan, activeWorkflowId])
+  // #endregion
 
   // Only show component when there's actual data to display
   if (!workflowPlan) {

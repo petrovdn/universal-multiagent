@@ -81,10 +81,13 @@ interface ChatState {
   isConnected: boolean
   isAgentTyping: boolean
   
-  // Workflow state
-  workflowPlan: WorkflowPlan | null
-  workflowSteps: Record<number, WorkflowStep> // step_number -> WorkflowStep
-  currentWorkflowStep: number | null
+  // Workflow state - stored per user message (keyed by message timestamp)
+  workflows: Record<string, {
+    plan: WorkflowPlan
+    steps: Record<number, WorkflowStep> // step_number -> WorkflowStep
+    currentStep: number | null
+  }>
+  activeWorkflowId: string | null // timestamp of the active (currently streaming) workflow
   
   // Legacy support (will be removed)
   streamingMessages: Record<string, Message>
@@ -113,15 +116,17 @@ interface ChatState {
   completeMessage: (messageId: string) => void
   
   // Workflow methods
-  setWorkflowPlan: (plan: string, steps: string[], confirmationId: string | null) => void
-  updatePlanThinking: (content: string) => void
-  setAwaitingConfirmation: (awaiting: boolean) => void
-  startWorkflowStep: (stepNumber: number, title: string) => void
-  updateStepThinking: (stepNumber: number, content: string) => void
-  updateStepResponse: (stepNumber: number, content: string) => void
-  completeWorkflowStep: (stepNumber: number) => void
-  completeWorkflow: () => void
-  clearWorkflow: () => void
+  setActiveWorkflow: (workflowId: string) => void // Set/create active workflow
+  getWorkflow: (workflowId: string) => { plan: WorkflowPlan | null, steps: Record<number, WorkflowStep>, currentStep: number | null } | null // Get workflow by ID
+  setWorkflowPlan: (plan: string, steps: string[], confirmationId: string | null) => void // Works on active workflow
+  updatePlanThinking: (content: string) => void // Works on active workflow
+  setAwaitingConfirmation: (awaiting: boolean) => void // Works on active workflow
+  startWorkflowStep: (stepNumber: number, title: string) => void // Works on active workflow
+  updateStepThinking: (stepNumber: number, content: string) => void // Works on active workflow
+  updateStepResponse: (stepNumber: number, content: string) => void // Works on active workflow
+  completeWorkflowStep: (stepNumber: number) => void // Works on active workflow
+  completeWorkflow: () => void // Works on active workflow
+  clearWorkflow: () => void // Clear all workflows (for testing/reset)
   
   // Legacy methods (for compatibility during transition)
   startStreamingMessage: (messageId: string, message: Message) => void
@@ -142,9 +147,8 @@ export const useChatStore = create<ChatState>()(
       currentSession: null,
       isConnected: false,
       isAgentTyping: false,
-      workflowPlan: null,
-      workflowSteps: {},
-      currentWorkflowStep: null,
+      workflows: {},
+      activeWorkflowId: null,
       streamingMessages: {},
       reasoningSteps: [],
       reasoningStartTime: null,
@@ -526,66 +530,152 @@ export const useChatStore = create<ChatState>()(
       },
       
       // Workflow methods
+      setActiveWorkflow: (workflowId: string) =>
+        set((state) => {
+          // Create workflow if it doesn't exist
+          if (!state.workflows[workflowId]) {
+            return {
+              workflows: {
+                ...state.workflows,
+                [workflowId]: {
+                  plan: {
+                    plan: '',
+                    steps: [],
+                    confirmationId: null,
+                    awaitingConfirmation: false,
+                    planThinking: '',
+                    planThinkingIsStreaming: false,
+                  },
+                  steps: {},
+                  currentStep: null,
+                },
+              },
+              activeWorkflowId: workflowId,
+            }
+          }
+          // Just set as active if it exists
+          return {
+            activeWorkflowId: workflowId,
+          }
+        }),
+      
+      getWorkflow: (workflowId: string) => {
+        const state = get()
+        const workflow = state.workflows[workflowId]
+        if (!workflow) return null
+        return {
+          plan: workflow.plan,
+          steps: workflow.steps,
+          currentStep: workflow.currentStep,
+        }
+      },
+      
       setWorkflowPlan: (plan: string, steps: string[], confirmationId: string | null) => {
         // #region agent log
         fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setWorkflowPlan-entry',message:'setWorkflowPlan called',data:{planLength:plan.length,stepsCount:steps.length,confirmationId},timestamp:Date.now(),sessionId:'debug-session',runId:'verify',hypothesisId:'STORE'})}).catch(()=>{});
         // #endregion
-        set((state) => ({
-          workflowPlan: {
-            plan,
-            steps,
-            confirmationId,
-            awaitingConfirmation: false,
-            planThinking: '', // Clear old thinking for new plan
-            planThinkingIsStreaming: false, // Plan generation is complete, stop streaming
-          },
-          workflowSteps: {},
-          currentWorkflowStep: null,
-        }))
+        set((state) => {
+          const activeId = state.activeWorkflowId
+          if (!activeId) {
+            console.warn('[chatStore] setWorkflowPlan called but no activeWorkflowId')
+            return state
+          }
+          const workflow = state.workflows[activeId]
+          if (!workflow) {
+            console.warn('[chatStore] setWorkflowPlan called but workflow not found:', activeId)
+            return state
+          }
+          return {
+            workflows: {
+              ...state.workflows,
+              [activeId]: {
+                ...workflow,
+                plan: {
+                  plan,
+                  steps,
+                  confirmationId,
+                  awaitingConfirmation: false,
+                  planThinking: workflow.plan.planThinking, // Preserve existing thinking
+                  planThinkingIsStreaming: false, // Plan generation is complete, stop streaming
+                },
+                steps: {}, // Reset steps when new plan is set
+                currentStep: null,
+              },
+            },
+          }
+        })
         // #region agent log
         const state = get()
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setWorkflowPlan-after',message:'After setWorkflowPlan',data:{hasWorkflowPlan:!!state.workflowPlan,planLength:state.workflowPlan?.plan.length||0,stepsCount:state.workflowPlan?.steps.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'verify',hypothesisId:'STORE'})}).catch(()=>{});
+        const activeId = state.activeWorkflowId
+        const workflow = activeId ? state.workflows[activeId] : null
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setWorkflowPlan-after',message:'After setWorkflowPlan',data:{activeWorkflowId:activeId,hasWorkflow:!!workflow,planLength:workflow?.plan.plan.length||0,stepsCount:workflow?.plan.steps.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'verify',hypothesisId:'STORE'})}).catch(()=>{});
         // #endregion
       },
       
       setAwaitingConfirmation: (awaiting: boolean) =>
-        set((state) => ({
-          workflowPlan: state.workflowPlan
-            ? { ...state.workflowPlan, awaitingConfirmation: awaiting }
-            : null,
-        })),
+        set((state) => {
+          const activeId = state.activeWorkflowId
+          if (!activeId) return state
+          const workflow = state.workflows[activeId]
+          if (!workflow) return state
+          return {
+            workflows: {
+              ...state.workflows,
+              [activeId]: {
+                ...workflow,
+                plan: {
+                  ...workflow.plan,
+                  awaitingConfirmation: awaiting,
+                },
+              },
+            },
+          }
+        }),
       
       updatePlanThinking: (content: string) =>
         set((state) => {
-          // If workflowPlan doesn't exist yet, initialize it
-          if (!state.workflowPlan) {
-            return {
-              workflowPlan: {
-                plan: '',
-                steps: [],
-                confirmationId: null,
-                awaitingConfirmation: false,
-                planThinking: content,
-                planThinkingIsStreaming: true,
-              },
-            }
+          const activeId = state.activeWorkflowId
+          if (!activeId) {
+            console.warn('[chatStore] updatePlanThinking called but no activeWorkflowId')
+            return state
+          }
+          const workflow = state.workflows[activeId]
+          if (!workflow) {
+            console.warn('[chatStore] updatePlanThinking called but workflow not found:', activeId)
+            return state
           }
           // Accumulate content for streaming chunks (server sends incremental chunks)
           return {
-            workflowPlan: {
-              ...state.workflowPlan,
-              planThinking: state.workflowPlan.planThinking + content,
-              planThinkingIsStreaming: true, // Mark as streaming when content is added
+            workflows: {
+              ...state.workflows,
+              [activeId]: {
+                ...workflow,
+                plan: {
+                  ...workflow.plan,
+                  planThinking: workflow.plan.planThinking + content,
+                  planThinkingIsStreaming: true, // Mark as streaming when content is added
+                },
+              },
             },
           }
         }),
       
       startWorkflowStep: (stepNumber: number, title: string) =>
         set((state) => {
+          const activeId = state.activeWorkflowId
+          if (!activeId) {
+            console.warn('[chatStore] startWorkflowStep called but no activeWorkflowId')
+            return state
+          }
+          const workflow = state.workflows[activeId]
+          if (!workflow) {
+            console.warn('[chatStore] startWorkflowStep called but workflow not found:', activeId)
+            return state
+          }
           // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startWorkflowStep-entry',message:'startWorkflowStep called',data:{stepNumber,title,hasWorkflowPlan:!!state.workflowPlan,existingStepsCount:Object.keys(state.workflowSteps).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startWorkflowStep-entry',message:'startWorkflowStep called',data:{stepNumber,title,activeWorkflowId:activeId,hasWorkflow:!!workflow,existingStepsCount:Object.keys(workflow.steps).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
           // #endregion
-          const newSteps = { ...state.workflowSteps }
+          const newSteps = { ...workflow.steps }
           newSteps[stepNumber] = {
             stepNumber,
             title,
@@ -597,23 +687,39 @@ export const useChatStore = create<ChatState>()(
           fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startWorkflowStep-after',message:'After startWorkflowStep update',data:{stepNumber,newStepsCount:Object.keys(newSteps).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
           // #endregion
           return {
-            workflowSteps: newSteps,
-            currentWorkflowStep: stepNumber,
+            workflows: {
+              ...state.workflows,
+              [activeId]: {
+                ...workflow,
+                steps: newSteps,
+                currentStep: stepNumber,
+              },
+            },
           }
         }),
       
       updateStepThinking: (stepNumber: number, content: string) =>
         set((state) => {
-          const step = state.workflowSteps[stepNumber]
+          const activeId = state.activeWorkflowId
+          if (!activeId) return state
+          const workflow = state.workflows[activeId]
+          if (!workflow) return state
+          const step = workflow.steps[stepNumber]
           if (!step) return state
           
           // Append content for streaming chunks (server sends incremental chunks)
           return {
-            workflowSteps: {
-              ...state.workflowSteps,
-              [stepNumber]: {
-                ...step,
-                thinking: step.thinking + content,
+            workflows: {
+              ...state.workflows,
+              [activeId]: {
+                ...workflow,
+                steps: {
+                  ...workflow.steps,
+                  [stepNumber]: {
+                    ...step,
+                    thinking: step.thinking + content,
+                  },
+                },
               },
             },
           }
@@ -621,16 +727,26 @@ export const useChatStore = create<ChatState>()(
       
       updateStepResponse: (stepNumber: number, content: string) =>
         set((state) => {
-          const step = state.workflowSteps[stepNumber]
+          const activeId = state.activeWorkflowId
+          if (!activeId) return state
+          const workflow = state.workflows[activeId]
+          if (!workflow) return state
+          const step = workflow.steps[stepNumber]
           if (!step) return state
           
           // Append content for streaming chunks (server sends incremental chunks)
           return {
-            workflowSteps: {
-              ...state.workflowSteps,
-              [stepNumber]: {
-                ...step,
-                response: step.response + content,
+            workflows: {
+              ...state.workflows,
+              [activeId]: {
+                ...workflow,
+                steps: {
+                  ...workflow.steps,
+                  [stepNumber]: {
+                    ...step,
+                    response: step.response + content,
+                  },
+                },
               },
             },
           }
@@ -638,41 +754,64 @@ export const useChatStore = create<ChatState>()(
       
       completeWorkflowStep: (stepNumber: number) =>
         set((state) => {
-          const step = state.workflowSteps[stepNumber]
+          const activeId = state.activeWorkflowId
+          if (!activeId) return state
+          const workflow = state.workflows[activeId]
+          if (!workflow) return state
+          const step = workflow.steps[stepNumber]
           if (!step) return state
           
           return {
-            workflowSteps: {
-              ...state.workflowSteps,
-              [stepNumber]: {
-                ...step,
-                status: 'completed',
+            workflows: {
+              ...state.workflows,
+              [activeId]: {
+                ...workflow,
+                steps: {
+                  ...workflow.steps,
+                  [stepNumber]: {
+                    ...step,
+                    status: 'completed',
+                  },
+                },
+                currentStep: workflow.currentStep === stepNumber ? null : workflow.currentStep,
               },
             },
-            currentWorkflowStep: state.currentWorkflowStep === stepNumber ? null : state.currentWorkflowStep,
           }
         }),
       
       completeWorkflow: () =>
-        set((state) => ({
-          ...state, // Preserve all state fields including workflowPlan
-          // Don't clear workflowPlan - keep it visible so user can see what was completed
-          // Only clear active step tracking
-          currentWorkflowStep: null,
-          // Mark all steps as completed if they exist
-          workflowSteps: Object.fromEntries(
-            Object.entries(state.workflowSteps).map(([key, step]) => [
+        set((state) => {
+          const activeId = state.activeWorkflowId
+          if (!activeId) return state
+          const workflow = state.workflows[activeId]
+          if (!workflow) return state
+          
+          // Mark all steps as completed and clear active workflow
+          const completedSteps = Object.fromEntries(
+            Object.entries(workflow.steps).map(([key, step]) => [
               key,
               { ...step, status: 'completed' as const }
             ])
-          ),
-        })),
+          )
+          
+          return {
+            workflows: {
+              ...state.workflows,
+              [activeId]: {
+                ...workflow,
+                steps: completedSteps,
+                currentStep: null,
+              },
+            },
+            // Don't clear activeWorkflowId - keep it so workflow remains visible
+            // It will be replaced when a new workflow starts
+          }
+        }),
       
       clearWorkflow: () =>
         set({
-          workflowPlan: null,
-          workflowSteps: {},
-          currentWorkflowStep: null,
+          workflows: {},
+          activeWorkflowId: null,
         }),
     }),
     {
@@ -694,9 +833,9 @@ export const useChatStore = create<ChatState>()(
         return persistedState
       },
       partialize: (state) => ({
-        messages: state.messages,
+        // Don't persist messages - always start with empty chat
         currentSession: state.currentSession,
-        workflowPlan: state.workflowPlan, // Persist workflow plan for debugging
+        // Don't persist workflows - always start with clean state
         // Don't persist assistantMessages or streamingMessages - they're temporary
       }),
     }

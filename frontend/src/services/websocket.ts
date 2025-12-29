@@ -172,6 +172,41 @@ export class WebSocketClient {
 
   private handleEvent(event: WebSocketEvent): void {
     const chatStore = useChatStore.getState()
+    
+    // Helper function to ensure active workflow exists for current user message
+    const ensureActiveWorkflow = () => {
+      const state = useChatStore.getState()
+      // Find the last user message
+      const messages = state.messages
+      const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')
+      const lastUserTimestamp = lastUserMessage?.timestamp
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:ensureActiveWorkflow',message:'ensureActiveWorkflow called',data:{activeWorkflowId:state.activeWorkflowId,lastUserTimestamp,lastUserContent:lastUserMessage?.content?.substring(0,50),allWorkflowIds:Object.keys(state.workflows),messagesCount:messages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'WORKFLOW'})}).catch(()=>{});
+      // #endregion
+      
+      // Check if active workflow matches the last user message
+      if (state.activeWorkflowId && state.activeWorkflowId === lastUserTimestamp && state.workflows[state.activeWorkflowId]) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:ensureActiveWorkflow',message:'Using existing active workflow',data:{activeWorkflowId:state.activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'WORKFLOW'})}).catch(()=>{});
+        // #endregion
+        return state.activeWorkflowId
+      }
+      
+      // If active workflow doesn't match last user message, create new one
+      if (lastUserTimestamp) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:ensureActiveWorkflow',message:'Creating new workflow for last user message',data:{workflowId:lastUserTimestamp,previousActiveWorkflowId:state.activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'WORKFLOW'})}).catch(()=>{});
+        // #endregion
+        useChatStore.getState().setActiveWorkflow(lastUserTimestamp)
+        return lastUserTimestamp
+      }
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:ensureActiveWorkflow',message:'No user message found',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'WORKFLOW'})}).catch(()=>{});
+      // #endregion
+      return null
+    }
     const settingsStore = useSettingsStore.getState()
     const debugMode = settingsStore.debugMode
     console.log('[WebSocket] Received event:', event.type, event.data)
@@ -628,12 +663,16 @@ export class WebSocketClient {
         break
 
       case 'plan_thinking_chunk':
+        // Ensure active workflow exists before updating
+        ensureActiveWorkflow()
         // Accumulate thinking during plan generation
         useChatStore.getState().updatePlanThinking(event.data.content || '')
         console.log('[WebSocket] Plan thinking chunk:', event.data.content?.substring(0, 50))
         break
 
       case 'plan_generated':
+        // Ensure active workflow exists before setting plan
+        ensureActiveWorkflow()
         // Save plan to chatStore - use getState() to get fresh state after set
         useChatStore.getState().setWorkflowPlan(
           event.data.plan || '',
@@ -642,46 +681,68 @@ export class WebSocketClient {
         )
         // #region agent log
         const stateAfterPlan = useChatStore.getState()
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated-verify',message:'Verify plan set',data:{hasPlan:!!stateAfterPlan.workflowPlan,stepsCount:stateAfterPlan.workflowPlan?.steps.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'verify',hypothesisId:'VERIFY'})}).catch(()=>{});
+        const activeId = stateAfterPlan.activeWorkflowId
+        const workflow = activeId ? stateAfterPlan.workflows[activeId] : null
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated-verify',message:'Verify plan set',data:{activeWorkflowId:activeId,hasWorkflow:!!workflow,stepsCount:workflow?.plan.steps.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'verify',hypothesisId:'VERIFY'})}).catch(()=>{});
         // #endregion
         console.log('[WebSocket] Plan generated:', event.data.plan)
         break
 
       case 'awaiting_confirmation':
+        // Ensure active workflow exists
+        ensureActiveWorkflow()
         // Show confirmation buttons - use getState() to get fresh state
         useChatStore.getState().setAwaitingConfirmation(true)
         console.log('[WebSocket] Awaiting confirmation')
         break
 
       case 'step_start':
+        // Ensure active workflow exists before starting step
+        ensureActiveWorkflow()
         // Start a new workflow step - use getState() to get fresh state after set
         // #region agent log
         const stateBeforeStepStart = useChatStore.getState()
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:step_start',message:'step_start event received',data:{step:event.data.step,title:event.data.title,hasWorkflowPlan:!!stateBeforeStepStart.workflowPlan,workflowStepsCount:Object.keys(stateBeforeStepStart.workflowSteps).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
+        const activeIdBefore = stateBeforeStepStart.activeWorkflowId
+        const workflowBefore = activeIdBefore ? stateBeforeStepStart.workflows[activeIdBefore] : null
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:step_start',message:'step_start event received',data:{step:event.data.step,title:event.data.title,activeWorkflowId:activeIdBefore,hasWorkflow:!!workflowBefore,workflowStepsCount:workflowBefore ? Object.keys(workflowBefore.steps).length : 0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
         // #endregion
         useChatStore.getState().startWorkflowStep(event.data.step, event.data.title || `Step ${event.data.step}`)
         // #region agent log
         const stateAfterStepStart = useChatStore.getState()
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:step_start-after',message:'After startWorkflowStep',data:{step:event.data.step,workflowStepsCount:Object.keys(stateAfterStepStart.workflowSteps).length,currentWorkflowStep:stateAfterStepStart.currentWorkflowStep},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
+        const activeIdAfter = stateAfterStepStart.activeWorkflowId
+        const workflowAfter = activeIdAfter ? stateAfterStepStart.workflows[activeIdAfter] : null
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:step_start-after',message:'After startWorkflowStep',data:{step:event.data.step,activeWorkflowId:activeIdAfter,workflowStepsCount:workflowAfter ? Object.keys(workflowAfter.steps).length : 0,currentStep:workflowAfter?.currentStep},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
         // #endregion
         console.log('[WebSocket] Step started:', event.data.step, event.data.title)
         break
 
       case 'thinking_chunk':
+        // Ensure active workflow exists
+        ensureActiveWorkflow()
         // Add thinking chunk to current step (streaming) - use getState() to get fresh state
         const currentStateForThinking = useChatStore.getState()
-        const currentStep = currentStateForThinking.currentWorkflowStep
-        if (currentStep !== null) {
-          currentStateForThinking.updateStepThinking(currentStep, event.data.content || '')
+        const activeIdForThinking = currentStateForThinking.activeWorkflowId
+        if (activeIdForThinking) {
+          const workflowForThinking = currentStateForThinking.workflows[activeIdForThinking]
+          const currentStep = workflowForThinking?.currentStep
+          if (currentStep !== null && currentStep !== undefined) {
+            currentStateForThinking.updateStepThinking(currentStep, event.data.content || '')
+          }
         }
         break
 
       case 'response_chunk':
+        // Ensure active workflow exists
+        ensureActiveWorkflow()
         // Add response chunk to current step (streaming) - use getState() to get fresh state
         const currentStateForResponse = useChatStore.getState()
-        const currentStepForResponse = currentStateForResponse.currentWorkflowStep
-        if (currentStepForResponse !== null) {
-          currentStateForResponse.updateStepResponse(currentStepForResponse, event.data.content || '')
+        const activeIdForResponse = currentStateForResponse.activeWorkflowId
+        if (activeIdForResponse) {
+          const workflowForResponse = currentStateForResponse.workflows[activeIdForResponse]
+          const currentStepForResponse = workflowForResponse?.currentStep
+          if (currentStepForResponse !== null && currentStepForResponse !== undefined) {
+            currentStateForResponse.updateStepResponse(currentStepForResponse, event.data.content || '')
+          }
         }
         break
 
@@ -695,6 +756,12 @@ export class WebSocketClient {
         console.log('[WebSocket] Workflow paused - requires user help:', event.data)
         // Workflow paused due to critical error requiring user help
         // The step result will contain the help request
+        useChatStore.getState().setAgentTyping(false)
+        break
+
+      case 'workflow_stopped':
+        console.log('[WebSocket] Workflow stopped by user:', event.data)
+        // Workflow stopped by user request
         useChatStore.getState().setAgentTyping(false)
         break
 
@@ -760,6 +827,17 @@ export class WebSocketClient {
       // Clear workflow state after rejection
       useChatStore.getState().clearWorkflow()
     }
+  }
+
+  stopGeneration(): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
+        type: 'stop_generation',
+      }))
+      console.log('[WebSocket] Stop generation requested')
+    }
+    // Also disconnect to ensure clean state
+    this.disconnect()
   }
 
   disconnect(): void {

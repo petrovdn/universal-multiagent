@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Calendar, Mail, ChevronDown, Folder } from 'lucide-react'
+import { Settings, Calendar, Mail, ChevronDown, Folder, LogOut } from 'lucide-react'
 import { useSettingsStore } from '../store/settingsStore'
-import { enableGoogleCalendar, disableGoogleCalendar, getGoogleCalendarStatus, enableGmail, disableGmail, getGmailStatus, enableGoogleWorkspace, disableGoogleWorkspace, getGoogleWorkspaceStatus } from '../services/api'
+import { enableGoogleCalendar, disableGoogleCalendar, getGoogleCalendarStatus, enableGmail, disableGmail, getGmailStatus, enableGoogleWorkspace, disableGoogleWorkspace, getGoogleWorkspaceStatus, logout, getCurrentUser } from '../services/api'
 import { WorkspaceFolderSelector } from './WorkspaceFolderSelector'
 
 export function Header() {
@@ -10,6 +10,7 @@ export function Header() {
   const [isFolderSelectorOpen, setIsFolderSelectorOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const { integrations, setIntegrationStatus, debugMode, setDebugMode } = useSettingsStore()
+  const [currentUser, setCurrentUser] = useState<string | null>(null)
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -46,6 +47,42 @@ export function Header() {
       window.removeEventListener('workspace-needs-folder-config', handleWorkspaceNeedsFolderConfig)
     }
   }, [integrations.googleWorkspace.authenticated, integrations.googleWorkspace.folderConfigured])
+
+  // Load current user on mount and listen for auth changes
+  useEffect(() => {
+    loadCurrentUser()
+    
+    // Listen for auth status changes
+    const handleAuthChange = () => {
+      loadCurrentUser()
+    }
+    window.addEventListener('auth-status-changed', handleAuthChange)
+    
+    return () => {
+      window.removeEventListener('auth-status-changed', handleAuthChange)
+    }
+  }, [])
+
+  const loadCurrentUser = async () => {
+    try {
+      const user = await getCurrentUser()
+      console.log('Loaded current user:', user.username)
+      setCurrentUser(user.username)
+    } catch (err) {
+      console.log('Failed to load current user:', err)
+      setCurrentUser(null)
+    }
+  }
+
+  const handleLogout = async () => {
+    try {
+      await logout()
+      setCurrentUser(null)
+      window.location.href = '/' // Reload to show login
+    } catch (err) {
+      console.error('Logout error:', err)
+    }
+  }
 
   const loadIntegrationStatus = async () => {
     try {
@@ -232,40 +269,15 @@ export function Header() {
 
           {isSettingsOpen && (
             <div className="settings-dropdown">
-              {/* Debug Mode */}
-              <div className="settings-section">
-                <h3 className="settings-section-title">
-                  Отладка
-                </h3>
-                <div className="space-y-3">
-                  <div className="integration-row">
-                    <div className="flex items-center space-x-3">
-                      <div>
-                        <div className="integration-name">Отладочный режим</div>
-                        <div className="integration-status">
-                          {debugMode ? 'Включен' : 'Выключен'}
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setDebugMode(!debugMode)}
-                      className="toggle-button"
-                    >
-                      <div className={`toggle-slider debug-toggle ${debugMode ? 'active' : ''}`}></div>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
               {/* Integrations */}
               <div className="settings-section">
                 <h3 className="settings-section-title">
                   Интеграции
                 </h3>
-                <div className="space-y-3">
+                <div className="space-y-2">
                   {/* Gmail */}
                   <div className="integration-row">
-                    <div className="flex items-center space-x-3">
+                    <div className="flex items-center space-x-2">
                       <div className="integration-icon gmail-icon">
                         <Mail className="w-4 h-4" />
                       </div>
@@ -289,7 +301,7 @@ export function Header() {
 
                   {/* Calendar */}
                   <div className="integration-row">
-                    <div className="flex items-center space-x-3">
+                    <div className="flex items-center space-x-2">
                       <div className="integration-icon calendar-icon">
                         <Calendar className="w-4 h-4" />
                       </div>
@@ -311,7 +323,7 @@ export function Header() {
 
                   {/* Google Workspace */}
                   <div className="integration-row">
-                    <div className="flex items-center space-x-3">
+                    <div className="flex items-center space-x-2">
                       <div className={`integration-icon workspace-icon ${integrations.googleWorkspace.enabled ? 'active' : ''}`}>
                         <Folder className="w-4 h-4" />
                       </div>
@@ -342,6 +354,40 @@ export function Header() {
                       <div className={`toggle-slider workspace-toggle ${integrations.googleWorkspace.enabled ? 'active' : ''}`}></div>
                     </button>
                   </div>
+                </div>
+              </div>
+
+              {/* Account section */}
+              <div className="settings-section">
+                <h3 className="settings-section-title">
+                  Аккаунт
+                </h3>
+                <div className="space-y-2">
+                  {currentUser ? (
+                    <>
+                      <div className="integration-row">
+                        <div className="flex items-center space-x-2">
+                          <div>
+                            <div className="integration-name">Пользователь</div>
+                            <div className="integration-status">
+                              {currentUser}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors border border-red-200 dark:border-red-800"
+                      >
+                        <LogOut className="w-3.5 h-3.5" />
+                        <span>Выйти</span>
+                      </button>
+                    </>
+                  ) : (
+                    <div className="text-xs text-slate-500 dark:text-slate-400 py-1">
+                      Не авторизован
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

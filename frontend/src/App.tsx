@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { ChatInterface } from './components/ChatInterface'
 import { Header } from './components/Header'
+import { LoginDialog } from './components/LoginDialog'
 import { useSettingsStore } from './store/settingsStore'
-import { getGoogleCalendarStatus, getGmailStatus, getGoogleWorkspaceStatus } from './services/api'
+import { getGoogleCalendarStatus, getGmailStatus, getGoogleWorkspaceStatus, getCurrentUser } from './services/api'
 
 // App version - increment to clear cache
 const APP_VERSION = '5.0.0'
@@ -11,6 +12,79 @@ const VERSION_KEY = 'app-version'
 function App() {
   const { theme, setIntegrationStatus } = useSettingsStore()
   const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
+  const [currentUsername, setCurrentUsername] = useState<string | null>(null)
+  const [justLoggedIn, setJustLoggedIn] = useState(false)
+
+  useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:useEffect',message:'App mount - starting auth check',data:{justLoggedIn},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,C,E'})}).catch(()=>{});
+    // #endregion
+    // Check authentication status only if not just logged in
+    if (!justLoggedIn) {
+      checkAuth()
+    } else {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:useEffect',message:'Skipping auth check - just logged in',data:{justLoggedIn},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      setIsCheckingAuth(false)
+    }
+  }, [])
+
+  const checkAuth = async () => {
+    // #region agent log
+    const checkAuthStartTime = Date.now()
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:checkAuth',message:'checkAuth started',data:{startTime:checkAuthStartTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,C,D'})}).catch(()=>{});
+    // #endregion
+    try {
+      // #region agent log
+      const getUserStartTime = Date.now()
+      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:checkAuth',message:'Calling getCurrentUser',data:{getUserStartTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,D'})}).catch(()=>{});
+      // #endregion
+      const user = await getCurrentUser()
+      // #region agent log
+      const getUserEndTime = Date.now()
+      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:checkAuth',message:'getCurrentUser success',data:{username:user.username,getUserDuration:getUserEndTime-getUserStartTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,D'})}).catch(()=>{});
+      // #endregion
+      setIsAuthenticated(true)
+      setCurrentUsername(user.username)
+    } catch (err: any) {
+      // #region agent log
+      const getUserEndTime = Date.now()
+      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:checkAuth',message:'getCurrentUser error',data:{error:err.message,status:err.response?.status,getUserDuration:getUserEndTime-checkAuthStartTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,C,D'})}).catch(()=>{});
+      // #endregion
+      // If it's a 404 (session not found), it's fine - user just needs to login
+      if (err.response?.status === 404 || err.response?.status === 401) {
+        setIsAuthenticated(false)
+        setCurrentUsername(null)
+      } else {
+        // Other errors might be network issues, log them
+        console.error('Auth check error:', err)
+        setIsAuthenticated(false)
+        setCurrentUsername(null)
+      }
+    } finally {
+      // #region agent log
+      const checkAuthEndTime = Date.now()
+      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:checkAuth',message:'checkAuth completed',data:{totalDuration:checkAuthEndTime-checkAuthStartTime,isCheckingAuthWillBeSetTo:false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,C,D'})}).catch(()=>{});
+      // #endregion
+      setIsCheckingAuth(false)
+    }
+  }
+
+  const handleLoginSuccess = (sessionId: string, username: string) => {
+    setJustLoggedIn(true)
+    setIsAuthenticated(true)
+    setCurrentUsername(username)
+    setIsCheckingAuth(false)
+    // Trigger auth status change event for Header
+    window.dispatchEvent(new CustomEvent('auth-status-changed'))
+    // Update session if needed
+    if (window.location.search.includes('auth=success')) {
+      window.history.replaceState({}, '', '/')
+    }
+  }
 
   useEffect(() => {
     // Check and clear cache if version changed
@@ -155,6 +229,21 @@ function App() {
       window.history.replaceState({}, '', newUrl)
     }
   }, [setIntegrationStatus])
+
+  if (isCheckingAuth) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:render',message:'Showing loading screen',data:{isCheckingAuth,justLoggedIn,isAuthenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,C,D'})}).catch(()=>{});
+    // #endregion
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+        <div className="text-slate-600 dark:text-slate-400">Загрузка...</div>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <LoginDialog onLoginSuccess={handleLoginSuccess} />
+  }
 
   return (
     <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-900">

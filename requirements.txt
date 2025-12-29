@@ -30,6 +30,8 @@ pydantic-settings>=2.1.0,<3.0.0
 python-dotenv==1.0.0
 tenacity==8.2.3
 pytz==2024.1
+PyPDF2>=3.0.0
+Pillow>=10.0.0
 
 # Logging & Monitoring
 structlog==24.1.0

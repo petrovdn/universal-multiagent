@@ -542,7 +542,9 @@ class GoogleWorkspaceMCPServer:
                         q=query,
                         pageSize=max_results,
                         fields="files(id, name, mimeType, createdTime, modifiedTime, webViewLink, size)",
-                        orderBy="modifiedTime desc"
+                        orderBy="modifiedTime desc",
+                        supportsAllDrives=True,
+                        includeItemsFromAllDrives=True
                     ).execute()
                     
                     files = results.get('files', [])

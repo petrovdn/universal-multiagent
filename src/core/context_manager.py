@@ -32,6 +32,8 @@ class ConversationContext:
         self.meeting_references: Dict[str, Dict[str, Any]] = {}
         self.sheet_references: Dict[str, str] = {}
         self.execution_mode: str = "instant"  # "instant" or "approval"
+        self.uploaded_files: Dict[str, Dict[str, Any]] = {}  # file_id -> file_data
+        self.metadata: Dict[str, Any] = {}  # General metadata (e.g., username)
         config = get_config()
         self.model_name: Optional[str] = config.default_model  # Model name for LLM
         self.created_at = datetime.now().isoformat()
@@ -196,6 +198,32 @@ class ConversationContext:
         """
         return self.sheet_references.get(sheet_name)
     
+    def add_file(self, file_id: str, file_data: Dict[str, Any]) -> None:
+        """
+        Store uploaded file data.
+        
+        Args:
+            file_id: Unique file identifier
+            file_data: File metadata and content
+        """
+        self.uploaded_files[file_id] = {
+            **file_data,
+            "uploaded_at": datetime.now().isoformat()
+        }
+        self.updated_at = datetime.now().isoformat()
+    
+    def get_file(self, file_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve file data.
+        
+        Args:
+            file_id: File identifier
+            
+        Returns:
+            File data dictionary or None
+        """
+        return self.uploaded_files.get(file_id)
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert context to dictionary for serialization."""
         return {
@@ -206,7 +234,9 @@ class ConversationContext:
             "meeting_references": self.meeting_references,
             "sheet_references": self.sheet_references,
             "execution_mode": self.execution_mode,
+            "uploaded_files": getattr(self, "uploaded_files", {}),  # Backward compatibility
             "model_name": getattr(self, "model_name", None),  # Backward compatibility
+            "metadata": getattr(self, "metadata", {}),  # Backward compatibility
             "created_at": self.created_at,
             "updated_at": self.updated_at
         }
@@ -221,6 +251,8 @@ class ConversationContext:
         context.meeting_references = data.get("meeting_references", {})
         context.sheet_references = data.get("sheet_references", {})
         context.execution_mode = data.get("execution_mode", "instant")
+        context.uploaded_files = data.get("uploaded_files", {})  # Load uploaded files
+        context.metadata = data.get("metadata", {})  # Load metadata
         # Load model_name if exists, otherwise use default from config
         if "model_name" in data:
             context.model_name = data["model_name"]

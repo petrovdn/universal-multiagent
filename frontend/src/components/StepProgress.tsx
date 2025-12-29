@@ -4,13 +4,23 @@ import { useChatStore } from '../store/chatStore'
 import { ReasoningBlock } from './ReasoningBlock'
 import { StructuredAnswer } from './StructuredAnswer'
 
-export function StepProgress() {
-  // Use separate selectors to avoid shallow comparison issues - Zustand uses Object.is() for comparison
-  const workflowPlan = useChatStore((state) => state.workflowPlan)
-  const workflowSteps = useChatStore((state) => state.workflowSteps)
-  const currentWorkflowStep = useChatStore((state) => state.currentWorkflowStep)
+interface StepProgressProps {
+  workflowId: string
+}
 
-  // Removed useEffect logging to prevent infinite loops
+export function StepProgress({ workflowId }: StepProgressProps) {
+  // Get workflow by ID from store
+  const workflow = useChatStore((state) => state.workflows[workflowId])
+  const workflowPlan = workflow?.plan
+  const workflowSteps = workflow?.steps || {}
+  const currentWorkflowStep = workflow?.currentStep
+  const activeWorkflowId = useChatStore((state) => state.activeWorkflowId)
+
+  // #region agent log
+  React.useEffect(() => {
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:render',message:'StepProgress render',data:{workflowId,activeWorkflowId,hasWorkflow:!!workflow,hasPlan:!!workflowPlan,stepsCount:workflowPlan?.steps.length||0,allWorkflowIds:Object.keys(useChatStore.getState().workflows)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'RENDER'})}).catch(()=>{});
+  }, [workflowId, workflow, workflowPlan, activeWorkflowId])
+  // #endregion
 
   // Only show component when there are actual steps to display
   if (!workflowPlan || !workflowPlan.steps || workflowPlan.steps.length === 0) {

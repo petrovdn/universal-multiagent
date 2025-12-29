@@ -58,8 +58,14 @@ class StepOrchestrator:
         self._plan_steps: List[str] = []
         self._plan_text: str = ""
         self._confirmation_id: Optional[str] = None
+        self._stop_requested: bool = False
         
         logger.info(f"[StepOrchestrator] Initialized for session {session_id} with model {model_name or 'default'}")
+    
+    def stop(self):
+        """Request stop of execution."""
+        self._stop_requested = True
+        logger.info(f"[StepOrchestrator] Stop requested for session {self.session_id}")
     
     def _create_llm_with_thinking(self) -> BaseChatModel:
         """Create LLM instance with extended thinking enabled."""
@@ -105,8 +111,10 @@ class StepOrchestrator:
         self,
         user_request: str,
         mode: str,
-        context: ConversationContext
+        context: ConversationContext,
+        file_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
+        file_ids = file_ids or []
         """
         Execute multi-step workflow.
         
@@ -121,7 +129,7 @@ class StepOrchestrator:
         try:
             # Step 1: Generate plan
             logger.info(f"[StepOrchestrator] Generating plan for request: {user_request[:100]}")
-            plan_result = await self._generate_plan(user_request, context)
+            plan_result = await self._generate_plan(user_request, context, file_ids)
             
             plan_text = plan_result["plan"]
             plan_steps = plan_result["steps"]
@@ -203,6 +211,20 @@ class StepOrchestrator:
             step_results = []
             
             for step_index, step_title in enumerate(plan_steps, start=1):
+                # Check if stop was requested
+                if self._stop_requested:
+                    logger.info(f"[StepOrchestrator] Stop requested, stopping execution at step {step_index}")
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "workflow_stopped",
+                        {
+                            "reason": "Остановлено пользователем",
+                            "step": step_index - 1,
+                            "remaining_steps": len(plan_steps) - step_index + 1
+                        }
+                    )
+                    break
+                
                 try:
                     # Send step_start event
                     await self.ws_manager.send_event(
@@ -222,7 +244,8 @@ class StepOrchestrator:
                         plan_text,
                         plan_steps,
                         step_results,
-                        context
+                        context,
+                        file_ids
                     )
                     
                     step_results.append({
@@ -301,8 +324,65 @@ class StepOrchestrator:
     async def _generate_plan(
         self,
         user_request: str,
-        context: ConversationContext
+        context: ConversationContext,
+        file_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
+        file_ids = file_ids or []
+        
+        # Helper function to create HumanMessage with file attachments
+        def create_message_with_files(text: str, files: List[Dict[str, Any]]) -> HumanMessage:
+            """Create HumanMessage with text and optional file attachments."""
+            content_parts = [{"type": "text", "text": text}]
+            
+            # Add image files as image_url blocks
+            for file in files:
+                if file.get("type", "").startswith("image/") and "data" in file:
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{file.get('media_type', file.get('type', 'image/png'))};base64,{file['data']}"
+                        }
+                    })
+                elif "text" in file:  # PDF text content
+                    # Append PDF text to the text content
+                    content_parts[0]["text"] += f"\n\n[Содержимое файла {file.get('filename', 'document.pdf')}]:\n{file['text']}"
+            
+            # If we have multiple content parts or complex content, use list format
+            if len(content_parts) > 1 or any(part.get("type") != "text" for part in content_parts):
+                return HumanMessage(content=content_parts)
+            else:
+                # Simple text message
+                return HumanMessage(content=text)
+        
+        # Get file data from context
+        files_data = []
+        for file_id in file_ids:
+            file_data = context.get_file(file_id)
+            if file_data:
+                files_data.append(file_data)
+        
+        # Build uploaded files information text (PRIORITY #1)
+        uploaded_files_info = ""
+        if files_data:
+            uploaded_files_info = "\n\n📎 ЗАГРУЖЕННЫЕ ФАЙЛЫ (ПРИОРИТЕТ #1):\n"
+            uploaded_files_info += "⚠️ ВАЖНО: Текст этих файлов УЖЕ включен в это сообщение ниже!\n"
+            uploaded_files_info += "⚠️ НЕ ищи эти файлы в Google Диск - используй текст напрямую из сообщения!\n\n"
+            for i, file in enumerate(files_data, 1):
+                filename = file.get('filename', 'unknown')
+                file_type = file.get('type', '')
+                if file_type.startswith('image/'):
+                    uploaded_files_info += f"{i}. Изображение: {filename} (включено в сообщение)\n"
+                elif file_type == 'application/pdf' and 'text' in file:
+                    uploaded_files_info += f"{i}. PDF файл: {filename}\n   ⚠️ ТЕКСТ ФАЙЛА УЖЕ ВКЛЮЧЕН В СООБЩЕНИЕ НИЖЕ! Используй его напрямую, НЕ ищи файл в Google Диск!\n"
+                else:
+                    uploaded_files_info += f"{i}. Файл: {filename} (тип: {file_type})\n"
+            uploaded_files_info += "\n⚠️ СНАЧАЛА используй информацию из загруженных файлов (текст уже в сообщении), ПОТОМ уже ищи дополнительные файлы в Google Диск!\n"
+        
+        # #region agent log
+        log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "_generate_plan called", "data": {"user_request": user_request, "user_request_length": len(user_request), "user_request_preview": user_request[:200], "files_count": len(files_data)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "DUPLICATE"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         """
         Generate detailed execution plan using Claude.
         
@@ -322,10 +402,14 @@ class StepOrchestrator:
         # Use dynamic planning prompt
         system_prompt = build_planning_prompt()
 
-        # Prepare messages
+        # Prepare messages with file attachments if any
+        # Include uploaded files info FIRST, then user request
+        plan_request_text = uploaded_files_info + f"\n\nСоздай детальный план выполнения для этого запроса:\n\n{user_request}"
+        user_message = create_message_with_files(plan_request_text, files_data)
+        
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=f"Create a detailed execution plan for this request:\n\n{user_request}")
+            user_message
         ]
         
         # #region agent log
@@ -338,32 +422,39 @@ class StepOrchestrator:
         recent_messages = context.get_recent_messages(5)
         
         # #region agent log
-        recent_msgs_preview = [{"role": m.get("role"), "content": m.get("content", "")[:50]} for m in recent_messages]
-        log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "recent_messages retrieved", "data": {"recent_messages_count": len(recent_messages), "recent_messages": recent_msgs_preview, "last_recent_content": recent_messages[-1].get("content", "")[:100] if recent_messages else None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+        recent_msgs_preview = [{"role": m.get("role"), "content": m.get("content", "")[:200], "content_length": len(m.get("content", ""))} for m in recent_messages]
+        log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "recent_messages retrieved", "data": {"recent_messages_count": len(recent_messages), "recent_messages": recent_msgs_preview, "user_request": user_request, "user_request_length": len(user_request)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "DUPLICATE"}).encode('utf-8')
         with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
             f.write(log_data + b'\n')
         # #endregion
         
+        # Only add assistant messages from recent context for planning
+        # Do NOT add previous user messages - they can cause confusion and message concatenation
         for msg in recent_messages:
             role = msg.get("role")
             content = msg.get("content", "")
-            # Skip the last user message if it matches current user_request to avoid duplication
-            if role == "user" and content == user_request:
+            # #region agent log
+            log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "Processing message from recent_messages", "data": {"role": role, "content": content[:200], "content_length": len(content), "user_request": user_request, "user_request_length": len(user_request)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "DUPLICATE"}).encode('utf-8')
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                f.write(log_data + b'\n')
+            # #endregion
+            # Skip all user messages - we only want the current user_request in the prompt
+            # This prevents message concatenation issues
+            if role == "user":
                 # #region agent log
-                log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "SKIPPED duplicate user message from recent_messages", "data": {"content_preview": content[:100], "matches_user_request": True}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+                log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "SKIPPED user message from recent_messages (only current user_request is used)", "data": {"content_preview": content[:100]}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "DUPLICATE"}).encode('utf-8')
                 with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
                     f.write(log_data + b'\n')
                 # #endregion
                 continue
-            if role == "user":
-                messages.append(HumanMessage(content=content))
+            elif role == "assistant":
+                # Add assistant messages for context
+                messages.append(AIMessage(content=content))
                 # #region agent log
-                log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "ADDED user message from recent_messages", "data": {"content_preview": content[:100], "matches_user_request": content == user_request}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+                log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "ADDED assistant message from recent_messages", "data": {"content_preview": content[:200], "content_length": len(content)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "DUPLICATE"}).encode('utf-8')
                 with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
                     f.write(log_data + b'\n')
                 # #endregion
-            elif role == "assistant":
-                messages.append(AIMessage(content=content))
         
         # #region agent log
         user_msgs_in_final = [str(m.content)[:100] for m in messages if isinstance(m, HumanMessage)]
@@ -449,8 +540,38 @@ class StepOrchestrator:
         plan_text: str,
         all_steps: List[str],
         previous_results: List[Dict[str, Any]],
-        context: ConversationContext
+        context: ConversationContext,
+        file_ids: Optional[List[str]] = None
     ) -> str:
+        file_ids = file_ids or []
+        
+        # Helper function to create HumanMessage with file attachments
+        def create_message_with_files(text: str, files: List[Dict[str, Any]]) -> HumanMessage:
+            """Create HumanMessage with text and optional file attachments."""
+            content_parts = [{"type": "text", "text": text}]
+            text_was_modified = False
+            
+            # Add image files as image_url blocks
+            for file in files:
+                if file.get("type", "").startswith("image/") and "data" in file:
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{file.get('media_type', file.get('type', 'image/png'))};base64,{file['data']}"
+                        }
+                    })
+                elif "text" in file:  # PDF text content
+                    # Append PDF text to the text content
+                    content_parts[0]["text"] += f"\n\n[Содержимое файла {file.get('filename', 'document.pdf')}]:\n{file['text']}"
+                    text_was_modified = True
+            
+            # Always use content_parts if text was modified (PDF added) or if we have images
+            if text_was_modified or len(content_parts) > 1 or any(part.get("type") != "text" for part in content_parts):
+                return HumanMessage(content=content_parts)
+            else:
+                # Simple text message (no files)
+                return HumanMessage(content=text)
+        
         """
         Execute a single step with streaming thinking and response.
         
@@ -473,7 +594,31 @@ class StepOrchestrator:
             logger.warning(f"[StepOrchestrator] Could not get capabilities: {e}, using defaults")
             capabilities = {"enabled_servers": [], "tools_by_category": {}}
         
-        # Read workspace folder configuration for context
+        # Get file data from context
+        files_data = []
+        for file_id in file_ids:
+            file_data = context.get_file(file_id)
+            if file_data:
+                files_data.append(file_data)
+        
+        # Build uploaded files information text (PRIORITY #1)
+        uploaded_files_info = ""
+        if files_data:
+            uploaded_files_info = "📎 ЗАГРУЖЕННЫЕ ФАЙЛЫ (ПРИОРИТЕТ #1):\n"
+            uploaded_files_info += "⚠️ ВАЖНО: Текст этих файлов УЖЕ включен в это сообщение ниже!\n"
+            uploaded_files_info += "⚠️ НЕ ищи эти файлы в Google Диск - используй текст напрямую из сообщения!\n\n"
+            for i, file in enumerate(files_data, 1):
+                filename = file.get('filename', 'unknown')
+                file_type = file.get('type', '')
+                if file_type.startswith('image/'):
+                    uploaded_files_info += f"{i}. Изображение: {filename} (включено в сообщение)\n"
+                elif file_type == 'application/pdf' and 'text' in file:
+                    uploaded_files_info += f"{i}. PDF файл: {filename}\n   ⚠️ ТЕКСТ ФАЙЛА УЖЕ ВКЛЮЧЕН В СООБЩЕНИЕ НИЖЕ! Используй его напрямую, НЕ ищи файл в Google Диск!\n"
+                else:
+                    uploaded_files_info += f"{i}. Файл: {filename} (тип: {file_type})\n"
+            uploaded_files_info += "\n⚠️ СНАЧАЛА используй информацию из загруженных файлов (текст уже в сообщении), ПОТОМ уже ищи дополнительные файлы в Google Диск!\n\n"
+        
+        # Read workspace folder configuration for context (PRIORITY #2)
         workspace_folder_info = None
         try:
             from src.utils.config_loader import get_config
@@ -485,25 +630,27 @@ class StepOrchestrator:
                 folder_id = workspace_config.get("folder_id")
                 folder_name = workspace_config.get("folder_name")
                 if folder_id:
-                    workspace_folder_info = f"""
-⚠️ ВАЖНО: Пользователь выбрал рабочую папку:
+                    workspace_folder_info = f"""📁 GOOGLE ДИСК ПАПКА (ПРИОРИТЕТ #2):
+⚠️ После анализа загруженных файлов, используй эту папку Google Диск:
   Название: {folder_name}
   ID: {folder_id}
   
-  ВСЕГДА начинай поиск файлов с ЭТОЙ папки!
   Используй соответствующие инструменты для работы с выбранной папкой, указывая folder_id={folder_id}
 """
         except Exception as e:
             logger.warning(f"[StepOrchestrator] Could not read workspace config: {e}")
         
         # Build context for this step
-        step_context = f"""
-Оригинальный запрос: {user_request}
+        # PRIORITY ORDER: 1) Uploaded files, 2) Google Drive folder, 3) Original request and plan
+        step_context = ""
+        if uploaded_files_info:
+            step_context += uploaded_files_info + "\n"
+        if workspace_folder_info:
+            step_context += workspace_folder_info + "\n"
+        step_context += f"""Оригинальный запрос: {user_request}
 
 Общий план: {plan_text}
 """
-        if workspace_folder_info:
-            step_context += workspace_folder_info
         
         step_context += """
 Выполненные шаги:
@@ -519,10 +666,11 @@ class StepOrchestrator:
         # Build dynamic system prompt based on available capabilities
         system_prompt = build_step_executor_prompt(capabilities, workspace_folder_info)
         
-        # Prepare messages
+        # Prepare messages with file attachments if any (files_data already loaded above)
+        step_message = create_message_with_files(step_context, files_data)
         messages = [
             SystemMessage(content=system_prompt),
-            HumanMessage(content=step_context)
+            step_message
         ]
         
         # Stream the response with thinking

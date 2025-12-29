@@ -3,7 +3,7 @@ FastAPI server with WebSocket support for the multi-agent system.
 Provides REST API endpoints and real-time WebSocket communication.
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,6 +11,16 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 import uvicorn
 from uuid import uuid4
+import base64
+import io
+try:
+    import PyPDF2
+except ImportError:
+    PyPDF2 = None
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 from src.utils.config_loader import get_config, reload_config
 from src.utils.logging_config import setup_logging, get_logger
@@ -172,13 +182,15 @@ async def send_message(request: Dict[str, Any]):
     - message: User message
     - session_id: Optional session ID (creates new if not provided)
     - execution_mode: Optional execution mode (instant/approval)
+    - file_ids: Optional list of file IDs to attach to the message
     """
-    user_message = request.get("message")
+    user_message = request.get("message", "")
     session_id = request.get("session_id")
     execution_mode = request.get("execution_mode", "instant")
+    file_ids = request.get("file_ids", [])
     
-    if not user_message:
-        raise HTTPException(status_code=400, detail="Message is required")
+    if not user_message and not file_ids:
+        raise HTTPException(status_code=400, detail="Message or file is required")
     
     # Get or create session
     if session_id:
@@ -193,13 +205,14 @@ async def send_message(request: Dict[str, Any]):
     if execution_mode:
         context.execution_mode = execution_mode
     
-    # Process message
+    # Process message with file attachments
     try:
-        logger.info(f"Processing message for session {session_id}, context session_id: {getattr(context, 'session_id', 'NOT SET')}")
+        logger.info(f"Processing message for session {session_id}, context session_id: {getattr(context, 'session_id', 'NOT SET')}, file_ids: {file_ids}")
         result = await agent_wrapper.process_message(
             user_message,
             context,
-            session_id
+            session_id,
+            file_ids=file_ids
         )
         
         # Update session
@@ -453,6 +466,238 @@ async def list_models():
         return {"models": []}
 
 
+@app.post("/api/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    session_id: str = Form(...)
+):
+    """
+    Upload and process file (image or PDF).
+    
+    Supported file types:
+    - Images: image/* (JPEG, PNG, GIF, WEBP, etc.)
+    - PDF: application/pdf
+    
+    Returns file_id that can be used when sending messages.
+    """
+    # #region agent log
+    try:
+        import json
+        import time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"location": "server.py:upload_file", "message": "upload_file called", "data": {"filename": file.filename, "session_id": session_id, "has_session_manager": hasattr(session_manager, 'get_session'), "PyPDF2_available": PyPDF2 is not None}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,B,C,D"}) + "\n")
+    except: pass
+    # #endregion
+    logger.info(f"Upload endpoint called: filename={file.filename}, session_id={session_id}")
+    try:
+        file_type = file.content_type
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:upload_file", "message": "file_type determined", "data": {"file_type": file_type}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
+        except: pass
+        # #endregion
+        
+        if not file_type:
+            raise HTTPException(status_code=400, detail="Could not determine file type")
+        
+        # Read file content
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:upload_file", "message": "BEFORE file.read()", "data": {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
+        except: pass
+        # #endregion
+        content = await file.read()
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:upload_file", "message": "AFTER file.read()", "data": {"content_size": len(content)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
+        except: pass
+        # #endregion
+        
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="File is empty")
+        
+        # Maximum file size: 20MB
+        max_size = 20 * 1024 * 1024
+        if len(content) > max_size:
+            raise HTTPException(status_code=400, detail=f"File too large. Maximum size: 20MB")
+        
+        file_id = str(uuid4())
+        result = {
+            "file_id": file_id,
+            "filename": file.filename,
+            "type": file_type,
+            "size": len(content)
+        }
+        
+        # Get or create session
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:upload_file", "message": "BEFORE session_manager.get_session", "data": {"session_id": session_id, "session_manager_type": type(session_manager).__name__}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+        except: pass
+        # #endregion
+        context = session_manager.get_session(session_id)
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:upload_file", "message": "AFTER session_manager.get_session", "data": {"context_exists": context is not None, "context_type": type(context).__name__ if context else None}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+        except: pass
+        # #endregion
+        if not context:
+            context = ConversationContext(session_id)
+            session_manager.update_session(session_id, context)
+        
+        # Process based on file type
+        if file_type.startswith("image/"):
+            # For images - encode to base64
+            result["data"] = base64.b64encode(content).decode('utf-8')
+            result["media_type"] = file_type
+            
+            # Store in context
+            context.add_file(file_id, {
+                "filename": file.filename,
+                "type": file_type,
+                "media_type": file_type,
+                "data": result["data"],
+                "size": len(content)
+            })
+            
+        elif file_type == "application/pdf":
+            # For PDF - extract text
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"location": "server.py:upload_file", "message": "Processing PDF", "data": {"PyPDF2_available": PyPDF2 is not None, "content_size": len(content)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
+            except: pass
+            # #endregion
+            if PyPDF2 is None:
+                raise HTTPException(
+                    status_code=500, 
+                    detail="PDF processing not available. Please install PyPDF2."
+                )
+            
+            try:
+                # #region agent log
+                try:
+                    import json
+                    import time
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"location": "server.py:upload_file", "message": "BEFORE PyPDF2.PdfReader", "data": {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
+                except: pass
+                # #endregion
+                pdf_file = io.BytesIO(content)
+                pdf_reader = PyPDF2.PdfReader(pdf_file)
+                # #region agent log
+                try:
+                    import json
+                    import time
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"location": "server.py:upload_file", "message": "AFTER PyPDF2.PdfReader", "data": {"pages_count": len(pdf_reader.pages)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
+                except: pass
+                # #endregion
+                text = ""
+                
+                # Extract text from all pages
+                for page_num, page in enumerate(pdf_reader.pages):
+                    try:
+                        page_text = page.extract_text()
+                        if page_text:
+                            text += f"\n--- Page {page_num + 1} ---\n{page_text}"
+                    except Exception as e:
+                        logger.warning(f"Error extracting text from PDF page {page_num + 1}: {e}")
+                        continue
+                
+                if not text.strip():
+                    raise HTTPException(
+                        status_code=400, 
+                        detail="Could not extract text from PDF. The PDF might be image-based or encrypted."
+                    )
+                
+                result["text"] = text.strip()
+                
+                # Store in context
+                context.add_file(file_id, {
+                    "filename": file.filename,
+                    "type": file_type,
+                    "text": result["text"],
+                    "size": len(content),
+                    "pages": len(pdf_reader.pages)
+                })
+                
+            except Exception as e:
+                logger.error(f"Error processing PDF: {e}")
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Error processing PDF: {str(e)}"
+                )
+        
+        else:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Unsupported file type: {file_type}. Supported types: image/*, application/pdf"
+            )
+        
+        # Update session
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:upload_file", "message": "BEFORE session_manager.update_session", "data": {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
+        except: pass
+        # #endregion
+        session_manager.update_session(session_id, context)
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:upload_file", "message": "AFTER session_manager.update_session - SUCCESS", "data": {"file_id": file_id}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,B,C,D"}) + "\n")
+        except: pass
+        # #endregion
+        logger.info(f"File uploaded successfully: {file.filename} ({file_type}, {len(content)} bytes) for session {session_id}")
+        
+        return result
+        
+    except HTTPException as e:
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:upload_file", "message": "HTTPException raised", "data": {"status_code": e.status_code, "detail": str(e.detail)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,B,C,D"}) + "\n")
+        except: pass
+        # #endregion
+        raise
+    except Exception as e:
+        # #region agent log
+        try:
+            import json
+            import time
+            import traceback
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "server.py:upload_file", "message": "Exception raised", "data": {"error": str(e), "error_type": type(e).__name__, "traceback": traceback.format_exc()}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,B,C,D"}) + "\n")
+        except: pass
+        # #endregion
+        logger.error(f"Error uploading file: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Error uploading file: {str(e)}")
+
+
 @app.post("/api/session/model")
 async def set_session_model(request: Dict[str, Any]):
     """
@@ -546,6 +791,10 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                         session_id
                     )
                     session_manager.update_session(session_id, context)
+            
+            elif message_type == "stop_generation":
+                # Stop generation
+                await agent_wrapper.stop_generation(session_id)
     
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket, session_id)

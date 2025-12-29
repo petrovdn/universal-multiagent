@@ -1,14 +1,21 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain } from 'lucide-react'
+import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain, Square } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
 import { useSettingsStore } from '../store/settingsStore'
 import { useModelStore } from '../store/modelStore'
 import { wsClient } from '../services/websocket'
-import { sendMessage, createSession, updateSettings, setSessionModel } from '../services/api'
+import { sendMessage, createSession, updateSettings, setSessionModel, uploadFile } from '../services/api'
 import { ChatMessage } from './ChatMessage'
 import { Header } from './Header'
 import { PlanBlock } from './PlanBlock'
 import { StepProgress } from './StepProgress'
+
+interface AttachedFile {
+  id: string
+  name: string
+  type: string
+  preview?: string
+}
 
 export function ChatInterface() {
   const [input, setInput] = useState('')
@@ -16,11 +23,13 @@ export function ChatInterface() {
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState(false)
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
   const [shouldScrollToNew, setShouldScrollToNew] = useState(false)
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
   const currentInteractionRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const modeDropdownRef = useRef<HTMLDivElement>(null)
   const modelDropdownRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   
   const {
     currentSession,
@@ -43,7 +52,7 @@ export function ChatInterface() {
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.style.height = '44px'
+      textareaRef.current.style.height = '40px'
       const newHeight = Math.min(textareaRef.current.scrollHeight, 200)
       textareaRef.current.style.height = `${newHeight}px`
     }
@@ -132,15 +141,94 @@ export function ChatInterface() {
     }
   }, [shouldScrollToNew, messages.length])
   
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    
+    // Ensure we have a session
+    let sessionId: string = currentSession || ''
+    if (!sessionId) {
+      try {
+        const sessionData = await createSession('instant', selectedModel || undefined)
+        sessionId = sessionData.session_id
+        setCurrentSession(sessionId)
+        wsClient.connect(sessionId)
+      } catch (error) {
+        console.error('[ChatInterface] Failed to create session for file upload:', error)
+        alert('Не удалось создать сессию для загрузки файла')
+        return
+      }
+    }
+    
+    // Process each file
+    for (const file of Array.from(files)) {
+      // Validate file type
+      if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
+        alert(`Файл "${file.name}" не поддерживается. Поддерживаются только изображения и PDF файлы.`)
+        continue
+      }
+      
+      // Check file size (20MB limit)
+      if (file.size > 20 * 1024 * 1024) {
+        alert(`Файл "${file.name}" слишком большой. Максимальный размер: 20MB`)
+        continue
+      }
+      
+      try {
+        const fileData = await uploadFile(file, sessionId)
+        
+        // Create preview for images
+        let preview: string | undefined
+        if (file.type.startsWith('image/')) {
+          preview = URL.createObjectURL(file)
+        }
+        
+        setAttachedFiles(prev => [...prev, {
+          id: fileData.file_id,
+          name: file.name,
+          type: file.type,
+          preview
+        }])
+      } catch (error: any) {
+        console.error('[ChatInterface] File upload error:', error)
+        const errorMessage = error?.response?.data?.detail || error?.message || 'Неизвестная ошибка'
+        alert(`Ошибка загрузки файла "${file.name}": ${errorMessage}`)
+      }
+    }
+    
+    // Reset input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }
+  
+  const handleRemoveFile = (fileId: string) => {
+    setAttachedFiles(prev => {
+      const file = prev.find(f => f.id === fileId)
+      if (file?.preview) {
+        URL.revokeObjectURL(file.preview)
+      }
+      return prev.filter(f => f.id !== fileId)
+    })
+  }
+  
   const handleSend = async () => {
-    if (!input.trim() || isSending) return
+    if ((!input.trim() && attachedFiles.length === 0) || isSending) return
 
     const userMessage = input.trim()
-    console.log('[ChatInterface] Sending message:', userMessage)
+    const fileIds = attachedFiles.map(f => f.id)
+    console.log('[ChatInterface] Sending message:', userMessage, 'with files:', fileIds)
     console.log('[ChatInterface] Current session:', currentSession)
     console.log('[ChatInterface] WebSocket connected:', wsClient.isConnected())
     
     setInput('')
+    // Clean up preview URLs
+    attachedFiles.forEach(file => {
+      if (file.preview) {
+        URL.revokeObjectURL(file.preview)
+      }
+    })
+    setAttachedFiles([])
     setIsSending(true)
 
     // Don't clear workflow - we want to preserve history and only work with the active (last) workflow
@@ -168,11 +256,26 @@ export function ChatInterface() {
     try {
       // Try WebSocket first if session exists and connection is open
       if (currentSession && wsClient.isConnected()) {
-        console.log('[ChatInterface] Using WebSocket to send message')
-        const sent = wsClient.sendMessage(userMessage)
-        if (!sent) {
-          console.warn('[ChatInterface] WebSocket send failed, falling back to REST API')
-          throw new Error('WebSocket send failed')
+        // Use REST API when files are attached (WebSocket doesn't support files yet)
+        if (fileIds.length > 0) {
+          console.log('[ChatInterface] Using REST API (files attached)')
+          await sendMessage({
+            message: userMessage,
+            session_id: currentSession,
+            execution_mode: 'instant',
+            file_ids: fileIds,
+          })
+        } else {
+          console.log('[ChatInterface] Using WebSocket to send message')
+          const sent = wsClient.sendMessage(userMessage)
+          if (!sent) {
+            console.warn('[ChatInterface] WebSocket send failed, falling back to REST API')
+            await sendMessage({
+              message: userMessage,
+              session_id: currentSession,
+              execution_mode: 'instant',
+            })
+          }
         }
       } else if (currentSession) {
         // Session exists but WebSocket not connected, try to reconnect and use REST API as fallback
@@ -184,6 +287,7 @@ export function ChatInterface() {
           message: userMessage,
           session_id: currentSession,
           execution_mode: 'instant',
+          file_ids: fileIds.length > 0 ? fileIds : undefined,
         })
       } else {
         // Create new session FIRST, then connect WebSocket, then send message
@@ -213,7 +317,16 @@ export function ChatInterface() {
         }
         
         // Now send message via WebSocket or REST API
-        if (wsClient.isConnected()) {
+        // Note: WebSocket doesn't support file_ids yet, so we use REST API when files are attached
+        if (fileIds.length > 0 || !wsClient.isConnected()) {
+          console.log('[ChatInterface] Using REST API (files attached or WebSocket not connected)')
+          await sendMessage({
+            message: userMessage,
+            session_id: newSessionId,
+            execution_mode: 'instant',
+            file_ids: fileIds.length > 0 ? fileIds : undefined,
+          })
+        } else {
           console.log('[ChatInterface] Sending message via WebSocket')
           const sent = wsClient.sendMessage(userMessage)
           if (!sent) {
@@ -224,13 +337,6 @@ export function ChatInterface() {
               execution_mode: 'instant',
             })
           }
-        } else {
-          console.log('[ChatInterface] WebSocket not connected, using REST API')
-          await sendMessage({
-            message: userMessage,
-            session_id: newSessionId,
-            execution_mode: 'instant',
-          })
         }
       }
     } catch (error: any) {
@@ -245,7 +351,7 @@ export function ChatInterface() {
       setIsSending(false)
       // Reset textarea height
       if (textareaRef.current) {
-        textareaRef.current.style.height = '44px'
+        textareaRef.current.style.height = '40px'
       }
     }
   }
@@ -261,6 +367,20 @@ export function ChatInterface() {
     wsClient.disconnect()
     startNewSession()
     setInput('')
+    // Clean up file previews
+    attachedFiles.forEach(file => {
+      if (file.preview) {
+        URL.revokeObjectURL(file.preview)
+      }
+    })
+    setAttachedFiles([])
+  }
+  
+  const handleStopGeneration = () => {
+    console.log('[ChatInterface] Stopping generation')
+    wsClient.stopGeneration()
+    setIsSending(false)
+    setAgentTyping(false)
   }
   
   const handleExecutionModeChange = async (mode: 'instant' | 'approval') => {
@@ -280,12 +400,12 @@ export function ChatInterface() {
   }
   
   const getProviderIcon = (modelId: string | null) => {
-    if (!modelId) return <Sparkles className="w-3.5 h-3.5" />
+    if (!modelId) return <Sparkles className="w-2.5 h-2.5" />
     const model = models.find(m => m.id === modelId)
     if (model?.provider === 'openai') {
-      return <Brain className="w-3.5 h-3.5" />
+      return <Brain className="w-2.5 h-2.5" />
     }
-    return <Sparkles className="w-3.5 h-3.5" />
+    return <Sparkles className="w-2.5 h-2.5" />
   }
   
   const handleModelSelect = async (modelId: string) => {
@@ -317,6 +437,9 @@ export function ChatInterface() {
           const isLastUserMessage = index === lastUserIndexInMessages
           
           if (message.role === 'user') {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render-user',message:'Rendering user message with workflow blocks',data:{messageIndex:index,messageTimestamp:message.timestamp,messageContent:message.content.substring(0,50),isLastUserMessage,allWorkflowIds:Object.keys(useChatStore.getState().workflows),activeWorkflowId:useChatStore.getState().activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'RENDER'})}).catch(()=>{});
+            // #endregion
             return (
               <React.Fragment key={`user-${index}-${message.timestamp}`}>
                 <div 
@@ -326,8 +449,8 @@ export function ChatInterface() {
                   <span className="user-query-text">{message.content}</span>
                 </div>
                 {/* Show workflow plan and steps after each user message */}
-                <PlanBlock />
-                <StepProgress />
+                <PlanBlock workflowId={message.timestamp} />
+                <StepProgress workflowId={message.timestamp} />
               </React.Fragment>
             )
           }
@@ -434,8 +557,44 @@ export function ChatInterface() {
         
         <form onSubmit={(e) => { e.preventDefault(); handleSend(); }} className="input-form">
           <div className="input-wrapper">
-            {/* Left Side: Mode Selector + Model Selector + Icons */}
-            <div className="input-left-section">
+            {/* Row 1: Full-width Text Input */}
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Текст"
+              disabled={isSending || isAgentTyping}
+              rows={1}
+              className="chat-input"
+            />
+
+            {/* Attached Files Preview */}
+            {attachedFiles.length > 0 && (
+              <div className="attached-files">
+                {attachedFiles.map(file => (
+                  <div key={file.id} className="attached-file">
+                    {file.preview ? (
+                      <img src={file.preview} alt={file.name} className="file-preview" />
+                    ) : (
+                      <div className="file-icon">📄</div>
+                    )}
+                    <span className="file-name" title={file.name}>{file.name}</span>
+                    <button 
+                      type="button"
+                      onClick={() => handleRemoveFile(file.id)}
+                      className="remove-file"
+                      title="Удалить файл"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Row 2: Mode Selector + Model Selector + Action Icons + Send/Stop Button */}
+            <div className="input-row-controls">
               {/* Execution Mode Selector */}
               <div className="relative" ref={modeDropdownRef}>
                 <button
@@ -445,7 +604,7 @@ export function ChatInterface() {
                   title={executionMode === 'instant' ? 'Мгновенное выполнение' : 'С подтверждением действий'}
                 >
                   <span>{executionMode === 'instant' ? 'Агент' : 'План'}</span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isModeDropdownOpen ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-2.5 h-2.5 transition-transform ${isModeDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 {isModeDropdownOpen && (
@@ -487,7 +646,7 @@ export function ChatInterface() {
                 >
                   <span className="model-icon">{getProviderIcon(selectedModel)}</span>
                   <span>{getModelDisplayName(selectedModel)}</span>
-                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
+                  <ChevronDown className={`w-2.5 h-2.5 transition-transform ${isModelDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 {isModelDropdownOpen && (
@@ -532,50 +691,58 @@ export function ChatInterface() {
                 )}
               </div>
 
-              {/* Action Icons */}
-              <div className="input-icons">
+              {/* New Dialog Icon */}
+              <button
+                type="button"
+                onClick={handleNewSession}
+                className="input-icon-button"
+                title="Новый диалог"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              
+              {/* File Upload */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,.pdf"
+                multiple
+                onChange={handleFileSelect}
+                style={{ display: 'none' }}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="input-icon-button"
+                title="Прикрепить файл (изображение или PDF)"
+              >
+                <Paperclip className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Spacer */}
+              <div className="input-actions-spacer"></div>
+
+              {/* Send/Stop Button */}
+              {(isSending || isAgentTyping) ? (
                 <button
                   type="button"
-                  onClick={handleNewSession}
-                  className="input-icon-button"
-                  title="Новый диалог"
+                  onClick={handleStopGeneration}
+                  className="send-button stop-button"
+                  title="Остановить генерацию"
                 >
-                  <Plus className="w-5 h-5" />
+                  <Square className="w-3.5 h-3.5" />
                 </button>
-                <button
-                  type="button"
-                  className="input-icon-button"
-                  title="Прикрепить файл"
-                >
-                  <Paperclip className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Text Input */}
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Напишите сообщение..."
-              disabled={isSending}
-              rows={1}
-              className="chat-input"
-            />
-
-            {/* Send Button */}
-            <button
-              type="submit"
-              disabled={!input.trim() || isSending}
-              className="send-button"
-            >
-              {isSending ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
               ) : (
-                <Send className="w-5 h-5" />
+                <button
+                  type="submit"
+                  disabled={(!input.trim() && attachedFiles.length === 0)}
+                  className="send-button"
+                  title="Отправить"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                </button>
               )}
-            </button>
+            </div>
           </div>
 
           {/* Hint */}
