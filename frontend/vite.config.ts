@@ -8,11 +8,14 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8000',
+        // Avoid `localhost` → IPv6 (::1) resolution issues in some environments.
+        // Backend is typically bound on IPv4 (0.0.0.0/127.0.0.1).
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://localhost:8000',
+        // WebSocket proxy target must also avoid IPv6 localhost resolution.
+        target: 'ws://127.0.0.1:8000',
         ws: true,
       },
     },

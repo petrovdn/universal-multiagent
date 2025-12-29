@@ -15,15 +15,7 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
   const workflowPlan = workflow?.plan
   const setAwaitingConfirmation = useChatStore((state) => state.setAwaitingConfirmation)
   const activeWorkflowId = useChatStore((state) => state.activeWorkflowId)
-  const [isEditingPlan, setIsEditingPlan] = useState(false)
-
-  // #region agent log
-  React.useEffect(() => {
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlanBlock.tsx:render',message:'PlanBlock render',data:{workflowId,activeWorkflowId,hasWorkflow:!!workflow,hasPlan:!!workflowPlan,allWorkflowIds:Object.keys(useChatStore.getState().workflows)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'RENDER'})}).catch(()=>{});
-  }, [workflowId, workflow, workflowPlan, activeWorkflowId])
-  // #endregion
-
-  // Only show component when there's actual data to display
+  const [isEditingPlan, setIsEditingPlan] = useState(false)// Only show component when there's actual data to display
   if (!workflowPlan) {
     return null
   }

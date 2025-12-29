@@ -13,6 +13,8 @@ import uvicorn
 from uuid import uuid4
 import base64
 import io
+import json
+import time
 try:
     import PyPDF2
 except ImportError:
@@ -40,15 +42,6 @@ try:
     setup_logging(config.log_level)
     logger = get_logger(__name__)
     logger.info("Configuration loaded successfully")
-    # #region agent log
-    try:
-        import json
-        import time
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"location": "server.py:32", "message": "Config loaded successfully at startup", "data": {"has_anthropic": bool(config.anthropic_api_key and config.anthropic_api_key.strip()), "has_openai": bool(config.openai_api_key and config.openai_api_key.strip())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "O"}) + "\n")
-    except: pass
-    print(f"[DEBUG] Config loaded - Anthropic: {'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI: {'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}", flush=True)
-    # #endregion
 except Exception as e:
     # Fallback config for basic startup
     import logging
@@ -58,15 +51,6 @@ except Exception as e:
     logger.warning(f"Failed to load full config: {e}. Using defaults for startup.")
     logger.error(f"Config error traceback: {traceback.format_exc()}")
     print(f"[DEBUG] Config load failed: {e}", flush=True)
-    # #region agent log
-    try:
-        import json
-        import time
-        import traceback
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"location": "server.py:48", "message": "Config load failed at startup", "data": {"error": str(e), "traceback": traceback.format_exc()}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "P"}) + "\n")
-    except: pass
-    # #endregion
     # Create minimal config for CORS
     class MinimalConfig:
         api_cors_origins = ["*"]
@@ -131,7 +115,8 @@ if config.is_production:
         
         @app.get("/{full_path:path}")
         async def serve_frontend(full_path: str):
-            """Serve frontend files, fallback to index.html for SPA routing."""
+            """
+Serve frontend files, fallback to index.html for SPA routing."""
             file_path = frontend_dist / full_path
             if file_path.exists() and file_path.is_file():
                 return FileResponse(file_path)
@@ -141,7 +126,18 @@ if config.is_production:
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize services on startup."""
+    """
+Initialize services on startup."""
+    # Generate unique server instance ID for this startup
+    import uuid
+    import time
+    server_instance_id = str(uuid.uuid4())[:8]
+    startup_timestamp = int(time.time() * 1000)
+    
+    # Log unique server startup identifier
+    logger.info(f"🚀 SERVER STARTUP - Instance ID: {server_instance_id}, Timestamp: {startup_timestamp}")
+    print(f"[🚀 SERVER STARTUP] Instance ID: {server_instance_id}, Timestamp: {startup_timestamp}", flush=True)
+    
     logger.info("Starting up Multi-Agent API...")
     
     # Connect to MCP servers
@@ -157,14 +153,16 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Cleanup on shutdown."""
+    """
+Cleanup on shutdown."""
     logger.info("Shutting down Multi-Agent API...")
     await mcp_manager.disconnect_all()
 
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint."""
+    """
+Health check endpoint."""
     mcp_health = await mcp_manager.health_check()
     
     return {
@@ -260,7 +258,8 @@ async def create_session(request: Dict[str, Any] = {}):
 
 @app.get("/api/chat/history/{session_id}")
 async def get_history(session_id: str):
-    """Get conversation history for a session."""
+    """
+Get conversation history for a session."""
     context = session_manager.get_session(session_id)
     
     if not context:
@@ -319,7 +318,8 @@ async def update_settings(request: Dict[str, Any]):
 
 @app.post("/api/plan/approve")
 async def approve_plan(request: Dict[str, Any]):
-    """Approve a plan for execution."""
+    """
+Approve a plan for execution."""
     session_id = request.get("session_id")
     confirmation_id = request.get("confirmation_id")
     
@@ -350,7 +350,8 @@ async def approve_plan(request: Dict[str, Any]):
 
 @app.post("/api/plan/reject")
 async def reject_plan(request: Dict[str, Any]):
-    """Reject a plan."""
+    """
+Reject a plan."""
     session_id = request.get("session_id")
     confirmation_id = request.get("confirmation_id")
     
@@ -368,7 +369,8 @@ async def reject_plan(request: Dict[str, Any]):
 
 @app.post("/api/plan/update")
 async def update_plan(request: Dict[str, Any]):
-    """Update a pending plan."""
+    """
+Update a pending plan."""
     session_id = request.get("session_id")
     confirmation_id = request.get("confirmation_id")
     updated_plan = request.get("updated_plan")
@@ -396,7 +398,8 @@ async def update_plan(request: Dict[str, Any]):
 
 @app.get("/api/tools")
 async def list_tools():
-    """List all available tools."""
+    """
+List all available tools."""
     tools = mcp_manager.get_all_tools()
     
     return {
@@ -419,42 +422,9 @@ async def list_models():
     Returns:
         List of available models with metadata
     """
-    # #region agent log
-    try:
-        import json
-        import time
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"location": "server.py:316", "message": "/api/models endpoint called", "data": {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "K"}) + "\n")
-    except: pass
-    logger.info("[DEBUG] /api/models endpoint called")
-    print("[DEBUG] /api/models endpoint called", flush=True)
-    # #endregion
-    
     try:
         config = get_config()
-        
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:325", "message": "Before get_available_models call", "data": {"config_loaded": True}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "L"}) + "\n")
-        except: pass
-        logger.info("[DEBUG] Config loaded, calling get_available_models()")
-        print("[DEBUG] Config loaded, calling get_available_models()", flush=True)
-        # #endregion
-        
         available_models = get_available_models()
-        
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:328", "message": "After get_available_models call", "data": {"available_count": len(available_models), "available_ids": list(available_models.keys())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "M"}) + "\n")
-        except: pass
-        # #endregion
-        
         # Log for debugging
         logger.info(f"[DEBUG] Available models count: {len(available_models)}, IDs: {list(available_models.keys())}")
         logger.info(f"[DEBUG] API keys status: Anthropic={'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI={'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}")
@@ -480,15 +450,6 @@ async def list_models():
         return {"models": models_list}
     except Exception as e:
         logger.error(f"[DEBUG] Error listing models: {e}", exc_info=True)
-        # #region agent log
-        try:
-            import json
-            import time
-            import traceback
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:348", "message": "Exception in list_models", "data": {"error": str(e), "traceback": traceback.format_exc()}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "N"}) + "\n")
-        except: pass
-        # #endregion
         # Return empty list instead of failing
         return {"models": []}
 
@@ -507,48 +468,14 @@ async def upload_file(
     
     Returns file_id that can be used when sending messages.
     """
-    # #region agent log
-    try:
-        import json
-        import time
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"location": "server.py:upload_file", "message": "upload_file called", "data": {"filename": file.filename, "session_id": session_id, "has_session_manager": hasattr(session_manager, 'get_session'), "PyPDF2_available": PyPDF2 is not None}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,B,C,D"}) + "\n")
-    except: pass
-    # #endregion
     logger.info(f"Upload endpoint called: filename={file.filename}, session_id={session_id}")
     try:
         file_type = file.content_type
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:upload_file", "message": "file_type determined", "data": {"file_type": file_type}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-        except: pass
-        # #endregion
-        
         if not file_type:
             raise HTTPException(status_code=400, detail="Could not determine file type")
         
         # Read file content
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:upload_file", "message": "BEFORE file.read()", "data": {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
-        except: pass
-        # #endregion
         content = await file.read()
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:upload_file", "message": "AFTER file.read()", "data": {"content_size": len(content)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
-        except: pass
-        # #endregion
-        
         if len(content) == 0:
             raise HTTPException(status_code=400, detail="File is empty")
         
@@ -566,23 +493,7 @@ async def upload_file(
         }
         
         # Get or create session
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:upload_file", "message": "BEFORE session_manager.get_session", "data": {"session_id": session_id, "session_manager_type": type(session_manager).__name__}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
-        except: pass
-        # #endregion
         context = session_manager.get_session(session_id)
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:upload_file", "message": "AFTER session_manager.get_session", "data": {"context_exists": context is not None, "context_type": type(context).__name__ if context else None}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
-        except: pass
-        # #endregion
         if not context:
             context = ConversationContext(session_id)
             session_manager.update_session(session_id, context)
@@ -604,14 +515,6 @@ async def upload_file(
             
         elif file_type == "application/pdf":
             # For PDF - extract text
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"location": "server.py:upload_file", "message": "Processing PDF", "data": {"PyPDF2_available": PyPDF2 is not None, "content_size": len(content)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
-            except: pass
-            # #endregion
             if PyPDF2 is None:
                 raise HTTPException(
                     status_code=500, 
@@ -619,24 +522,8 @@ async def upload_file(
                 )
             
             try:
-                # #region agent log
-                try:
-                    import json
-                    import time
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"location": "server.py:upload_file", "message": "BEFORE PyPDF2.PdfReader", "data": {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
-                except: pass
-                # #endregion
                 pdf_file = io.BytesIO(content)
                 pdf_reader = PyPDF2.PdfReader(pdf_file)
-                # #region agent log
-                try:
-                    import json
-                    import time
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"location": "server.py:upload_file", "message": "AFTER PyPDF2.PdfReader", "data": {"pages_count": len(pdf_reader.pages)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
-                except: pass
-                # #endregion
                 text = ""
                 
                 # Extract text from all pages
@@ -680,47 +567,14 @@ async def upload_file(
             )
         
         # Update session
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:upload_file", "message": "BEFORE session_manager.update_session", "data": {}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "D"}) + "\n")
-        except: pass
-        # #endregion
         session_manager.update_session(session_id, context)
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:upload_file", "message": "AFTER session_manager.update_session - SUCCESS", "data": {"file_id": file_id}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,B,C,D"}) + "\n")
-        except: pass
-        # #endregion
         logger.info(f"File uploaded successfully: {file.filename} ({file_type}, {len(content)} bytes) for session {session_id}")
         
         return result
         
     except HTTPException as e:
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:upload_file", "message": "HTTPException raised", "data": {"status_code": e.status_code, "detail": str(e.detail)}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,B,C,D"}) + "\n")
-        except: pass
-        # #endregion
         raise
     except Exception as e:
-        # #region agent log
-        try:
-            import json
-            import time
-            import traceback
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "server.py:upload_file", "message": "Exception raised", "data": {"error": str(e), "error_type": type(e).__name__, "traceback": traceback.format_exc()}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,B,C,D"}) + "\n")
-        except: pass
-        # #endregion
         logger.error(f"Error uploading file: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Error uploading file: {str(e)}")
 
@@ -766,21 +620,17 @@ async def set_session_model(request: Dict[str, Any]):
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
-    """WebSocket endpoint for real-time communication."""
+    """
+WebSocket endpoint for real-time communication."""
     await ws_manager.connect(websocket, session_id)
-    
     try:
         while True:
             # Receive message from client
-            data = await websocket.receive_json()
-            
-            # #region agent log
-            import json
-            import time
-            log_data = json.dumps({"location": "server.py:websocket-receive", "message": "WebSocket message received", "data": {"session_id": session_id, "message_type": data.get("type"), "full_data": str(data)[:200]}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
-                f.write(log_data + b'\n')
-            # #endregion
+            try:
+                data = await websocket.receive_json()
+            except Exception as receive_error:
+                logger.error(f"Error receiving WebSocket message: {receive_error}", exc_info=True)
+                break
             
             message_type = data.get("type")
             
@@ -793,11 +643,15 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     context = ConversationContext(session_id)
                     session_manager.update_session(session_id, context)
                 
-                await agent_wrapper.process_message(
-                    user_message,
-                    context,
-                    session_id
-                )
+                try:
+                    await agent_wrapper.process_message(
+                        user_message,
+                        context,
+                        session_id
+                    )
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}", exc_info=True)
+                    await ws_manager.send_event(session_id, "error", {"message": str(e)})
                 
                 session_manager.update_session(session_id, context)
             
@@ -828,19 +682,15 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     session_manager.update_session(session_id, context)
             
             elif message_type == "stop_generation":
-                # #region agent log
-                import json
-                import time
-                log_data = json.dumps({"location": "server.py:websocket-stop_generation", "message": "stop_generation message received", "data": {"session_id": session_id, "message_type": message_type}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
-                    f.write(log_data + b'\n')
-                # #endregion
                 # Stop generation
                 await agent_wrapper.stop_generation(session_id)
     
-    except WebSocketDisconnect:
+    except WebSocketDisconnect as e:
         ws_manager.disconnect(websocket, session_id)
         logger.info(f"WebSocket disconnected for session {session_id}")
+    except Exception as e:
+        logger.error(f"Exception in WebSocket endpoint for session {session_id}: {e}", exc_info=True)
+        ws_manager.disconnect(websocket, session_id)
 
 
 if __name__ == "__main__":

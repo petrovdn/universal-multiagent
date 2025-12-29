@@ -14,25 +14,13 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
   const containerRef = useRef<HTMLDivElement>(null)
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [wasStreaming, setWasStreaming] = useState(block.isStreaming)
-  const [hasEverStreamed, setHasEverStreamed] = useState(block.isStreaming)
-
-  // #region agent log
-  React.useEffect(() => {
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReasoningBlock.tsx:render',message:'ReasoningBlock render',data:{blockId:block.id,isStreaming:block.isStreaming,isCollapsed,shouldAutoCollapse,hasAnswerBlock:!!answerBlock,contentLength:block.content.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'A,B'})}).catch(()=>{});
-  }, [block.id, block.isStreaming, isCollapsed, shouldAutoCollapse, !!answerBlock, block.content.length]);
-  // #endregion
-
-  // CRITICAL: Новый reasoning блок должен всегда начинаться развернутым
+  const [hasEverStreamed, setHasEverStreamed] = useState(block.isStreaming)// CRITICAL: Новый reasoning блок должен всегда начинаться развернутым
   // Если блок только что начал стримиться (переход с false на true), разворачиваем его
   useEffect(() => {
     if (block.isStreaming && !hasEverStreamed) {
       // Блок только что начал стримиться - разворачиваем его
       setIsCollapsed(false)
-      setHasEverStreamed(true)
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReasoningBlock.tsx:auto-expand-new',message:'Auto-expanding new reasoning block',data:{blockId:block.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
-    } else if (block.isStreaming) {
+      setHasEverStreamed(true)} else if (block.isStreaming) {
       setHasEverStreamed(true)
     }
   }, [block.isStreaming, block.id, hasEverStreamed])
@@ -47,11 +35,7 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
       // Проверяем, что answer блок существует и начал стримиться или завершен
       if (answerBlock !== null) {
         // Answer блок существует - можно сворачивать
-        setIsCollapsed(true)
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReasoningBlock.tsx:auto-collapse',message:'Auto-collapsing reasoning block',data:{blockId:block.id,hasAnswerBlock:!!answerBlock},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
-      }
+        setIsCollapsed(true)}
     }
     setWasStreaming(block.isStreaming)
   }, [block.isStreaming, shouldAutoCollapse, wasStreaming, answerBlock])
@@ -60,11 +44,7 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
   useEffect(() => {
     if (block.isStreaming && isCollapsed && hasEverStreamed) {
       // Блок возобновил стриминг - разворачиваем его
-      setIsCollapsed(false)
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReasoningBlock.tsx:auto-expand-resume',message:'Auto-expanding resumed reasoning block',data:{blockId:block.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
-    }
+      setIsCollapsed(false)}
   }, [block.isStreaming, isCollapsed, hasEverStreamed, block.id])
 
   // Auto-scroll to bottom when content updates (scroll inside contentRef, not containerRef)

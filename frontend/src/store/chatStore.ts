@@ -196,13 +196,7 @@ export const useChatStore = create<ChatState>()(
       // Start a new reasoning block
       startReasoningBlock: (messageId: string, blockId: string) =>
         set((state) => {
-          const existing = state.assistantMessages[messageId]
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startReasoningBlock',message:'startReasoningBlock called - NOT creating message yet',data:{messageId,blockId,hasExisting:!!existing,existingReasoningBlocksCount:existing?.reasoningBlocks.length||0,existingAnswerBlocksCount:existing?.answerBlocks.length||0,willCreateInUpdate:!existing},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-          
-          // CRITICAL FIX: Don't create assistant message with empty block
+          const existing = state.assistantMessages[messageId]// CRITICAL FIX: Don't create assistant message with empty block
           // Message will be created in updateReasoningBlock when content is available
           // This prevents empty blocks from being rendered
           if (existing) {
@@ -235,11 +229,7 @@ export const useChatStore = create<ChatState>()(
       
       // Update reasoning block content (replace)
       updateReasoningBlock: (messageId: string, blockId: string, content: string) =>
-        set((state) => {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:updateReasoningBlock-entry',message:'updateReasoningBlock called',data:{messageId,blockId,contentLength:content.length,hasMessage:!!state.assistantMessages[messageId],reasoningBlocksCount:state.assistantMessages[messageId]?.reasoningBlocks.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,E'})}).catch(()=>{});
-          // #endregion
-          const message = state.assistantMessages[messageId]
+        set((state) => {const message = state.assistantMessages[messageId]
           
           // CRITICAL FIX: Create message here if it doesn't exist and we have content
           // This ensures messages are only created when there's actual content to display
@@ -261,9 +251,6 @@ export const useChatStore = create<ChatState>()(
                 debugChunks: [],
                 isComplete: false,
               }
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:createAssistantMessage-in-update',message:'Creating new assistantMessage in updateReasoningBlock with content',data:{messageId,reasoningBlocksCount:newMessage.reasoningBlocks.length,answerBlocksCount:newMessage.answerBlocks.length,firstReasoningBlockContentLength:newBlock.content.length,assistantMessagesCount:Object.keys(state.assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,C'})}).catch(()=>{});
-              // #endregion
               return {
                 assistantMessages: {
                   ...state.assistantMessages,
@@ -271,11 +258,7 @@ export const useChatStore = create<ChatState>()(
                 },
               }
             } else {
-              // No content yet, don't create message - wait for next update
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:updateReasoningBlock-no-message-no-content',message:'Message not found and no content yet - skipping',data:{messageId,contentLength:content.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-              // #endregion
-              return state
+              // No content yet, don't create message - wait for next updatereturn state
             }
           }
           
@@ -299,14 +282,7 @@ export const useChatStore = create<ChatState>()(
               timestamp: new Date().toISOString(),
             }
             updatedBlocks = [...message.reasoningBlocks, newBlock]
-          }
-          
-          // #region agent log
-          const foundBlock = updatedBlocks.find(b => b.id === blockId)
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:updateReasoningBlock-after-update',message:'After reasoning block update',data:{messageId,blockId,foundBlock:!!foundBlock,updatedContentLength:foundBlock?.content.length||0,updatedIsStreaming:foundBlock?.isStreaming,updatedBlocksCount:updatedBlocks.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
-          
-          return {
+          }return {
             assistantMessages: {
               ...state.assistantMessages,
               [messageId]: {
@@ -341,13 +317,7 @@ export const useChatStore = create<ChatState>()(
       // Start a new answer block
       startAnswerBlock: (messageId: string, blockId: string) =>
         set((state) => {
-          const existing = state.assistantMessages[messageId]
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startAnswerBlock',message:'startAnswerBlock called - NOT creating message yet',data:{messageId,blockId,hasExisting:!!existing,existingReasoningBlocksCount:existing?.reasoningBlocks.length||0,existingAnswerBlocksCount:existing?.answerBlocks.length||0,willCreateInUpdate:!existing},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-          
-          // CRITICAL FIX: Don't create assistant message with empty block
+          const existing = state.assistantMessages[messageId]// CRITICAL FIX: Don't create assistant message with empty block
           // Message will be created in updateAnswerBlock when content is available
           // This prevents empty blocks from being rendered
           if (existing) {
@@ -403,9 +373,6 @@ export const useChatStore = create<ChatState>()(
                 debugChunks: [],
                 isComplete: false,
               }
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:createAssistantMessage-in-update-answer',message:'Creating new assistantMessage in updateAnswerBlock with content',data:{messageId,reasoningBlocksCount:newMessage.reasoningBlocks.length,answerBlocksCount:newMessage.answerBlocks.length,firstAnswerBlockContentLength:newBlock.content.length,assistantMessagesCount:Object.keys(state.assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,C'})}).catch(()=>{});
-              // #endregion
               return {
                 assistantMessages: {
                   ...state.assistantMessages,
@@ -413,11 +380,7 @@ export const useChatStore = create<ChatState>()(
                 },
               }
             } else {
-              // No content yet, don't create message - wait for next update
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:updateAnswerBlock-no-message-no-content',message:'Message not found and no content yet - skipping',data:{messageId,contentLength:content.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-              // #endregion
-              return state
+              // No content yet, don't create message - wait for next updatereturn state
             }
           }
           
@@ -503,9 +466,6 @@ export const useChatStore = create<ChatState>()(
             // Debug chunks are only shown in debug mode, and we don't want empty messages in normal mode
             // Only create message if we have actual content (reasoning or answer blocks will be added later)
             // For now, skip creating message - it will be created when reasoning/answer blocks are added
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:addDebugChunk-skip-create',message:'Skipping assistant message creation from addDebugChunk - will create when content blocks arrive',data:{messageId,chunkType:chunkType,chunkContent:content.substring(0,50),assistantMessagesCount:Object.keys(state.assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-            // #endregion
             return state
           }
         }),
@@ -662,11 +622,7 @@ export const useChatStore = create<ChatState>()(
         }
       },
       
-      setWorkflowPlan: (plan: string, steps: string[], confirmationId: string | null) => {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setWorkflowPlan-entry',message:'setWorkflowPlan called',data:{planLength:plan.length,stepsCount:steps.length,confirmationId},timestamp:Date.now(),sessionId:'debug-session',runId:'verify',hypothesisId:'STORE'})}).catch(()=>{});
-        // #endregion
-        set((state) => {
+      setWorkflowPlan: (plan: string, steps: string[], confirmationId: string | null) => {set((state) => {
           const activeId = state.activeWorkflowId
           if (!activeId) {
             console.warn('[chatStore] setWorkflowPlan called but no activeWorkflowId')
@@ -695,14 +651,7 @@ export const useChatStore = create<ChatState>()(
               },
             },
           }
-        })
-        // #region agent log
-        const state = get()
-        const activeId = state.activeWorkflowId
-        const workflow = activeId ? state.workflows[activeId] : null
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setWorkflowPlan-after',message:'After setWorkflowPlan',data:{activeWorkflowId:activeId,hasWorkflow:!!workflow,planLength:workflow?.plan.plan.length||0,stepsCount:workflow?.plan.steps.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'verify',hypothesisId:'STORE'})}).catch(()=>{});
-        // #endregion
-      },
+        })},
       
       setAwaitingConfirmation: (awaiting: boolean) =>
         set((state) => {
@@ -763,11 +712,7 @@ export const useChatStore = create<ChatState>()(
           if (!workflow) {
             console.warn('[chatStore] startWorkflowStep called but workflow not found:', activeId)
             return state
-          }
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startWorkflowStep-entry',message:'startWorkflowStep called',data:{stepNumber,title,activeWorkflowId:activeId,hasWorkflow:!!workflow,existingStepsCount:Object.keys(workflow.steps).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
-          // #endregion
-          const newSteps = { ...workflow.steps }
+          }const newSteps = { ...workflow.steps }
           newSteps[stepNumber] = {
             stepNumber,
             title,
@@ -775,9 +720,6 @@ export const useChatStore = create<ChatState>()(
             thinking: '',
             response: '',
           }
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startWorkflowStep-after',message:'After startWorkflowStep update',data:{stepNumber,newStepsCount:Object.keys(newSteps).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
-          // #endregion
           return {
             workflows: {
               ...state.workflows,

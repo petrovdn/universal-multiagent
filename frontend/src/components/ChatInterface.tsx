@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain, Square } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
 import { useSettingsStore } from '../store/settingsStore'
@@ -476,7 +478,7 @@ export function ChatInterface() {
                       prose-th:border prose-th:border-gray-300 prose-th:bg-gray-50 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
                       prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2
                       prose-tr:hover:bg-gray-50">
-                      {message.content}
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
                     </div>
                   </div>
                 </div>

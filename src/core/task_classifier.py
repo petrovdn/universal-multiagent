@@ -126,7 +126,10 @@ class TaskClassifier:
 
 Ответь только одним словом: SIMPLE или COMPLEX."""
 
-        user_prompt = f"Запрос пользователя: {user_request}"
+        # Escape braces in user_request to avoid f-string syntax errors
+        escaped_user_request = user_request.replace("{", "{{").replace("}", "}}")
+        # Use .format() instead of f-string to avoid issues
+        user_prompt = "Запрос пользователя: {request}".format(request=escaped_user_request)
         
         messages = [
             SystemMessage(content=system_prompt),

@@ -262,12 +262,27 @@ export const uploadFile = async (file: File, sessionId: string): Promise<UploadF
 
 // Authentication APIs
 export const login = async (username: string, password: string) => {
+  // #region agent log
+  console.log('[api] login called', { username })
+  fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:login-start',message:'login called',data:{username},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+  // #endregion
   try {
+    console.log('[api] Making login request...')
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:login-before-request',message:'About to make login request',data:{username},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     const response = await api.post('/auth/login', { username, password })
+    console.log('[api] login success:', response.data)
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:login-success',message:'login success',data:{username:response.data?.username,sessionId:response.data?.session_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     return response.data
   } catch (error: any) {
     // Log error for debugging
-    console.error('Login error:', error)
+    console.error('[api] login error:', error)
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:login-error',message:'login error',data:{error:String(error),status:error?.response?.status,message:error?.message,detail:error?.response?.data?.detail},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     if (error.response?.status === 401) {
       throw new Error(error.response?.data?.detail || 'Неверное имя пользователя или пароль')
     }
@@ -282,20 +297,25 @@ export const logout = async () => {
 
 export const getCurrentUser = async () => {
   // #region agent log
-  const startTime = Date.now()
-  fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getCurrentUser',message:'getCurrentUser request started',data:{startTime},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,D'})}).catch(()=>{});
+  console.log('[api] getCurrentUser called')
+  fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getCurrentUser-start',message:'getCurrentUser called',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
   // #endregion
   try {
-    const response = await api.get('/auth/me')
+    console.log('[api] Making request to /auth/me...')
     // #region agent log
-    const endTime = Date.now()
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getCurrentUser',message:'getCurrentUser request success',data:{duration:endTime-startTime,username:response.data.username},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,D'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getCurrentUser-before-request',message:'About to make request',data:{url:'/auth/me'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    // Use shorter timeout for auth check (5 seconds)
+    const response = await api.get('/auth/me', { timeout: 5000 })
+    console.log('[api] getCurrentUser response:', response.data)
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getCurrentUser-success',message:'getCurrentUser success',data:{username:response.data?.username,status:response.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
     // #endregion
     return response.data
   } catch (err: any) {
+    console.error('[api] getCurrentUser error:', err)
     // #region agent log
-    const endTime = Date.now()
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getCurrentUser',message:'getCurrentUser request error',data:{duration:endTime-startTime,status:err.response?.status,error:err.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,D'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:getCurrentUser-error',message:'getCurrentUser error',data:{error:String(err),status:err?.response?.status,message:err?.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
     // #endregion
     throw err
   }

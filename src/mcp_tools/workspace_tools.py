@@ -55,61 +55,8 @@ class ListFilesTool(BaseTool):
             
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("workspace_list_files", args, server_name="google_workspace")
-            
-            # #region agent log
-            import os
-            log_data = {
-                "location": "workspace_tools.py:56",
-                "message": "Result from call_tool before parsing",
-                "data": {
-                    "result_type": type(result).__name__,
-                    "is_list": isinstance(result, list),
-                    "is_dict": isinstance(result, dict),
-                    "is_str": isinstance(result, str),
-                    "list_length": len(result) if isinstance(result, list) else None,
-                    "has_getattr": hasattr(result, 'get') if result is not None else None,
-                },
-                "timestamp": int(os.times()[4] * 1000),
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "A"
-            }
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    import json as json_module
-                    f.write(json_module.dumps(log_data) + "\n")
-            except:
-                pass
-            # #endregion
-            
             if isinstance(result, str):
                 result = json.loads(result)
-            
-            # #region agent log
-            log_data2 = {
-                "location": "workspace_tools.py:76",
-                "message": "Result after JSON parsing",
-                "data": {
-                    "result_type": type(result).__name__,
-                    "is_list": isinstance(result, list),
-                    "is_dict": isinstance(result, dict),
-                    "list_length": len(result) if isinstance(result, list) else None,
-                    "has_getattr": hasattr(result, 'get') if result is not None else None,
-                    "dict_keys": list(result.keys()) if isinstance(result, dict) else None,
-                    "first_item": str(result[0])[:100] if isinstance(result, list) and len(result) > 0 else None,
-                },
-                "timestamp": int(os.times()[4] * 1000),
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "A"
-            }
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    f.write(json_module.dumps(log_data2) + "\n")
-            except:
-                pass
-            # #endregion
-            
             # Handle both dict and list results
             if isinstance(result, dict):
                 files = result.get("files", [])
@@ -121,27 +68,6 @@ class ListFilesTool(BaseTool):
             else:
                 files = []
                 count = 0
-            
-            # #region agent log
-            log_data3 = {
-                "location": "workspace_tools.py:125",
-                "message": "After type checking",
-                "data": {
-                    "files_type": type(files).__name__,
-                    "files_length": len(files) if isinstance(files, list) else None,
-                    "count": count,
-                },
-                "timestamp": int(os.times()[4] * 1000),
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "A"
-            }
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    f.write(json_module.dumps(log_data3) + "\n")
-            except:
-                pass
-            # #endregion
             
             if count == 0:
                 return "No files found in workspace folder."
@@ -334,35 +260,7 @@ class SearchFilesTool(BaseTool):
                 args["mimeType"] = mime_type
             
             mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("workspace_search_files", args, server_name="google_workspace")
-            
-            # #region agent log
-            import os
-            log_data = {
-                "location": "workspace_tools.py:255",
-                "message": "Result from call_tool",
-                "data": {
-                    "result_type": type(result).__name__,
-                    "is_list": isinstance(result, list),
-                    "is_dict": isinstance(result, dict),
-                    "is_str": isinstance(result, str),
-                    "list_length": len(result) if isinstance(result, list) else None,
-                    "first_item_type": type(result[0]).__name__ if isinstance(result, list) and len(result) > 0 else None,
-                },
-                "timestamp": int(os.times()[4] * 1000),
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "A,B,C"
-            }
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    import json as json_module
-                    f.write(json_module.dumps(log_data) + "\n")
-            except:
-                pass
-            # #endregion
-            
-            # Parse result - handle TextContent list (similar to gmail_tools.py)
+            result = await mcp_manager.call_tool("workspace_search_files", args, server_name="google_workspace")# Parse result - handle TextContent list (similar to gmail_tools.py)
             if isinstance(result, list) and len(result) > 0:
                 first_item = result[0]
                 if hasattr(first_item, 'text'):
@@ -371,30 +269,7 @@ class SearchFilesTool(BaseTool):
                     result = first_item['text']
             
             if isinstance(result, str):
-                result = json.loads(result)
-            
-            # #region agent log
-            log_data2 = {
-                "location": "workspace_tools.py:275",
-                "message": "After parsing result",
-                "data": {
-                    "result_type": type(result).__name__,
-                    "is_dict": isinstance(result, dict),
-                    "has_files_key": "files" in result if isinstance(result, dict) else False,
-                },
-                "timestamp": int(os.times()[4] * 1000),
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "A,B,C"
-            }
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    f.write(json_module.dumps(log_data2) + "\n")
-            except:
-                pass
-            # #endregion
-            
-            # Handle both dict and list results
+                result = json.loads(result)# Handle both dict and list results
             if isinstance(result, dict):
                 files = result.get("files", [])
                 count = result.get("count", len(files))
@@ -693,32 +568,6 @@ class ReadSpreadsheetTool(BaseTool):
             
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("sheets_read_range", args, server_name="google_workspace")
-            
-            # #region agent log
-            import os
-            log_data = {
-                "location": "workspace_tools.py:695",
-                "message": "Result from sheets_read_range before parsing",
-                "data": {
-                    "result_type": type(result).__name__,
-                    "is_list": isinstance(result, list),
-                    "is_dict": isinstance(result, dict),
-                    "is_str": isinstance(result, str),
-                    "list_length": len(result) if isinstance(result, list) else None,
-                },
-                "timestamp": int(os.times()[4] * 1000),
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "A"
-            }
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    import json as json_module
-                    f.write(json_module.dumps(log_data) + "\n")
-            except:
-                pass
-            # #endregion
-            
             if isinstance(result, str):
                 result = json.loads(result)
             
@@ -731,28 +580,6 @@ class ReadSpreadsheetTool(BaseTool):
                 values = result
             else:
                 values = []
-            
-            # #region agent log
-            log_values = {
-                "location": "workspace_tools.py:725",
-                "message": "Extracted values after parsing",
-                "data": {
-                    "values_type": type(values).__name__,
-                    "values_length": len(values) if isinstance(values, list) else None,
-                    "first_row_preview": str(values[0])[:100] if isinstance(values, list) and len(values) > 0 else None,
-                },
-                "timestamp": int(os.times()[4] * 1000),
-                "sessionId": "debug-session",
-                "runId": "run1",
-                "hypothesisId": "B"
-            }
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    import json as json_module
-                    f.write(json_module.dumps(log_values) + "\n")
-            except:
-                pass
-            # #endregion
             
             if not values:
                 return f"No data found in range '{range}'"
@@ -1022,32 +849,6 @@ def get_workspace_sheets_tools() -> List[BaseTool]:
                 
                 mcp_manager = get_mcp_manager()
                 result = await mcp_manager.call_tool("sheets_read_range", args, server_name="google_workspace")
-                
-                # #region agent log
-                import os
-                log_data = {
-                    "location": "workspace_tools.py:1024",
-                    "message": "Result from sheets_read_range (GetSheetDataTool) before parsing",
-                    "data": {
-                        "result_type": type(result).__name__,
-                        "is_list": isinstance(result, list),
-                        "is_dict": isinstance(result, dict),
-                        "is_str": isinstance(result, str),
-                        "list_length": len(result) if isinstance(result, list) else None,
-                    },
-                    "timestamp": int(os.times()[4] * 1000),
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "C"
-                }
-                try:
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                        import json as json_module
-                        f.write(json_module.dumps(log_data) + "\n")
-                except:
-                    pass
-                # #endregion
-                
                 if isinstance(result, str):
                     result = json.loads(result)
                 

@@ -50,14 +50,16 @@ class LoginRequest(BaseModel):
 
 
 class SimpleAuthManager:
-    """Simple file-based authentication manager for demo."""
+    """
+Simple file-based authentication manager for demo."""
     
     def __init__(self, users_file: Path):
         self.users_file = users_file
         self._users: Optional[Dict[str, Dict[str, str]]] = None
     
     def _load_users(self, force_reload: bool = False) -> Dict[str, Dict[str, str]]:
-        """Load users from file."""
+        """
+Load users from file."""
         if self._users is not None and not force_reload:
             return self._users
         
@@ -95,7 +97,8 @@ class SimpleAuthManager:
             raise RuntimeError(f"Failed to load users file: {str(e)}")
     
     def authenticate(self, username: str, password: str) -> bool:
-        """Authenticate user with username and password."""
+        """
+Authenticate user with username and password."""
         try:
             # Force reload to always check latest file
             users = self._load_users(force_reload=True)
@@ -128,7 +131,8 @@ class SimpleAuthManager:
             return False
     
     def get_user_info(self, username: str) -> Optional[Dict[str, str]]:
-        """Get user information."""
+        """
+Get user information."""
         users = self._load_users()
         return users.get(username)
 
@@ -138,7 +142,8 @@ _simple_auth_manager: Optional[SimpleAuthManager] = None
 
 
 def get_simple_auth_manager() -> SimpleAuthManager:
-    """Get global simple auth manager."""
+    """
+Get global simple auth manager."""
     global _simple_auth_manager
     
     if _simple_auth_manager is None:
@@ -340,24 +345,56 @@ async def simple_login(login_request: LoginRequest, request: Request):
     Simple username/password login for demo.
     Creates or updates session with user info.
     """
+    import json
+    import time
     from src.utils.logging_config import get_logger
     logger = get_logger(__name__)
     
     # Log that we received the request
     logger.info(f"POST /auth/login received - username: {login_request.username}")
+    # #region agent log
+    log_data = json.dumps({"location": "auth_routes.py:simple_login-start", "message": "POST /auth/login received", "data": {"username": login_request.username}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}).encode('utf-8')
+    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+        f.write(log_data + b'\n')
+    # #endregion
     
     try:
+        # #region agent log
+        log_data = json.dumps({"location": "auth_routes.py:simple_login-before-get-manager", "message": "About to get auth manager", "data": {"username": login_request.username}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         auth_manager = get_simple_auth_manager()
         logger.info(f"Auth manager initialized, attempting authentication for: {login_request.username}")
+        # #region agent log
+        log_data = json.dumps({"location": "auth_routes.py:simple_login-manager-initialized", "message": "Auth manager initialized", "data": {"username": login_request.username}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         
+        # #region agent log
+        log_data = json.dumps({"location": "auth_routes.py:simple_login-before-authenticate", "message": "About to authenticate", "data": {"username": login_request.username}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         if not auth_manager.authenticate(login_request.username, login_request.password):
             logger.warning(f"Authentication failed for user: {login_request.username}")
+            # #region agent log
+            log_data = json.dumps({"location": "auth_routes.py:simple_login-auth-failed", "message": "Authentication failed", "data": {"username": login_request.username}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}).encode('utf-8')
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                f.write(log_data + b'\n')
+            # #endregion
             raise HTTPException(
                 status_code=401,
                 detail="Неверное имя пользователя или пароль"
             )
         
         logger.info(f"Authentication successful for user: {login_request.username}")
+        # #region agent log
+        log_data = json.dumps({"location": "auth_routes.py:simple_login-auth-success", "message": "Authentication successful", "data": {"username": login_request.username}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
@@ -366,6 +403,11 @@ async def simple_login(login_request: LoginRequest, request: Request):
         import traceback
         error_trace = traceback.format_exc()
         logger.error(f"Error loading users file: {e}\n{error_trace}")
+        # #region agent log
+        log_data = json.dumps({"location": "auth_routes.py:simple_login-users-file-error", "message": "Error loading users file", "data": {"error": str(e), "traceback": error_trace[:500]}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         raise HTTPException(
             status_code=500,
             detail=f"Ошибка загрузки файла пользователей: {str(e)}"
@@ -375,6 +417,11 @@ async def simple_login(login_request: LoginRequest, request: Request):
         import traceback
         error_trace = traceback.format_exc()
         logger.error(f"Unexpected error during authentication: {e}\n{error_trace}")
+        # #region agent log
+        log_data = json.dumps({"location": "auth_routes.py:simple_login-unexpected-error", "message": "Unexpected error", "data": {"error": str(e), "traceback": error_trace[:500]}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         raise HTTPException(
             status_code=500,
             detail=f"Ошибка аутентификации: {str(e)}"
