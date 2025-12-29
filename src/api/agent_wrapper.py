@@ -6,6 +6,8 @@ Captures intermediate steps and streams them to frontend.
 from typing import Dict, Any, Optional
 import asyncio
 import logging
+import json
+import time
 
 from src.agents.main_agent import MainAgent
 from src.agents.base_agent import StreamEvent
@@ -100,7 +102,17 @@ class AgentWrapper:
         )
         
         # Add message to context
+        # #region agent log
+        log_data = json.dumps({"location": "agent_wrapper.py:process_message", "message": "BEFORE add_message to context", "data": {"user_message": user_message[:100], "user_message_length": len(user_message), "context_messages_count_before": len(context.messages)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,C"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         context.add_message("user", user_message)
+        # #region agent log
+        log_data = json.dumps({"location": "agent_wrapper.py:process_message", "message": "AFTER add_message to context", "data": {"context_messages_count_after": len(context.messages), "last_message_content": context.messages[-1].get("content", "")[:100] if context.messages else None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,C"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         
         # Send thinking event
         await self.ws_manager.send_event(

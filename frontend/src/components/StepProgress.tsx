@@ -12,19 +12,9 @@ export function StepProgress() {
 
   // Removed useEffect logging to prevent infinite loops
 
-  // DEBUG MODE: Always show something, even if no plan
+  // Only show component when there are actual steps to display
   if (!workflowPlan || !workflowPlan.steps || workflowPlan.steps.length === 0) {
-    return (
-      <div style={{ padding: '15px', margin: '10px', background: '#fff3cd', border: '2px solid #ffc107', borderRadius: '8px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-          <Circle style={{ width: '20px', height: '20px', color: '#856404' }} />
-          <strong style={{ color: '#856404', fontSize: '16px' }}>StepProgress: Waiting for steps...</strong>
-        </div>
-        <div style={{ color: '#856404', fontSize: '14px' }}>
-          {!workflowPlan ? 'No workflow plan set yet' : 'No steps defined in plan'}
-        </div>
-      </div>
-    )
+    return null
   }
 
   const stepsArray = workflowPlan.steps.map((stepTitle, index) => {
@@ -38,11 +28,7 @@ export function StepProgress() {
   })
 
   if (stepsArray.length === 0) {
-    return (
-      <div style={{ padding: '15px', margin: '10px', background: '#fff3cd', border: '2px solid #ffc107', borderRadius: '8px' }}>
-        <strong style={{ color: '#856404', fontSize: '16px' }}>StepProgress: No steps to display</strong>
-      </div>
-    )
+    return null
   }
 
   // Removed useEffect logging to prevent infinite loops

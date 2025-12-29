@@ -161,9 +161,8 @@ export const useChatStore = create<ChatState>()(
           streamingMessages: {},
           reasoningSteps: [],
           reasoningStartTime: null,
-          workflowPlan: null,
-          workflowSteps: {},
-          currentWorkflowStep: null,
+          workflows: {},
+          activeWorkflowId: null,
         }),
       
       startNewSession: () =>
@@ -175,9 +174,8 @@ export const useChatStore = create<ChatState>()(
           isAgentTyping: false,
           reasoningSteps: [],
           reasoningStartTime: null,
-          workflowPlan: null,
-          workflowSteps: {},
-          currentWorkflowStep: null,
+          workflows: {},
+          activeWorkflowId: null,
         }),
       
       setCurrentSession: (sessionId) =>
@@ -200,6 +198,10 @@ export const useChatStore = create<ChatState>()(
             timestamp: new Date().toISOString(),
           }
           
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startReasoningBlock',message:'startReasoningBlock called',data:{messageId,blockId,hasExisting:!!existing,existingReasoningBlocksCount:existing?.reasoningBlocks.length||0,existingAnswerBlocksCount:existing?.answerBlocks.length||0,creatingNewMessage:!existing},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          
           if (existing) {
             return {
               assistantMessages: {
@@ -211,18 +213,22 @@ export const useChatStore = create<ChatState>()(
               },
             }
           } else {
+            const newMessage = {
+              id: messageId,
+              role: 'assistant' as const,
+              timestamp: new Date().toISOString(),
+              reasoningBlocks: [newBlock],
+              answerBlocks: [],
+              debugChunks: [],
+              isComplete: false,
+            }
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:createAssistantMessage',message:'Creating new assistantMessage',data:{messageId,reasoningBlocksCount:newMessage.reasoningBlocks.length,answerBlocksCount:newMessage.answerBlocks.length,assistantMessagesCount:Object.keys(state.assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+            // #endregion
             return {
               assistantMessages: {
                 ...state.assistantMessages,
-                [messageId]: {
-                  id: messageId,
-                  role: 'assistant',
-                  timestamp: new Date().toISOString(),
-                  reasoningBlocks: [newBlock],
-                  answerBlocks: [],
-                  debugChunks: [],
-                  isComplete: false,
-                },
+                [messageId]: newMessage,
               },
             }
           }
@@ -530,7 +536,7 @@ export const useChatStore = create<ChatState>()(
             steps,
             confirmationId,
             awaitingConfirmation: false,
-            planThinking: state.workflowPlan?.planThinking || '', // Preserve existing thinking if any
+            planThinking: '', // Clear old thinking for new plan
             planThinkingIsStreaming: false, // Plan generation is complete, stop streaming
           },
           workflowSteps: {},
@@ -564,7 +570,7 @@ export const useChatStore = create<ChatState>()(
               },
             }
           }
-          // Otherwise, update existing plan thinking
+          // Accumulate content for streaming chunks (server sends incremental chunks)
           return {
             workflowPlan: {
               ...state.workflowPlan,
@@ -576,6 +582,9 @@ export const useChatStore = create<ChatState>()(
       
       startWorkflowStep: (stepNumber: number, title: string) =>
         set((state) => {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startWorkflowStep-entry',message:'startWorkflowStep called',data:{stepNumber,title,hasWorkflowPlan:!!state.workflowPlan,existingStepsCount:Object.keys(state.workflowSteps).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
+          // #endregion
           const newSteps = { ...state.workflowSteps }
           newSteps[stepNumber] = {
             stepNumber,
@@ -584,6 +593,9 @@ export const useChatStore = create<ChatState>()(
             thinking: '',
             response: '',
           }
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startWorkflowStep-after',message:'After startWorkflowStep update',data:{stepNumber,newStepsCount:Object.keys(newSteps).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
+          // #endregion
           return {
             workflowSteps: newSteps,
             currentWorkflowStep: stepNumber,
@@ -595,12 +607,13 @@ export const useChatStore = create<ChatState>()(
           const step = state.workflowSteps[stepNumber]
           if (!step) return state
           
+          // Append content for streaming chunks (server sends incremental chunks)
           return {
             workflowSteps: {
               ...state.workflowSteps,
               [stepNumber]: {
                 ...step,
-                thinking: step.thinking + content, // Append for streaming
+                thinking: step.thinking + content,
               },
             },
           }
@@ -611,12 +624,13 @@ export const useChatStore = create<ChatState>()(
           const step = state.workflowSteps[stepNumber]
           if (!step) return state
           
+          // Append content for streaming chunks (server sends incremental chunks)
           return {
             workflowSteps: {
               ...state.workflowSteps,
               [stepNumber]: {
                 ...step,
-                response: step.response + content, // Append for streaming
+                response: step.response + content,
               },
             },
           }

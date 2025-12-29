@@ -31,6 +31,7 @@ export function ChatInterface() {
     startNewSession,
     addMessage,
     setAgentTyping,
+    clearWorkflow,
   } = useChatStore()
   
   const { executionMode, setExecutionMode } = useSettingsStore()
@@ -142,12 +143,21 @@ export function ChatInterface() {
     setInput('')
     setIsSending(true)
 
+    // Don't clear workflow - we want to preserve history and only work with the active (last) workflow
+    // The workflow will be managed per user message through metadata
+
     // Add user message immediately to show it in UI
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend',message:'BEFORE addMessage - adding user message to UI',data:{userMessage,userMessageLength:userMessage.length,messagesCountBefore:messages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     addMessage({
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString(),
     })
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend',message:'AFTER addMessage - user message added to UI',data:{userMessage,messagesCountAfter:messages.length+1},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
 
     // Activate scroll to new message
     setShouldScrollToNew(true)
@@ -308,13 +318,17 @@ export function ChatInterface() {
           
           if (message.role === 'user') {
             return (
-              <div 
-                key={`user-${index}-${message.timestamp}`}
-                ref={isLastUserMessage ? currentInteractionRef : null}
-                className="user-query-flow-block"
-              >
-                <span className="user-query-text">{message.content}</span>
-              </div>
+              <React.Fragment key={`user-${index}-${message.timestamp}`}>
+                <div 
+                  ref={isLastUserMessage ? currentInteractionRef : null}
+                  className="user-query-flow-block"
+                >
+                  <span className="user-query-text">{message.content}</span>
+                </div>
+                {/* Show workflow plan and steps after each user message */}
+                <PlanBlock />
+                <StepProgress />
+              </React.Fragment>
             )
           }
           
@@ -367,15 +381,34 @@ export function ChatInterface() {
         })}
         
         {/* Render streaming assistant messages FIRST - they might contain reasoning blocks */}
-        {Object.values(assistantMessages).map((assistantMsg) => (
-          <div key={assistantMsg.id} className="assistant-message-wrapper">
-            <ChatMessage message={assistantMsg} />
-          </div>
-        ))}
-        
-        {/* Show workflow plan and steps AFTER messages - so they're always visible */}
-        <PlanBlock />
-        <StepProgress />
+        {Object.values(assistantMessages).map((assistantMsg) => {
+          // Проверяем, есть ли реальный контент в блоках (не только их наличие)
+          const hasReasoningContent = assistantMsg.reasoningBlocks.some(block => 
+            block.content && block.content.trim().length > 0
+          )
+          const hasAnswerContent = assistantMsg.answerBlocks.some(block => 
+            block.content && block.content.trim().length > 0
+          )
+          const hasContent = hasReasoningContent || hasAnswerContent
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render-assistant-message',message:'Rendering assistant message wrapper',data:{messageId:assistantMsg.id,reasoningBlocksCount:assistantMsg.reasoningBlocks.length,answerBlocksCount:assistantMsg.answerBlocks.length,hasReasoningContent,hasAnswerContent,hasContent,reasoningBlocksWithContent:assistantMsg.reasoningBlocks.filter(b=>b.content&&b.content.trim().length>0).length,assistantMessagesCount:Object.keys(assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,C'})}).catch(()=>{});
+          // #endregion
+          
+          // Если нет реального контента, не рендерим wrapper (ChatMessage вернет null)
+          if (!hasContent) {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:skip-empty-wrapper',message:'Skipping empty assistant-message-wrapper - no real content',data:{messageId:assistantMsg.id,reasoningBlocksCount:assistantMsg.reasoningBlocks.length,answerBlocksCount:assistantMsg.answerBlocks.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
+            return null
+          }
+          
+          return (
+            <div key={assistantMsg.id} className="assistant-message-wrapper">
+              <ChatMessage message={assistantMsg} />
+            </div>
+          )
+        })}
         
         {/* Welcome screen */}
         {messages.length === 0 && Object.keys(assistantMessages).length === 0 && (

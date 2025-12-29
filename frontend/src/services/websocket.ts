@@ -198,12 +198,22 @@ export class WebSocketClient {
         } else if (event.data.role === 'user') {
           const allMessages = chatStore.getDisplayMessages()
           const lastMessage = allMessages[allMessages.length - 1]
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:handleEvent-message-user',message:'WebSocket user message event received',data:{eventContent:event.data.content,eventContentLength:event.data.content.length,lastMessageContent:lastMessage?.content,lastMessageRole:lastMessage?.role,willAdd:!lastMessage||lastMessage.content!==event.data.content||lastMessage.role!=='user',allMessagesCount:allMessages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
           if (!lastMessage || lastMessage.content !== event.data.content || lastMessage.role !== 'user') {
             chatStore.addMessage({
               role: 'user',
               content: event.data.content,
               timestamp: new Date().toISOString(),
             })
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:handleEvent-message-user',message:'ADDED user message from WebSocket',data:{eventContent:event.data.content},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
+          } else {
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:handleEvent-message-user',message:'SKIPPED duplicate user message from WebSocket',data:{eventContent:event.data.content,lastMessageContent:lastMessage.content},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
           }
         }
         break
@@ -645,7 +655,15 @@ export class WebSocketClient {
 
       case 'step_start':
         // Start a new workflow step - use getState() to get fresh state after set
+        // #region agent log
+        const stateBeforeStepStart = useChatStore.getState()
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:step_start',message:'step_start event received',data:{step:event.data.step,title:event.data.title,hasWorkflowPlan:!!stateBeforeStepStart.workflowPlan,workflowStepsCount:Object.keys(stateBeforeStepStart.workflowSteps).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
+        // #endregion
         useChatStore.getState().startWorkflowStep(event.data.step, event.data.title || `Step ${event.data.step}`)
+        // #region agent log
+        const stateAfterStepStart = useChatStore.getState()
+        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:step_start-after',message:'After startWorkflowStep',data:{step:event.data.step,workflowStepsCount:Object.keys(stateAfterStepStart.workflowSteps).length,currentWorkflowStep:stateAfterStepStart.currentWorkflowStep},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
+        // #endregion
         console.log('[WebSocket] Step started:', event.data.step, event.data.title)
         break
 

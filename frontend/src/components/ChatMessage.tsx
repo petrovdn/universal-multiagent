@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react'
-import { AssistantMessage, DebugChunkType } from '../store/chatStore'
+import { AssistantMessage, DebugChunkType, useChatStore } from '../store/chatStore'
 import { ReasoningBlock } from './ReasoningBlock'
 import { AnswerBlock } from './AnswerBlock'
 import { PlanBlock } from './PlanBlock'
@@ -63,6 +63,7 @@ type ReasoningAnswerPair = {
 
 export function ChatMessage({ message }: ChatMessageProps) {
   const { debugMode } = useSettingsStore()
+  const workflowPlan = useChatStore((state) => state.workflowPlan)
   
   // В отладочном режиме показываем все чанки последовательно
   if (debugMode && message.debugChunks && message.debugChunks.length > 0) {
@@ -116,6 +117,12 @@ export function ChatMessage({ message }: ChatMessageProps) {
     )
   }
   
+  // #region agent log
+  React.useEffect(() => {
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:render',message:'ChatMessage render',data:{messageId:message.id,reasoningBlocksCount:message.reasoningBlocks.length,answerBlocksCount:message.answerBlocks.length,hasReasoningBlocks:message.reasoningBlocks.length>0,hasAnswerBlocks:message.answerBlocks.length>0,isComplete:message.isComplete},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,C'})}).catch(()=>{});
+  }, [message.id, message.reasoningBlocks.length, message.answerBlocks.length, message.isComplete]);
+  // #endregion
+
   // Группируем reasoning и answer блоки в пары (подход B) - улучшенный алгоритм
   const reasoningAnswerPairs = useMemo<ReasoningAnswerPair[]>(() => {
     // #region agent log
@@ -256,6 +263,20 @@ export function ChatMessage({ message }: ChatMessageProps) {
     return pairs
   }, [message.reasoningBlocks, message.answerBlocks])
 
+  // #region agent log
+  React.useEffect(() => {
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:after-grouping',message:'After reasoningAnswerPairs grouping',data:{messageId:message.id,reasoningAnswerPairsCount:reasoningAnswerPairs.length,willRenderEmptyDiv:reasoningAnswerPairs.length===0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  }, [message.id, reasoningAnswerPairs.length]);
+  // #endregion
+
+  // Если нет пар, возвращаем null вместо пустого div
+  if (reasoningAnswerPairs.length === 0) {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:return-null',message:'Returning null - no pairs',data:{messageId:message.id,reasoningBlocksCount:message.reasoningBlocks.length,answerBlocksCount:message.answerBlocks.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    return null
+  }
+
   return (
     <div className="chat-message">
       {reasoningAnswerPairs.map((pair) => {
@@ -268,15 +289,37 @@ export function ChatMessage({ message }: ChatMessageProps) {
         return (
           <div key={`pair-${pair.pairIndex}`} className="reasoning-answer-pair">
             {/* CRITICAL: Reasoning всегда идет ПЕРВЫМ в паре, независимо от timestamp */}
-            {pair.reasoning && (
-              <ReasoningBlock
-                key={`reasoning-${pair.reasoning.blockId}`}
-                block={message.reasoningBlocks[pair.reasoning.index]}
-                isVisible={true}
-                shouldAutoCollapse={!!pair.answer} // Автоматически сворачивать, если есть answer
-                answerBlock={pair.answer ? message.answerBlocks[pair.answer.index] : null} // Передаем состояние answer блока
-              />
-            )}
+            {pair.reasoning && (() => {
+              const reasoningBlock = message.reasoningBlocks[pair.reasoning.index]
+              // Не показывать ReasoningBlock, если content пустой И плана еще нет
+              // Это предотвращает показ серого блока "Анализирую запрос..." до появления плана
+              const hasContent = reasoningBlock.content && reasoningBlock.content.trim().length > 0
+              const hasPlan = workflowPlan && (
+                workflowPlan.planThinking || 
+                workflowPlan.planThinkingIsStreaming || 
+                (workflowPlan.plan && workflowPlan.plan.trim()) ||
+                (workflowPlan.steps && workflowPlan.steps.length > 0)
+              )
+              
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatMessage.tsx:should-render-reasoning',message:'Checking if should render ReasoningBlock',data:{messageId:message.id,reasoningBlockId:reasoningBlock.id,hasContent,hasPlan,contentLength:reasoningBlock.content?.length||0,isStreaming:reasoningBlock.isStreaming,willRender:hasContent||hasPlan},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+              // #endregion
+              
+              // Рендерим только если есть контент ИЛИ есть план
+              if (!hasContent && !hasPlan) {
+                return null
+              }
+              
+              return (
+                <ReasoningBlock
+                  key={`reasoning-${pair.reasoning.blockId}`}
+                  block={reasoningBlock}
+                  isVisible={true}
+                  shouldAutoCollapse={!!pair.answer} // Автоматически сворачивать, если есть answer
+                  answerBlock={pair.answer ? message.answerBlocks[pair.answer.index] : null} // Передаем состояние answer блока
+                />
+              )
+            })()}
             {pair.answer && (
               <AnswerBlock
                 key={`answer-${pair.answer.blockId}`}
@@ -286,15 +329,6 @@ export function ChatMessage({ message }: ChatMessageProps) {
           </div>
         )
       })}
-      
-      {/* Если нет пар, показываем placeholder */}
-      {reasoningAnswerPairs.length === 0 && (
-        <div className="chat-message-placeholder">
-          <span className="typing-dot" style={{ animationDelay: '0s' }} />
-          <span className="typing-dot" style={{ animationDelay: '0.2s' }} />
-          <span className="typing-dot" style={{ animationDelay: '0.4s' }} />
-        </div>
-      )}
     </div>
   )
 }

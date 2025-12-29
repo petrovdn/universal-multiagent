@@ -75,6 +75,7 @@ class PythonCodeExecutionTool(BaseTool):
             # Only allow safe built-ins and libraries
             safe_globals = {
                 '__builtins__': {
+                    '__import__': __import__,  # Needed for 'import' statements
                     'abs': abs,
                     'all': all,
                     'any': any,

@@ -7,6 +7,7 @@ from typing import Dict, Any, List, Optional, AsyncGenerator
 import asyncio
 import json
 import re
+import time
 from uuid import uuid4
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
@@ -312,6 +313,12 @@ class StepOrchestrator:
         Returns:
             Dict with "plan" (text) and "steps" (list of step titles)
         """
+        # #region agent log
+        log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "ENTRY: _generate_plan called", "data": {"user_request": user_request[:100], "user_request_length": len(user_request)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
+        
         # Use dynamic planning prompt
         system_prompt = build_planning_prompt()
 
@@ -321,15 +328,49 @@ class StepOrchestrator:
             HumanMessage(content=f"Create a detailed execution plan for this request:\n\n{user_request}")
         ]
         
-        # Add recent context messages if available
+        # #region agent log
+        log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "BEFORE recent_messages: user_request added directly", "data": {"messages_count": len(messages), "last_message_preview": str(messages[-1].content)[:100]}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
+        
+        # Add recent context messages if available, but skip the last user message if it matches current user_request
         recent_messages = context.get_recent_messages(5)
+        
+        # #region agent log
+        recent_msgs_preview = [{"role": m.get("role"), "content": m.get("content", "")[:50]} for m in recent_messages]
+        log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "recent_messages retrieved", "data": {"recent_messages_count": len(recent_messages), "recent_messages": recent_msgs_preview, "last_recent_content": recent_messages[-1].get("content", "")[:100] if recent_messages else None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
+        
         for msg in recent_messages:
             role = msg.get("role")
             content = msg.get("content", "")
+            # Skip the last user message if it matches current user_request to avoid duplication
+            if role == "user" and content == user_request:
+                # #region agent log
+                log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "SKIPPED duplicate user message from recent_messages", "data": {"content_preview": content[:100], "matches_user_request": True}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                    f.write(log_data + b'\n')
+                # #endregion
+                continue
             if role == "user":
                 messages.append(HumanMessage(content=content))
+                # #region agent log
+                log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "ADDED user message from recent_messages", "data": {"content_preview": content[:100], "matches_user_request": content == user_request}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+                    f.write(log_data + b'\n')
+                # #endregion
             elif role == "assistant":
                 messages.append(AIMessage(content=content))
+        
+        # #region agent log
+        user_msgs_in_final = [str(m.content)[:100] for m in messages if isinstance(m, HumanMessage)]
+        log_data = json.dumps({"location": "step_orchestrator.py:_generate_plan", "message": "FINAL messages prepared", "data": {"total_messages_count": len(messages), "user_messages_count": len(user_msgs_in_final), "user_messages_preview": user_msgs_in_final}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
+            f.write(log_data + b'\n')
+        # #endregion
         
         try:
             # Stream LLM response with thinking

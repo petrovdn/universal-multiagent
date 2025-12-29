@@ -11,17 +11,21 @@ export function PlanBlock() {
 
   // Removed useEffect logging to prevent infinite loops
 
-  // DEBUG MODE: Always show something, even if no plan
+  // Only show component when there's actual data to display
   if (!workflowPlan) {
-    return (
-      <div style={{ padding: '15px', margin: '10px', background: '#fff3cd', border: '2px solid #ffc107', borderRadius: '8px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
-          <FileText style={{ width: '20px', height: '20px', color: '#856404' }} />
-          <strong style={{ color: '#856404', fontSize: '16px' }}>PlanBlock: Waiting for plan...</strong>
-        </div>
-        <div style={{ color: '#856404', fontSize: '14px' }}>No workflow plan set yet</div>
-      </div>
-    )
+    return null
+  }
+
+  // Check if there's any content to show
+  const hasContent = 
+    workflowPlan.planThinking || 
+    workflowPlan.planThinkingIsStreaming || 
+    (workflowPlan.plan && workflowPlan.plan.trim()) || 
+    (workflowPlan.steps && workflowPlan.steps.length > 0) || 
+    workflowPlan.awaitingConfirmation
+
+  if (!hasContent) {
+    return null
   }
 
   const handleApprove = () => {
@@ -62,14 +66,10 @@ export function PlanBlock() {
         </div>
       )}
       
-      {(workflowPlan.plan && workflowPlan.plan.trim()) ? (
+      {workflowPlan.plan && workflowPlan.plan.trim() && (
         <div style={{ marginBottom: '15px', padding: '10px', background: '#fff', borderRadius: '4px', border: '1px solid #bee5eb' }}>
           <div style={{ fontSize: '14px', color: '#0c5460', fontWeight: 'bold', marginBottom: '8px' }}>План:</div>
           <div style={{ fontSize: '14px', color: '#333', whiteSpace: 'pre-wrap' }}>{workflowPlan.plan}</div>
-        </div>
-      ) : (
-        <div style={{ marginBottom: '15px', padding: '10px', background: '#fff3cd', borderRadius: '4px', border: '1px solid #ffc107' }}>
-          <div style={{ fontSize: '14px', color: '#856404', fontStyle: 'italic' }}>План еще не сгенерирован...</div>
         </div>
       )}
 
