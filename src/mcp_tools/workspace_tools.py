@@ -4,6 +4,7 @@ Provides validated interfaces to Google Drive, Docs, and Sheets operations.
 """
 
 import json
+import re
 from typing import Optional, List, Dict, Any
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
@@ -12,6 +13,173 @@ from src.utils.mcp_loader import get_mcp_manager
 from src.utils.exceptions import ToolExecutionError
 from src.utils.retry import retry_on_mcp_error
 from src.utils.validators import validate_spreadsheet_range
+
+
+# ========== HELPER FUNCTIONS ==========
+
+async def _try_case_variations_for_list_files(
+    query: str,
+    mime_type: Optional[str],
+    max_results: int
+) -> List[Dict[str, Any]]:
+    """
+    Try searching with multiple case variations and return combined unique results.
+    
+    Args:
+        query: Search query string (simple text, not Drive API format)
+        mime_type: Optional MIME type filter
+        max_results: Maximum number of results per search
+        
+    Returns:
+        List of unique file dictionaries (deduplicated by ID)
+    """
+    mcp_manager = get_mcp_manager()
+    
+    # Generate case variations: original, lowercase, capitalize, uppercase
+    variations = [
+        query,  # Original
+        query.lower(),
+        query.capitalize(),
+        query.upper()
+    ]
+    
+    # Remove duplicates while preserving order
+    seen_variations = set()
+    unique_variations = []
+    for var in variations:
+        if var not in seen_variations:
+            seen_variations.add(var)
+            unique_variations.append(var)
+    
+    # Try each variation and collect results
+    all_files = {}
+    seen_file_ids = set()
+    
+    for variation in unique_variations:
+        try:
+            args = {"maxResults": max_results, "query": variation}
+            if mime_type:
+                args["mimeType"] = mime_type
+            
+            result = await mcp_manager.call_tool("workspace_list_files", args, server_name="google_workspace")
+            
+            if isinstance(result, str):
+                result = json.loads(result)
+            
+            # Handle both dict and list results
+            if isinstance(result, dict):
+                files = result.get("files", [])
+            elif isinstance(result, list):
+                files = result
+            else:
+                files = []
+            
+            # Deduplicate by file ID
+            for f in files:
+                if isinstance(f, dict):
+                    file_id = f.get('id')
+                    if file_id and file_id not in seen_file_ids:
+                        seen_file_ids.add(file_id)
+                        all_files[file_id] = f
+        
+        except Exception:
+            # Continue with next variation if one fails
+            continue
+    
+    return list(all_files.values())
+
+
+async def _try_case_variations_for_search_files(
+    query: str,
+    mime_type: Optional[str],
+    max_results: int
+) -> List[Dict[str, Any]]:
+    """
+    Try searching with multiple case variations for search_files tool.
+    Handles queries that may already be in Drive API format (e.g., 'name contains "term"').
+    
+    Args:
+        query: Search query (may be Drive API format or simple text)
+        mime_type: Optional MIME type filter
+        max_results: Maximum number of results per search
+        
+    Returns:
+        List of unique file dictionaries (deduplicated by ID)
+    """
+    mcp_manager = get_mcp_manager()
+    
+    # Try to extract search term from Drive API query format
+    # Pattern: name contains "term" or name contains 'term'
+    match = re.search(r'name\s+contains\s+["\'](.+?)["\']', query, re.IGNORECASE)
+    
+    if match:
+        # Extract the term and generate variations
+        search_term = match.group(1)
+        variations = [
+            search_term,  # Original
+            search_term.lower(),
+            search_term.capitalize(),
+            search_term.upper()
+        ]
+        
+        # Remove duplicates while preserving order
+        seen_variations = set()
+        unique_variations = []
+        for var in variations:
+            if var not in seen_variations:
+                seen_variations.add(var)
+                unique_variations.append(var)
+        
+        # Generate queries for each variation
+        query_variations = [f'name contains "{var}"' for var in unique_variations]
+    else:
+        # Not in expected format, just try the original query
+        query_variations = [query]
+    
+    # Try each variation and collect results
+    all_files = {}
+    seen_file_ids = set()
+    
+    for query_var in query_variations:
+        try:
+            args = {"query": query_var, "maxResults": max_results}
+            if mime_type:
+                args["mimeType"] = mime_type
+            
+            result = await mcp_manager.call_tool("workspace_search_files", args, server_name="google_workspace")
+            
+            # Parse result - handle TextContent list
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result = first_item.text
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result = first_item['text']
+            
+            if isinstance(result, str):
+                result = json.loads(result)
+            
+            # Handle both dict and list results
+            if isinstance(result, dict):
+                files = result.get("files", [])
+            elif isinstance(result, list):
+                files = result
+            else:
+                files = []
+            
+            # Deduplicate by file ID
+            for f in files:
+                if isinstance(f, dict):
+                    file_id = f.get('id')
+                    if file_id and file_id not in seen_file_ids:
+                        seen_file_ids.add(file_id)
+                        all_files[file_id] = f
+        
+        except Exception:
+            # Continue with next variation if one fails
+            continue
+    
+    return list(all_files.values())
 
 
 # ========== DRIVE TOOLS ==========
@@ -33,7 +201,7 @@ class ListFilesTool(BaseTool):
     
     Input:
     - mime_type: Optional filter by MIME type (e.g., 'application/vnd.google-apps.document')
-    - query: Optional search query for file names
+    - query: Optional search query for file names (case-insensitive search)
     - max_results: Maximum number of results (default: 50)
     """
     args_schema: type = ListFilesInput
@@ -47,30 +215,37 @@ class ListFilesTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
-            args = {"maxResults": max_results}
-            if mime_type:
-                args["mimeType"] = mime_type
+            # If query is provided, use case-insensitive search with variations
             if query:
-                args["query"] = query
-            
-            mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("workspace_list_files", args, server_name="google_workspace")
-            if isinstance(result, str):
-                result = json.loads(result)
-            # Handle both dict and list results
-            if isinstance(result, dict):
-                files = result.get("files", [])
-                count = result.get("count", len(files))
-            elif isinstance(result, list):
-                # If result is a list, treat it as the files list directly
-                files = result
+                files = await _try_case_variations_for_list_files(query, mime_type, max_results)
                 count = len(files)
             else:
-                files = []
-                count = 0
+                # No query - just list all files
+                args = {"maxResults": max_results}
+                if mime_type:
+                    args["mimeType"] = mime_type
+                
+                mcp_manager = get_mcp_manager()
+                result = await mcp_manager.call_tool("workspace_list_files", args, server_name="google_workspace")
+                if isinstance(result, str):
+                    result = json.loads(result)
+                # Handle both dict and list results
+                if isinstance(result, dict):
+                    files = result.get("files", [])
+                    count = result.get("count", len(files))
+                elif isinstance(result, list):
+                    # If result is a list, treat it as the files list directly
+                    files = result
+                    count = len(files)
+                else:
+                    files = []
+                    count = 0
             
             if count == 0:
-                return "No files found in workspace folder."
+                if query:
+                    return f"No files found matching '{query}' in workspace folder."
+                else:
+                    return "No files found in workspace folder."
             
             file_list = "\n".join([
                 f"- {f.get('name') if isinstance(f, dict) else str(f)} ({f.get('mimeType', 'unknown type') if isinstance(f, dict) else 'unknown'}) - ID: {f.get('id') if isinstance(f, dict) else 'N/A'}"
@@ -80,7 +255,10 @@ class ListFilesTool(BaseTool):
             if count > 20:
                 file_list += f"\n... and {count - 20} more files"
             
-            return f"Found {count} file(s) in workspace folder:\n{file_list}"
+            if query:
+                return f"Found {count} file(s) matching '{query}' in workspace folder:\n{file_list}"
+            else:
+                return f"Found {count} file(s) in workspace folder:\n{file_list}"
             
         except Exception as e:
             raise ToolExecutionError(
@@ -240,7 +418,7 @@ class SearchFilesTool(BaseTool):
     Search for files in the workspace folder.
     
     Input:
-    - query: Search query (e.g., 'name contains \"report\"')
+    - query: Search query (e.g., 'name contains \"report\"'). Search is case-insensitive.
     - mime_type: Optional filter by MIME type
     - max_results: Maximum number of results (default: 20)
     """
@@ -255,30 +433,9 @@ class SearchFilesTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
-            args = {"query": query, "maxResults": max_results}
-            if mime_type:
-                args["mimeType"] = mime_type
-            
-            mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("workspace_search_files", args, server_name="google_workspace")# Parse result - handle TextContent list (similar to gmail_tools.py)
-            if isinstance(result, list) and len(result) > 0:
-                first_item = result[0]
-                if hasattr(first_item, 'text'):
-                    result = first_item.text
-                elif isinstance(first_item, dict) and 'text' in first_item:
-                    result = first_item['text']
-            
-            if isinstance(result, str):
-                result = json.loads(result)# Handle both dict and list results
-            if isinstance(result, dict):
-                files = result.get("files", [])
-                count = result.get("count", len(files))
-            elif isinstance(result, list):
-                files = result
-                count = len(files)
-            else:
-                files = []
-                count = 0
+            # Use case-insensitive search with variations
+            files = await _try_case_variations_for_search_files(query, mime_type, max_results)
+            count = len(files)
             
             if count == 0:
                 return f"No files found matching query: {query}"

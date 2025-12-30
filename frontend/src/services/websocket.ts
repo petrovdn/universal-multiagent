@@ -152,7 +152,8 @@ export class WebSocketClient {
       }
     }
 
-    switch (event.type) {
+    try {
+      switch (event.type) {
       case 'message':
         // Legacy message event (non-streaming)
         if (event.data.role === 'assistant' || event.data.role === 'system') {
@@ -195,7 +196,8 @@ export class WebSocketClient {
         if (!this.currentMessageId) {
           this.currentMessageId = `msg-${Date.now()}`
         }
-        const thinkingMsgId = this.currentMessageId// Check if we need to create a NEW reasoning block or continue existing one
+        const thinkingMsgId = this.currentMessageId
+        // Check if we need to create a NEW reasoning block or continue existing one
         let shouldCreateNewReasoningBlock = false
         
         // Case 1: If we have an active answer block, this is a new reasoning cycle
@@ -224,7 +226,8 @@ export class WebSocketClient {
             // Reasoning block not found in store - create new one
             const missingReasoningBlockId = this.currentReasoningBlockId
             shouldCreateNewReasoningBlock = true
-            this.currentReasoningBlockId = null}
+            this.currentReasoningBlockId = null
+          }
         }
         // Case 3: No reasoning block exists - create new one
         else {
@@ -538,7 +541,9 @@ export class WebSocketClient {
       case 'step_start':
         // Ensure active workflow exists before starting step
         ensureActiveWorkflow()
-        // Start a new workflow step - use getState() to get fresh state after setuseChatStore.getState().startWorkflowStep(event.data.step, event.data.title || `Step ${event.data.step}`)console.log('[WebSocket] Step started:', event.data.step, event.data.title)
+        // Start a new workflow step - use getState() to get fresh state after set
+        useChatStore.getState().startWorkflowStep(event.data.step, event.data.title || `Step ${event.data.step}`)
+        console.log('[WebSocket] Step started:', event.data.step, event.data.title)
         break
 
       case 'thinking_chunk':
@@ -619,6 +624,10 @@ export class WebSocketClient {
         // Don't set agentTyping to false here - let message_complete handle it
         // This ensures proper cleanup if message_complete arrives after error
         break
+      }
+    } catch (error) {
+      console.error('[WebSocket] Error handling event:', event.type, error, event.data)
+      // Don't throw - we want to continue processing future events
     }
   }
 
@@ -665,12 +674,15 @@ export class WebSocketClient {
     }
   }
 
-  stopGeneration(): void {if (this.ws && this.ws.readyState === WebSocket.OPEN) {this.ws.send(JSON.stringify({
+  stopGeneration(): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
         type: 'stop_generation',
       }))
-      console.log('[WebSocket] Stop generation requested')// NOTE: Do NOT disconnect here - it closes the connection before the server can process the stop_generation message
+      console.log('[WebSocket] Stop generation requested')
+      // NOTE: Do NOT disconnect here - it closes the connection before the server can process the stop_generation message
       // The connection should remain open to receive workflow_stopped event
-    } else {}
+    }
   }
 
   disconnect(): void {

@@ -206,12 +206,16 @@ Create LLM instance with extended thinking enabled."""
                     "steps": plan_steps
                 }
             
-            # Step 2: Handle confirmation based on modeif mode == "plan_and_confirm":# Send awaiting_confirmation event
+            # Step 2: Handle confirmation based on mode
+            if mode == "plan_and_confirm":
+                # Send awaiting_confirmation event
                 await self.ws_manager.send_event(
                     self.session_id,
                     "awaiting_confirmation",
                     {}
-                )# Store confirmation in context
+                )
+                
+                # Store confirmation in context
                 context.add_pending_confirmation(self._confirmation_id, {
                     "plan": plan_text,
                     "steps": plan_steps,
@@ -569,7 +573,9 @@ Create HumanMessage with text and optional file attachments."""
                     uploaded_files_info += f"{i}. PDF файл: {filename}\n   ⚠️ ТЕКСТ ФАЙЛА УЖЕ ВКЛЮЧЕН В СООБЩЕНИЕ НИЖЕ! Используй его напрямую, НЕ ищи файл в Google Диск!\n"
                 else:
                     uploaded_files_info += f"{i}. Файл: {filename} (тип: {file_type})\n"
-            uploaded_files_info += "\n⚠️ СНАЧАЛА используй информацию из загруженных файлов (текст уже в сообщении), ПОТОМ уже ищи дополнительные файлы в Google Диск!\n""""
+            uploaded_files_info += "\n⚠️ СНАЧАЛА используй информацию из загруженных файлов (текст уже в сообщении), ПОТОМ уже ищи дополнительные файлы в Google Диск!\n"
+        
+        """
         Generate detailed execution plan using Claude.
         
         Args:
@@ -595,8 +601,25 @@ Create HumanMessage with text and optional file attachments."""
         ]
         # Add recent context messages if available, but skip the last user message if it matches current user_request
         recent_messages = context.get_recent_messages(5)
+        
         # Only add assistant messages from recent context for planning
         # Do NOT add previous user messages - they can cause confusion and message concatenation
+        # IMPORTANT: When using extended thinking, assistant messages from previous requests
+        # may not have thinking blocks, which causes API errors. Skip them.
+        added_context_messages = []
+        # Check if LLM uses extended thinking
+        uses_extended_thinking = False
+        try:
+            from src.agents.model_factory import get_available_models
+            available_models = get_available_models()
+            config_model_name = self.model_name or "claude-sonnet-4-5"
+            if config_model_name in available_models:
+                model_config = available_models[config_model_name]
+                if model_config.get("supports_reasoning") and model_config.get("reasoning_type") == "extended_thinking":
+                    uses_extended_thinking = True
+        except:
+            pass
+        
         for msg in recent_messages:
             role = msg.get("role")
             content = msg.get("content", "")
@@ -605,7 +628,12 @@ Create HumanMessage with text and optional file attachments."""
             if role == "user":
                 continue
             elif role == "assistant":
-                # Add assistant messages for context
+                # When using extended thinking, skip assistant messages from previous requests
+                # because they may not have thinking blocks, causing API errors
+                if uses_extended_thinking:
+                    # Skip assistant messages from previous requests to avoid thinking block errors
+                    continue
+                # Add assistant messages for context (only when not using extended thinking)
                 messages.append(AIMessage(content=content))
         try:
             # Check if stop was requested before starting streaming

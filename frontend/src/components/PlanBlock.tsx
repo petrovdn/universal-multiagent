@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { CheckCircle, XCircle, FileText } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
-import { wsClient } from '../services/websocket'
+import { approvePlan, rejectPlan } from '../services/api'
 import { ReasoningBlock } from './ReasoningBlock'
 import { PlanEditor } from './PlanEditor'
 
@@ -15,6 +15,7 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
   const workflowPlan = workflow?.plan
   const setAwaitingConfirmation = useChatStore((state) => state.setAwaitingConfirmation)
   const activeWorkflowId = useChatStore((state) => state.activeWorkflowId)
+  const currentSession = useChatStore((state) => state.currentSession)
   const [isEditingPlan, setIsEditingPlan] = useState(false)// Only show component when there's actual data to display
   if (!workflowPlan) {
     return null
@@ -32,17 +33,27 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
     return null
   }
 
-  const handleApprove = () => {
-    if (workflowPlan.confirmationId) {
-      wsClient.approvePlan(workflowPlan.confirmationId)
-      setAwaitingConfirmation(false)
+  const handleApprove = async () => {
+    if (workflowPlan.confirmationId && currentSession) {
+      try {
+        await approvePlan(currentSession, workflowPlan.confirmationId)
+        setAwaitingConfirmation(false)
+      } catch (error) {
+        console.error('[PlanBlock] Error approving plan:', error)
+        alert('Ошибка при подтверждении плана: ' + (error instanceof Error ? error.message : String(error)))
+      }
     }
   }
 
-  const handleReject = () => {
-    if (workflowPlan.confirmationId) {
-      wsClient.rejectPlan(workflowPlan.confirmationId)
-      setAwaitingConfirmation(false)
+  const handleReject = async () => {
+    if (workflowPlan.confirmationId && currentSession) {
+      try {
+        await rejectPlan(currentSession, workflowPlan.confirmationId)
+        setAwaitingConfirmation(false)
+      } catch (error) {
+        console.error('[PlanBlock] Error rejecting plan:', error)
+        alert('Ошибка при отклонении плана: ' + (error instanceof Error ? error.message : String(error)))
+      }
     }
   }
 

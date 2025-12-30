@@ -15,6 +15,7 @@ import base64
 import io
 import json
 import time
+import asyncio
 try:
     import PyPDF2
 except ImportError:
@@ -643,17 +644,22 @@ WebSocket endpoint for real-time communication."""
                     context = ConversationContext(session_id)
                     session_manager.update_session(session_id, context)
                 
-                try:
-                    await agent_wrapper.process_message(
-                        user_message,
-                        context,
-                        session_id
-                    )
-                except Exception as e:
-                    logger.error(f"Error processing message: {e}", exc_info=True)
-                    await ws_manager.send_event(session_id, "error", {"message": str(e)})
+                # Run process_message in background task to avoid blocking the message loop
+                # This allows other messages (like approve_plan) to be received while processing
+                async def process_message_task():
+                    try:
+                        await agent_wrapper.process_message(
+                            user_message,
+                            context,
+                            session_id
+                        )
+                        session_manager.update_session(session_id, context)
+                    except Exception as e:
+                        logger.error(f"Error processing message: {e}", exc_info=True)
+                        await ws_manager.send_event(session_id, "error", {"message": str(e)})
                 
-                session_manager.update_session(session_id, context)
+                # Start background task - don't await it
+                asyncio.create_task(process_message_task())
             
             elif message_type == "approve_plan":
                 # Approve plan

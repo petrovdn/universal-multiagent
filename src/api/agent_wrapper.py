@@ -122,9 +122,8 @@ Initialize agent wrapper."""
             # Classify task complexity
             task_type = await self.task_classifier.classify_task(user_message, context)
             
-            # Route to appropriate execution path
-            if task_type == TaskType.SIMPLE and context.execution_mode != "approval":
-                # Simple task - execute directly without workflow
+            # Simple tasks always use direct streaming (no plan shown), regardless of mode
+            if task_type == TaskType.SIMPLE:
                 logger.info(f"[AgentWrapper] Simple task detected, executing directly without workflow")
                 result = await self._execute_simple_task(
                     user_message,
@@ -133,15 +132,14 @@ Initialize agent wrapper."""
                     file_ids
                 )
                 return result
+            
+            # Complex tasks use StepOrchestrator with planning
+            # Mode depends on execution_mode setting
+            logger.info(f"[AgentWrapper] Complex task detected, using StepOrchestrator")
+            if context.execution_mode == "approval":
+                orchestrator_mode = "plan_and_confirm"
             else:
-                # Complex task or approval mode - use StepOrchestrator with planning
-                logger.info(f"[AgentWrapper] Complex task detected, using StepOrchestrator")
-                # Use StepOrchestrator for multi-step execution
-                # Map execution_mode to orchestrator mode
-                if context.execution_mode == "approval":
-                    orchestrator_mode = "plan_and_confirm"
-                else:
-                    orchestrator_mode = "plan_and_execute"
+                orchestrator_mode = "plan_and_execute"
             
             # Create StepOrchestrator for this session
             orchestrator = StepOrchestrator(

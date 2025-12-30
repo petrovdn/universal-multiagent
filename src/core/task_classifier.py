@@ -30,13 +30,21 @@ class TaskClassifier:
         """Initialize TaskClassifier."""
         self.llm = None  # Lazy initialization
         # Simple task indicators (heuristics)
+        # Check simple keywords FIRST for fastest classification
         self.simple_keywords = [
-            "привет", "hello", "hi", "здравствуй",
-            "спасибо", "thanks", "thank you",
-            "пока", "bye", "goodbye",
-            "как дела", "how are you",
-            "что ты", "what are you",
-            "кто ты", "who are you",
+            # Приветствия (most common)
+            "привет", "hello", "hi", "здравствуй", "здравствуйте",
+            "добрый день", "добрый вечер", "доброе утро",
+            "good morning", "good evening", "good afternoon",
+            # Благодарности
+            "спасибо", "thanks", "thank you", "благодарю", "благодарствую",
+            # Прощания
+            "пока", "bye", "goodbye", "до свидания", "до встречи",
+            "see you", "see ya",
+            # Простые вопросы
+            "как дела", "how are you", "как поживаешь",
+            "что ты", "what are you", "кто ты", "who are you",
+            "что умеешь", "what can you do",
         ]
         # Complex task indicators
         self.complex_keywords = [
@@ -64,34 +72,44 @@ class TaskClassifier:
     def _heuristic_classify(self, user_request: str) -> Optional[TaskType]:
         """
         Classify task using heuristics.
+        Optimized for speed: checks simple keywords FIRST (most common cases).
         
         Returns:
             TaskType if confident, None if uncertain
         """
         request_lower = user_request.lower().strip()
         
-        # Very short requests are usually simple
-        if len(request_lower) < 20:
-            # Check if it's a greeting or simple question
-            for keyword in self.simple_keywords:
-                if keyword in request_lower:
-                    return TaskType.SIMPLE
-            # Very short without keywords might be simple
-            if len(request_lower.split()) <= 3:
+        # PRIORITY 1: Check simple keywords FIRST (fastest path for common cases)
+        # This catches most simple requests immediately without further checks
+        for keyword in self.simple_keywords:
+            if keyword in request_lower:
                 return TaskType.SIMPLE
         
-        # Check for complex task indicators
+        # PRIORITY 2: Check for complex task indicators
+        # If we find complex keywords, it's definitely complex
         for keyword in self.complex_keywords:
             if keyword in request_lower:
                 return TaskType.COMPLEX
         
-        # Requests with multiple sentences or long text are usually complex
+        # PRIORITY 3: Check length and structure
+        # Very short requests (1-3 words) without complex keywords are usually simple
+        words = request_lower.split()
+        if len(words) <= 3 and len(request_lower) < 30:
+            # Short and simple - likely a simple task
+            return TaskType.SIMPLE
+        
+        # PRIORITY 4: Check for complexity indicators
+        # Requests with multiple sentences are usually complex
         sentences = re.split(r'[.!?]+', user_request)
         if len(sentences) > 2:
             return TaskType.COMPLEX
         
-        # Requests with numbers or specific instructions
+        # Requests with numbers or specific instructions (like "step 1:") are complex
         if re.search(r'\d+', user_request) or ':' in user_request:
+            return TaskType.COMPLEX
+        
+        # Long requests are usually complex
+        if len(request_lower) > 100:
             return TaskType.COMPLEX
         
         # Uncertain - return None to use LLM

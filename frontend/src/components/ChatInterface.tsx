@@ -151,7 +151,7 @@ export function ChatInterface() {
     let sessionId: string = currentSession || ''
     if (!sessionId) {
       try {
-        const sessionData = await createSession('instant', selectedModel || undefined)
+        const sessionData = await createSession(executionMode, selectedModel || undefined)
         sessionId = sessionData.session_id
         setCurrentSession(sessionId)
         wsClient.connect(sessionId)
@@ -258,7 +258,7 @@ export function ChatInterface() {
           await sendMessage({
             message: userMessage,
             session_id: currentSession,
-            execution_mode: 'instant',
+            execution_mode: executionMode,
             file_ids: fileIds,
           })
         } else {
@@ -269,7 +269,7 @@ export function ChatInterface() {
             await sendMessage({
               message: userMessage,
               session_id: currentSession,
-              execution_mode: 'instant',
+              execution_mode: executionMode,
             })
           }
         }
@@ -282,13 +282,13 @@ export function ChatInterface() {
         await sendMessage({
           message: userMessage,
           session_id: currentSession,
-          execution_mode: 'instant',
+          execution_mode: executionMode,
           file_ids: fileIds.length > 0 ? fileIds : undefined,
         })
       } else {
         // Create new session FIRST, then connect WebSocket, then send message
         console.log('[ChatInterface] Creating new session first')
-        const sessionData = await createSession('instant', selectedModel || undefined)
+        const sessionData = await createSession(executionMode, selectedModel || undefined)
         const newSessionId = sessionData.session_id
         console.log('[ChatInterface] New session created:', newSessionId)
         setCurrentSession(newSessionId)
@@ -319,7 +319,7 @@ export function ChatInterface() {
           await sendMessage({
             message: userMessage,
             session_id: newSessionId,
-            execution_mode: 'instant',
+            execution_mode: executionMode,
             file_ids: fileIds.length > 0 ? fileIds : undefined,
           })
         } else {
@@ -330,7 +330,7 @@ export function ChatInterface() {
             await sendMessage({
               message: userMessage,
               session_id: newSessionId,
-              execution_mode: 'instant',
+              execution_mode: executionMode,
             })
           }
         }
