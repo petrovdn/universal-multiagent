@@ -136,6 +136,15 @@ Initialize agent wrapper."""
             # Complex tasks use StepOrchestrator with planning
             # Mode depends on execution_mode setting
             logger.info(f"[AgentWrapper] Complex task detected, using StepOrchestrator")
+            
+            # CRITICAL: Stop and remove any existing orchestrator for this session
+            # This prevents mixing context from previous requests
+            if session_id in self._active_orchestrators:
+                old_orchestrator = self._active_orchestrators[session_id]
+                logger.info(f"[AgentWrapper] Stopping previous orchestrator for session {session_id}")
+                old_orchestrator.stop()
+                del self._active_orchestrators[session_id]
+            
             if context.execution_mode == "approval":
                 orchestrator_mode = "plan_and_confirm"
             else:

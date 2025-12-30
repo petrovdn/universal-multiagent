@@ -559,6 +559,7 @@ class BaseAgent:
                     metadata = chunk[1] if len(chunk) > 1 else {}
                     # Only process AIMessage chunks - skip ToolMessage, HumanMessage, etc.
                     if not isinstance(msg_chunk, (AIMessage, AIMessageChunk)):
+                        msg_type = type(msg_chunk).__name__
                         self.logger.debug(f"[{self.name}] Skipping non-AI message chunk: {msg_type}")
                         continue
                     

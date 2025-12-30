@@ -25,17 +25,22 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
     }
   }, [block.isStreaming, block.id, hasEverStreamed])
 
-  // Автоматически сворачивать после завершения стриминга, если есть answer
-  // Улучшенная логика: сворачиваем только когда:
-  // 1. Reasoning завершен (isStreaming = false)
-  // 2. Есть answer в паре (shouldAutoCollapse = true)
-  // 3. Answer начал стримиться или уже завершен (answerBlock.isStreaming !== undefined)
+  // Автоматически сворачивать после завершения стриминга
+  // Логика: сворачиваем когда reasoning завершен (isStreaming = false)
+  // Если есть answer в паре (shouldAutoCollapse = true), сворачиваем сразу
+  // Иначе сворачиваем всегда после завершения стриминга
   useEffect(() => {
-    if (wasStreaming && !block.isStreaming && shouldAutoCollapse) {
-      // Проверяем, что answer блок существует и начал стримиться или завершен
-      if (answerBlock !== null) {
-        // Answer блок существует - можно сворачивать
-        setIsCollapsed(true)}
+    if (wasStreaming && !block.isStreaming) {
+      // Стриминг завершен - сворачиваем блок
+      if (shouldAutoCollapse) {
+        // Если есть answer в паре, проверяем, что answer блок существует
+        if (answerBlock !== null) {
+          setIsCollapsed(true)
+        }
+      } else {
+        // Нет answer в паре - сворачиваем всегда после завершения стриминга
+        setIsCollapsed(true)
+      }
     }
     setWasStreaming(block.isStreaming)
   }, [block.isStreaming, shouldAutoCollapse, wasStreaming, answerBlock])

@@ -951,7 +951,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 7px;
+  padding: 5.5px 7.7px; /* Увеличено на 10% (было 5px 7px) */
   border-bottom: 1px solid var(--border-secondary);
   background: rgba(255, 255, 255, 0.5);
   flex-shrink: 0;
@@ -959,8 +959,8 @@ body {
 }
 
 .reasoning-block-collapsed {
-  max-height: 25px !important; /* Только header (уменьшено в 2 раза) */
-  min-height: 25px !important;
+  max-height: 27.5px !important; /* Увеличено на 10% для соответствия новому padding (было 25px) */
+  min-height: 27.5px !important;
 }
 
 .reasoning-block-collapsed .reasoning-block-content {
