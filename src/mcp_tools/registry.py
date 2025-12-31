@@ -12,6 +12,7 @@ from src.mcp_tools.gmail_tools import get_gmail_tools
 from src.mcp_tools.calendar_tools import get_calendar_tools
 from src.mcp_tools.sheets_tools import get_sheets_tools
 from src.mcp_tools.workspace_tools import get_workspace_tools
+from src.mcp_tools.onec_tools import get_onec_tools
 
 
 class ToolCategory(Enum):
@@ -20,6 +21,7 @@ class ToolCategory(Enum):
     CALENDAR = "calendar"
     SHEETS = "sheets"
     WORKSPACE = "workspace"
+    ONEC = "onec"
     UTILITY = "utility"
 
 
@@ -52,6 +54,10 @@ class ToolRegistry:
         # Workspace tools
         for tool in get_workspace_tools():
             self.register_tool(tool, ToolCategory.WORKSPACE, "google_workspace")
+        
+        # 1C tools
+        for tool in get_onec_tools():
+            self.register_tool(tool, ToolCategory.ONEC, "onec")
     
     def register_tool(
         self,

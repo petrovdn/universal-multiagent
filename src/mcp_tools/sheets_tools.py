@@ -47,14 +47,22 @@ class AddRowsTool(BaseTool):
             if not values:
                 raise ValidationError("No values provided to add")
             
+            # Convert sheet_name to range format (e.g., "Sheet1!A:A")
+            range_str = f"{sheet_name}!A:A"
+            
             args = {
                 "spreadsheetId": spreadsheet_id,
-                "sheetName": sheet_name,
+                "range": range_str,
                 "values": values
             }
             
             mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("add_rows", args, server_name="sheets")
+            # #region debug log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"sheets_tools.py:60","message":"Calling sheets_append_rows via Sheets MCP","data":{"tool":"sheets_append_rows","server":"sheets","spreadsheet_id":spreadsheet_id,"sheet_name":sheet_name},"timestamp":int(__import__('time').time()*1000)})+'\n')
+            # #endregion
+            result = await mcp_manager.call_tool("sheets_append_rows", args, server_name="sheets")
             
             rows_added = len(values)
             return f"Successfully added {rows_added} row(s) to sheet '{sheet_name}'"
@@ -118,7 +126,12 @@ class UpdateCellsTool(BaseTool):
             }
             
             mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("update_cells", args, server_name="sheets")
+            # #region debug log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"sheets_tools.py:121","message":"Calling sheets_write_range via Sheets MCP","data":{"tool":"sheets_write_range","server":"sheets","spreadsheet_id":spreadsheet_id,"range":validated_range},"timestamp":int(__import__('time').time()*1000)})+'\n')
+            # #endregion
+            result = await mcp_manager.call_tool("sheets_write_range", args, server_name="sheets")
             
             return f"Successfully updated cells in range '{validated_range}'"
             
@@ -171,10 +184,29 @@ class CreateSpreadsheetTool(BaseTool):
                 args["sheetNames"] = sheet_names
             
             mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("create_spreadsheet", args, server_name="sheets")
+            # #region debug log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"sheets_tools.py:177","message":"Calling sheets_create_spreadsheet via Sheets MCP","data":{"tool":"sheets_create_spreadsheet","server":"sheets","title":title},"timestamp":int(__import__('time').time()*1000)})+'\n')
+            # #endregion
+            result = await mcp_manager.call_tool("sheets_create_spreadsheet", args, server_name="sheets")
+            
+            # Handle result - it might be a string (JSON) or dict
+            if isinstance(result, str):
+                import json
+                result = json.loads(result)
+            elif isinstance(result, list) and len(result) > 0:
+                # MCP returns TextContent list
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    import json
+                    result = json.loads(first_item.text)
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    import json
+                    result = json.loads(first_item['text'])
             
             spreadsheet_id = result.get("spreadsheetId", "unknown")
-            url = result.get("url", "")
+            url = result.get("url", result.get("spreadsheetUrl", ""))
             
             return f"Spreadsheet '{title}' created successfully. ID: {spreadsheet_id}. URL: {url}"
             
@@ -221,16 +253,39 @@ class GetSheetDataTool(BaseTool):
         try:
             validated_range = validate_spreadsheet_range(range)
             
+            # If sheet_name is provided and not in range, prepend it
+            if sheet_name and '!' not in validated_range:
+                validated_range = f"{sheet_name}!{validated_range}"
+            
             args = {
                 "spreadsheetId": spreadsheet_id,
                 "range": validated_range
             }
             
-            if sheet_name:
-                args["sheetName"] = sheet_name
-            
             mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("get_sheet_data", args, server_name="sheets")
+            # #region agent log
+            import json
+            import time
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"sheets_tools.py:get_sheet_data","message":"Calling sheets_read_range via Sheets MCP","data":{"tool":"sheets_read_range","server":"sheets","spreadsheet_id":spreadsheet_id,"range":validated_range},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            result = await mcp_manager.call_tool("sheets_read_range", args, server_name="sheets")
+            
+            # Handle result - it might be a string (JSON) or dict
+            if isinstance(result, str):
+                import json
+                result = json.loads(result)
+            elif isinstance(result, list) and len(result) > 0:
+                # MCP returns TextContent list
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    import json
+                    result = json.loads(first_item.text)
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    import json
+                    result = json.loads(first_item['text'])
             
             values = result.get("values", [])
             return f"Retrieved {len(values)} row(s) from range '{validated_range}'"

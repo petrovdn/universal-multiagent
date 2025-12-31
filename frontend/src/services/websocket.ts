@@ -57,7 +57,12 @@ export class WebSocketClient {
   private _doConnect(): void {
     if (!this.sessionId) return
 
-    const wsUrl = `ws://localhost:8000/ws/${this.sessionId}`
+    // Use same-origin WS endpoint.
+    // In dev, Vite proxies `/ws` → backend (see `frontend/vite.config.ts`), which avoids
+    // localhost/IPv6 issues and keeps WS aligned with REST `/api` proxy behavior.
+    const pageProto = window.location.protocol
+    const wsProto = pageProto === 'https:' ? 'wss' : 'ws'
+    const wsUrl = `${wsProto}://${window.location.host}/ws/${this.sessionId}`
     console.log('[WebSocket] Attempting to connect to:', wsUrl)
     
     try {
@@ -74,68 +79,9 @@ export class WebSocketClient {
           const data: WebSocketEvent = JSON.parse(event.data)
           console.log('[WebSocket] Event received:', data.type, data)
           
-          // #region agent log - WebSocket events log
-          // Логируем все события в отдельный файл для анализа порядка
-          const eventLog = {
-            timestamp: Date.now(),
-            eventType: data.type,
-            eventData: {
-              // Логируем основные поля события
-              message_id: data.data?.message_id || null,
-              content: data.data?.content ? (typeof data.data.content === 'string' ? data.data.content.substring(0, 200) : String(data.data.content).substring(0, 200)) : null,
-              contentLength: data.data?.content ? (typeof data.data.content === 'string' ? data.data.content.length : String(data.data.content).length) : null,
-              message: data.data?.message ? (typeof data.data.message === 'string' ? data.data.message.substring(0, 200) : String(data.data.message).substring(0, 200)) : null,
-              messageLength: data.data?.message ? (typeof data.data.message === 'string' ? data.data.message.length : String(data.data.message).length) : null,
-              step: data.data?.step || null,
-              tool_name: data.data?.tool_name || data.data?.name || null,
-              arguments: data.data?.arguments || data.data?.args || null,
-              result: data.data?.result ? (typeof data.data.result === 'string' ? data.data.result.substring(0, 200) : String(data.data.result).substring(0, 200)) : null,
-              stop_reason: data.data?.stop_reason || null,
-              role: data.data?.role || null,
-              // Полный объект data для детального анализа (ограничиваем размер)
-              fullData: JSON.stringify(data.data).substring(0, 1000),
-            },
-            rawEvent: JSON.stringify(data).substring(0, 2000), // Полное событие (ограничено)
-          }
-          
-          // Записываем в отдельный файл лога WebSocket событий
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              location: 'websocket.ts:onmessage',
-              message: 'WebSocket event received from backend',
-              data: eventLog,
-              timestamp: Date.now(),
-              sessionId: 'debug-session',
-              runId: 'websocket-events',
-              hypothesisId: 'EVENTS'
-            })
-          }).catch(() => {})
-          // #endregion
-          
           this.handleEvent(data)
         } catch (error) {
           console.error('[WebSocket] Error handling message:', error, event.data)
-          
-          // #region agent log - Error logging
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              location: 'websocket.ts:onmessage-error',
-              message: 'Error parsing WebSocket event',
-              data: {
-                error: String(error),
-                rawData: String(event.data).substring(0, 500),
-              },
-              timestamp: Date.now(),
-              sessionId: 'debug-session',
-              runId: 'websocket-events',
-              hypothesisId: 'EVENTS'
-            })
-          }).catch(() => {})
-          // #endregion
         }
       }
 
@@ -181,30 +127,17 @@ export class WebSocketClient {
       const lastUserMessage = [...messages].reverse().find(m => m.role === 'user')
       const lastUserTimestamp = lastUserMessage?.timestamp
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:ensureActiveWorkflow',message:'ensureActiveWorkflow called',data:{activeWorkflowId:state.activeWorkflowId,lastUserTimestamp,lastUserContent:lastUserMessage?.content?.substring(0,50),allWorkflowIds:Object.keys(state.workflows),messagesCount:messages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'WORKFLOW'})}).catch(()=>{});
-      // #endregion
-      
       // Check if active workflow matches the last user message
       if (state.activeWorkflowId && state.activeWorkflowId === lastUserTimestamp && state.workflows[state.activeWorkflowId]) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:ensureActiveWorkflow',message:'Using existing active workflow',data:{activeWorkflowId:state.activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'WORKFLOW'})}).catch(()=>{});
-        // #endregion
         return state.activeWorkflowId
       }
       
       // If active workflow doesn't match last user message, create new one
       if (lastUserTimestamp) {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:ensureActiveWorkflow',message:'Creating new workflow for last user message',data:{workflowId:lastUserTimestamp,previousActiveWorkflowId:state.activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'WORKFLOW'})}).catch(()=>{});
-        // #endregion
         useChatStore.getState().setActiveWorkflow(lastUserTimestamp)
         return lastUserTimestamp
       }
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:ensureActiveWorkflow',message:'No user message found',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'WORKFLOW'})}).catch(()=>{});
-      // #endregion
       return null
     }
     const settingsStore = useSettingsStore.getState()
@@ -219,7 +152,8 @@ export class WebSocketClient {
       }
     }
 
-    switch (event.type) {
+    try {
+      switch (event.type) {
       case 'message':
         // Legacy message event (non-streaming)
         if (event.data.role === 'assistant' || event.data.role === 'system') {
@@ -233,22 +167,12 @@ export class WebSocketClient {
         } else if (event.data.role === 'user') {
           const allMessages = chatStore.getDisplayMessages()
           const lastMessage = allMessages[allMessages.length - 1]
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:handleEvent-message-user',message:'WebSocket user message event received',data:{eventContent:event.data.content,eventContentLength:event.data.content.length,lastMessageContent:lastMessage?.content,lastMessageRole:lastMessage?.role,willAdd:!lastMessage||lastMessage.content!==event.data.content||lastMessage.role!=='user',allMessagesCount:allMessages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
           if (!lastMessage || lastMessage.content !== event.data.content || lastMessage.role !== 'user') {
             chatStore.addMessage({
               role: 'user',
               content: event.data.content,
               timestamp: new Date().toISOString(),
             })
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:handleEvent-message-user',message:'ADDED user message from WebSocket',data:{eventContent:event.data.content},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-            // #endregion
-          } else {
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:handleEvent-message-user',message:'SKIPPED duplicate user message from WebSocket',data:{eventContent:event.data.content,lastMessageContent:lastMessage.content},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-            // #endregion
           }
         }
         break
@@ -265,11 +189,7 @@ export class WebSocketClient {
         break
 
       case 'thinking':
-        // Reasoning/thinking event
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-entry',message:'THINKING event received',data:{hasCurrentMessageId:!!this.currentMessageId,currentMessageId:this.currentMessageId,hasCurrentReasoningBlockId:!!this.currentReasoningBlockId,currentReasoningBlockId:this.currentReasoningBlockId,hasCurrentAnswerBlockId:!!this.currentAnswerBlockId,currentAnswerBlockId:this.currentAnswerBlockId,messageLength:event.data.message?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,D'})}).catch(()=>{});
-        // #endregion
-        chatStore.setAgentTyping(true)
+        // Reasoning/thinking eventchatStore.setAgentTyping(true)
         const thinkingMessage = event.data.message || event.data.step || 'Thinking...'
         
         // Get or create current message ID
@@ -277,17 +197,6 @@ export class WebSocketClient {
           this.currentMessageId = `msg-${Date.now()}`
         }
         const thinkingMsgId = this.currentMessageId
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-before-update',message:'Before reasoning block update',data:{thinkingMsgId,hasReasoningBlockId:!!this.currentReasoningBlockId,reasoningBlockId:this.currentReasoningBlockId,thinkingMessageLength:thinkingMessage.length,assistantMessagesCount:Object.keys(chatStore.assistantMessages).length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,E'})}).catch(()=>{});
-        // #endregion
-        
-        // #region agent log
-        const beforeThinkingState = useChatStore.getState()
-        const currentMessage = beforeThinkingState.assistantMessages[thinkingMsgId]
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-before-logic',message:'Before reasoning block logic',data:{thinkingMsgId,hasCurrentReasoningBlockId:!!this.currentReasoningBlockId,currentReasoningBlockId:this.currentReasoningBlockId,hasCurrentAnswerBlockId:!!this.currentAnswerBlockId,currentAnswerBlockId:this.currentAnswerBlockId,existingReasoningBlocksCount:currentMessage?.reasoningBlocks.length||0,existingAnswerBlocksCount:currentMessage?.answerBlocks.length||0,lastReasoningIsStreaming:currentMessage?.reasoningBlocks[currentMessage?.reasoningBlocks.length-1]?.isStreaming,lastAnswerIsStreaming:currentMessage?.answerBlocks[currentMessage?.answerBlocks.length-1]?.isStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'A,B,C,D'})}).catch(()=>{});
-        // #endregion
-        
         // Check if we need to create a NEW reasoning block or continue existing one
         let shouldCreateNewReasoningBlock = false
         
@@ -299,11 +208,7 @@ export class WebSocketClient {
           // We need a new reasoning block
           this.currentReasoningBlockId = null
           this.currentAnswerBlockId = null
-          shouldCreateNewReasoningBlock = true
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-new-cycle',message:'Starting new reasoning cycle after answer',data:{thinkingMsgId,completedAnswerBlockId:this.currentAnswerBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-        }
+          shouldCreateNewReasoningBlock = true}
         // Case 2: If we have a reasoning block, check if it's still streaming
         else if (this.currentReasoningBlockId) {
           const currentMessage = useChatStore.getState().assistantMessages[thinkingMsgId]
@@ -313,26 +218,15 @@ export class WebSocketClient {
             if (currentReasoningBlock.isStreaming) {
               // Reasoning block is still streaming - this is a CONTINUATION of the same block
               // We should UPDATE it, not create a new one
-              shouldCreateNewReasoningBlock = false
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-continue-existing',message:'Continuing existing reasoning block',data:{thinkingMsgId,reasoningBlockId:this.currentReasoningBlockId,isStreaming:currentReasoningBlock.isStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'})}).catch(()=>{});
-              // #endregion
-            } else {
+              shouldCreateNewReasoningBlock = false} else {
               // Reasoning block is completed - this is a NEW reasoning block
               shouldCreateNewReasoningBlock = true
-              this.currentReasoningBlockId = null
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-old-completed',message:'Previous reasoning block completed, creating new one',data:{thinkingMsgId,oldReasoningBlockId:this.currentReasoningBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'})}).catch(()=>{});
-              // #endregion
-            }
+              this.currentReasoningBlockId = null}
           } else {
             // Reasoning block not found in store - create new one
             const missingReasoningBlockId = this.currentReasoningBlockId
             shouldCreateNewReasoningBlock = true
             this.currentReasoningBlockId = null
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-block-not-found',message:'Reasoning block not found in store, creating new',data:{thinkingMsgId,missingReasoningBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'})}).catch(()=>{});
-            // #endregion
           }
         }
         // Case 3: No reasoning block exists - create new one
@@ -343,9 +237,6 @@ export class WebSocketClient {
         // Create new reasoning block if needed
         if (shouldCreateNewReasoningBlock) {
           this.currentReasoningBlockId = `reasoning-${Date.now()}`
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-start-block',message:'Starting new reasoning block',data:{thinkingMsgId,reasoningBlockId:this.currentReasoningBlockId,reasoningBlockTimestamp:new Date().toISOString()},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A,C'})}).catch(()=>{});
-          // #endregion
           chatStore.startReasoningBlock(thinkingMsgId, this.currentReasoningBlockId)
         }
         
@@ -353,29 +244,15 @@ export class WebSocketClient {
         // At this point, currentReasoningBlockId must be set (either existing or newly created)
         if (!this.currentReasoningBlockId) {
           console.error('[WebSocket] ERROR: currentReasoningBlockId is null when trying to update reasoning block')
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-error-no-block-id',message:'ERROR: currentReasoningBlockId is null',data:{thinkingMsgId,contentLength:thinkingMessage.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
           break
         }
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-before-update-call',message:'Before updateReasoningBlock call',data:{thinkingMsgId,reasoningBlockId:this.currentReasoningBlockId,contentLength:thinkingMessage.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         chatStore.updateReasoningBlock(thinkingMsgId, this.currentReasoningBlockId, thinkingMessage)
         addDebugChunkIfEnabled(thinkingMsgId, 'thinking', thinkingMessage, event.data)
-        // #region agent log
-        const afterUpdateState = useChatStore.getState()
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking-after-update',message:'After reasoning block update',data:{thinkingMsgId,reasoningBlockId:this.currentReasoningBlockId,hasMessage:!!afterUpdateState.assistantMessages[thinkingMsgId],reasoningBlocksCount:afterUpdateState.assistantMessages[thinkingMsgId]?.reasoningBlocks.length||0,lastReasoningContentLength:afterUpdateState.assistantMessages[thinkingMsgId]?.reasoningBlocks[afterUpdateState.assistantMessages[thinkingMsgId]?.reasoningBlocks.length-1]?.content.length||0,lastReasoningIsStreaming:afterUpdateState.assistantMessages[thinkingMsgId]?.reasoningBlocks[afterUpdateState.assistantMessages[thinkingMsgId]?.reasoningBlocks.length-1]?.isStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B,E'})}).catch(()=>{});
-        // #endregion
         console.log('[WebSocket] Updated reasoning block:', this.currentReasoningBlockId, 'content length:', thinkingMessage.length)
         break
 
       case 'message_chunk':
         // Streaming answer content
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-entry',message:'MESSAGE_CHUNK event received',data:{hasCurrentMessageId:!!this.currentMessageId,currentMessageId:this.currentMessageId,eventMessageId:event.data.message_id,hasCurrentReasoningBlockId:!!this.currentReasoningBlockId,currentReasoningBlockId:this.currentReasoningBlockId,hasCurrentAnswerBlockId:!!this.currentAnswerBlockId,currentAnswerBlockId:this.currentAnswerBlockId,chunkLength:event.data.content?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C,F'})}).catch(()=>{});
-        // #endregion
         const chunkContent = event.data.content || ''
         
         // CRITICAL FIX: If event.data.message_id exists and differs from currentMessageId,
@@ -387,9 +264,6 @@ export class WebSocketClient {
           // No current message, use event message_id or create new
           chunkMsgId = eventMessageId || `msg-${Date.now()}`
           this.currentMessageId = chunkMsgId
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-created-messageid',message:'Created new messageId from message_chunk',data:{newMessageId:chunkMsgId,eventMessageId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-          // #endregion
         } else if (eventMessageId && eventMessageId !== this.currentMessageId) {
           // Event has different message_id - copy reasoning block to new message
           const oldMessageId = this.currentMessageId
@@ -468,81 +342,68 @@ export class WebSocketClient {
                   this.currentReasoningBlockId = lastReasoningBlock.id
                 }
               }
-              
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-copied-reasoning',message:'Copied reasoning blocks to new message',data:{oldMessageId,newMessageId:chunkMsgId,reasoningBlocksCount:reasoningBlocksToCopy.length,reasoningBlockIds:reasoningBlocksToCopy.map((b:any)=>b.id),currentReasoningBlockId:this.currentReasoningBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-              // #endregion
             }
           } else if (this.currentReasoningBlockId && oldMessage) {
             // Fallback: copy single reasoning block if currentReasoningBlockId is set
-            const reasoningBlock = oldMessage.reasoningBlocks.find((b: any) => b.id === this.currentReasoningBlockId)
+            const reasoningBlock = oldMessage.reasoningBlocks?.find((b: any) => b.id === this.currentReasoningBlockId)
             if (reasoningBlock) {
-                // Create reasoning block in new message with same content
-                // Use existing methods, then update timestamp to preserve order
-                const state = useChatStore.getState()
-                const existing = state.assistantMessages[chunkMsgId]
-                
-                if (!existing) {
-                  // Create new message with reasoning block
-                  useChatStore.getState().startReasoningBlock(chunkMsgId, this.currentReasoningBlockId)
-                  useChatStore.getState().updateReasoningBlock(chunkMsgId, this.currentReasoningBlockId, reasoningBlock.content)
-                  // Update timestamp to preserve original order
-                  const updatedState = useChatStore.getState()
-                  const updatedMessage = updatedState.assistantMessages[chunkMsgId]
-                  if (updatedMessage) {
-                    const updatedBlocks = updatedMessage.reasoningBlocks.map(b =>
-                      b.id === this.currentReasoningBlockId
-                        ? { ...b, timestamp: reasoningBlock.timestamp }
-                        : b
-                    )
-                    useChatStore.setState((state) => ({
-                      assistantMessages: {
-                        ...state.assistantMessages,
-                        [chunkMsgId]: {
-                          ...updatedMessage,
-                          reasoningBlocks: updatedBlocks,
-                        },
+              // Create reasoning block in new message with same content
+              // Use existing methods, then update timestamp to preserve order
+              const state = useChatStore.getState()
+              const existing = state.assistantMessages[chunkMsgId]
+              
+              if (!existing) {
+                // Create new message with reasoning block
+                useChatStore.getState().startReasoningBlock(chunkMsgId, this.currentReasoningBlockId)
+                useChatStore.getState().updateReasoningBlock(chunkMsgId, this.currentReasoningBlockId, reasoningBlock.content)
+                // Update timestamp to preserve original order
+                const updatedState = useChatStore.getState()
+                const updatedMessage = updatedState.assistantMessages[chunkMsgId]
+                if (updatedMessage) {
+                  const updatedBlocks = updatedMessage.reasoningBlocks.map(b =>
+                    b.id === this.currentReasoningBlockId
+                      ? { ...b, timestamp: reasoningBlock.timestamp }
+                      : b
+                  )
+                  useChatStore.setState((state) => ({
+                    assistantMessages: {
+                      ...state.assistantMessages,
+                      [chunkMsgId]: {
+                        ...updatedMessage,
+                        reasoningBlocks: updatedBlocks,
                       },
-                    }))
-                  }
-                } else {
-                  // Add to existing message
-                  useChatStore.getState().startReasoningBlock(chunkMsgId, this.currentReasoningBlockId)
-                  useChatStore.getState().updateReasoningBlock(chunkMsgId, this.currentReasoningBlockId, reasoningBlock.content)
-                  // Update timestamp to preserve original order
-                  const updatedState = useChatStore.getState()
-                  const updatedMessage = updatedState.assistantMessages[chunkMsgId]
-                  if (updatedMessage) {
-                    const updatedBlocks = updatedMessage.reasoningBlocks.map(b =>
-                      b.id === this.currentReasoningBlockId
-                        ? { ...b, timestamp: reasoningBlock.timestamp }
-                        : b
-                    )
-                    useChatStore.setState((state) => ({
-                      assistantMessages: {
-                        ...state.assistantMessages,
-                        [chunkMsgId]: {
-                          ...updatedMessage,
-                          reasoningBlocks: updatedBlocks,
-                        },
-                      },
-                    }))
-                  }
+                    },
+                  }))
                 }
-                // #region agent log
-                fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-copied-reasoning',message:'Copied reasoning block to new message with preserved timestamp',data:{oldMessageId,newMessageId:chunkMsgId,reasoningBlockId:this.currentReasoningBlockId,reasoningContentLength:reasoningBlock.content.length,originalTimestamp:reasoningBlock.timestamp},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                // #endregion
+              } else {
+                // Add to existing message
+                useChatStore.getState().startReasoningBlock(chunkMsgId, this.currentReasoningBlockId)
+                useChatStore.getState().updateReasoningBlock(chunkMsgId, this.currentReasoningBlockId, reasoningBlock.content)
+                // Update timestamp to preserve original order
+                const updatedState = useChatStore.getState()
+                const updatedMessage = updatedState.assistantMessages[chunkMsgId]
+                if (updatedMessage) {
+                  const updatedBlocks = updatedMessage.reasoningBlocks.map(b =>
+                    b.id === this.currentReasoningBlockId
+                      ? { ...b, timestamp: reasoningBlock.timestamp }
+                      : b
+                  )
+                  useChatStore.setState((state) => ({
+                    assistantMessages: {
+                      ...state.assistantMessages,
+                      [chunkMsgId]: {
+                        ...updatedMessage,
+                        reasoningBlocks: updatedBlocks,
+                      },
+                    },
+                  }))
+                }
               }
             }
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-switched-messageid',message:'Switched messageId for message_chunk',data:{oldMessageId,newMessageId:chunkMsgId,eventMessageId,hasReasoningBlock:!!this.currentReasoningBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-          // #endregion
+          }
         } else {
           // Use existing currentMessageId
           chunkMsgId = this.currentMessageId as string
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-using-existing',message:'Using existing messageId for message_chunk',data:{existingMessageId:chunkMsgId,eventMessageId,messageIdsMatch:chunkMsgId===eventMessageId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-          // #endregion
         }
         
         // CRITICAL: If we have an active reasoning block, complete it (answer is starting)
@@ -554,9 +415,6 @@ export class WebSocketClient {
           if (currentMessage) {
             const reasoningBlock = currentMessage.reasoningBlocks.find((b: any) => b.id === this.currentReasoningBlockId)
             if (reasoningBlock) {
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-complete-reasoning',message:'Completing reasoning block before answer',data:{chunkMsgId,reasoningBlockId:this.currentReasoningBlockId,reasoningIsStreaming:reasoningBlock.isStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C,F'})}).catch(()=>{});
-              // #endregion
               chatStore.completeReasoningBlock(chunkMsgId, this.currentReasoningBlockId)
             }
           }
@@ -566,22 +424,12 @@ export class WebSocketClient {
         // Get or create answer block
         if (!this.currentAnswerBlockId) {
           this.currentAnswerBlockId = `answer-${Date.now()}`
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-start-answer',message:'Starting new answer block',data:{chunkMsgId,answerBlockId:this.currentAnswerBlockId,answerBlockTimestamp:new Date().toISOString(),hasActiveReasoning:!!this.currentReasoningBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'B,D'})}).catch(()=>{});
-          // #endregion
           chatStore.startAnswerBlock(chunkMsgId, this.currentAnswerBlockId)
         }
         
         // Update answer block content (replace, not append - backend sends accumulated content)
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-before-update',message:'Before answer block update',data:{chunkMsgId,answerBlockId:this.currentAnswerBlockId,contentLength:chunkContent.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         chatStore.updateAnswerBlock(chunkMsgId, this.currentAnswerBlockId, chunkContent)
         addDebugChunkIfEnabled(chunkMsgId, 'message_chunk', chunkContent, { ...event.data, chunk: event.data.chunk })
-        // #region agent log
-        const afterAnswerUpdate = useChatStore.getState()
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_chunk-after-update',message:'After answer block update',data:{chunkMsgId,answerBlockId:this.currentAnswerBlockId,hasMessage:!!afterAnswerUpdate.assistantMessages[chunkMsgId],answerBlocksCount:afterAnswerUpdate.assistantMessages[chunkMsgId]?.answerBlocks.length||0,lastAnswerContentLength:afterAnswerUpdate.assistantMessages[chunkMsgId]?.answerBlocks[afterAnswerUpdate.assistantMessages[chunkMsgId]?.answerBlocks.length-1]?.content.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C,E'})}).catch(()=>{});
-        // #endregion
         console.log('[WebSocket] Updated answer block:', this.currentAnswerBlockId, 'content length:', chunkContent.length)
         break
 
@@ -679,12 +527,6 @@ export class WebSocketClient {
           event.data.steps || [],
           event.data.confirmation_id || null
         )
-        // #region agent log
-        const stateAfterPlan = useChatStore.getState()
-        const activeId = stateAfterPlan.activeWorkflowId
-        const workflow = activeId ? stateAfterPlan.workflows[activeId] : null
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated-verify',message:'Verify plan set',data:{activeWorkflowId:activeId,hasWorkflow:!!workflow,stepsCount:workflow?.plan.steps.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'verify',hypothesisId:'VERIFY'})}).catch(()=>{});
-        // #endregion
         console.log('[WebSocket] Plan generated:', event.data.plan)
         break
 
@@ -700,19 +542,7 @@ export class WebSocketClient {
         // Ensure active workflow exists before starting step
         ensureActiveWorkflow()
         // Start a new workflow step - use getState() to get fresh state after set
-        // #region agent log
-        const stateBeforeStepStart = useChatStore.getState()
-        const activeIdBefore = stateBeforeStepStart.activeWorkflowId
-        const workflowBefore = activeIdBefore ? stateBeforeStepStart.workflows[activeIdBefore] : null
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:step_start',message:'step_start event received',data:{step:event.data.step,title:event.data.title,activeWorkflowId:activeIdBefore,hasWorkflow:!!workflowBefore,workflowStepsCount:workflowBefore ? Object.keys(workflowBefore.steps).length : 0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
-        // #endregion
         useChatStore.getState().startWorkflowStep(event.data.step, event.data.title || `Step ${event.data.step}`)
-        // #region agent log
-        const stateAfterStepStart = useChatStore.getState()
-        const activeIdAfter = stateAfterStepStart.activeWorkflowId
-        const workflowAfter = activeIdAfter ? stateAfterStepStart.workflows[activeIdAfter] : null
-        fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:step_start-after',message:'After startWorkflowStep',data:{step:event.data.step,activeWorkflowId:activeIdAfter,workflowStepsCount:workflowAfter ? Object.keys(workflowAfter.steps).length : 0,currentStep:workflowAfter?.currentStep},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'STEP'})}).catch(()=>{});
-        // #endregion
         console.log('[WebSocket] Step started:', event.data.step, event.data.title)
         break
 
@@ -759,6 +589,14 @@ export class WebSocketClient {
         useChatStore.getState().setAgentTyping(false)
         break
 
+      case 'user_assistance_request':
+        console.log('[WebSocket] User assistance requested:', event.data)
+        // Store the assistance request in chat store
+        const assistanceState = useChatStore.getState()
+        assistanceState.setUserAssistanceRequest(event.data)
+        assistanceState.setAgentTyping(false)
+        break
+
       case 'workflow_stopped':
         console.log('[WebSocket] Workflow stopped by user:', event.data)
         // Workflow stopped by user request
@@ -773,6 +611,16 @@ export class WebSocketClient {
         console.log('[WebSocket] Workflow completed')
         break
 
+      case 'final_result':
+        // Set final result for the active workflow
+        const finalResultWorkflowId = ensureActiveWorkflow()
+        if (finalResultWorkflowId) {
+          chatStore.setWorkflowFinalResult(finalResultWorkflowId, event.data.content)
+        }
+        chatStore.setAgentTyping(false)
+        console.log('[WebSocket] Final result received')
+        break
+
       case 'error':
         const errorMsgId = this.currentMessageId || `msg-${Date.now()}`
         addDebugChunkIfEnabled(errorMsgId, 'error', event.data.message || 'Ошибка', event.data)
@@ -784,27 +632,32 @@ export class WebSocketClient {
         // Don't set agentTyping to false here - let message_complete handle it
         // This ensures proper cleanup if message_complete arrives after error
         break
+      }
+    } catch (error) {
+      console.error('[WebSocket] Error handling event:', event.type, error, event.data)
+      // Don't throw - we want to continue processing future events
     }
   }
 
   sendMessage(message: string): boolean {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
-        this.ws.send(JSON.stringify({
+        const payload = JSON.stringify({
           type: 'message',
           content: message,
-        }))
+        })
+        this.ws.send(payload)
         return true
       } catch (error) {
         console.error('Error sending WebSocket message:', error)
         return false
       }
-    }
-    return false
+    }return false
   }
 
   isConnected(): boolean {
-    return this.ws !== null && this.ws.readyState === WebSocket.OPEN
+    const connected = this.ws !== null && this.ws.readyState === WebSocket.OPEN
+    return connected
   }
 
   approvePlan(confirmationId: string): void {
@@ -830,26 +683,13 @@ export class WebSocketClient {
   }
 
   stopGeneration(): void {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:stopGeneration',message:'stopGeneration called',data:{hasWs:!!this.ws,readyState:this.ws?.readyState,isOpen:this.ws?.readyState===WebSocket.OPEN},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:stopGeneration',message:'Sending stop_generation message',data:{readyState:this.ws.readyState},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       this.ws.send(JSON.stringify({
         type: 'stop_generation',
       }))
       console.log('[WebSocket] Stop generation requested')
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:stopGeneration',message:'stop_generation message sent, NOT disconnecting',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       // NOTE: Do NOT disconnect here - it closes the connection before the server can process the stop_generation message
       // The connection should remain open to receive workflow_stopped event
-    } else {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:stopGeneration',message:'WebSocket not open, cannot send stop_generation',data:{hasWs:!!this.ws,readyState:this.ws?.readyState},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
     }
   }
 

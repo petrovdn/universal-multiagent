@@ -198,6 +198,39 @@ class MCPConnection:
                         str(config_path.absolute())
                     ]
                     logger.info(f"[MCPConnection] Starting local Google Workspace MCP server: {command} {' '.join(args)}")
+                elif self.config.name == "onec":
+                    # Используем собственный локальный MCP сервер для 1C:Бухгалтерия
+                    from pathlib import Path
+                    import sys
+                    from src.utils.config_loader import get_config
+                    
+                    # Получаем путь к конфигу из конфига
+                    app_config = get_config()
+                    config_path = app_config.config_dir / "onec_config.json"
+                    if not config_path.exists():
+                        raise MCPConnectionError(
+                            "1C config not found. "
+                            "Please configure 1C OData connection first via /api/integrations/onec/config",
+                            server_name=self.config.name
+                        )
+                    
+                    # Запускаем локальный Python MCP сервер
+                    project_root = Path(__file__).parent.parent.parent
+                    server_script = project_root / "src" / "mcp_servers" / "onec_server.py"
+                    
+                    if not server_script.exists():
+                        raise MCPConnectionError(
+                            f"1C MCP server script not found at {server_script}",
+                            server_name=self.config.name
+                        )
+                    
+                    command = sys.executable
+                    args = [
+                        str(server_script),
+                        "--config-path",
+                        str(config_path.absolute())
+                    ]
+                    logger.info(f"[MCPConnection] Starting local 1C MCP server: {command} {' '.join(args)}")
                 else:
                     raise MCPConnectionError(f"Unknown MCP server: {self.config.name}")
                 
@@ -556,6 +589,7 @@ class MCPServerManager:
         self.connections["calendar"] = MCPConnection(config.calendar)
         self.connections["sheets"] = MCPConnection(config.sheets)
         self.connections["google_workspace"] = MCPConnection(config.google_workspace)
+        self.connections["onec"] = MCPConnection(config.onec)
     
     async def connect_all(self) -> Dict[str, bool]:
         """

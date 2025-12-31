@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain, Square } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
 import { useSettingsStore } from '../store/settingsStore'
@@ -9,6 +11,7 @@ import { ChatMessage } from './ChatMessage'
 import { Header } from './Header'
 import { PlanBlock } from './PlanBlock'
 import { StepProgress } from './StepProgress'
+import { UserAssistanceDialog } from './UserAssistanceDialog'
 
 interface AttachedFile {
   id: string
@@ -41,6 +44,7 @@ export function ChatInterface() {
     addMessage,
     setAgentTyping,
     clearWorkflow,
+    userAssistanceRequest,
   } = useChatStore()
   
   const { executionMode, setExecutionMode } = useSettingsStore()
@@ -149,7 +153,7 @@ export function ChatInterface() {
     let sessionId: string = currentSession || ''
     if (!sessionId) {
       try {
-        const sessionData = await createSession('instant', selectedModel || undefined)
+        const sessionData = await createSession(executionMode, selectedModel || undefined)
         sessionId = sessionData.session_id
         setCurrentSession(sessionId)
         wsClient.connect(sessionId)
@@ -256,7 +260,7 @@ export function ChatInterface() {
           await sendMessage({
             message: userMessage,
             session_id: currentSession,
-            execution_mode: 'instant',
+            execution_mode: executionMode,
             file_ids: fileIds,
           })
         } else {
@@ -267,7 +271,7 @@ export function ChatInterface() {
             await sendMessage({
               message: userMessage,
               session_id: currentSession,
-              execution_mode: 'instant',
+              execution_mode: executionMode,
             })
           }
         }
@@ -280,13 +284,13 @@ export function ChatInterface() {
         await sendMessage({
           message: userMessage,
           session_id: currentSession,
-          execution_mode: 'instant',
+          execution_mode: executionMode,
           file_ids: fileIds.length > 0 ? fileIds : undefined,
         })
       } else {
         // Create new session FIRST, then connect WebSocket, then send message
         console.log('[ChatInterface] Creating new session first')
-        const sessionData = await createSession('instant', selectedModel || undefined)
+        const sessionData = await createSession(executionMode, selectedModel || undefined)
         const newSessionId = sessionData.session_id
         console.log('[ChatInterface] New session created:', newSessionId)
         setCurrentSession(newSessionId)
@@ -317,7 +321,7 @@ export function ChatInterface() {
           await sendMessage({
             message: userMessage,
             session_id: newSessionId,
-            execution_mode: 'instant',
+            execution_mode: executionMode,
             file_ids: fileIds.length > 0 ? fileIds : undefined,
           })
         } else {
@@ -328,7 +332,7 @@ export function ChatInterface() {
             await sendMessage({
               message: userMessage,
               session_id: newSessionId,
-              execution_mode: 'instant',
+              execution_mode: executionMode,
             })
           }
         }
@@ -420,7 +424,16 @@ export function ChatInterface() {
   }
   
   return (
-    <div className="chat-container">
+    <>
+      {userAssistanceRequest && (
+        <UserAssistanceDialog
+          assistance_id={userAssistanceRequest.assistance_id}
+          question={userAssistanceRequest.question}
+          options={userAssistanceRequest.options}
+          context={userAssistanceRequest.context}
+        />
+      )}
+      <div className="chat-container">
       {/* Header */}
       <Header />
 
@@ -476,7 +489,7 @@ export function ChatInterface() {
                       prose-th:border prose-th:border-gray-300 prose-th:bg-gray-50 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
                       prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2
                       prose-tr:hover:bg-gray-50">
-                      {message.content}
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
                     </div>
                   </div>
                 </div>
@@ -798,5 +811,6 @@ export function ChatInterface() {
         </form>
       </div>
     </div>
+    </>
   )
 }

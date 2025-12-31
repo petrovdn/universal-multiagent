@@ -13,6 +13,7 @@ from src.agents.main_agent import MainAgent
 from src.agents.base_agent import StreamEvent
 from src.core.context_manager import ConversationContext
 from src.core.step_orchestrator import StepOrchestrator
+from src.core.task_classifier import TaskClassifier, TaskType
 from src.api.websocket_manager import get_websocket_manager
 from src.utils.audit import get_audit_logger
 from src.utils.config_loader import get_config
@@ -26,13 +27,16 @@ class AgentWrapper:
     """
     
     def __init__(self):
-        """Initialize agent wrapper."""
+        """
+Initialize agent wrapper."""
         # MainAgent will be created per request with model from context
         self._main_agent_cache: Dict[str, MainAgent] = {}
         self.ws_manager = get_websocket_manager()
         self.audit_logger = get_audit_logger()
         # Store active orchestrators for plan confirmation
         self._active_orchestrators: Dict[str, StepOrchestrator] = {}
+        # Task classifier for determining task complexity
+        self.task_classifier = TaskClassifier()
     
     def get_main_agent(self, model_name: Optional[str] = None) -> MainAgent:
         """
@@ -69,14 +73,7 @@ class AgentWrapper:
         Returns:
             Final execution result
         """
-        file_ids = file_ids or []
-        # #region agent log
-        log_data = json.dumps({"location": "agent_wrapper.py:process_message", "message": "process_message called", "data": {"user_message": user_message, "user_message_length": len(user_message), "user_message_preview": user_message[:200], "context_messages_count": len(context.messages), "last_context_message": context.messages[-1].get("content", "")[:100] if context.messages else None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "DUPLICATE"}).encode('utf-8')
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
-            f.write(log_data + b'\n')
-        # #endregion
-        
-        # Wait for WebSocket connection BEFORE sending any events
+        file_ids = file_ids or []# Wait for WebSocket connection BEFORE sending any events
         # This ensures events can be sent to the frontend
         import logging
         logger = logging.getLogger(__name__)
@@ -111,18 +108,7 @@ class AgentWrapper:
         )
         
         # Add message to context
-        # #region agent log
-        log_data = json.dumps({"location": "agent_wrapper.py:process_message", "message": "BEFORE add_message to context", "data": {"user_message": user_message[:100], "user_message_length": len(user_message), "context_messages_count_before": len(context.messages)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,C"}).encode('utf-8')
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
-            f.write(log_data + b'\n')
-        # #endregion
         context.add_message("user", user_message)
-        # #region agent log
-        log_data = json.dumps({"location": "agent_wrapper.py:process_message", "message": "AFTER add_message to context", "data": {"context_messages_count_after": len(context.messages), "last_message_content": context.messages[-1].get("content", "")[:100] if context.messages else None}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A,C"}).encode('utf-8')
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
-            f.write(log_data + b'\n')
-        # #endregion
-        
         # Send thinking event
         await self.ws_manager.send_event(
             session_id,
@@ -132,10 +118,54 @@ class AgentWrapper:
                 "message": "Analyzing your request..."
             }
         )
-        
         try:
-            # Use StepOrchestrator for multi-step execution
-            # Map execution_mode to orchestrator mode
+            # Classify task complexity
+            task_type = await self.task_classifier.classify_task(user_message, context)
+            
+            # #region agent log
+            import json
+            import time
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"agent_wrapper.py:process_message","message":"Task classification result","data":{"task_type":task_type.value,"user_message":user_message[:200],"execution_mode":context.execution_mode},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
+            # Simple tasks always use direct streaming (no plan shown), regardless of mode
+            if task_type == TaskType.SIMPLE:
+                logger.info(f"[AgentWrapper] Simple task detected, executing directly without workflow")
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"agent_wrapper.py:process_message","message":"Using simple task execution (no planning)","data":{"user_message":user_message[:200]},"timestamp":int(time.time()*1000)})+'\n')
+                except: pass
+                # #endregion
+                result = await self._execute_simple_task(
+                    user_message,
+                    context,
+                    session_id,
+                    file_ids
+                )
+                return result
+            
+            # Complex tasks use StepOrchestrator with planning
+            # Mode depends on execution_mode setting
+            logger.info(f"[AgentWrapper] Complex task detected, using StepOrchestrator")
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"agent_wrapper.py:process_message","message":"Using StepOrchestrator with planning","data":{"user_message":user_message[:200],"execution_mode":context.execution_mode},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
+            # CRITICAL: Stop and remove any existing orchestrator for this session
+            # This prevents mixing context from previous requests
+            if session_id in self._active_orchestrators:
+                old_orchestrator = self._active_orchestrators[session_id]
+                logger.info(f"[AgentWrapper] Stopping previous orchestrator for session {session_id}")
+                old_orchestrator.stop()
+                del self._active_orchestrators[session_id]
+            
             if context.execution_mode == "approval":
                 orchestrator_mode = "plan_and_confirm"
             else:
@@ -178,6 +208,7 @@ class AgentWrapper:
             
         except Exception as e:
             # Extract detailed error message
+            import traceback
             error_message = str(e)
             if not error_message or error_message.strip() == "":
                 # Try to get message from exception attributes
@@ -186,25 +217,34 @@ class AgentWrapper:
                 elif hasattr(e, 'args') and len(e.args) > 0:
                     error_message = str(e.args[0])
                 else:
-                    error_message = f"Произошла ошибка: {type(e).__name__}"
+                    error_message = "Произошла ошибка: {type}".format(type=type(e).__name__)
+
+            # Keep traceback in standard logs (no NDJSON debug instrumentation)
+            error_traceback = traceback.format_exc()
+            logger.error(f"[AgentWrapper] Error processing message:\n{error_traceback}")
+            
+            # Escape braces in error message to avoid f-string syntax errors
+            def _escape_braces(text: str) -> str:
+                return text.replace("{", "{{").replace("}", "}}")
+            escaped_error_message = _escape_braces(error_message)
             
             # Send error event
             await self.ws_manager.send_event(
                 session_id,
                 "error",
                 {
-                    "message": error_message,
+                    "message": error_message,  # Send original, not escaped
                     "type": type(e).__name__
                 }
             )
             
-            # Also send as system message for better visibility
+            # Also send as system message for better visibility (use .format() instead of f-string)
             await self.ws_manager.send_event(
                 session_id,
                 "message",
                 {
                     "role": "system",
-                    "content": f"Ошибка: {error_message}"
+                    "content": "Ошибка: {error}".format(error=escaped_error_message)
                 }
             )
             
@@ -237,7 +277,6 @@ class AgentWrapper:
         
         session_id_val = getattr(context, 'session_id', 'NOT SET')
         logger.info(f"[AgentWrapper] Starting streaming execution, context.session_id: {session_id_val}")
-        
         try:
             # Execute agent with real-time event streaming
             # Events are sent directly to WebSocket via callback in _execute_with_event_streaming
@@ -246,12 +285,10 @@ class AgentWrapper:
                 context,
                 session_id
             )
-            
             logger.info(f"[AgentWrapper] Streaming execution SUCCESS")
             
             # Add agent response to context
             context.add_message("assistant", result.get("response", ""))
-            
             return result
             
         except Exception as e:
@@ -267,27 +304,32 @@ class AgentWrapper:
                 else:
                     error_message = f"Произошла ошибка: {type(e).__name__}"
             
+            # Escape braces in error message to avoid f-string syntax errors
+            def _escape_braces(text: str) -> str:
+                return text.replace("{", "{{").replace("}", "}}")
+            escaped_error_message = _escape_braces(error_message)
+            
             # Import exception types
             from src.utils.exceptions import ToolExecutionError, MCPError
             
-            # Create user-friendly error message
+            # Create user-friendly error message using .format() instead of f-string to avoid issues with escaped content
             if isinstance(e, ToolExecutionError):
-                friendly_message = f"Не удалось выполнить операцию: {error_message}"
+                friendly_message = "Не удалось выполнить операцию: {error}".format(error=escaped_error_message)
             elif isinstance(e, MCPError):
-                friendly_message = f"Ошибка подключения к сервису: {error_message}"
+                friendly_message = "Ошибка подключения к сервису: {error}".format(error=escaped_error_message)
             else:
-                friendly_message = f"Ошибка: {error_message}"
+                friendly_message = "Ошибка: {error}".format(error=escaped_error_message)
             
             # Error events are already sent from base_agent and stream_event_callback
             # But if error occurs before execute_with_streaming is called, we need to send message_complete here
             
-            # Send system message with error
+            # Send system message with error (already escaped in friendly_message)
             await self.ws_manager.send_event(
                 session_id,
                 "message",
                 {
                     "role": "system",
-                    "content": f"Ошибка: {friendly_message}"
+                    "content": friendly_message
                 }
             )
             
@@ -317,6 +359,147 @@ class AgentWrapper:
                     delattr(self, '_current_streaming_message_id')
             
             raise Exception(friendly_message) from e
+    
+    async def _execute_simple_task(
+        self,
+        user_message: str,
+        context: ConversationContext,
+        session_id: str,
+        file_ids: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute simple task directly without workflow/planning.
+        
+        Args:
+            user_message: User's message
+            context: Conversation context
+            session_id: Session identifier
+            file_ids: Optional list of file IDs to attach
+            
+        Returns:
+            Execution result
+        """
+        file_ids = file_ids or []
+        logger.info(f"[AgentWrapper] Executing simple task: {user_message[:50]}")
+        
+        # Use direct streaming execution (no workflow)
+        result = await self._execute_with_streaming(
+            user_message,
+            context,
+            session_id
+        )
+        
+        # Generate final result summary
+        try:
+            final_result = await self._generate_simple_task_result(
+                user_message,
+                result.get("response", ""),
+                context
+            )
+            
+            # Send final_result event
+            await self.ws_manager.send_event(
+                session_id,
+                "final_result",
+                {
+                    "content": final_result,
+                    "summary": True
+                }
+            )
+        except Exception as e:
+            logger.error(f"[AgentWrapper] Error generating final result for simple task: {e}")
+            # Don't fail the whole task if result generation fails
+        
+        # Log the action
+        self.audit_logger.log_agent_action(
+            "AgentWrapper",
+            "execute_simple_task",
+            {"message": user_message, "result": "completed"},
+            session_id=session_id
+        )
+        return {
+            "status": "completed",
+            "response": result.get("response", ""),
+            "type": "simple_execution"
+        }
+    
+    async def _generate_simple_task_result(
+        self,
+        user_request: str,
+        response: str,
+        context: ConversationContext
+    ) -> str:
+        """
+        Generate final result summary for simple task.
+        
+        Args:
+            user_request: Original user request
+            response: Agent response
+            context: Conversation context
+            
+        Returns:
+            Final result text
+        """
+        from langchain_core.messages import SystemMessage, HumanMessage
+        from src.agents.model_factory import create_llm
+        
+        system_prompt = """Ты эксперт по созданию финальных ответов пользователям. Создай прямой и информативный ответ на исходный запрос пользователя.
+
+⚠️ ВАЖНО: ВСЕ ответы должны быть на РУССКОМ языке! ⚠️
+
+Твоя задача:
+1. Проанализировать исходный запрос пользователя
+2. Использовать предоставленные данные как контекст для формирования ответа
+3. Создать понятный финальный ответ, который напрямую отвечает на запрос пользователя
+4. НЕ упоминай процесс выполнения, попытки, инструменты или технические детали
+5. НЕ создавай отчет о выполнении - создай именно ответ на запрос
+
+Формат ответа:
+- Прямой ответ на запрос пользователя
+- Ключевая информация, которая была запрошена
+- Если нужно, структурируй информацию для удобства чтения
+
+Будь конкретным, информативным и отвечай именно на то, что спросил пользователь."""
+
+        # Escape braces in user_request and response to avoid f-string syntax errors
+        def _escape_braces_for_fstring(text: str) -> str:
+            """
+Escape curly braces in text to safely use in f-strings."""
+            return text.replace("{", "{{").replace("}", "}}")
+        
+        escaped_user_request = _escape_braces_for_fstring(user_request)
+        escaped_response = _escape_braces_for_fstring(response) if response else ""
+        # Use .format() instead of f-string to avoid issues with escaped content containing {...}
+        user_prompt = """Исходный запрос пользователя: {user_request}
+
+Данные, полученные в результате выполнения запроса:
+{response}
+
+Создай финальный ответ пользователю, который напрямую отвечает на его запрос. Используй предоставленные данные для формирования ответа. НЕ упоминай процесс выполнения или технические детали - просто ответь на запрос.""".format(
+            user_request=escaped_user_request,
+            response=escaped_response
+        )
+        messages = [
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ]
+        
+        try:
+            # Use fast model for result generation
+            llm = create_llm("claude-3-haiku")
+            llm_response = await llm.ainvoke(messages)
+            final_result = llm_response.content.strip()
+            logger.info(f"[AgentWrapper] Generated final result for simple task, length: {len(final_result)}")
+            return final_result
+        except Exception as e:
+            logger.error(f"[AgentWrapper] Error generating final result: {e}")
+            # Fallback: return the response directly as final answer (without "Исходный запрос" header)
+            if response and response.strip():
+                escaped_response = _escape_braces_for_fstring(response[:1000] if len(response) > 1000 else response)
+                response_suffix = "..." if len(response) > 1000 else ""
+                return escaped_response + response_suffix
+            else:
+                return "Запрос выполнен."
     
     async def _execute_with_event_streaming(
         self,
@@ -351,11 +534,11 @@ class AgentWrapper:
         accumulated_tokens = ""
         
         async def stream_event_callback(event_type: str, data: Dict[str, Any]):
-            """Callback to handle streaming events and send to WebSocket."""
+            """
+Callback to handle streaming events and send to WebSocket."""
             nonlocal message_started, accumulated_tokens, message_id
             
             logger.debug(f"[AgentWrapper] Stream event: {event_type}, data keys: {list(data.keys())}")
-            
             if event_type == StreamEvent.THINKING:
                 # Send thinking/reasoning step
                 # message contains the accumulated thinking text
@@ -474,12 +657,7 @@ class AgentWrapper:
                     {
                         "message": error_msg
                     }
-                )
-                # #region agent log
-                logger.info(f"[AgentWrapper] ERROR event sent: {error_msg[:100]}, message_started: {message_started}")
-                # #endregion
-                
-                # Always send message_complete after error to signal end of streaming
+                )# Always send message_complete after error to signal end of streaming
                 # This ensures the frontend knows streaming is done even after error
                 # If message was started, complete it. If not, still send message_complete with empty content
                 logger.info(f"[AgentWrapper] Sending message_complete after error, message_id: {message_id}, message_started: {message_started}")
@@ -497,20 +675,17 @@ class AgentWrapper:
         logger.info(f"[AgentWrapper] Calling main_agent.execute_with_streaming")
         # Get MainAgent instance with model from context
         main_agent = self.get_main_agent(context.model_name)
-        
         try:
             result = await main_agent.execute_with_streaming(
                 user_message,
                 context,
                 event_callback=stream_event_callback
             )
-            
             logger.info(f"[AgentWrapper] Streaming execution complete, response length: {len(result.get('response', ''))}")
         finally:
             # Clean up message_id after streaming is done
             if hasattr(self, '_current_streaming_message_id'):
                 delattr(self, '_current_streaming_message_id')
-        
         return result
     
     async def _stream_message(
@@ -529,7 +704,6 @@ class AgentWrapper:
         """
         import logging
         logger = logging.getLogger(__name__)
-        
         try:
             message_id = f"stream_{asyncio.get_event_loop().time()}"
             logger.error(f"[AgentWrapper] Starting to stream message, length: {len(full_text)}, session: {session_id}")
@@ -614,7 +788,6 @@ class AgentWrapper:
         """
         # Get active orchestrator for this session
         orchestrator = self._active_orchestrators.get(session_id)
-        
         if orchestrator:
             # Verify confirmation_id matches
             if orchestrator.get_confirmation_id() != confirmation_id:
@@ -623,7 +796,6 @@ class AgentWrapper:
             # Confirm the plan in orchestrator
             # This will unblock the execute() method that is waiting for confirmation
             orchestrator.confirm_plan()
-            
             # The orchestrator.execute() method is already running (was called from process_message)
             # and is waiting for confirmation. Now that we've confirmed, it will continue execution.
             # We return immediately - the execution continues in the background
@@ -667,7 +839,6 @@ class AgentWrapper:
                     "content": "Plan executed successfully"
                 }
             )
-            
             return result
     
     async def reject_plan(
@@ -686,7 +857,6 @@ class AgentWrapper:
         """
         # Get active orchestrator for this session
         orchestrator = self._active_orchestrators.get(session_id)
-        
         if orchestrator:
             # Verify confirmation_id matches
             if orchestrator.get_confirmation_id() != confirmation_id:
@@ -714,6 +884,91 @@ class AgentWrapper:
                 }
             )
     
+    async def resolve_user_assistance(
+        self,
+        assistance_id: str,
+        user_response: str,
+        context: ConversationContext,
+        session_id: str
+    ) -> Dict[str, Any]:
+        """
+        Resolve a user assistance request with user's selection.
+        
+        Args:
+            assistance_id: Assistance request ID
+            user_response: User's response (number, ordinal, label, etc.)
+            context: Conversation context
+            session_id: Session identifier
+            
+        Returns:
+            Status dict
+        """
+        # #region agent log
+        import time
+        import json
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C,D","location":"agent_wrapper.py:resolve_user_assistance:entry","message":"resolve_user_assistance called","data":{"assistance_id":assistance_id,"user_response":user_response,"session_id":session_id},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        # Get active orchestrator for this session
+        orchestrator = self._active_orchestrators.get(session_id)
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"agent_wrapper.py:resolve_user_assistance:orchestrator_check","message":"Orchestrator check","data":{"orchestrator_found":orchestrator is not None,"active_orchestrators_keys":list(self._active_orchestrators.keys())},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        if orchestrator:
+            # Verify assistance_id matches
+            expected_id = orchestrator.get_user_assistance_id()
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"agent_wrapper.py:resolve_user_assistance:id_check","message":"Assistance ID check","data":{"expected_id":expected_id,"received_id":assistance_id,"match":expected_id == assistance_id},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
+            if expected_id != assistance_id:
+                logger.warning(f"[AgentWrapper] Assistance ID mismatch: expected {expected_id}, got {assistance_id}")
+                return {"status": "error", "message": "Assistance ID mismatch"}
+            
+            # Resolve the assistance request in orchestrator
+            # This will unblock the _execute_step method that is waiting for assistance
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"agent_wrapper.py:resolve_user_assistance:before_resolve","message":"Before orchestrator.resolve_user_assistance","data":{"user_response":user_response},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
+            orchestrator.resolve_user_assistance(assistance_id, user_response)
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"agent_wrapper.py:resolve_user_assistance:after_resolve","message":"After orchestrator.resolve_user_assistance","data":{},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
+            # The orchestrator.execute() method is already running and waiting for assistance.
+            # Now that we've resolved it, execution will continue.
+            return {
+                "status": "resolved",
+                "message": "User assistance resolved, execution continuing"
+            }
+        else:
+            logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}")
+            return {
+                "status": "error",
+                "message": "No active orchestrator found"
+            }
+    
     async def stop_generation(self, session_id: str) -> None:
         """
         Stop generation for a session.
@@ -721,22 +976,9 @@ class AgentWrapper:
         Args:
             session_id: Session identifier
         """
-        # #region agent log
-        import json
-        import time
-        log_data = json.dumps({"location": "agent_wrapper.py:stop_generation", "message": "stop_generation called", "data": {"session_id": session_id, "active_orchestrators_keys": list(self._active_orchestrators.keys()), "has_orchestrator": session_id in self._active_orchestrators}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
-            f.write(log_data + b'\n')
-        # #endregion
         # Get active orchestrator for this session
         orchestrator = self._active_orchestrators.get(session_id)
-        
         if orchestrator:
-            # #region agent log
-            log_data = json.dumps({"location": "agent_wrapper.py:stop_generation", "message": "Orchestrator found, calling stop()", "data": {"session_id": session_id, "orchestrator_id": id(orchestrator)}, "timestamp": time.time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}).encode('utf-8')
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'ab') as f:
-                f.write(log_data + b'\n')
-            # #endregion
             logger.info(f"[AgentWrapper] Stopping generation for session {session_id}")
             orchestrator.stop()
             
@@ -762,4 +1004,40 @@ class AgentWrapper:
             StepOrchestrator instance or None
         """
         return self._active_orchestrators.get(session_id)
+    
+    async def update_plan(
+        self,
+        confirmation_id: str,
+        updated_plan: Dict[str, Any],
+        context: ConversationContext,
+        session_id: str
+    ) -> Dict[str, Any]:
+        """
+        Update a pending plan before execution.
+        
+        Args:
+            confirmation_id: Confirmation ID
+            updated_plan: Updated plan with "plan" and "steps"
+            context: Conversation context
+            session_id: Session identifier
+            
+        Returns:
+            Update result
+        """
+        # Get active orchestrator for this session
+        orchestrator = self._active_orchestrators.get(session_id)
+        if orchestrator:
+            # Verify confirmation_id matches
+            if orchestrator.get_confirmation_id() != confirmation_id:
+                logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
+            
+            # Update the plan in orchestrator
+            orchestrator.update_pending_plan(updated_plan)
+            return {
+                "status": "updated",
+                "message": "Plan updated successfully"
+            }
+        else:
+            logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}")
+            raise Exception("No active orchestrator found for this session")
 

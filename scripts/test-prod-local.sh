@@ -45,3 +45,5 @@ docker run -it --rm \
     -v $(pwd)/data:/app/data \
     ${IMAGE_NAME}:${IMAGE_TAG}
 
+
+

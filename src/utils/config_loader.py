@@ -4,6 +4,7 @@ Loads and validates environment variables for the application.
 """
 
 import os
+import json
 from pathlib import Path
 from typing import Optional, List
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -37,7 +38,8 @@ else:
 
 
 class GoogleAuthConfig(BaseModel):
-    """Google authentication configuration (OAuth 2.0 only)."""
+    """
+Google authentication configuration (OAuth 2.0 only)."""
     
     oauth_client_id: str = Field(
         alias="GOOGLE_OAUTH_CLIENT_ID",
@@ -55,7 +57,8 @@ class GoogleAuthConfig(BaseModel):
     @field_validator("oauth_client_id", "oauth_client_secret")
     @classmethod
     def validate_oauth_required(cls, v):
-        """Validate that OAuth credentials are provided."""
+        """
+Validate that OAuth credentials are provided."""
         # Allow placeholder values for development/testing
         if v and isinstance(v, str) and v.strip().startswith("your-"):
             return v.strip()
@@ -65,7 +68,8 @@ class GoogleAuthConfig(BaseModel):
     
     @classmethod
     def from_env(cls) -> "GoogleAuthConfig":
-        """Create GoogleAuthConfig from environment variables."""
+        """
+Create GoogleAuthConfig from environment variables."""
         return cls(
             GOOGLE_OAUTH_CLIENT_ID=os.getenv("GOOGLE_OAUTH_CLIENT_ID", ""),
             GOOGLE_OAUTH_CLIENT_SECRET=os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", ""),
@@ -74,7 +78,8 @@ class GoogleAuthConfig(BaseModel):
 
 
 class MCPServerConfig(BaseModel):
-    """Configuration for a single MCP server."""
+    """
+    Configuration for a single MCP server."""
     
     name: str
     endpoint: str
@@ -91,17 +96,79 @@ class MCPServerConfig(BaseModel):
         return v
 
 
+class OneCConfig(BaseModel):
+    """
+    Configuration for 1C:Бухгалтерия OData connection."""
+    
+    odata_base_url: str = Field(description="Base URL for OData endpoint (e.g., https://your-domain.1cfresh.com/odata/standard.odata)")
+    username: str = Field(description="OData username")
+    password: str = Field(description="OData password")
+    organization_guid: Optional[str] = Field(default=None, description="Optional organization GUID for filtering")
+    
+    @field_validator("odata_base_url")
+    @classmethod
+    def validate_url(cls, v):
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"B","location":"config_loader.py:validate_url:entry","message":"validate_url called","data":{"input_value":v,"is_string":isinstance(v,str),"stripped":v.strip() if isinstance(v,str) else None,"starts_with_http":v.strip().startswith(('http://','https://')) if isinstance(v,str) else False},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        if not v or not isinstance(v, str) or not v.strip():
+            raise ValueError("OData base URL is required")
+        v = v.strip().rstrip('/')
+        if not v.startswith(('http://', 'https://')):
+            # #region debug log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"B","location":"config_loader.py:validate_url:validation_failed","message":"URL validation failed - not starting with http/https","data":{"input_value":v},"timestamp":int(__import__('time').time()*1000)})+'\n')
+            # #endregion
+            raise ValueError("OData base URL must start with http:// or https://")
+        
+        # Check if URL contains /odata/ - if not, it's likely incomplete
+        original_url = v
+        if '/odata/' not in v.lower():
+            # #region debug log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"E","location":"config_loader.py:validate_url:missing_odata","message":"URL missing /odata/ path - likely incomplete","data":{"input_value":original_url},"timestamp":int(__import__('time').time()*1000)})+'\n')
+            # #endregion
+            # Auto-append /odata/standard.odata if it's missing
+            v = v.rstrip('/') + '/odata/standard.odata'
+            # #region debug log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"E","location":"config_loader.py:validate_url:auto_appended","message":"Auto-appended /odata/standard.odata to URL","data":{"original":original_url,"final":v},"timestamp":int(__import__('time').time()*1000)})+'\n')
+            # #endregion
+        
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"B","location":"config_loader.py:validate_url:success","message":"URL validation passed","data":{"validated_url":v},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        return v
+    
+    @field_validator("username", "password")
+    @classmethod
+    def validate_credentials(cls, v):
+        if not v or not isinstance(v, str) or not v.strip():
+            raise ValueError("Username and password are required")
+        return v.strip()
+
+
 class MCPConfig(BaseModel):
-    """MCP servers configuration."""
+    """
+MCP servers configuration."""
     
     gmail: MCPServerConfig
     calendar: MCPServerConfig
     sheets: MCPServerConfig
     google_workspace: MCPServerConfig
+    onec: MCPServerConfig
     
     @classmethod
     def from_env(cls) -> "MCPConfig":
-        """Create MCPConfig from environment variables."""
+        """
+Create MCPConfig from environment variables."""
         return cls(
             gmail=MCPServerConfig(
                 name="gmail",
@@ -126,11 +193,18 @@ class MCPConfig(BaseModel):
                 transport=os.getenv("WORKSPACE_MCP_TRANSPORT", "stdio"),  # stdio для локального Python сервера
                 api_key=None,  # Не требуется для локального сервера
             ),
+            onec=MCPServerConfig(
+                name="onec",
+                endpoint=os.getenv("ONEC_MCP_ENDPOINT", "http://localhost:9005"),
+                transport=os.getenv("ONEC_MCP_TRANSPORT", "stdio"),  # stdio для локального Python сервера
+                api_key=None,  # Не требуется для локального сервера
+            ),
         )
 
 
 class AppConfig(BaseSettings):
-    """Main application configuration."""
+    """
+Main application configuration."""
     
     model_config = SettingsConfigDict(
         env_file="config/.env",
@@ -167,7 +241,8 @@ class AppConfig(BaseSettings):
     @field_validator("api_cors_origins_raw", mode="before")
     @classmethod
     def parse_cors_origins_raw(cls, v):
-        """Parse CORS origins raw string, handling empty/invalid values."""
+        """
+Parse CORS origins raw string, handling empty/invalid values."""
         import logging
         logger = logging.getLogger(__name__)
         print(f"[DEBUG][CORS] parse_cors_origins_raw called with: type={type(v)}, value={repr(v)}", flush=True)
@@ -190,7 +265,8 @@ class AppConfig(BaseSettings):
     @model_validator(mode="before")
     @classmethod
     def exclude_properties_from_env(cls, values):
-        """Exclude properties from env parsing."""
+        """
+Exclude properties from env parsing."""
         print(f"[DEBUG][MODEL_VALIDATOR] exclude_properties_from_env called with: {type(values)}", flush=True)
         if isinstance(values, dict):
             print(f"[DEBUG][MODEL_VALIDATOR] Keys before removal: {list(values.keys())[:10]}", flush=True)
@@ -201,7 +277,8 @@ class AppConfig(BaseSettings):
         return values
     
     def __init__(self, **kwargs):
-        """Override __init__ to exclude api_cors_origins from kwargs."""
+        """
+Override __init__ to exclude api_cors_origins from kwargs."""
         print(f"[DEBUG][INIT] AppConfig.__init__ called with keys: {list(kwargs.keys())[:10] if kwargs else []}", flush=True)
         # Remove api_cors_origins before calling super().__init__
         kwargs.pop("api_cors_origins", None)
@@ -210,7 +287,8 @@ class AppConfig(BaseSettings):
     
     @property
     def api_cors_origins(self):
-        """Parse CORS origins from string to list."""
+        """
+Parse CORS origins from string to list."""
         v = self.api_cors_origins_raw
         # Handle None or empty string
         if not v or not v.strip():
@@ -254,22 +332,26 @@ class AppConfig(BaseSettings):
     # Storage paths (computed properties)
     @property
     def tokens_dir(self) -> Path:
-        """Get directory for storing OAuth tokens."""
+        """
+Get directory for storing OAuth tokens."""
         return TOKENS_DIR
     
     @property
     def sessions_dir(self) -> Path:
-        """Get directory for storing sessions."""
+        """
+Get directory for storing sessions."""
         return SESSIONS_DIR
     
     @property
     def config_dir(self) -> Path:
-        """Get directory for configuration files."""
+        """
+Get directory for configuration files."""
         return CONFIG_DIR
     
     @property
     def is_production(self) -> bool:
-        """Check if running in production environment."""
+        """
+Check if running in production environment."""
         return IS_PRODUCTION
     
     @field_validator("log_level")
@@ -319,16 +401,6 @@ def get_config() -> AppConfig:
     
     if _config is None:
         print("[DEBUG][CONFIG] Creating new AppConfig instance", flush=True)
-        # #region agent log
-        try:
-            import os
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "config_loader.py:250", "message": "Creating AppConfig instance", "data": {"env_anthropic_set": bool(os.getenv("ANTHROPIC_API_KEY")), "env_openai_set": bool(os.getenv("OPENAI_API_KEY")), "env_anthropic_len": len(os.getenv("ANTHROPIC_API_KEY", "")), "env_openai_len": len(os.getenv("OPENAI_API_KEY", ""))}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-        except: pass
-        # #endregion
-        
         try:
             print("[DEBUG][CONFIG] Calling AppConfig() constructor", flush=True)
             _config = AppConfig()
@@ -338,15 +410,6 @@ def get_config() -> AppConfig:
             print(f"[DEBUG][CONFIG] Failed to create AppConfig: {e}", flush=True)
             print(f"[DEBUG][CONFIG] Traceback: {traceback.format_exc()}", flush=True)
             raise
-        
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "config_loader.py:253", "message": "AppConfig created, checking API keys", "data": {"anthropic_key_exists": bool(_config.anthropic_api_key), "anthropic_key_len": len(_config.anthropic_api_key) if _config.anthropic_api_key else 0, "anthropic_key_stripped_len": len(_config.anthropic_api_key.strip()) if _config.anthropic_api_key else 0, "openai_key_exists": bool(_config.openai_api_key), "openai_key_len": len(_config.openai_api_key) if _config.openai_api_key else 0, "openai_key_stripped_len": len(_config.openai_api_key.strip()) if _config.openai_api_key else 0}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + "\n")
-        except: pass
-        # #endregion
         
         # Ensure directories exist
         _config.tokens_dir.mkdir(parents=True, exist_ok=True)
@@ -366,22 +429,60 @@ def get_config() -> AppConfig:
             has_anthropic = bool(_config.anthropic_api_key and _config.anthropic_api_key.strip())
             has_openai = bool(_config.openai_api_key and _config.openai_api_key.strip())
             logger.info(f"API keys status: Anthropic={'set' if has_anthropic else 'missing'}, OpenAI={'set' if has_openai else 'missing'}")
-        
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "config_loader.py:275", "message": "Config validation complete", "data": {"missing_count": len(missing), "has_anthropic": bool(_config.anthropic_api_key and _config.anthropic_api_key.strip()), "has_openai": bool(_config.openai_api_key and _config.openai_api_key.strip())}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1", "hypothesisId": "C"}) + "\n")
-        except: pass
-        # #endregion
     
     return _config
 
 
 def reload_config() -> AppConfig:
-    """Reload configuration from environment."""
+    """
+Reload configuration from environment."""
     global _config
     _config = None
     return get_config()
+
+
+def get_onec_config() -> Optional[OneCConfig]:
+    """
+    Load 1C OData configuration from file.
+    
+    Returns:
+        OneCConfig instance or None if config file doesn't exist
+    """
+    config = get_config()
+    config_path = config.config_dir / "onec_config.json"
+    
+    if not config_path.exists():
+        return None
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return OneCConfig(**data)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to load 1C config from {config_path}: {e}")
+        return None
+
+
+def save_onec_config(onec_config: OneCConfig) -> None:
+    """
+    Save 1C OData configuration to file.
+    
+    Args:
+        onec_config: OneCConfig instance to save
+    """
+    config = get_config()
+    config_path = config.config_dir / "onec_config.json"
+    
+    # Ensure config directory exists
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Save config (password will be stored in plain text for demo purposes)
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump(onec_config.model_dump(), f, indent=2, ensure_ascii=False)
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"1C config saved to {config_path}")
 

@@ -9,54 +9,7 @@ from pathlib import Path
 
 from src.agents.base_agent import BaseAgent
 from src.mcp_tools.sheets_tools import get_sheets_tools
-from src.mcp_tools.workspace_tools import get_workspace_sheets_tools
 from src.mcp_tools.code_execution_tools import get_code_execution_tools
-from src.utils.config_loader import get_config
-
-
-def _is_workspace_integration_enabled() -> bool:
-    """
-    Check if Google Workspace integration is enabled and authenticated.
-    
-    Returns:
-        True if Workspace token exists and is valid, False otherwise
-    """
-    try:
-        config = get_config()
-        workspace_token_path = config.tokens_dir / "google_workspace_token.json"
-        
-        if not workspace_token_path.exists():
-            return False
-        
-        # Try to validate token
-        try:
-            from google.oauth2.credentials import Credentials
-            from google.auth.transport.requests import Request as GoogleRequest
-            
-            creds = Credentials.from_authorized_user_file(
-                str(workspace_token_path),
-                [
-                    "https://www.googleapis.com/auth/drive",
-                    "https://www.googleapis.com/auth/documents",
-                    "https://www.googleapis.com/auth/spreadsheets",
-                ]
-            )
-            
-            # Check if token is valid (not expired or can be refreshed)
-            if creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(GoogleRequest())
-                    # Save refreshed token
-                    with open(workspace_token_path, 'w') as token:
-                        token.write(creds.to_json())
-                except Exception:
-                    return False
-            
-            return creds.valid
-        except Exception:
-            return False
-    except Exception:
-        return False
 
 
 SHEETS_AGENT_SYSTEM_PROMPT = """You are an expert spreadsheet assistant specialized in spreadsheet operations.
@@ -137,22 +90,23 @@ class SheetsAgent(BaseAgent):
         """
         Initialize Sheets Agent.
         
-        If Google Workspace integration is enabled, uses Workspace Sheets tools
-        (which use the google_workspace MCP server). Otherwise, uses standalone
-        Sheets tools (which use the sheets MCP server).
+        Uses Sheets MCP server tools for all spreadsheet operations.
+        This provides access to all advanced spreadsheet features (formatting, 
+        sheet management, sorting, merging cells, etc.).
         
         Args:
-            tools: Custom tools (uses Sheets tools by default, or Workspace Sheets tools if Workspace is enabled)
+            tools: Custom tools (uses Sheets MCP tools by default)
             model_name: Model identifier (optional, uses default from config if None)
         """
         if tools is None:
-            # Check if Workspace integration is enabled
-            if _is_workspace_integration_enabled():
-                # Use Workspace Sheets tools (they use google_workspace MCP server)
-                base_tools = get_workspace_sheets_tools()
-            else:
-                # Use standalone Sheets tools (they use sheets MCP server)
-                base_tools = get_sheets_tools()
+            # Always use Sheets MCP tools (they use sheets MCP server)
+            # This provides more features than Workspace MCP for spreadsheet operations
+            base_tools = get_sheets_tools()
+            # #region debug log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"sheets_agent.py:104","message":"SheetsAgent initialized with Sheets MCP tools","data":{"tools_count":len(base_tools),"tool_names":[t.name for t in base_tools]},"timestamp":int(__import__('time').time()*1000)})+'\n')
+            # #endregion
             
             # Add code execution tools for dynamic data transformations
             code_tools = get_code_execution_tools()

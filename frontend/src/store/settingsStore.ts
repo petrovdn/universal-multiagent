@@ -19,6 +19,7 @@ interface IntegrationsState {
     folderName?: string
     folderId?: string
   }
+  onec: IntegrationInfo
 }
 
 interface SettingsState {
@@ -58,6 +59,10 @@ export const useSettingsStore = create<SettingsState>()(
           enabled: false,
           authenticated: false,
           folderConfigured: false,
+        },
+        onec: {
+          enabled: false,
+          authenticated: false,
         },
       },
       
