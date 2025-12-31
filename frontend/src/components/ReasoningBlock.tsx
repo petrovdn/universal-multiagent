@@ -81,9 +81,6 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
       >
         <Brain className="reasoning-block-icon" />
         <span className="reasoning-block-title">думаю...</span>
-        {block.isStreaming && (
-          <span className="reasoning-block-streaming-indicator" />
-        )}
         <button
           className="reasoning-block-toggle"
           onClick={(e) => {

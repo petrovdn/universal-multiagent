@@ -446,9 +446,8 @@ body {
   font-size: 13px;
   color: var(--text-secondary);
   flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-wrap: break-word;
 }
 
 /* ============================================
@@ -458,7 +457,7 @@ body {
   flex: 1 1 0%; /* Критично: flex-basis: 0% для правильного скролла */
   overflow-y: auto !important; /* auto - показываем скроллбар только когда нужно */
   overflow-x: hidden !important;
-  padding: 20px;
+  padding: 0;
   padding-bottom: 0; /* Убрали padding-bottom - контент сам создает отступ */
   padding-top: 50px; /* Место для Header (~40px) */
   scroll-behavior: smooth;
@@ -483,7 +482,7 @@ body {
   max-width: 900px;
   width: 100%;
   margin: 0 auto;
-  margin-top: 40px; /* Отступ между блоками взаимодействий */
+  margin-top: 0;
   margin-bottom: 0;
   padding: 16px 20px;
   background: var(--bg-secondary);
@@ -495,19 +494,122 @@ body {
   scroll-margin-top: 52px; /* Смещение для прокрутки (высота Header 40px + border 1px + отступ 11px) */
 }
 
-.user-query-flow-block:first-of-type {
+/* User interaction container - контейнер для каждого запроса */
+.user-interaction-container {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  margin-bottom: 40px; /* Отступ между разными запросами */
+  position: relative;
+  /* Для активного запроса используем overflow: hidden чтобы шаги не появлялись выше sticky-секции */
+  overflow: visible;
+}
+
+/* Для активного запроса обрезаем шаги выше sticky-секции */
+.user-interaction-container:has(.sticky-plan-section.sticky-active) {
+  /* Используем overflow: hidden чтобы шаги не появлялись выше sticky-секции */
+  /* Но это может скрыть шаги, если они не прокручиваются - нужно другое решение */
+  overflow: visible;
+  /* Вместо этого используем position: relative на scrollable-content */
+}
+
+/* Первый запрос прижимается к верху */
+.user-interaction-container:first-of-type {
   margin-top: 0;
 }
 
-/* Sticky plan section - закрепленная секция плана */
-.sticky-plan-section {
+/* Sticky query section - закрепленная секция запроса */
+/* Sticky для всех запросов */
+.sticky-query-section.sticky-active {
   position: sticky;
-  top: 50px; /* Под header */
-  z-index: 30;
+  top: 0; /* Доходит до самого верха страницы при прокрутке */
+  z-index: 20; /* Ниже header (95), но выше контента */
   background: var(--bg-primary);
   max-width: 900px;
   width: 100%;
   margin: 0 auto;
+  /* Перекрывает шаги - они не должны появляться выше */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  /* Убеждаемся, что фон полностью непрозрачный */
+  backdrop-filter: blur(0);
+  /* Добавляем нижнюю границу для визуального разделения */
+  border-bottom: 1px solid var(--border-secondary);
+  /* Минимальная высота чтобы перекрывать шаги */
+  min-height: fit-content;
+}
+
+/* Sticky plan section - закрепленная секция плана */
+/* Sticky для всех запросов */
+.sticky-plan-section.sticky-active {
+  position: sticky;
+  /* top устанавливается динамически через JavaScript (высота запроса + высоты предыдущих запросов) */
+  z-index: 21; /* Выше результата (22), но ниже header (95) */
+  background: var(--bg-primary);
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  /* Перекрывает шаги - они не должны появляться выше */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  /* Убеждаемся, что фон полностью непрозрачный */
+  backdrop-filter: blur(0);
+  /* Добавляем нижнюю границу для визуального разделения */
+  border-bottom: 1px solid var(--border-secondary);
+  /* Минимальная высота чтобы перекрывать шаги */
+  min-height: fit-content;
+}
+
+/* Обертка для прокручиваемого контента */
+.scrollable-content-wrapper {
+  position: relative;
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  /* Для активного запроса обрезаем шаги выше sticky-секции */
+  /* Вычисляем высоту sticky-секции динамически через CSS переменную или используем фиксированное значение */
+}
+
+.user-interaction-container:has(.sticky-plan-section.sticky-active) .scrollable-content-wrapper {
+  /* Используем mask чтобы скрыть шаги выше sticky-секции */
+  /* Вычисляем высоту sticky-секции - примерно высота запроса + плана */
+  /* Используем фиксированное значение для начала */
+  mask-image: linear-gradient(to bottom, transparent 0%, black 0%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 0%);
+  /* Вместо mask используем простое решение - убеждаемся, что sticky-секция перекрывает */
+  /* Лучше использовать position: relative и отрицательный margin-top */
+}
+
+/* Прокручиваемый контент внутри контейнера */
+.scrollable-content {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  /* Шаги скрыты под sticky-секцией - они не должны появляться выше */
+  position: relative;
+  z-index: 1;
+  margin-top: 0;
+  /* Используем transform чтобы шаги не появлялись выше sticky-секции */
+  /* Но это может не сработать - нужно другое решение */
+}
+
+/* Sticky результат - останавливается на уровне плана */
+.sticky-result-section {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  position: relative;
+}
+
+.sticky-result-section.sticky-result-active {
+  position: sticky;
+  /* top устанавливается динамически через JavaScript (высота запроса + высота плана + высота шагов + высоты предыдущих запросов) */
+  z-index: 22; /* Выше плана (21), но ниже header (95) */
+  background: var(--bg-primary);
+  /* Добавляем верхнюю границу для визуального разделения */
+  border-top: 1px solid var(--border-secondary);
+  padding-top: 12px;
+  margin-top: 0;
+  /* Перекрывает шаги */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 /* Remove margins between plan blocks */
@@ -521,11 +623,19 @@ body {
   margin-bottom: 0 !important;
 }
 
+.plan-content-block .reasoning-block-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
 .user-query-flow-block .user-query-text {
-  font-size: 15px; /* Такой же размер, как в ответе нейросети */
+  font-size: 13px; /* Уменьшен для более компактного отображения */
   font-weight: 600; /* Жирный шрифт */
   color: var(--text-primary);
   line-height: 1.5;
+  white-space: normal;
+  word-wrap: break-word;
 }
 
 /* ============================================
@@ -978,10 +1088,12 @@ body {
   background: rgba(255, 255, 255, 0.5);
   flex-shrink: 0;
   user-select: none;
+  /* Динамическая высота заголовка - зависит от количества строк */
+  min-height: 27.5px;
+  box-sizing: border-box;
 }
 
 .reasoning-block-collapsed {
-  max-height: 27.5px !important; /* Увеличено на 10% для соответствия новому padding (было 25px) */
   min-height: 27.5px !important;
 }
 
@@ -1039,27 +1151,30 @@ body {
   flex-shrink: 0;
 }
 
-/* Пульсация иконки мозга при стриминге */
-@keyframes brainPulse {
-  0%, 100% {
-    color: #9CA3AF;
+/* Мигание иконки мозга при стриминге */
+@keyframes brainBlink {
+  0%, 50% {
+    opacity: 1;
   }
-  50% {
-    color: #3B82F6;
+  51%, 100% {
+    opacity: 0.3;
   }
 }
 
 .reasoning-block-streaming .reasoning-block-icon-wrapper svg[class*="Brain"],
 .reasoning-block-streaming .reasoning-block-icon[class*="Brain"] {
-  animation: brainPulse 1.5s ease-in-out infinite;
+  animation: brainBlink 1s ease-in-out infinite;
 }
 
 .reasoning-block-title {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   color: var(--text-secondary);
   text-transform: none;
   letter-spacing: 0.3px;
+  white-space: normal;
+  word-wrap: break-word;
+  line-height: 1.4;
 }
 
 .reasoning-block-streaming-indicator {
@@ -1081,13 +1196,12 @@ body {
 }
 
 .reasoning-block-content {
-  height: 84px;
   min-height: 84px;
-  max-height: 84px;
+  max-height: 40vh;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 12px 14px;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1.6;
   color: #111;
   white-space: pre-wrap;

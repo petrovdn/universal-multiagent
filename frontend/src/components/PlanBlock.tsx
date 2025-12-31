@@ -98,7 +98,7 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
             className="plan-content-block"
           >
             {workflowPlan.steps && workflowPlan.steps.length > 0 && (
-              <ol style={{ paddingLeft: '24px', margin: 0, fontSize: '14px', lineHeight: '1.6', color: '#111' }}>
+              <ol style={{ paddingLeft: '24px', margin: 0, fontSize: '13px', fontWeight: 'normal', lineHeight: '1.6', color: '#111' }}>
                 {workflowPlan.steps.map((step, index) => {
                   const stepNumber = index + 1
                   const stepData = workflow?.steps[stepNumber]

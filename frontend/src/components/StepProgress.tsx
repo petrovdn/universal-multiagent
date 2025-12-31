@@ -3,7 +3,6 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Brain, Loader2 } from 'lucide-react'
 import { useChatStore, WorkflowStep } from '../store/chatStore'
-import { FinalResultBlock } from './FinalResultBlock'
 import { CollapsibleBlock } from './CollapsibleBlock'
 
 interface StepProgressProps {
@@ -64,7 +63,13 @@ export function StepProgress({ workflowId }: StepProgressProps) {
   }
 
   return (
-    <div style={{ maxWidth: '900px', width: '100%', margin: '0 auto' }}>
+    <div style={{ 
+      maxWidth: '900px', 
+      width: '100%', 
+      margin: '0 auto',
+      /* Добавляем padding-top чтобы шаги не прилипали к sticky-секции */
+      paddingTop: '8px'
+    }}>
       {/* Render each step */}
       {planSteps.map((stepTitle, index) => {
         const stepNumber = index + 1
@@ -161,13 +166,6 @@ export function StepProgress({ workflowId }: StepProgressProps) {
           </div>
         )
       })}
-
-      {/* Show final result if available */}
-      {hasFinalResult && (
-        <div style={{ marginTop: '20px', maxWidth: '900px', width: '100%', marginLeft: 'auto', marginRight: 'auto' }}>
-          <FinalResultBlock content={workflow.finalResult!} />
-        </div>
-      )}
     </div>
   )
 }

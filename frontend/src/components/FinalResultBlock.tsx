@@ -20,15 +20,6 @@ export function FinalResultBlock({ content }: FinalResultBlockProps) {
       paddingTop: '24px',
       borderTop: '1px solid var(--border-secondary)'
     }}>
-      {/* Жирный заголовок */}
-      <h2 style={{ 
-        fontSize: '18px', 
-        fontWeight: '600', 
-        marginBottom: '16px',
-        color: '#1A1A1A'
-      }}>
-        Результат
-      </h2>
       <div className="prose max-w-none 
         prose-p:text-gray-900 
         prose-p:leading-6 prose-p:my-3 prose-p:text-[15px]

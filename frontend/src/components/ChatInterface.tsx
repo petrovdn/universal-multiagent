@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain, Square } from 'lucide-react'
@@ -11,6 +11,7 @@ import { ChatMessage } from './ChatMessage'
 import { Header } from './Header'
 import { PlanBlock } from './PlanBlock'
 import { StepProgress } from './StepProgress'
+import { FinalResultBlock } from './FinalResultBlock'
 import { UserAssistanceDialog } from './UserAssistanceDialog'
 
 interface AttachedFile {
@@ -33,6 +34,10 @@ export function ChatInterface() {
   const modeDropdownRef = useRef<HTMLDivElement>(null)
   const modelDropdownRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const stickyPlanSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const stickyResultSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const stepsSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+  const [resultTopPositions, setResultTopPositions] = useState<Record<string, number>>({})
   
   const {
     currentSession,
@@ -45,6 +50,8 @@ export function ChatInterface() {
     setAgentTyping,
     clearWorkflow,
     userAssistanceRequest,
+    workflows,
+    activeWorkflowId,
   } = useChatStore()
   
   const { executionMode, setExecutionMode } = useSettingsStore()
@@ -144,6 +151,124 @@ export function ChatInterface() {
       })
     }
   }, [shouldScrollToNew, messages.length])
+
+  // Функция для вычисления позиций всех запросов
+  const updateAllPositions = useCallback(() => {
+    // Получаем все запросы пользователя в порядке их появления
+    const userMessages = messages.filter(m => m.role === 'user')
+    
+    userMessages.forEach((userMessage, index) => {
+      const workflowId = userMessage.timestamp
+      
+      // Вычисляем сумму высот всех предыдущих запросов
+      let cumulativeHeight = 0
+      for (let i = 0; i < index; i++) {
+        const prevWorkflowId = userMessages[i].timestamp
+        const prevQuerySection = document.querySelector(`.user-interaction-container[data-workflow-id="${prevWorkflowId}"] .sticky-query-section.sticky-active`) as HTMLElement
+        const prevPlanSection = stickyPlanSectionRefs.current.get(prevWorkflowId)
+        const prevStepsSection = stepsSectionRefs.current.get(prevWorkflowId)
+        const prevResultSection = stickyResultSectionRefs.current.get(prevWorkflowId)
+        
+        if (prevQuerySection) {
+          const queryHeight = prevQuerySection.offsetHeight
+          const planHeight = prevPlanSection ? prevPlanSection.offsetHeight : 0
+          const stepsHeight = prevStepsSection ? prevStepsSection.offsetHeight : 0
+          const resultHeight = prevResultSection ? prevResultSection.offsetHeight : 0
+          cumulativeHeight += queryHeight + planHeight + stepsHeight + resultHeight
+        }
+      }
+      
+      // Устанавливаем позицию для текущего запроса
+      const querySection = document.querySelector(`.user-interaction-container[data-workflow-id="${workflowId}"] .sticky-query-section.sticky-active`) as HTMLElement
+      const planSection = stickyPlanSectionRefs.current.get(workflowId)
+      const resultSection = stickyResultSectionRefs.current.get(workflowId)
+      
+      if (querySection && planSection) {
+        // План останавливается после запроса
+        planSection.style.top = `${cumulativeHeight + querySection.offsetHeight}px`
+      }
+      
+      if (resultSection) {
+        const querySection = document.querySelector(`.user-interaction-container[data-workflow-id="${workflowId}"] .sticky-query-section.sticky-active`) as HTMLElement
+        const planSection = stickyPlanSectionRefs.current.get(workflowId)
+        
+        if (querySection && planSection) {
+          const queryHeight = querySection.offsetHeight
+          const planHeight = planSection.offsetHeight
+          // Результат останавливается после плана (без учета высоты шагов)
+          resultSection.style.top = `${cumulativeHeight + queryHeight + planHeight}px`
+        }
+      }
+    })
+  }, [messages])
+
+  // Обновляем позиции всех запросов при изменении размеров
+  useEffect(() => {
+    // Обновляем при монтировании и изменении размеров
+    updateAllPositions()
+    
+    // Используем ResizeObserver для отслеживания изменений размера всех элементов
+    const observers: ResizeObserver[] = []
+    
+    // Отслеживаем изменения размера всех запросов
+    stickyPlanSectionRefs.current.forEach((planSection, workflowId) => {
+      const querySection = document.querySelector(`.user-interaction-container[data-workflow-id="${workflowId}"] .sticky-query-section.sticky-active`) as HTMLElement
+      if (querySection) {
+        const observer = new ResizeObserver(() => {
+          updateAllPositions()
+        })
+        observer.observe(querySection)
+        observers.push(observer)
+      }
+      
+      if (planSection) {
+        const observer = new ResizeObserver(() => {
+          updateAllPositions()
+        })
+        observer.observe(planSection)
+        observers.push(observer)
+      }
+    })
+    
+    stepsSectionRefs.current.forEach((stepsSection) => {
+      if (stepsSection) {
+        const observer = new ResizeObserver(() => {
+          updateAllPositions()
+        })
+        observer.observe(stepsSection)
+        observers.push(observer)
+      }
+    })
+    
+    stickyResultSectionRefs.current.forEach((resultSection) => {
+      if (resultSection) {
+        const observer = new ResizeObserver(() => {
+          updateAllPositions()
+        })
+        observer.observe(resultSection)
+        observers.push(observer)
+      }
+    })
+
+    return () => {
+      observers.forEach(observer => observer.disconnect())
+    }
+  }, [messages, workflows, updateAllPositions])
+
+  // Обновляем позиции всех запросов после рендера всех элементов
+  useEffect(() => {
+    const updatePositions = () => {
+      updateAllPositions()
+    }
+
+    // Небольшая задержка для того, чтобы все элементы успели отрендериться
+    const timeout = setTimeout(updatePositions, 100)
+    
+    // Также обновляем сразу
+    updatePositions()
+
+    return () => clearTimeout(timeout)
+  }, [messages, workflows, updateAllPositions])
   
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -444,61 +569,79 @@ export function ChatInterface() {
           const isLastUserMessage = index === lastUserIndexInMessages
           
           if (message.role === 'user') {
+            const workflowId = message.timestamp
+            const workflow = workflows[workflowId]
+            const isActive = workflowId === activeWorkflowId
+            const isCompleted = !!workflow?.finalResult
+            
             return (
-              <React.Fragment key={`user-${index}-${message.timestamp}`}>
-                {/* Sticky section: user query + plan */}
-                <div className="sticky-plan-section">
+              <div 
+                key={`user-interaction-${workflowId}`} 
+                className="user-interaction-container"
+                data-workflow-id={workflowId}
+              >
+                {/* Sticky section: user query */}
+                <div className="sticky-query-section sticky-active">
                   <div 
                     ref={isLastUserMessage ? currentInteractionRef : null}
                     className="user-query-flow-block"
                   >
                     <span className="user-query-text">{message.content}</span>
                   </div>
-                  {/* Show workflow plan after user message */}
-                  <PlanBlock workflowId={message.timestamp} />
                 </div>
-                {/* Steps scroll below the sticky section */}
-                <StepProgress workflowId={message.timestamp} />
-              </React.Fragment>
+                {/* Sticky section: plan */}
+                <div 
+                  ref={(el) => {
+                    if (el) {
+                      stickyPlanSectionRefs.current.set(workflowId, el)
+                    } else {
+                      stickyPlanSectionRefs.current.delete(workflowId)
+                    }
+                  }}
+                  className="sticky-plan-section sticky-active"
+                >
+                  {/* Show workflow plan */}
+                  <PlanBlock workflowId={workflowId} />
+                </div>
+                {/* Прокручиваемый контент - шаги */}
+                {/* Обертываем в дополнительный контейнер для контроля видимости */}
+                <div 
+                  ref={(el) => {
+                    if (el) {
+                      stepsSectionRefs.current.set(workflowId, el)
+                    } else {
+                      stepsSectionRefs.current.delete(workflowId)
+                    }
+                  }}
+                  className="scrollable-content-wrapper"
+                >
+                  <div className="scrollable-content">
+                    <StepProgress workflowId={workflowId} />
+                  </div>
+                </div>
+                {/* Результат - sticky, останавливается после шагов */}
+                {isCompleted && workflow?.finalResult && (
+                  <div 
+                    ref={(el) => {
+                      if (el) {
+                        stickyResultSectionRefs.current.set(workflowId, el)
+                      } else {
+                        stickyResultSectionRefs.current.delete(workflowId)
+                      }
+                    }}
+                    className="sticky-result-section sticky-result-active"
+                  >
+                    <FinalResultBlock content={workflow.finalResult} />
+                  </div>
+                )}
+              </div>
             )
           }
           
           if (message.role === 'assistant') {
-            // Check if this message has metadata with reasoning blocks
-            const hasReasoningMetadata = message.metadata?.reasoningBlocks
-            if (hasReasoningMetadata) {
-              // CRITICAL FIX: Don't render empty assistant messages
-              // This prevents empty blocks from appearing when message.content is empty
-              if (!message.content || message.content.trim().length === 0) {
-                return null
-              }
-              // This is a completed message with reasoning - render as regular message
-              return (
-                <div key={`assistant-${index}-${message.timestamp}`} className="assistant-message-wrapper">
-                  <div className="w-full">
-                    <div className="prose max-w-none 
-                      prose-p:text-gray-900 
-                      prose-p:leading-6 prose-p:my-3 prose-p:text-[15px]
-                      prose-h1:text-gray-900 prose-h1:text-[20px] prose-h1:font-semibold prose-h1:mb-3 prose-h1:mt-6 prose-h1:first:mt-0 prose-h1:leading-tight
-                      prose-h2:text-gray-900 prose-h2:text-[18px] prose-h2:font-semibold prose-h2:mb-2 prose-h2:mt-5 prose-h2:leading-tight
-                      prose-h3:text-gray-900 prose-h3:text-[16px] prose-h3:font-semibold prose-h3:mb-2 prose-h3:mt-4 prose-h3:leading-tight
-                      prose-strong:text-gray-900 prose-strong:font-semibold
-                      prose-code:text-gray-900 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[13px] prose-code:border prose-code:border-gray-200
-                      prose-pre:bg-gray-100 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200 prose-pre:text-[13px] prose-pre:rounded-lg prose-pre:p-4
-                      prose-ul:text-gray-900 prose-ul:my-3
-                      prose-li:text-gray-900 prose-li:my-1.5 prose-li:text-[15px]
-                      prose-a:text-blue-600 prose-a:underline hover:prose-a:text-blue-700
-                      prose-blockquote:text-gray-600 prose-blockquote:border-l-gray-300 prose-blockquote:pl-4 prose-blockquote:my-3
-                      prose-table:w-full prose-table:border-collapse prose-table:my-4
-                      prose-th:border prose-th:border-gray-300 prose-th:bg-gray-50 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
-                      prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2
-                      prose-tr:hover:bg-gray-50">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
-                    </div>
-                  </div>
-                </div>
-              )
-            }
+            // Assistant messages are now handled through workflows and FinalResultBlock
+            // We don't render them here to avoid duplication
+            return null
           }
           
           if (message.role === 'system') {

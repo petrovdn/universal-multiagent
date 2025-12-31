@@ -17,7 +17,7 @@ export function AttemptBlock({ id, number, title, content, isStreaming, isVisibl
   const [wasStreaming, setWasStreaming] = useState(isStreaming)
   const [hasEverStreamed, setHasEverStreamed] = useState(isStreaming)
   const lastContentUpdateRef = useRef<number>(Date.now())
-  const collapseTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const collapseTimeoutRef = useRef<number | null>(null)
 
   // CRITICAL: Новый блок попытки должен всегда начинаться развернутым
   // Если блок только что начал стримиться (переход с false на true), разворачиваем его
