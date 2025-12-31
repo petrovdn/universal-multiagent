@@ -589,6 +589,14 @@ export class WebSocketClient {
         useChatStore.getState().setAgentTyping(false)
         break
 
+      case 'user_assistance_request':
+        console.log('[WebSocket] User assistance requested:', event.data)
+        // Store the assistance request in chat store
+        const assistanceState = useChatStore.getState()
+        assistanceState.setUserAssistanceRequest(event.data)
+        assistanceState.setAgentTyping(false)
+        break
+
       case 'workflow_stopped':
         console.log('[WebSocket] Workflow stopped by user:', event.data)
         // Workflow stopped by user request

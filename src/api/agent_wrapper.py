@@ -122,9 +122,24 @@ Initialize agent wrapper."""
             # Classify task complexity
             task_type = await self.task_classifier.classify_task(user_message, context)
             
+            # #region agent log
+            import json
+            import time
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"agent_wrapper.py:process_message","message":"Task classification result","data":{"task_type":task_type.value,"user_message":user_message[:200],"execution_mode":context.execution_mode},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
             # Simple tasks always use direct streaming (no plan shown), regardless of mode
             if task_type == TaskType.SIMPLE:
                 logger.info(f"[AgentWrapper] Simple task detected, executing directly without workflow")
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"agent_wrapper.py:process_message","message":"Using simple task execution (no planning)","data":{"user_message":user_message[:200]},"timestamp":int(time.time()*1000)})+'\n')
+                except: pass
+                # #endregion
                 result = await self._execute_simple_task(
                     user_message,
                     context,
@@ -136,6 +151,12 @@ Initialize agent wrapper."""
             # Complex tasks use StepOrchestrator with planning
             # Mode depends on execution_mode setting
             logger.info(f"[AgentWrapper] Complex task detected, using StepOrchestrator")
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"agent_wrapper.py:process_message","message":"Using StepOrchestrator with planning","data":{"user_message":user_message[:200],"execution_mode":context.execution_mode},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
             
             # CRITICAL: Stop and remove any existing orchestrator for this session
             # This prevents mixing context from previous requests
@@ -862,6 +883,91 @@ Callback to handle streaming events and send to WebSocket."""
                     "content": "Plan rejected. How would you like to proceed?"
                 }
             )
+    
+    async def resolve_user_assistance(
+        self,
+        assistance_id: str,
+        user_response: str,
+        context: ConversationContext,
+        session_id: str
+    ) -> Dict[str, Any]:
+        """
+        Resolve a user assistance request with user's selection.
+        
+        Args:
+            assistance_id: Assistance request ID
+            user_response: User's response (number, ordinal, label, etc.)
+            context: Conversation context
+            session_id: Session identifier
+            
+        Returns:
+            Status dict
+        """
+        # #region agent log
+        import time
+        import json
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C,D","location":"agent_wrapper.py:resolve_user_assistance:entry","message":"resolve_user_assistance called","data":{"assistance_id":assistance_id,"user_response":user_response,"session_id":session_id},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        # Get active orchestrator for this session
+        orchestrator = self._active_orchestrators.get(session_id)
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"agent_wrapper.py:resolve_user_assistance:orchestrator_check","message":"Orchestrator check","data":{"orchestrator_found":orchestrator is not None,"active_orchestrators_keys":list(self._active_orchestrators.keys())},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        if orchestrator:
+            # Verify assistance_id matches
+            expected_id = orchestrator.get_user_assistance_id()
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"agent_wrapper.py:resolve_user_assistance:id_check","message":"Assistance ID check","data":{"expected_id":expected_id,"received_id":assistance_id,"match":expected_id == assistance_id},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
+            if expected_id != assistance_id:
+                logger.warning(f"[AgentWrapper] Assistance ID mismatch: expected {expected_id}, got {assistance_id}")
+                return {"status": "error", "message": "Assistance ID mismatch"}
+            
+            # Resolve the assistance request in orchestrator
+            # This will unblock the _execute_step method that is waiting for assistance
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"agent_wrapper.py:resolve_user_assistance:before_resolve","message":"Before orchestrator.resolve_user_assistance","data":{"user_response":user_response},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
+            orchestrator.resolve_user_assistance(assistance_id, user_response)
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"agent_wrapper.py:resolve_user_assistance:after_resolve","message":"After orchestrator.resolve_user_assistance","data":{},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
+            # The orchestrator.execute() method is already running and waiting for assistance.
+            # Now that we've resolved it, execution will continue.
+            return {
+                "status": "resolved",
+                "message": "User assistance resolved, execution continuing"
+            }
+        else:
+            logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}")
+            return {
+                "status": "error",
+                "message": "No active orchestrator found"
+            }
     
     async def stop_generation(self, session_id: str) -> None:
         """

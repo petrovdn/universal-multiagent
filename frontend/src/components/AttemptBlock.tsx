@@ -16,6 +16,8 @@ export function AttemptBlock({ id, number, title, content, isStreaming, isVisibl
   const [isCollapsed, setIsCollapsed] = useState(false)
   const [wasStreaming, setWasStreaming] = useState(isStreaming)
   const [hasEverStreamed, setHasEverStreamed] = useState(isStreaming)
+  const lastContentUpdateRef = useRef<number>(Date.now())
+  const collapseTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // CRITICAL: Новый блок попытки должен всегда начинаться развернутым
   // Если блок только что начал стримиться (переход с false на true), разворачиваем его
@@ -29,14 +31,53 @@ export function AttemptBlock({ id, number, title, content, isStreaming, isVisibl
     }
   }, [isStreaming, id, hasEverStreamed])
 
-  // Автоматически сворачивать после завершения стриминга
+  // Отслеживать обновления контента
+  useEffect(() => {
+    lastContentUpdateRef.current = Date.now()
+    // Отменяем предыдущий таймер сворачивания, если контент обновился
+    if (collapseTimeoutRef.current) {
+      clearTimeout(collapseTimeoutRef.current)
+      collapseTimeoutRef.current = null
+    }
+  }, [content])
+
+  // Автоматически сворачивать после завершения стриминга с задержкой
+  // Это дает время последним чанкам контента обновиться
   useEffect(() => {
     if (wasStreaming && !isStreaming) {
-      // Стриминг завершен - сворачиваем блок
-      setIsCollapsed(true)
+      // Стриминг завершен - планируем сворачивание с задержкой
+      // Это дает время последним чанкам контента обновиться перед сворачиванием
+      if (collapseTimeoutRef.current) {
+        clearTimeout(collapseTimeoutRef.current)
+      }
+      collapseTimeoutRef.current = setTimeout(() => {
+        // Проверяем, что контент не обновлялся недавно (в течение последних 500ms)
+        const timeSinceLastUpdate = Date.now() - lastContentUpdateRef.current
+        if (timeSinceLastUpdate >= 500) {
+          setIsCollapsed(true)
+        } else {
+          // Контент обновился недавно - переносим сворачивание еще на 500ms
+          collapseTimeoutRef.current = setTimeout(() => {
+            setIsCollapsed(true)
+          }, 500)
+        }
+      }, 1000) // Задержка 1 секунда перед сворачиванием
+    } else if (isStreaming) {
+      // Стриминг возобновился - отменяем сворачивание
+      if (collapseTimeoutRef.current) {
+        clearTimeout(collapseTimeoutRef.current)
+        collapseTimeoutRef.current = null
+      }
     }
     setWasStreaming(isStreaming)
-  }, [isStreaming, wasStreaming])
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (collapseTimeoutRef.current) {
+        clearTimeout(collapseTimeoutRef.current)
+      }
+    }
+  }, [isStreaming, wasStreaming, id, content])
 
   // Разворачивать автоматически при начале стриминга (для уже существующих блоков)
   useEffect(() => {
@@ -47,6 +88,7 @@ export function AttemptBlock({ id, number, title, content, isStreaming, isVisibl
   }, [isStreaming, isCollapsed, hasEverStreamed, id])
 
   // Auto-scroll to bottom when content updates (scroll inside contentRef, not containerRef)
+  // Note: Content is always rendered (even when collapsed) to preserve all streaming content
   useEffect(() => {
     if (contentRef.current && isStreaming && !isCollapsed) {
       // contentRef is the scrollable element with overflow-y: auto
@@ -92,11 +134,10 @@ export function AttemptBlock({ id, number, title, content, isStreaming, isVisibl
           )}
         </button>
       </div>
-      {!isCollapsed && (
-        <div ref={contentRef} className="reasoning-block-content">
-          {content || (isStreaming ? 'Выполнение попытки...' : '')}
-        </div>
-      )}
+      {/* Always render content to preserve all streaming text, CSS hides it when collapsed */}
+      <div ref={contentRef} className="reasoning-block-content">
+        {content || (isStreaming ? 'Выполнение попытки...' : '')}
+      </div>
     </div>
   )
 }

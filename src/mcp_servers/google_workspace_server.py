@@ -67,6 +67,13 @@ class GoogleWorkspaceMCPServer:
         if self._workspace_folder_id is None:
             config = self._load_config()
             self._workspace_folder_id = config.get("folder_id")
+        # #region agent log
+        import time
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"google_workspace_server.py:_get_workspace_folder_id","message":"Workspace folder ID retrieved","data":{"folder_id":self._workspace_folder_id,"config_path":str(self.config_path)},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         return self._workspace_folder_id
     
     def _get_credentials(self) -> Credentials:
@@ -257,6 +264,57 @@ class GoogleWorkspaceMCPServer:
                     inputSchema={
                         "type": "object",
                         "properties": {}
+                    }
+                ),
+                Tool(
+                    name="workspace_open_file",
+                    description="Open and read a file by ID. Automatically detects file type (document or spreadsheet) and reads its content. For spreadsheets, reads the first sheet with up to 100 rows by default.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "fileId": {
+                                "type": "string",
+                                "description": "File ID or URL"
+                            },
+                            "maxRows": {
+                                "type": "integer",
+                                "description": "Maximum rows to read for spreadsheets (default: 100, use 0 for all rows)",
+                                "default": 100
+                            },
+                            "sheetName": {
+                                "type": "string",
+                                "description": "Sheet name for spreadsheets (default: first sheet)"
+                            }
+                        },
+                        "required": ["fileId"]
+                    }
+                ),
+                Tool(
+                    name="workspace_find_and_open_file",
+                    description="Search for a file by name and automatically open it. Returns file content if found.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "Search query for file name (case-insensitive)"
+                            },
+                            "mimeType": {
+                                "type": "string",
+                                "description": "Filter by MIME type (optional)"
+                            },
+                            "maxResults": {
+                                "type": "integer",
+                                "description": "Maximum number of files to search (default: 5)",
+                                "default": 5
+                            },
+                            "maxRows": {
+                                "type": "integer",
+                                "description": "Maximum rows to read for spreadsheets (default: 100)",
+                                "default": 100
+                            }
+                        },
+                        "required": ["query"]
                     }
                 ),
                 
@@ -506,6 +564,29 @@ class GoogleWorkspaceMCPServer:
                         "required": ["spreadsheetId"]
                     }
                 ),
+                Tool(
+                    name="sheets_read_all_data",
+                    description="Read all data from a spreadsheet sheet. Automatically detects the filled range and reads all content.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "spreadsheetId": {
+                                "type": "string",
+                                "description": "Spreadsheet ID or URL"
+                            },
+                            "sheetName": {
+                                "type": "string",
+                                "description": "Sheet name (default: first sheet)"
+                            },
+                            "maxRows": {
+                                "type": "integer",
+                                "description": "Maximum rows to read (default: 0 = all rows)",
+                                "default": 0
+                            }
+                        },
+                        "required": ["spreadsheetId"]
+                    }
+                ),
             ]
         
         @self.server.call_tool()
@@ -516,6 +597,14 @@ class GoogleWorkspaceMCPServer:
                 if name == "workspace_list_files":
                     drive_service = self._get_drive_service()
                     folder_id = self._get_workspace_folder_id()
+                    
+                    # #region agent log
+                    import time
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A,C","location":"google_workspace_server.py:workspace_list_files","message":"List files called","data":{"folder_id":folder_id,"arguments":arguments},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
                     
                     if not folder_id:
                         return [TextContent(
@@ -538,6 +627,13 @@ class GoogleWorkspaceMCPServer:
                     query = " and ".join(query_parts)
                     max_results = min(arguments.get("maxResults", 50), 100)
                     
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A,C","location":"google_workspace_server.py:workspace_list_files","message":"Drive API query constructed","data":{"final_query":query,"folder_id":folder_id},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
+                    
                     results = drive_service.files().list(
                         q=query,
                         pageSize=max_results,
@@ -548,6 +644,14 @@ class GoogleWorkspaceMCPServer:
                     ).execute()
                     
                     files = results.get('files', [])
+                    
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A,C","location":"google_workspace_server.py:workspace_list_files","message":"List files results received","data":{"files_count":len(files),"files":[{"id":f.get('id'),"name":f.get('name'),"mimeType":f.get('mimeType')} for f in files]},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
+                    
                     return [TextContent(
                         type="text",
                         text=json.dumps({
@@ -655,6 +759,14 @@ class GoogleWorkspaceMCPServer:
                     drive_service = self._get_drive_service()
                     folder_id = self._get_workspace_folder_id()
                     
+                    # #region agent log
+                    import time
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A,B,C","location":"google_workspace_server.py:workspace_search_files","message":"Search files called","data":{"folder_id":folder_id,"arguments":arguments},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
+                    
                     if not folder_id:
                         return [TextContent(
                             type="text",
@@ -673,14 +785,44 @@ class GoogleWorkspaceMCPServer:
                     query = " and ".join(query_parts)
                     max_results = min(arguments.get("maxResults", 20), 100)
                     
-                    results = drive_service.files().list(
-                        q=query,
-                        pageSize=max_results,
-                        fields="files(id, name, mimeType, createdTime, modifiedTime, webViewLink)",
-                        orderBy="modifiedTime desc"
-                    ).execute()
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A,B,C","location":"google_workspace_server.py:workspace_search_files","message":"Drive API query constructed","data":{"final_query":query,"folder_id":folder_id,"search_query":search_query,"mime_type":mime_type},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
                     
-                    files = results.get('files', [])
+                    # Collect all files with pagination to ensure we get all results
+                    files = []
+                    page_token = None
+                    while True:
+                        request = drive_service.files().list(
+                            q=query,
+                            pageSize=min(max_results, 100),  # Google API max is 100
+                            fields="nextPageToken, files(id, name, mimeType, createdTime, modifiedTime, webViewLink)",
+                            orderBy="modifiedTime desc"
+                        )
+                        if page_token:
+                            request.pageToken = page_token
+                        
+                        results = request.execute()
+                        page_files = results.get('files', [])
+                        files.extend(page_files)
+                        
+                        page_token = results.get('nextPageToken')
+                        if not page_token or len(files) >= max_results:
+                            break
+                    
+                    # Limit to max_results if we got more
+                    files = files[:max_results]
+                    
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"google_workspace_server.py:workspace_search_files","message":"Search results received","data":{"files_count":len(files),"page_token":page_token,"max_results":max_results,"files":[{"id":f.get('id'),"name":f.get('name'),"mimeType":f.get('mimeType'),"createdTime":f.get('createdTime')} for f in files]},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
+                    
                     return [TextContent(
                         type="text",
                         text=json.dumps({
@@ -739,6 +881,242 @@ class GoogleWorkspaceMCPServer:
                                 "error": str(e)
                             }, indent=2)
                         )]
+                
+                elif name == "workspace_open_file":
+                    drive_service = self._get_drive_service()
+                    file_id = self._extract_file_id(arguments.get("fileId"))
+                    max_rows = arguments.get("maxRows", 100)
+                    sheet_name = arguments.get("sheetName")
+                    
+                    # Get file info to determine type
+                    file_info = drive_service.files().get(
+                        fileId=file_id,
+                        fields="id, name, mimeType, webViewLink"
+                    ).execute()
+                    
+                    mime_type = file_info.get('mimeType', '')
+                    file_name = file_info.get('name', '')
+                    
+                    result_data = {
+                        "fileId": file_id,
+                        "fileName": file_name,
+                        "mimeType": mime_type,
+                        "url": file_info.get('webViewLink')
+                    }
+                    
+                    # Handle Google Docs
+                    if mime_type == "application/vnd.google-apps.document":
+                        docs_service = self._get_docs_service()
+                        document = docs_service.documents().get(documentId=file_id).execute()
+                        content = document.get('body', {}).get('content', [])
+                        text_content = self._extract_text_from_docs_content(content)
+                        result_data["type"] = "document"
+                        result_data["content"] = text_content
+                        result_data["title"] = document.get('title', file_name)
+                    
+                    # Handle Google Sheets
+                    elif mime_type == "application/vnd.google-apps.spreadsheet":
+                        sheets_service = self._get_sheets_service()
+                        
+                        # Get spreadsheet info to find sheet name
+                        spreadsheet = sheets_service.spreadsheets().get(
+                            spreadsheetId=file_id
+                        ).execute()
+                        
+                        sheets_list = spreadsheet.get('sheets', [])
+                        if not sheets_list:
+                            result_data["type"] = "spreadsheet"
+                            result_data["error"] = "No sheets found in spreadsheet"
+                        else:
+                            # Use provided sheet name or first sheet
+                            target_sheet = None
+                            if sheet_name:
+                                for sheet in sheets_list:
+                                    if sheet['properties']['title'] == sheet_name:
+                                        target_sheet = sheet
+                                        break
+                            
+                            if not target_sheet:
+                                target_sheet = sheets_list[0]
+                            
+                            sheet_title = target_sheet['properties']['title']
+                            grid_props = target_sheet['properties'].get('gridProperties', {})
+                            row_count = grid_props.get('rowCount', 0)
+                            col_count = grid_props.get('columnCount', 0)
+                            
+                            # Determine range to read
+                            if max_rows > 0 and max_rows < row_count:
+                                range_to_read = f"{sheet_title}!A1:{self._column_letter(col_count)}{max_rows}"
+                                actual_rows = max_rows
+                            else:
+                                range_to_read = f"{sheet_title}!A1:{self._column_letter(col_count)}{row_count}"
+                                actual_rows = row_count
+                            
+                            # Read data
+                            values_result = sheets_service.spreadsheets().values().get(
+                                spreadsheetId=file_id,
+                                range=range_to_read,
+                                valueRenderOption="FORMATTED_VALUE"
+                            ).execute()
+                            
+                            values = values_result.get('values', [])
+                            
+                            result_data["type"] = "spreadsheet"
+                            result_data["sheetName"] = sheet_title
+                            result_data["values"] = values
+                            result_data["rowCount"] = len(values)
+                            result_data["columnCount"] = len(values[0]) if values else 0
+                            result_data["range"] = range_to_read
+                    
+                    # Handle other file types
+                    else:
+                        result_data["type"] = "other"
+                        result_data["error"] = f"File type not supported for reading: {mime_type}"
+                    
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(result_data, indent=2, default=str)
+                    )]
+                
+                elif name == "workspace_find_and_open_file":
+                    drive_service = self._get_drive_service()
+                    folder_id = self._get_workspace_folder_id()
+                    
+                    if not folder_id:
+                        return [TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "error": "Workspace folder not configured. Please set workspace folder first."
+                            }, indent=2)
+                        )]
+                    
+                    search_query = arguments.get("query")
+                    mime_type = arguments.get("mimeType")
+                    max_results = min(arguments.get("maxResults", 5), 10)  # Limit to 10 for safety
+                    max_rows = arguments.get("maxRows", 100)
+                    
+                    # Build search query
+                    query_parts = [f"'{folder_id}' in parents", "trashed=false"]
+                    
+                    # Try case-insensitive search with variations
+                    query_variations = [
+                        f"name contains '{search_query}'",
+                        f"name contains '{search_query.lower()}'",
+                        f"name contains '{search_query.upper()}'",
+                        f"name contains '{search_query.capitalize()}'"
+                    ]
+                    
+                    if mime_type:
+                        query_parts.append(f"mimeType='{mime_type}'")
+                    
+                    files_found = []
+                    seen_ids = set()
+                    
+                    # Try each query variation
+                    for query_var in query_variations:
+                        if len(files_found) >= max_results:
+                            break
+                        
+                        full_query = " and ".join(query_parts + [query_var])
+                        try:
+                            results = drive_service.files().list(
+                                q=full_query,
+                                pageSize=max_results,
+                                fields="files(id, name, mimeType, webViewLink)",
+                                orderBy="modifiedTime desc"
+                            ).execute()
+                            
+                            for f in results.get('files', []):
+                                file_id = f.get('id')
+                                if file_id and file_id not in seen_ids:
+                                    seen_ids.add(file_id)
+                                    files_found.append(f)
+                                    if len(files_found) >= max_results:
+                                        break
+                        except Exception:
+                            continue
+                    
+                    if not files_found:
+                        return [TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "query": search_query,
+                                "error": "No files found",
+                                "files": []
+                            }, indent=2)
+                        )]
+                    
+                    # Open the first file found
+                    first_file = files_found[0]
+                    file_id = first_file.get('id')
+                    file_mime_type = first_file.get('mimeType', '')
+                    
+                    # Use workspace_open_file logic
+                    result_data = {
+                        "query": search_query,
+                        "fileId": file_id,
+                        "fileName": first_file.get('name'),
+                        "mimeType": file_mime_type,
+                        "url": first_file.get('webViewLink'),
+                        "filesFound": len(files_found),
+                        "allMatches": [
+                            {"id": f.get('id'), "name": f.get('name'), "mimeType": f.get('mimeType')}
+                            for f in files_found
+                        ]
+                    }
+                    
+                    # Read content based on type
+                    if file_mime_type == "application/vnd.google-apps.document":
+                        docs_service = self._get_docs_service()
+                        document = docs_service.documents().get(documentId=file_id).execute()
+                        content = document.get('body', {}).get('content', [])
+                        text_content = self._extract_text_from_docs_content(content)
+                        result_data["type"] = "document"
+                        result_data["content"] = text_content
+                        result_data["title"] = document.get('title', first_file.get('name'))
+                    
+                    elif file_mime_type == "application/vnd.google-apps.spreadsheet":
+                        sheets_service = self._get_sheets_service()
+                        spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=file_id).execute()
+                        sheets_list = spreadsheet.get('sheets', [])
+                        
+                        if sheets_list:
+                            target_sheet = sheets_list[0]
+                            sheet_title = target_sheet['properties']['title']
+                            grid_props = target_sheet['properties'].get('gridProperties', {})
+                            row_count = grid_props.get('rowCount', 0)
+                            col_count = grid_props.get('columnCount', 0)
+                            
+                            if max_rows > 0 and max_rows < row_count:
+                                range_to_read = f"{sheet_title}!A1:{self._column_letter(col_count)}{max_rows}"
+                            else:
+                                range_to_read = f"{sheet_title}!A1:{self._column_letter(col_count)}{row_count}"
+                            
+                            values_result = sheets_service.spreadsheets().values().get(
+                                spreadsheetId=file_id,
+                                range=range_to_read,
+                                valueRenderOption="FORMATTED_VALUE"
+                            ).execute()
+                            
+                            values = values_result.get('values', [])
+                            result_data["type"] = "spreadsheet"
+                            result_data["sheetName"] = sheet_title
+                            result_data["values"] = values
+                            result_data["rowCount"] = len(values)
+                            result_data["columnCount"] = len(values[0]) if values else 0
+                            result_data["range"] = range_to_read
+                        else:
+                            result_data["type"] = "spreadsheet"
+                            result_data["error"] = "No sheets found"
+                    
+                    else:
+                        result_data["type"] = "other"
+                        result_data["error"] = f"File type not supported: {file_mime_type}"
+                    
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(result_data, indent=2, default=str)
+                    )]
                 
                 # ========== DOCS OPERATIONS ==========
                 elif name == "docs_create":
@@ -1035,11 +1413,26 @@ class GoogleWorkspaceMCPServer:
                     range_name = arguments.get("range")
                     value_render_option = arguments.get("valueRenderOption", "FORMATTED_VALUE")
                     
+                    # #region agent log
+                    import time
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"google_workspace_server.py:sheets_read_range","message":"Reading spreadsheet range via Workspace MCP","data":{"spreadsheet_id":spreadsheet_id,"range":range_name,"original_id":arguments.get("spreadsheetId")},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
+                    
                     result = sheets_service.spreadsheets().values().get(
                         spreadsheetId=spreadsheet_id,
                         range=range_name,
                         valueRenderOption=value_render_option
                     ).execute()
+                    
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"google_workspace_server.py:sheets_read_range","message":"Spreadsheet read result via Workspace MCP","data":{"spreadsheet_id":spreadsheet_id,"range":range_name,"row_count":len(result.get('values', []))},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
                     
                     values = result.get('values', [])
                     
@@ -1138,6 +1531,74 @@ class GoogleWorkspaceMCPServer:
                         }, indent=2)
                     )]
                 
+                elif name == "sheets_read_all_data":
+                    sheets_service = self._get_sheets_service()
+                    spreadsheet_id = self._extract_spreadsheet_id(arguments.get("spreadsheetId"))
+                    sheet_name = arguments.get("sheetName")
+                    max_rows = arguments.get("maxRows", 0)  # 0 means all rows
+                    
+                    # Get spreadsheet info
+                    spreadsheet = sheets_service.spreadsheets().get(
+                        spreadsheetId=spreadsheet_id
+                    ).execute()
+                    
+                    sheets_list = spreadsheet.get('sheets', [])
+                    if not sheets_list:
+                        return [TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "error": "No sheets found in spreadsheet",
+                                "spreadsheetId": spreadsheet_id
+                            }, indent=2)
+                        )]
+                    
+                    # Find target sheet
+                    target_sheet = None
+                    if sheet_name:
+                        for sheet in sheets_list:
+                            if sheet['properties']['title'] == sheet_name:
+                                target_sheet = sheet
+                                break
+                    
+                    if not target_sheet:
+                        target_sheet = sheets_list[0]
+                    
+                    sheet_title = target_sheet['properties']['title']
+                    grid_props = target_sheet['properties'].get('gridProperties', {})
+                    row_count = grid_props.get('rowCount', 0)
+                    col_count = grid_props.get('columnCount', 0)
+                    
+                    # Determine range
+                    if max_rows > 0 and max_rows < row_count:
+                        range_to_read = f"{sheet_title}!A1:{self._column_letter(col_count)}{max_rows}"
+                        actual_rows = max_rows
+                    else:
+                        range_to_read = f"{sheet_title}!A1:{self._column_letter(col_count)}{row_count}"
+                        actual_rows = row_count
+                    
+                    # Read data
+                    values_result = sheets_service.spreadsheets().values().get(
+                        spreadsheetId=spreadsheet_id,
+                        range=range_to_read,
+                        valueRenderOption="FORMATTED_VALUE"
+                    ).execute()
+                    
+                    values = values_result.get('values', [])
+                    
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "spreadsheetId": spreadsheet_id,
+                            "sheetName": sheet_title,
+                            "range": range_to_read,
+                            "values": values,
+                            "rowCount": len(values),
+                            "columnCount": len(values[0]) if values else 0,
+                            "totalRowsInSheet": row_count,
+                            "totalColumnsInSheet": col_count
+                        }, indent=2)
+                    )]
+                
                 else:
                     raise ValueError(f"Unknown tool: {name}")
             
@@ -1182,6 +1643,16 @@ class GoogleWorkspaceMCPServer:
                 text_parts.append("\n\n")
         
         return "".join(text_parts)
+    
+    @staticmethod
+    def _column_letter(n: int) -> str:
+        """Convert column number (1-based) to Excel column letter (A, B, ..., Z, AA, AB, ...)."""
+        result = ""
+        while n > 0:
+            n -= 1
+            result = chr(65 + (n % 26)) + result
+            n //= 26
+        return result
     
     async def run(self):
         """Run the MCP server."""

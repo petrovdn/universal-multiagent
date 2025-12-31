@@ -38,8 +38,8 @@ class TaskClassifier:
             "good morning", "good evening", "good afternoon",
             # Благодарности
             "спасибо", "thanks", "thank you", "благодарю", "благодарствую",
-            # Прощания
-            "пока", "bye", "goodbye", "до свидания", "до встречи",
+            # Прощания (only exact word matches to avoid matching "пока" in "покажи")
+            "bye", "goodbye", "до свидания", "до встречи",
             "see you", "see ya",
             # Простые вопросы
             "как дела", "how are you", "как поживаешь",
@@ -56,6 +56,7 @@ class TaskClassifier:
             "план", "plan", "список", "list",
             "сравни", "compare", "сравнение",
             "загрузи", "upload", "скачай", "download",
+            "покажи", "show", "открой", "open", "открыть",  # Actions that require multiple steps
         ]
     
     def _get_llm(self):
@@ -79,23 +80,56 @@ class TaskClassifier:
         """
         request_lower = user_request.lower().strip()
         
-        # PRIORITY 1: Check simple keywords FIRST (fastest path for common cases)
-        # This catches most simple requests immediately without further checks
-        for keyword in self.simple_keywords:
-            if keyword in request_lower:
-                return TaskType.SIMPLE
+        # #region agent log
+        import json
+        import time
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:_heuristic_classify","message":"Heuristic classification started","data":{"user_request":user_request[:200],"request_lower":request_lower[:200]},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         
-        # PRIORITY 2: Check for complex task indicators
+        # Extract words for word-boundary matching
+        words = set(re.findall(r'\b\w+\b', request_lower))
+        
+        # PRIORITY 1: Check complex keywords FIRST (they take precedence)
         # If we find complex keywords, it's definitely complex
         for keyword in self.complex_keywords:
-            if keyword in request_lower:
+            # Check if keyword is a complete word or a significant substring (>= 4 chars)
+            if keyword in words or (len(keyword) >= 4 and keyword in request_lower):
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:_heuristic_classify","message":"Complex keyword found","data":{"keyword":keyword,"result":"COMPLEX","matched_as_word":keyword in words},"timestamp":int(time.time()*1000)})+'\n')
+                except: pass
+                # #endregion
                 return TaskType.COMPLEX
+        
+        # PRIORITY 2: Check simple keywords (only if no complex keywords found)
+        # This catches most simple requests immediately without further checks
+        # Use word boundaries to avoid false matches (e.g., "покажи" should not match "пока")
+        for keyword in self.simple_keywords:
+            # Check if keyword is a complete word (to avoid false matches like "пока" in "покажи")
+            if keyword in words:
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:_heuristic_classify","message":"Simple keyword found","data":{"keyword":keyword,"result":"SIMPLE","matched_as_word":True},"timestamp":int(time.time()*1000)})+'\n')
+                except: pass
+                # #endregion
+                return TaskType.SIMPLE
         
         # PRIORITY 3: Check length and structure
         # Very short requests (1-3 words) without complex keywords are usually simple
-        words = request_lower.split()
-        if len(words) <= 3 and len(request_lower) < 30:
+        words_list = request_lower.split()
+        if len(words_list) <= 3 and len(request_lower) < 30:
             # Short and simple - likely a simple task
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:_heuristic_classify","message":"Short request detected","data":{"word_count":len(words_list),"length":len(request_lower),"result":"SIMPLE"},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
             return TaskType.SIMPLE
         
         # PRIORITY 4: Check for complexity indicators
@@ -113,6 +147,12 @@ class TaskClassifier:
             return TaskType.COMPLEX
         
         # Uncertain - return None to use LLM
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:_heuristic_classify","message":"Heuristic uncertain, will use LLM","data":{"user_request":user_request[:200]},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         return None
     
     async def _llm_classify(self, user_request: str, context: ConversationContext) -> TaskType:
@@ -189,10 +229,26 @@ class TaskClassifier:
         # If heuristic is confident - return result
         if heuristic_result is not None:
             logger.info(f"[TaskClassifier] Heuristic classification: {heuristic_result.value} for request: {user_request[:50]}")
+            # #region agent log
+            import json
+            import time
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:classify_task","message":"Final classification (heuristic)","data":{"result":heuristic_result.value,"user_request":user_request[:200]},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
             return heuristic_result
         
         # Step 2: LLM classification for edge cases
         llm_result = await self._llm_classify(user_request, context)
         logger.info(f"[TaskClassifier] LLM classification: {llm_result.value} for request: {user_request[:50]}")
+        # #region agent log
+        import json
+        import time
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:classify_task","message":"Final classification (LLM)","data":{"result":llm_result.value,"user_request":user_request[:200]},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         return llm_result
 

@@ -43,7 +43,7 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
       }
     }
     setWasStreaming(block.isStreaming)
-  }, [block.isStreaming, shouldAutoCollapse, wasStreaming, answerBlock])
+  }, [block.isStreaming, shouldAutoCollapse, wasStreaming, answerBlock, block.id, block.content])
 
   // Разворачивать автоматически при начале стриминга reasoning (для уже существующих блоков)
   useEffect(() => {
@@ -53,6 +53,7 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
   }, [block.isStreaming, isCollapsed, hasEverStreamed, block.id])
 
   // Auto-scroll to bottom when content updates (scroll inside contentRef, not containerRef)
+  // Note: Content is always rendered (even when collapsed) to preserve all streaming content
   useEffect(() => {
     if (contentRef.current && block.isStreaming && !isCollapsed) {
       // contentRef is the scrollable element with overflow-y: auto
@@ -98,11 +99,10 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
           )}
         </button>
       </div>
-      {!isCollapsed && (
-        <div ref={contentRef} className="reasoning-block-content">
-          {block.content || (block.isStreaming ? 'Анализирую запрос...' : '')}
-        </div>
-      )}
+      {/* Always render content to preserve all streaming text, CSS hides it when collapsed */}
+      <div ref={contentRef} className="reasoning-block-content">
+        {block.content || (block.isStreaming ? 'Анализирую запрос...' : '')}
+      </div>
     </div>
   )
 }

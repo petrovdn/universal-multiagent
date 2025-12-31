@@ -96,7 +96,8 @@ async def _try_case_variations_for_search_files(
 ) -> List[Dict[str, Any]]:
     """
     Try searching with multiple case variations for search_files tool.
-    Handles queries that may already be in Drive API format (e.g., 'name contains "term"').
+    Handles queries that may already be in Drive API format (e.g., 'name contains "term"') or simple text.
+    Generates variations for case (тест2 → Тест2, test2) and symbols (тест2 → тест_2, тест-2).
     
     Args:
         query: Search query (may be Drive API format or simple text)
@@ -115,30 +116,57 @@ async def _try_case_variations_for_search_files(
     if match:
         # Extract the term and generate variations
         search_term = match.group(1)
-        variations = [
-            search_term,  # Original
-            search_term.lower(),
-            search_term.capitalize(),
-            search_term.upper()
-        ]
-        
-        # Remove duplicates while preserving order
-        seen_variations = set()
-        unique_variations = []
-        for var in variations:
-            if var not in seen_variations:
-                seen_variations.add(var)
-                unique_variations.append(var)
-        
-        # Generate queries for each variation
-        query_variations = [f'name contains "{var}"' for var in unique_variations]
     else:
-        # Not in expected format, just try the original query
-        query_variations = [query]
+        # Not in Drive API format - treat as simple text
+        search_term = query.strip()
+    
+    # Generate variations: case and symbol variations
+    variations = set()
+    
+    # Original
+    variations.add(search_term)
+    
+    # Case variations
+    variations.add(search_term.lower())
+    variations.add(search_term.upper())
+    variations.add(search_term.capitalize())
+    if search_term:
+        # Title case (first letter of each word)
+        variations.add(search_term.title())
+    
+    # Symbol variations (if term contains alphanumeric characters)
+    if re.search(r'[a-zA-Zа-яА-Я0-9]', search_term):
+        # Try with underscore, hyphen, space
+        base_term = re.sub(r'[_\-\s]+', '', search_term)  # Remove existing separators
+        if base_term:
+            variations.add(f"{base_term[0].upper()}{base_term[1:]}" if len(base_term) > 1 else base_term.upper())
+            variations.add(f"{base_term[0].lower()}{base_term[1:]}" if len(base_term) > 1 else base_term.lower())
+            # Add separators
+            if len(base_term) > 1:
+                variations.add(f"{base_term[0]}_{base_term[1:]}")
+                variations.add(f"{base_term[0]}-{base_term[1:]}")
+                variations.add(f"{base_term[0]} {base_term[1:]}")
+                variations.add(f"{base_term[0].upper()}_{base_term[1:]}")
+                variations.add(f"{base_term[0].upper()}-{base_term[1:]}")
+                variations.add(f"{base_term[0].upper()} {base_term[1:]}")
+    
+    # Remove duplicates and convert to list
+    unique_variations = list(variations)
+    
+    # Generate queries for each variation (max 10 variations to avoid too many API calls)
+    query_variations = [f'name contains "{var}"' for var in unique_variations[:10]]
     
     # Try each variation and collect results
     all_files = {}
     seen_file_ids = set()
+    
+    # #region agent log
+    import time
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:start","message":"Starting search with variations","data":{"query":query,"query_variations_count":len(query_variations),"query_variations":query_variations[:5],"max_results":max_results},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
     
     for query_var in query_variations:
         try:
@@ -146,9 +174,47 @@ async def _try_case_variations_for_search_files(
             if mime_type:
                 args["mimeType"] = mime_type
             
+            # #region agent log
+            import time
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"workspace_tools.py:_try_case_variations_for_search_files","message":"Trying search query variation","data":{"query_variation":query_var,"mime_type":mime_type,"max_results":max_results},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
             result = await mcp_manager.call_tool("workspace_search_files", args, server_name="google_workspace")
             
+            # #region agent log
+            try:
+                result_for_log = result
+                if isinstance(result, list) and len(result) > 0:
+                    first_item = result[0]
+                    if hasattr(first_item, 'text'):
+                        result_for_log = first_item.text
+                    elif isinstance(first_item, dict) and 'text' in first_item:
+                        result_for_log = first_item['text']
+                if isinstance(result_for_log, str):
+                    try:
+                        result_for_log = json.loads(result_for_log)
+                    except:
+                        pass
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    # Extract files count from result for logging
+                    files_count_in_result = 0
+                    if isinstance(result_for_log, dict):
+                        files_count_in_result = len(result_for_log.get("files", []))
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files","message":"Search result received","data":{"query_variation":query_var,"files_in_result":files_count_in_result,"result_preview":str(result_for_log)[:500] if not isinstance(result_for_log, dict) else "dict"},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
             # Parse result - handle TextContent list
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:before_parse","message":"Before parsing result","data":{"result_type":type(result).__name__,"is_list":isinstance(result, list),"list_len":len(result) if isinstance(result, list) else 0},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
             if isinstance(result, list) and len(result) > 0:
                 first_item = result[0]
                 if hasattr(first_item, 'text'):
@@ -156,8 +222,24 @@ async def _try_case_variations_for_search_files(
                 elif isinstance(first_item, dict) and 'text' in first_item:
                     result = first_item['text']
             
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:after_text_extraction","message":"After text extraction","data":{"result_type":type(result).__name__,"result_preview":str(result)[:200] if isinstance(result, str) else "not_string"},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
             if isinstance(result, str):
-                result = json.loads(result)
+                try:
+                    result = json.loads(result)
+                except json.JSONDecodeError as e:
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:json_decode_error","message":"JSON decode error","data":{"error":str(e),"result_preview":result[:500]},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
+                    raise
             
             # Handle both dict and list results
             if isinstance(result, dict):
@@ -167,19 +249,49 @@ async def _try_case_variations_for_search_files(
             else:
                 files = []
             
-            # Deduplicate by file ID
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:files_parsed","message":"Files parsed from result","data":{"query_variation":query_var,"files_count":len(files),"file_names":[f.get('name') for f in files[:5]],"file_ids":[f.get('id') for f in files[:5]]},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
+            # Deduplicate by file ID and collect ALL files (don't stop after first match)
             for f in files:
                 if isinstance(f, dict):
                     file_id = f.get('id')
                     if file_id and file_id not in seen_file_ids:
                         seen_file_ids.add(file_id)
                         all_files[file_id] = f
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:after_collection","message":"Files collected after variation","data":{"query_variation":query_var,"files_collected":len(all_files),"file_ids":list(all_files.keys()),"file_names":[all_files[fid].get('name') for fid in list(all_files.keys())[:10]]},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
         
         except Exception:
             # Continue with next variation if one fails
             continue
     
-    return list(all_files.values())
+    # #region agent log
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"workspace_tools.py:_try_case_variations_for_search_files:final","message":"Final files collection","data":{"total_files":len(all_files),"file_ids":list(all_files.keys()),"file_names":[all_files[fid].get('name') for fid in list(all_files.keys())[:10]]},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
+    
+    result_files = list(all_files.values())
+    
+    # #region agent log
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"workspace_tools.py:_try_case_variations_for_search_files:return","message":"Returning files","data":{"return_count":len(result_files),"return_file_ids":[f.get('id') for f in result_files[:10]],"return_file_names":[f.get('name') for f in result_files[:10]]},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
+    
+    return result_files
 
 
 # ========== DRIVE TOOLS ==========
@@ -415,12 +527,15 @@ class SearchFilesTool(BaseTool):
     
     name: str = "search_workspace_files"
     description: str = """
-    Search for files in the workspace folder.
+    Search for files in the workspace folder (configured in workspace settings).
     
-    Input:
-    - query: Search query (e.g., 'name contains \"report\"'). Search is case-insensitive.
-    - mime_type: Optional filter by MIME type
-    - max_results: Maximum number of results (default: 20)
+    Input parameters:
+    - query: Search query string (simple text, e.g., "Рабочая таблица"). Search is case-insensitive and handles variations.
+    - mime_type: Optional filter by MIME type (e.g., "application/vnd.google-apps.spreadsheet")
+    - max_results: Maximum number of results (default: 100)
+    
+    NOTE: folder_id is NOT a parameter - the workspace folder is configured automatically.
+    The search is performed in the configured workspace folder only.
     """
     args_schema: type = SearchFilesInput
     
@@ -429,7 +544,8 @@ class SearchFilesTool(BaseTool):
         self,
         query: str,
         mime_type: Optional[str] = None,
-        max_results: int = 20
+        max_results: int = 100,  # Increased to find all files with same name
+        **kwargs  # Accept extra kwargs to ignore unknown parameters like folder_id
     ) -> str:
         """Execute the tool asynchronously."""
         try:
@@ -440,16 +556,273 @@ class SearchFilesTool(BaseTool):
             if count == 0:
                 return f"No files found matching query: {query}"
             
-            file_list = "\n".join([
-                f"- {f.get('name')} - ID: {f.get('id')}"
-                for f in files
-            ])
+            # If multiple files found, return format for user assistance request
+            if count > 1:
+                options = []
+                for i, f in enumerate(files, 1):
+                    file_name = f.get('name', 'Unknown')
+                    file_id = f.get('id', '')
+                    file_type = f.get('mimeType', '')
+                    created_time = f.get('createdTime', '')
+                    modified_time = f.get('modifiedTime', '')
+                    file_type_display = "Google Sheets" if "spreadsheet" in file_type else "Google Document" if "document" in file_type else "File"
+                    
+                    # Format date for display
+                    date_display = ""
+                    if created_time:
+                        try:
+                            from datetime import datetime
+                            dt = datetime.fromisoformat(created_time.replace('Z', '+00:00'))
+                            date_display = dt.strftime("%d.%m.%Y %H:%M")
+                        except:
+                            date_display = created_time[:10] if len(created_time) >= 10 else created_time
+                    
+                    # Create label with distinguishing attributes (date, ID)
+                    if date_display:
+                        label = f"{file_name} ({file_type_display}, создан: {date_display}, ID: {file_id[:20]}...)"
+                    else:
+                        label = f"{file_name} ({file_type_display}, ID: {file_id})"
+                    
+                    options.append({
+                        "id": str(i),
+                        "label": label,
+                        "description": f"Файл {file_name}, тип: {file_type_display}, создан: {date_display or 'неизвестно'}, изменен: {modified_time[:10] if modified_time else 'неизвестно'}",
+                        "data": {
+                            "file_id": file_id,
+                            "file_name": file_name,
+                            "file_type": file_type,
+                            "mimeType": file_type,
+                            "createdTime": created_time,
+                            "modifiedTime": modified_time
+                        }
+                    })
+                
+                # Return format for user assistance request (JSON format)
+                # Include context text so LLM understands this is a result that requires user assistance
+                assistance_json = json.dumps({
+                    "🔍 ЗАПРОС ПОМОЩИ ПОЛЬЗОВАТЕЛЯ": {
+                        "question": f"Найдено несколько файлов, соответствующих запросу '{query}'. Какой файл использовать?",
+                        "options": options,
+                        "context": {
+                            "action": "file_search",
+                            "query": query
+                        }
+                    }
+                }, ensure_ascii=False, indent=2)
+                
+                # Return with context so LLM understands this requires user assistance
+                # The JSON must be included as-is for parsing
+                return f"""Найдено {count} файл(ов), соответствующих запросу '{query}'. Требуется выбор пользователя:
+
+{assistance_json}"""
             
-            return f"Found {count} file(s) matching '{query}':\n{file_list}"
+            # Single file found - return it directly
+            file = files[0]
+            file_name = file.get('name', 'Unknown')
+            file_id = file.get('id', '')
+            return f"Found 1 file matching '{query}': {file_name} (ID: {file_id})"
             
         except Exception as e:
             raise ToolExecutionError(
                 f"Failed to search files: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
+class OpenFileInput(BaseModel):
+    """Input schema for open_file tool."""
+    
+    file_id: str = Field(description="File ID or URL")
+    max_rows: int = Field(default=100, description="Maximum rows to read for spreadsheets (0 = all rows)")
+    sheet_name: Optional[str] = Field(default=None, description="Sheet name for spreadsheets (default: first sheet)")
+
+
+class OpenFileTool(BaseTool):
+    """Tool for opening and reading a file."""
+    
+    name: str = "open_file"
+    description: str = """
+    Open and read a file by ID. Automatically detects file type (document or spreadsheet) and reads its content.
+    For spreadsheets, reads the first sheet with up to 100 rows by default.
+    
+    Input:
+    - file_id: File ID or URL
+    - max_rows: Maximum rows to read for spreadsheets (default: 100, use 0 for all rows)
+    - sheet_name: Optional sheet name for spreadsheets
+    """
+    args_schema: type = OpenFileInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        file_id: str,
+        max_rows: int = 100,
+        sheet_name: Optional[str] = None
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            args = {"fileId": file_id, "maxRows": max_rows}
+            if sheet_name:
+                args["sheetName"] = sheet_name
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("workspace_open_file", args, server_name="google_workspace")
+            
+            # Parse result
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result = first_item.text
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result = first_item['text']
+            
+            if isinstance(result, str):
+                result = json.loads(result)
+            
+            file_type = result.get("type", "unknown")
+            file_name = result.get("fileName", "Unknown")
+            
+            if "error" in result:
+                return f"Error opening file '{file_name}': {result['error']}"
+            
+            if file_type == "document":
+                content = result.get("content", "")
+                title = result.get("title", file_name)
+                return f"Document: {title}\n\n{content}"
+            
+            elif file_type == "spreadsheet":
+                values = result.get("values", [])
+                sheet_name = result.get("sheetName", "Sheet1")
+                row_count = result.get("rowCount", 0)
+                col_count = result.get("columnCount", 0)
+                
+                if not values:
+                    return f"Spreadsheet '{file_name}' (sheet '{sheet_name}') is empty"
+                
+                # Format as readable text
+                rows_text = []
+                for row in values:
+                    rows_text.append(" | ".join(str(cell) for cell in row))
+                
+                return f"Spreadsheet: {file_name}\nSheet: {sheet_name}\nRows: {row_count}, Columns: {col_count}\n\n" + "\n".join(rows_text)
+            
+            else:
+                return f"File '{file_name}' opened. Type: {file_type}. URL: {result.get('url', 'N/A')}"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to open file: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
+class FindAndOpenFileInput(BaseModel):
+    """Input schema for find_and_open_file tool."""
+    
+    query: str = Field(description="Search query for file name (case-insensitive)")
+    mime_type: Optional[str] = Field(default=None, description="Filter by MIME type")
+    max_results: int = Field(default=5, description="Maximum number of files to search")
+    max_rows: int = Field(default=100, description="Maximum rows to read for spreadsheets")
+
+
+class FindAndOpenFileTool(BaseTool):
+    """Tool for finding and opening a file."""
+    
+    name: str = "find_and_open_file"
+    description: str = """
+    Search for a file by name and automatically open it. Returns file content if found.
+    This is a convenient tool that combines search and open operations.
+    
+    Input:
+    - query: Search query for file name (case-insensitive)
+    - mime_type: Optional filter by MIME type
+    - max_results: Maximum number of files to search (default: 5)
+    - max_rows: Maximum rows to read for spreadsheets (default: 100)
+    """
+    args_schema: type = FindAndOpenFileInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        query: str,
+        mime_type: Optional[str] = None,
+        max_results: int = 5,
+        max_rows: int = 100
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            args = {"query": query, "maxResults": max_results, "maxRows": max_rows}
+            if mime_type:
+                args["mimeType"] = mime_type
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("workspace_find_and_open_file", args, server_name="google_workspace")
+            
+            # Parse result
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result = first_item.text
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result = first_item['text']
+            
+            if isinstance(result, str):
+                result = json.loads(result)
+            
+            if "error" in result and result.get("filesFound", 0) == 0:
+                return f"No files found matching query: {query}"
+            
+            file_type = result.get("type", "unknown")
+            file_name = result.get("fileName", "Unknown")
+            files_found = result.get("filesFound", 0)
+            all_matches = result.get("allMatches", [])
+            
+            response_parts = []
+            
+            if files_found > 1:
+                response_parts.append(f"Found {files_found} matching file(s). Opening the first one:\n")
+                response_parts.append("All matches:")
+                for match in all_matches:
+                    response_parts.append(f"  - {match.get('name')} (ID: {match.get('id')})")
+                response_parts.append("")
+            
+            if "error" in result:
+                return "\n".join(response_parts) + f"Error opening file '{file_name}': {result['error']}"
+            
+            if file_type == "document":
+                content = result.get("content", "")
+                title = result.get("title", file_name)
+                response_parts.append(f"Document: {title}\n\n{content}")
+            
+            elif file_type == "spreadsheet":
+                values = result.get("values", [])
+                sheet_name = result.get("sheetName", "Sheet1")
+                row_count = result.get("rowCount", 0)
+                col_count = result.get("columnCount", 0)
+                
+                if not values:
+                    response_parts.append(f"Spreadsheet '{file_name}' (sheet '{sheet_name}') is empty")
+                else:
+                    rows_text = []
+                    for row in values:
+                        rows_text.append(" | ".join(str(cell) for cell in row))
+                    
+                    response_parts.append(f"Spreadsheet: {file_name}\nSheet: {sheet_name}\nRows: {row_count}, Columns: {col_count}\n\n" + "\n".join(rows_text))
+            
+            else:
+                response_parts.append(f"File '{file_name}' found. Type: {file_type}. URL: {result.get('url', 'N/A')}")
+            
+            return "\n".join(response_parts)
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to find and open file: {e}",
                 tool_name=self.name
             ) from e
     
@@ -723,6 +1096,14 @@ class ReadSpreadsheetTool(BaseTool):
                 "range": range
             }
             
+            # #region agent log
+            import time
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"workspace_tools.py:read_spreadsheet","message":"Calling sheets_read_range via Workspace MCP","data":{"tool":"sheets_read_range","server":"google_workspace","spreadsheet_id":spreadsheet_id,"range":range},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("sheets_read_range", args, server_name="google_workspace")
             if isinstance(result, str):
@@ -875,6 +1256,88 @@ class AppendRowsTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
+class ReadAllDataInput(BaseModel):
+    """Input schema for read_all_data tool."""
+    
+    spreadsheet_id: str = Field(description="Spreadsheet ID or URL")
+    sheet_name: Optional[str] = Field(default=None, description="Sheet name (default: first sheet)")
+    max_rows: int = Field(default=0, description="Maximum rows to read (0 = all rows)")
+
+
+class ReadAllDataTool(BaseTool):
+    """Tool for reading all data from a spreadsheet sheet."""
+    
+    name: str = "read_all_data"
+    description: str = """
+    Read all data from a spreadsheet sheet. Automatically detects the filled range and reads all content.
+    This is more convenient than read_spreadsheet when you don't know the exact range.
+    
+    Input:
+    - spreadsheet_id: Spreadsheet ID or URL
+    - sheet_name: Optional sheet name (default: first sheet)
+    - max_rows: Maximum rows to read (default: 0 = all rows)
+    """
+    args_schema: type = ReadAllDataInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        spreadsheet_id: str,
+        sheet_name: Optional[str] = None,
+        max_rows: int = 0
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            args = {"spreadsheetId": spreadsheet_id, "maxRows": max_rows}
+            if sheet_name:
+                args["sheetName"] = sheet_name
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("sheets_read_all_data", args, server_name="google_workspace")
+            
+            # Parse result
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result = first_item.text
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result = first_item['text']
+            
+            if isinstance(result, str):
+                result = json.loads(result)
+            
+            if "error" in result:
+                return f"Error reading spreadsheet: {result['error']}"
+            
+            values = result.get("values", [])
+            sheet_name = result.get("sheetName", "Sheet1")
+            row_count = result.get("rowCount", 0)
+            col_count = result.get("columnCount", 0)
+            total_rows = result.get("totalRowsInSheet", 0)
+            total_cols = result.get("totalColumnsInSheet", 0)
+            
+            if not values:
+                return f"Spreadsheet sheet '{sheet_name}' is empty"
+            
+            # Format as readable text
+            rows_text = []
+            for row in values:
+                rows_text.append(" | ".join(str(cell) for cell in row))
+            
+            info = f"Sheet: {sheet_name}\nRows read: {row_count} (total in sheet: {total_rows})\nColumns: {col_count} (total: {total_cols})\n\n"
+            
+            return info + "\n".join(rows_text)
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to read all data: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
 def get_workspace_tools() -> List[BaseTool]:
     """
     Get all Google Workspace tools.
@@ -889,6 +1352,8 @@ def get_workspace_tools() -> List[BaseTool]:
         CreateFolderTool(),
         DeleteFileTool(),
         SearchFilesTool(),
+        OpenFileTool(),
+        FindAndOpenFileTool(),
         # Docs tools
         CreateDocumentTool(),
         ReadDocumentTool(),
@@ -899,6 +1364,7 @@ def get_workspace_tools() -> List[BaseTool]:
         ReadSpreadsheetTool(),
         WriteSpreadsheetTool(),
         AppendRowsTool(),
+        ReadAllDataTool(),
     ]
 
 

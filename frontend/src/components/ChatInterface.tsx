@@ -11,6 +11,7 @@ import { ChatMessage } from './ChatMessage'
 import { Header } from './Header'
 import { PlanBlock } from './PlanBlock'
 import { StepProgress } from './StepProgress'
+import { UserAssistanceDialog } from './UserAssistanceDialog'
 
 interface AttachedFile {
   id: string
@@ -43,6 +44,7 @@ export function ChatInterface() {
     addMessage,
     setAgentTyping,
     clearWorkflow,
+    userAssistanceRequest,
   } = useChatStore()
   
   const { executionMode, setExecutionMode } = useSettingsStore()
@@ -422,7 +424,16 @@ export function ChatInterface() {
   }
   
   return (
-    <div className="chat-container">
+    <>
+      {userAssistanceRequest && (
+        <UserAssistanceDialog
+          assistance_id={userAssistanceRequest.assistance_id}
+          question={userAssistanceRequest.question}
+          options={userAssistanceRequest.options}
+          context={userAssistanceRequest.context}
+        />
+      )}
+      <div className="chat-container">
       {/* Header */}
       <Header />
 
@@ -800,5 +811,6 @@ export function ChatInterface() {
         </form>
       </div>
     </div>
+    </>
   )
 }

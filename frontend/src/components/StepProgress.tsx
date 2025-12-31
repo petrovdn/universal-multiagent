@@ -200,7 +200,7 @@ export function StepProgress({ workflowId }: StepProgressProps) {
                   {attempts.length > 0 && (
                     <div style={{ marginBottom: '10px' }}>
                       {attempts.map((attempt, attemptIndex) => (
-                        <div key={attemptIndex} style={{ marginBottom: '8px' }}>
+                        <div key={`step-attempt-${workflowId}-${stepNumber}-${attempt.number}`} style={{ marginBottom: '8px' }}>
                           <AttemptBlock
                             id={`step-attempt-${workflowId}-${stepNumber}-${attempt.number}`}
                             number={attempt.number}

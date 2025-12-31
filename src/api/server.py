@@ -368,6 +368,122 @@ Reject a plan."""
     
     return {"status": "rejected"}
 
+
+@app.post("/api/assistance/resolve")
+async def resolve_user_assistance(request: Dict[str, Any]):
+    """
+    Resolve a user assistance request with user's selection.
+    
+    Request body:
+    {
+        "session_id": "...",
+        "assistance_id": "...",
+        "user_response": "1" or "первый" or "Тест2" etc.
+    }
+    """
+    # #region agent log
+    import time
+    import json
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:entry","message":"Endpoint called","data":{"request_keys":list(request.keys())},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
+    
+    session_id = request.get("session_id")
+    assistance_id = request.get("assistance_id")
+    user_response = request.get("user_response")
+    
+    # #region agent log
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:params_extracted","message":"Parameters extracted","data":{"session_id":session_id,"assistance_id":assistance_id,"user_response":user_response,"has_all_params":bool(session_id and assistance_id and user_response)},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
+    
+    if not session_id or not assistance_id or not user_response:
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:validation_error","message":"Validation error - missing params","data":{},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        raise HTTPException(status_code=400, detail="Session ID, assistance ID, and user response required")
+    
+    # #region agent log
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:before_get_session","message":"Before get_session","data":{},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
+    
+    context = session_manager.get_session(session_id)
+    
+    # #region agent log
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:after_get_session","message":"After get_session","data":{"context_found":context is not None},"timestamp":int(time.time()*1000)})+'\n')
+    except: pass
+    # #endregion
+    
+    if not context:
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:session_not_found","message":"Session not found","data":{},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    try:
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:before_agent_wrapper","message":"Before agent_wrapper.resolve_user_assistance","data":{},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        result = await agent_wrapper.resolve_user_assistance(
+            assistance_id,
+            user_response,
+            context,
+            session_id
+        )
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:after_agent_wrapper","message":"After agent_wrapper.resolve_user_assistance","data":{"result":result},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:before_update_session","message":"Before update_session","data":{},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        session_manager.update_session(session_id, context)
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:before_return","message":"Before return result","data":{"result":result},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        return result
+    except Exception as e:
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:exception","message":"Exception in resolve_user_assistance","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        logger.error(f"Error resolving user assistance: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/plan/update")
 async def update_plan(request: Dict[str, Any]):
     """

@@ -5,7 +5,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000, // 30 seconds timeout
+  timeout: 60000, // 60 seconds timeout (increased for user assistance)
   withCredentials: true, // Send cookies with requests
 })
 
@@ -91,6 +91,39 @@ export const updateSettings = async (settings: {
 }) => {
   const response = await api.post('/settings', settings)
   return response.data
+}
+
+export const resolveUserAssistance = async (
+  sessionId: string,
+  assistanceId: string,
+  userResponse: string
+) => {
+  // #region agent log
+  console.log('[DEBUG] api.ts resolveUserAssistance called', { sessionId, assistanceId, userResponse })
+  // #endregion
+  
+  try {
+    // #region agent log
+    console.log('[DEBUG] api.ts resolveUserAssistance: making request', { sessionId, assistanceId, userResponse })
+    // #endregion
+    
+    const response = await api.post('/assistance/resolve', {
+      session_id: sessionId,
+      assistance_id: assistanceId,
+      user_response: userResponse,
+    })
+    
+    // #region agent log
+    console.log('[DEBUG] api.ts resolveUserAssistance: got response', { status: response.status, data: response.data })
+    // #endregion
+    
+    return response.data
+  } catch (err: any) {
+    // #region agent log
+    console.error('[DEBUG] api.ts resolveUserAssistance: error', { errorMessage: err?.message, errorResponse: err?.response?.data, status: err?.response?.status })
+    // #endregion
+    throw err
+  }
 }
 
 export const approvePlan = async (sessionId: string, confirmationId: string) => {
@@ -230,6 +263,34 @@ export const createWorkspaceFolder = async (folderName: string, parentFolderId?:
     params.append('parent_folder_id', parentFolderId)
   }
   const response = await api.post(`/integrations/google-workspace/create-folder?${params.toString()}`)
+  return response.data
+}
+
+// 1C OData Integration APIs
+export interface OneCConfig {
+  odata_base_url: string
+  username: string
+  password: string
+  organization_guid?: string
+}
+
+export const saveOneCConfig = async (config: OneCConfig) => {
+  const response = await api.post('/integrations/onec/config', config)
+  return response.data
+}
+
+export const getOneCConfig = async () => {
+  const response = await api.get('/integrations/onec/config')
+  return response.data
+}
+
+export const testOneCConnection = async () => {
+  const response = await api.post('/integrations/onec/test')
+  return response.data
+}
+
+export const getOneCStatus = async () => {
+  const response = await api.get('/integrations/onec/status')
   return response.data
 }
 

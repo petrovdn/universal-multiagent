@@ -813,11 +813,26 @@ class GoogleSheetsMCPServer:
                     range_notation = arguments.get("range")
                     value_render_option = arguments.get("valueRenderOption", "FORMATTED_VALUE")
                     
+                    # #region agent log
+                    import time
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"google_sheets_server.py:sheets_read_range","message":"Reading spreadsheet range","data":{"spreadsheet_id":spreadsheet_id,"range":range_notation,"original_id":arguments.get("spreadsheetId")},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
+                    
                     result = service.spreadsheets().values().get(
                         spreadsheetId=spreadsheet_id,
                         range=range_notation,
                         valueRenderOption=value_render_option
                     ).execute()
+                    
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"google_sheets_server.py:sheets_read_range","message":"Spreadsheet read result","data":{"spreadsheet_id":spreadsheet_id,"range":range_notation,"row_count":len(result.get('values', []))},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
                     
                     values = result.get('values', [])
                     return [TextContent(

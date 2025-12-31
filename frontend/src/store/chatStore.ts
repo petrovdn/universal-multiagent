@@ -90,6 +90,14 @@ interface ChatState {
   }>
   activeWorkflowId: string | null // timestamp of the active (currently streaming) workflow
   
+  // User assistance request state
+  userAssistanceRequest: {
+    assistance_id: string
+    question: string
+    options: Array<{ id: string; label: string; description?: string; data?: any }>
+    context?: any
+  } | null
+  
   // Legacy support (will be removed)
   streamingMessages: Record<string, Message>
   reasoningSteps: ReasoningStep[] // Legacy
@@ -130,6 +138,15 @@ interface ChatState {
   setWorkflowFinalResult: (workflowId: string, finalResult: string) => void // Set final result for a workflow
   clearWorkflow: () => void // Clear all workflows (for testing/reset)
   
+  // User assistance methods
+  setUserAssistanceRequest: (request: {
+    assistance_id: string
+    question: string
+    options: Array<{ id: string; label: string; description?: string; data?: any }>
+    context?: any
+  } | null) => void
+  clearUserAssistanceRequest: () => void
+  
   // Legacy methods (for compatibility during transition)
   startStreamingMessage: (messageId: string, message: Message) => void
   updateStreamingMessage: (messageId: string, content: string) => void
@@ -151,6 +168,7 @@ export const useChatStore = create<ChatState>()(
       isAgentTyping: false,
       workflows: {},
       activeWorkflowId: null,
+      userAssistanceRequest: null,
       streamingMessages: {},
       reasoningSteps: [],
       reasoningStartTime: null,
@@ -862,6 +880,16 @@ export const useChatStore = create<ChatState>()(
         set({
           workflows: {},
           activeWorkflowId: null,
+        }),
+      
+      setUserAssistanceRequest: (request) =>
+        set({
+          userAssistanceRequest: request,
+        }),
+      
+      clearUserAssistanceRequest: () =>
+        set({
+          userAssistanceRequest: null,
         }),
     }),
     {
