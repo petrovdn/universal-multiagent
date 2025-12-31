@@ -446,14 +446,18 @@ export function ChatInterface() {
           if (message.role === 'user') {
             return (
               <React.Fragment key={`user-${index}-${message.timestamp}`}>
-                <div 
-                  ref={isLastUserMessage ? currentInteractionRef : null}
-                  className="user-query-flow-block"
-                >
-                  <span className="user-query-text">{message.content}</span>
+                {/* Sticky section: user query + plan */}
+                <div className="sticky-plan-section">
+                  <div 
+                    ref={isLastUserMessage ? currentInteractionRef : null}
+                    className="user-query-flow-block"
+                  >
+                    <span className="user-query-text">{message.content}</span>
+                  </div>
+                  {/* Show workflow plan after user message */}
+                  <PlanBlock workflowId={message.timestamp} />
                 </div>
-                {/* Show workflow plan and steps after each user message */}
-                <PlanBlock workflowId={message.timestamp} />
+                {/* Steps scroll below the sticky section */}
                 <StepProgress workflowId={message.timestamp} />
               </React.Fragment>
             )
