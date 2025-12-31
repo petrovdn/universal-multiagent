@@ -1,8 +1,9 @@
-import React, { useEffect } from 'react'
+import React, { useEffect, useState } from 'react'
 import { CheckCircle, XCircle, FileText } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
-import { wsClient } from '../services/websocket'
+import { approvePlan, rejectPlan } from '../services/api'
 import { ReasoningBlock } from './ReasoningBlock'
+import { PlanEditor } from './PlanEditor'
 
 interface PlanBlockProps {
   workflowId: string
@@ -14,14 +15,8 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
   const workflowPlan = workflow?.plan
   const setAwaitingConfirmation = useChatStore((state) => state.setAwaitingConfirmation)
   const activeWorkflowId = useChatStore((state) => state.activeWorkflowId)
-
-  // #region agent log
-  React.useEffect(() => {
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlanBlock.tsx:render',message:'PlanBlock render',data:{workflowId,activeWorkflowId,hasWorkflow:!!workflow,hasPlan:!!workflowPlan,allWorkflowIds:Object.keys(useChatStore.getState().workflows)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'RENDER'})}).catch(()=>{});
-  }, [workflowId, workflow, workflowPlan, activeWorkflowId])
-  // #endregion
-
-  // Only show component when there's actual data to display
+  const currentSession = useChatStore((state) => state.currentSession)
+  const [isEditingPlan, setIsEditingPlan] = useState(false)// Only show component when there's actual data to display
   if (!workflowPlan) {
     return null
   }
@@ -38,21 +33,42 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
     return null
   }
 
-  const handleApprove = () => {
-    if (workflowPlan.confirmationId) {
-      wsClient.approvePlan(workflowPlan.confirmationId)
-      setAwaitingConfirmation(false)
+  const handleApprove = async () => {
+    if (workflowPlan.confirmationId && currentSession) {
+      try {
+        await approvePlan(currentSession, workflowPlan.confirmationId)
+        setAwaitingConfirmation(false)
+      } catch (error) {
+        console.error('[PlanBlock] Error approving plan:', error)
+        alert('Ошибка при подтверждении плана: ' + (error instanceof Error ? error.message : String(error)))
+      }
     }
   }
 
-  const handleReject = () => {
-    if (workflowPlan.confirmationId) {
-      wsClient.rejectPlan(workflowPlan.confirmationId)
-      setAwaitingConfirmation(false)
+  const handleReject = async () => {
+    if (workflowPlan.confirmationId && currentSession) {
+      try {
+        await rejectPlan(currentSession, workflowPlan.confirmationId)
+        setAwaitingConfirmation(false)
+      } catch (error) {
+        console.error('[PlanBlock] Error rejecting plan:', error)
+        alert('Ошибка при отклонении плана: ' + (error instanceof Error ? error.message : String(error)))
+      }
     }
   }
 
   // Removed useEffect logging to prevent infinite loops
+
+  // If editing, show PlanEditor instead
+  if (isEditingPlan && workflowPlan) {
+    return (
+      <PlanEditor
+        workflowId={workflowId}
+        initialPlan={workflowPlan}
+        onClose={() => setIsEditingPlan(false)}
+      />
+    )
+  }
 
   return (
     <div style={{ padding: '15px', margin: '10px', background: '#d1ecf1', border: '2px solid #0c5460', borderRadius: '8px' }}>
@@ -98,6 +114,20 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
 
       {workflowPlan.awaitingConfirmation && (
         <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+          <button
+            onClick={() => setIsEditingPlan(true)}
+            style={{
+              padding: '8px 16px',
+              background: '#17a2b8',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            Редактировать план
+          </button>
           <button
             onClick={handleApprove}
             style={{

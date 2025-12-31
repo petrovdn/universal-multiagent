@@ -67,3 +67,5 @@ echo -e "${GREEN}=== Готово! ===${NC}"
 echo -e "${YELLOW}Для отправки в Railway выполните:${NC}"
 echo -e "${YELLOW}  git push origin production${NC}"
 
+
+

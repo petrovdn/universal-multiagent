@@ -1,13 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Calendar, Mail, ChevronDown, Folder, LogOut } from 'lucide-react'
+import { Settings, Calendar, Mail, ChevronDown, Folder, LogOut, Database, FileSpreadsheet } from 'lucide-react'
 import { useSettingsStore } from '../store/settingsStore'
-import { enableGoogleCalendar, disableGoogleCalendar, getGoogleCalendarStatus, enableGmail, disableGmail, getGmailStatus, enableGoogleWorkspace, disableGoogleWorkspace, getGoogleWorkspaceStatus, logout, getCurrentUser } from '../services/api'
+import { enableGoogleCalendar, disableGoogleCalendar, getGoogleCalendarStatus, enableGmail, disableGmail, getGmailStatus, enableGoogleWorkspace, disableGoogleWorkspace, getGoogleWorkspaceStatus, enableGoogleSheets, disableGoogleSheets, getGoogleSheetsStatus, logout, getCurrentUser, getOneCStatus } from '../services/api'
 import { WorkspaceFolderSelector } from './WorkspaceFolderSelector'
+import { OneCSettingsDialog } from './OneCSettingsDialog'
 
 export function Header() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isFolderSelectorOpen, setIsFolderSelectorOpen] = useState(false)
+  const [isOneCDialogOpen, setIsOneCDialogOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const { integrations, setIntegrationStatus, debugMode, setDebugMode } = useSettingsStore()
   const [currentUser, setCurrentUser] = useState<string | null>(null)
@@ -41,6 +43,18 @@ export function Header() {
       }
     }
     window.addEventListener('workspace-needs-folder-config', handleWorkspaceNeedsFolderConfig)
+    
+    // Check for OAuth callback parameters in URL
+    const urlParams = new URLSearchParams(window.location.search)
+    const sheetsAuth = urlParams.get('sheets_auth')
+    if (sheetsAuth === 'success' || sheetsAuth === 'already_enabled') {
+      // Reload integration status after OAuth success
+      loadIntegrationStatus()
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname)
+      // Dispatch event to update UI
+      window.dispatchEvent(new Event('integration-status-changed'))
+    }
     
     return () => {
       window.removeEventListener('integration-status-changed', handleStatusChange)
@@ -110,6 +124,20 @@ export function Header() {
         folderConfigured: folderConfigured,
         folderName: workspaceStatus.folder?.name,
         folderId: workspaceStatus.folder?.id,
+      })
+      
+      const sheetsStatus = await getGoogleSheetsStatus()
+      const sheetsAuthenticated = sheetsStatus.authenticated || false
+      setIntegrationStatus('googleSheets', {
+        enabled: sheetsAuthenticated,
+        authenticated: sheetsAuthenticated,
+      })
+      
+      const onecStatus = await getOneCStatus()
+      const onecConfigured = onecStatus.configured || false
+      setIntegrationStatus('onec', {
+        enabled: onecConfigured,
+        authenticated: onecConfigured,
       })
     } catch (error) {
       console.error('Failed to load integration status:', error)
@@ -230,6 +258,41 @@ export function Header() {
     })
   }
 
+  const handleSheetsToggle = async (enabled: boolean) => {
+    setIsLoading(true)
+    try {
+      if (enabled) {
+        const result = await enableGoogleSheets()
+        if (result.status === 'oauth_required' && result.auth_url) {
+          // Redirect directly to Google OAuth page instead of popup
+          window.location.href = result.auth_url
+          return // Don't set loading to false, as we're redirecting
+        } else {
+          // Already authenticated
+          setIntegrationStatus('googleSheets', { enabled: true, authenticated: true })
+          setIsLoading(false)
+        }
+      } else {
+        await disableGoogleSheets()
+        setIntegrationStatus('googleSheets', { enabled: false, authenticated: false })
+        setIsLoading(false)
+      }
+    } catch (error: any) {
+      console.error('Failed to toggle Sheets integration:', error)
+      alert(error.message || 'Не удалось изменить настройки интеграции Google Sheets')
+      setIsLoading(false)
+    }
+  }
+
+  const handleOneCConfigSaved = async () => {
+    const onecStatus = await getOneCStatus()
+    const onecConfigured = onecStatus.configured || false
+    setIntegrationStatus('onec', {
+      enabled: onecConfigured,
+      authenticated: onecConfigured,
+    })
+  }
+
 
   return (
     <header className="compact-header">
@@ -248,10 +311,22 @@ export function Header() {
               <span className="text-xs font-medium">Calendar</span>
             </div>
           )}
+          {integrations.googleSheets.authenticated && (
+            <div className="integration-badge" style={{ backgroundColor: '#0f9d58', color: 'white' }}>
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span className="text-xs font-medium">Sheets</span>
+            </div>
+          )}
           {integrations.googleWorkspace.enabled && (
             <div className="integration-badge workspace-badge">
               <Folder className="w-3.5 h-3.5" />
               <span className="text-xs font-medium">Workspace</span>
+            </div>
+          )}
+          {integrations.onec.authenticated && (
+            <div className="integration-badge" style={{ backgroundColor: '#1c64f2', color: 'white' }}>
+              <Database className="w-3.5 h-3.5" />
+              <span className="text-xs font-medium">1С</span>
             </div>
           )}
         </div>
@@ -321,6 +396,28 @@ export function Header() {
                     </button>
                   </div>
 
+                  {/* Google Sheets */}
+                  <div className="integration-row">
+                    <div className="flex items-center space-x-2">
+                      <div className="integration-icon" style={{ backgroundColor: integrations.googleSheets.authenticated ? '#0f9d58' : '#94a3b8', color: 'white' }}>
+                        <FileSpreadsheet className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="integration-name">Google Sheets</div>
+                        <div className="integration-status">
+                          {integrations.googleSheets.authenticated ? 'Подключено' : 'Не подключено'}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleSheetsToggle(!integrations.googleSheets.authenticated)}
+                      disabled={isLoading}
+                      className="toggle-button"
+                    >
+                      <div className={`toggle-slider ${integrations.googleSheets.authenticated ? 'active' : ''}`} style={{ backgroundColor: integrations.googleSheets.authenticated ? '#0f9d58' : '#cbd5e1' }}></div>
+                    </button>
+                  </div>
+
                   {/* Google Workspace */}
                   <div className="integration-row">
                     <div className="flex items-center space-x-2">
@@ -352,6 +449,36 @@ export function Header() {
                       className="toggle-button"
                     >
                       <div className={`toggle-slider workspace-toggle ${integrations.googleWorkspace.enabled ? 'active' : ''}`}></div>
+                    </button>
+                  </div>
+
+                  {/* 1C:Бухгалтерия */}
+                  <div className="integration-row">
+                    <div className="flex items-center space-x-2">
+                      <div className={`integration-icon ${integrations.onec.authenticated ? 'active' : ''}`} style={{ backgroundColor: integrations.onec.authenticated ? '#1c64f2' : '#94a3b8', color: 'white' }}>
+                        <Database className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="integration-name">1С:Бухгалтерия</div>
+                        <div className="integration-status">
+                          {integrations.onec.authenticated ? 'Настроено' : 'Не настроено'}
+                        </div>
+                        {integrations.onec.authenticated && (
+                          <button
+                            onClick={() => setIsOneCDialogOpen(true)}
+                            className="text-xs text-blue-600 hover:text-blue-700 mt-1"
+                          >
+                            Изменить настройки
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setIsOneCDialogOpen(true)}
+                      disabled={isLoading}
+                      className="toggle-button"
+                    >
+                      <div className={`toggle-slider ${integrations.onec.authenticated ? 'active' : ''}`}></div>
                     </button>
                   </div>
                 </div>
@@ -400,6 +527,13 @@ export function Header() {
         isOpen={isFolderSelectorOpen}
         onClose={() => setIsFolderSelectorOpen(false)}
         onFolderSelected={handleFolderSelected}
+      />
+      
+      {/* 1C Settings Dialog */}
+      <OneCSettingsDialog
+        isOpen={isOneCDialogOpen}
+        onClose={() => setIsOneCDialogOpen(false)}
+        onConfigSaved={handleOneCConfigSaved}
       />
     </header>
   )

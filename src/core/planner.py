@@ -68,6 +68,9 @@ class Planner:
         Returns:
             Список подзадач
         """
+        def _escape_langchain_fstring_template(text: str) -> str:
+            return (text or "").replace("{", "{{").replace("}", "}}")
+
         prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a task decomposition expert. Break down complex tasks into 
             smaller, actionable subtasks. Return a JSON array of subtasks, each with:
@@ -77,7 +80,7 @@ class Planner:
             - dependencies: list of task_ids this depends on (empty if none)
             
             Focus on Google Workspace operations: Gmail, Calendar, Sheets."""),
-            ("user", f"Decompose this task: {task_description}")
+            ("user", "Decompose this task: " + _escape_langchain_fstring_template(task_description))
         ])
         
         chain = prompt | self.llm

@@ -241,47 +241,8 @@ class GetCalendarEventsTool(BaseTool):
                 end_dt = parse_datetime(end_time, timezone)
                 args["timeMax"] = end_dt.isoformat()
             
-            mcp_manager = get_mcp_manager()
-            # #region agent log
-            import os
-            log_data = {
-                "location": "calendar_tools.py:call_tool",
-                "message": "Calling list_events MCP tool",
-                "data": {"args": args, "server_name": "calendar"},
-                "timestamp": int(os.times()[4] * 1000),
-                "sessionId": "debug-session",
-                "runId": "post-fix",
-                "hypothesisId": "C"
-            }
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    import json as json_module
-                    f.write(json_module.dumps(log_data) + "\n")
-            except:
-                pass
-            # #endregion
-            
-            # Fix: Use "list_events" instead of "get_calendar_events" to match MCP server
-            result = await mcp_manager.call_tool("list_events", args, server_name="calendar")
-            
-            # #region agent log
-            log_data2 = {
-                "location": "calendar_tools.py:call_tool_result",
-                "message": "Received result from list_events",
-                "data": {"result_type": type(result).__name__, "is_list": isinstance(result, list), "is_dict": isinstance(result, dict)},
-                "timestamp": int(os.times()[4] * 1000),
-                "sessionId": "debug-session",
-                "runId": "post-fix",
-                "hypothesisId": "C"
-            }
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    f.write(json_module.dumps(log_data2) + "\n")
-            except:
-                pass
-            # #endregion
-            
-            # Handle MCP result format (TextContent list or dict)
+            mcp_manager = get_mcp_manager()# Fix: Use "list_events" instead of "get_calendar_events" to match MCP server
+            result = await mcp_manager.call_tool("list_events", args, server_name="calendar")# Handle MCP result format (TextContent list or dict)
             if isinstance(result, list) and len(result) > 0:
                 first_item = result[0]
                 if hasattr(first_item, 'text'):

@@ -13,7 +13,7 @@ import logging
 import os
 
 from src.utils.google_auth import AuthManager, OAuthAuth
-from src.utils.config_loader import get_config
+from src.utils.config_loader import get_config, get_onec_config, save_onec_config, OneCConfig
 from src.utils.audit import get_audit_logger
 from src.api.session_manager import get_session_manager
 
@@ -868,6 +868,82 @@ async def get_sheets_status():
     }
 
 
+@router.get("/google-sheets/enable")
+async def enable_sheets_integration_get(request: Request):
+    """
+    Enable Google Sheets integration via GET (for browser access).
+    Redirects to OAuth authorization URL if not authenticated.
+    """
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        session_id = get_session_manager().create_session()
+    
+    # Check if already authenticated
+    if SHEETS_TOKEN_PATH.exists():
+        try:
+            from google.oauth2.credentials import Credentials
+            from google.auth.transport.requests import Request as GoogleRequest
+            
+            creds = Credentials.from_authorized_user_file(
+                str(SHEETS_TOKEN_PATH),
+                SHEETS_SCOPES
+            )
+            
+            # Refresh if needed
+            if creds.expired and creds.refresh_token:
+                creds.refresh(GoogleRequest())
+                with open(SHEETS_TOKEN_PATH, 'w') as token:
+                    token.write(creds.to_json())
+            
+            if creds.valid:
+                # Already authenticated - redirect to frontend with success
+                frontend_url = get_frontend_url()
+                return RedirectResponse(
+                    url=f"{frontend_url}/?sheets_auth=already_enabled",
+                    status_code=302
+                )
+        except Exception as e:
+            logger.warning(f"Sheets token exists but invalid: {e}")
+    
+    # Need to authenticate - initiate OAuth flow
+    try:
+        config = get_config()
+        base_url = get_base_url()
+        sheets_redirect_uri = f"{base_url}/api/integrations/google-sheets/callback"
+        oauth_auth = OAuthAuth(
+            client_id=config.google_auth.oauth_client_id,
+            client_secret=config.google_auth.oauth_client_secret,
+            redirect_uri=sheets_redirect_uri,
+            scopes=SHEETS_SCOPES,
+            token_path=SHEETS_TOKEN_PATH
+        )
+        
+        # Generate state for CSRF protection
+        state = secrets.token_urlsafe(32)
+        if session_id not in integration_oauth_states:
+            integration_oauth_states[session_id] = {}
+        integration_oauth_states[session_id]["google_sheets"] = state
+        
+        # Get authorization URL and redirect directly
+        auth_url = oauth_auth.get_authorization_url(state)
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:GET_enable","message":"Sheets OAuth URL generated (GET)","data":{"auth_url":auth_url,"redirect_uri":sheets_redirect_uri},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        
+        response = RedirectResponse(url=auth_url, status_code=302)
+        response.set_cookie("session_id", session_id, httponly=True)
+        return response
+        
+    except Exception as e:
+        logger.error(f"Failed to initiate Google Sheets OAuth flow: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to initiate OAuth flow: {str(e)}"
+        )
+
+
 @router.post("/google-sheets/enable")
 async def enable_sheets_integration(request: Request):
     """
@@ -878,6 +954,11 @@ async def enable_sheets_integration(request: Request):
         - If authenticated: success status
         - If not authenticated: OAuth authorization URL
     """
+    # #region debug log
+    import json
+    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:872","message":"enable_sheets_integration called","data":{"token_exists":SHEETS_TOKEN_PATH.exists(),"token_path":str(SHEETS_TOKEN_PATH)},"timestamp":int(__import__('time').time()*1000)})+'\n')
+    # #endregion
     session_id = request.cookies.get("session_id")
     if not session_id:
         session_id = get_session_manager().create_session()
@@ -938,6 +1019,11 @@ async def enable_sheets_integration(request: Request):
         
         # Get authorization URL
         auth_url = oauth_auth.get_authorization_url(state)
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:940","message":"Sheets OAuth URL generated","data":{"auth_url":auth_url,"redirect_uri":sheets_redirect_uri},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
         
         response = JSONResponse({
             "status": "oauth_required",
@@ -1014,6 +1100,11 @@ async def sheets_oauth_callback(
         
         # Exchange code for token
         credentials = oauth_auth.exchange_code_for_token(code)
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:1016","message":"Sheets token created","data":{"token_path":str(SHEETS_TOKEN_PATH),"token_exists":SHEETS_TOKEN_PATH.exists()},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
         
         # Clean up state
         if session_id in integration_oauth_states:
@@ -1622,4 +1713,199 @@ async def create_workspace_folder(
             status_code=500,
             detail=f"Failed to create folder: {str(e)}"
         )
+
+
+# 1C OData integration endpoints
+@router.post("/onec/config")
+async def save_onec_config_endpoint(
+    request: Request,
+    config: Dict[str, Any]
+):
+    """
+    Save 1C OData configuration.
+    
+    Expected payload:
+    {
+        "odata_base_url": "https://...",
+        "username": "...",
+        "password": "...",
+        "organization_guid": "..." (optional)
+    }
+    """
+    try:
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:save_onec_config_endpoint:entry","message":"save_onec_config called","data":{"odata_base_url":config.get("odata_base_url",""),"url_length":len(config.get("odata_base_url","")),"url_starts_with_http":config.get("odata_base_url","").startswith(("http://","https://"))},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        onec_config = OneCConfig(**config)
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:save_onec_config_endpoint:after_validation","message":"OneCConfig created","data":{"odata_base_url":onec_config.odata_base_url,"url_length":len(onec_config.odata_base_url)},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        save_onec_config(onec_config)
+        
+        # Log action
+        session_id = request.cookies.get("session_id")
+        audit_logger = get_audit_logger()
+        audit_logger.log_user_interaction(
+            "onec_config_saved",
+            f"1C OData config saved: {onec_config.odata_base_url}",
+            session_id=session_id
+        )
+        
+        return {
+            "success": True,
+            "message": "1C configuration saved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Failed to save 1C config: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to save 1C configuration: {str(e)}"
+        )
+
+
+@router.get("/onec/config")
+async def get_onec_config_endpoint(request: Request):
+    """
+    Get current 1C OData configuration.
+    Returns config without password for security.
+    """
+    try:
+        onec_config = get_onec_config()
+        if not onec_config:
+            return {
+                "configured": False,
+                "config": None
+            }
+        
+        # Return config without password
+        config_dict = onec_config.model_dump()
+        config_dict["password"] = "***"  # Hide password
+        return {
+            "configured": True,
+            "config": config_dict
+        }
+    except Exception as e:
+        logger.error(f"Failed to get 1C config: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get 1C configuration: {str(e)}"
+        )
+
+
+@router.post("/onec/test")
+async def test_onec_connection(request: Request):
+    """
+    Test 1C OData connection by calling $metadata endpoint.
+    """
+    try:
+        onec_config = get_onec_config()
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:config_loaded","message":"onec_config loaded","data":{"config_exists":onec_config is not None,"odata_base_url":onec_config.odata_base_url if onec_config else None,"url_length":len(onec_config.odata_base_url) if onec_config else 0},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        if not onec_config:
+            raise HTTPException(
+                status_code=400,
+                detail="1C configuration not found. Please configure 1C OData connection first."
+            )
+        
+        # Test connection by calling $metadata
+        import httpx
+        import base64
+        
+        # Prepare Basic Auth
+        credentials = f"{onec_config.username}:{onec_config.password}"
+        encoded_credentials = base64.b64encode(credentials.encode()).decode()
+        
+        metadata_url = f"{onec_config.odata_base_url}/$metadata"
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:before_request","message":"About to make HTTP request","data":{"metadata_url":metadata_url,"base_url":onec_config.odata_base_url,"url_constructed":f"{onec_config.odata_base_url}/$metadata"},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(
+                metadata_url,
+                headers={
+                    "Authorization": f"Basic {encoded_credentials}",
+                    "Accept": "application/json"
+                }
+            )
+            # #region debug log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:response_received","message":"HTTP response received","data":{"status_code":response.status_code,"url_requested":str(response.request.url) if hasattr(response,'request') else metadata_url,"response_text_preview":response.text[:200] if response.text else None},"timestamp":int(__import__('time').time()*1000)})+'\n')
+            # #endregion
+            
+            if response.status_code == 200:
+                # Log action
+                session_id = request.cookies.get("session_id")
+                audit_logger = get_audit_logger()
+                audit_logger.log_user_interaction(
+                    "onec_connection_tested",
+                    f"1C OData connection test successful: {onec_config.odata_base_url}",
+                    session_id=session_id
+                )
+                
+                return {
+                    "connected": True,
+                    "message": "Successfully connected to 1C OData endpoint"
+                }
+            else:
+                return {
+                    "connected": False,
+                    "message": f"Connection failed with status {response.status_code}: {response.text[:200]}"
+                }
+                
+    except httpx.TimeoutException as e:
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:timeout","message":"Connection timeout","data":{"error":str(e)},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        raise HTTPException(
+            status_code=408,
+            detail="Connection timeout. Please check the OData URL and network connectivity."
+        )
+    except httpx.RequestError as e:
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:request_error","message":"Request error","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        raise HTTPException(
+            status_code=500,
+            detail=f"Connection error: {str(e)}"
+        )
+    except Exception as e:
+        # #region debug log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:exception","message":"Failed to test 1C connection","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        logger.error(f"Failed to test 1C connection: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to test 1C connection: {str(e)}"
+        )
+
+
+@router.get("/onec/status")
+async def get_onec_status(request: Request):
+    """
+    Get 1C integration status.
+    """
+    onec_config = get_onec_config()
+    
+    return {
+        "enabled": onec_config is not None,
+        "configured": onec_config is not None,
+        "config_exists": onec_config is not None
+    }
 

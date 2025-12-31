@@ -26,3 +26,5 @@ echo -e "${GREEN}✓ Образ собран: ${IMAGE_NAME}:${IMAGE_TAG}${NC}"
 echo -e "${YELLOW}Для запуска локально используйте:${NC}"
 echo -e "${YELLOW}  docker run -p 8000:8000 --env-file .env ${IMAGE_NAME}:${IMAGE_TAG}${NC}"
 
+
+
