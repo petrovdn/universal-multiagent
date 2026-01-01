@@ -1213,8 +1213,8 @@ body {
 }
 
 .reasoning-block-content {
-  min-height: 42px;
-  max-height: 20vh;
+  min-height: 29px;
+  max-height: 14vh;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 12px 14px;

@@ -46,6 +46,14 @@ class TaskClassifier:
             "что ты", "what are you", "кто ты", "who are you",
             "что умеешь", "what can you do",
         ]
+        # Simple generative patterns (checked BEFORE complex_keywords)
+        # These are tasks like "напиши поздравление" that don't need planning
+        self.simple_generative_patterns = [
+            r"напиши\s+(краткое\s+)?(поздравление|стих|стихотворение|шутку|анекдот|сообщение|текст|письмо\s+с\s+поздравлением)",
+            r"придумай\s+(поздравление|стих|шутку|название|имя|историю)",
+            r"сочини\s+(стих|песню|историю|сказку)",
+            r"write\s+(a\s+)?(greeting|poem|joke|message|story)",
+        ]
         # Complex task indicators
         self.complex_keywords = [
             "создай", "create", "сделай", "make",
@@ -80,29 +88,45 @@ class TaskClassifier:
         """
         request_lower = user_request.lower().strip()
         
+        # Extract words for word-boundary matching
+        words = set(re.findall(r'\b\w+\b', request_lower))
+        
+        # PRIORITY 0.5: Check for simple generative tasks BEFORE complex keywords
+        # These use "напиши" but don't need planning - just generate text
         # #region agent log
         import json
         import time
         try:
             with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:_heuristic_classify","message":"Heuristic classification started","data":{"user_request":user_request[:200],"request_lower":request_lower[:200]},"timestamp":int(time.time()*1000)})+'\n')
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"task_classifier.py:_heuristic_classify","message":"Checking simple generative patterns","data":{"request_preview":request_lower[:100],"patterns_count":len(self.simple_generative_patterns)},"timestamp":int(time.time()*1000)})+'\n')
         except: pass
         # #endregion
+        for pattern in self.simple_generative_patterns:
+            try:
+                if re.search(pattern, request_lower):
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"task_classifier.py:_heuristic_classify","message":"Simple generative pattern matched","data":{"pattern":pattern},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
+                    logger.info(f"[TaskClassifier] Simple generative pattern found: {pattern}")
+                    return TaskType.SIMPLE
+            except Exception as e:
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"task_classifier.py:_heuristic_classify","message":"Error in regex pattern","data":{"pattern":pattern,"error":str(e)},"timestamp":int(time.time()*1000)})+'\n')
+                except: pass
+                # #endregion
+                logger.warning(f"[TaskClassifier] Error matching pattern {pattern}: {e}")
+                continue
         
-        # Extract words for word-boundary matching
-        words = set(re.findall(r'\b\w+\b', request_lower))
-        
-        # PRIORITY 1: Check complex keywords FIRST (they take precedence)
+        # PRIORITY 1: Check complex keywords (they take precedence)
         # If we find complex keywords, it's definitely complex
         for keyword in self.complex_keywords:
             # Check if keyword is a complete word or a significant substring (>= 4 chars)
             if keyword in words or (len(keyword) >= 4 and keyword in request_lower):
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:_heuristic_classify","message":"Complex keyword found","data":{"keyword":keyword,"result":"COMPLEX","matched_as_word":keyword in words},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
                 return TaskType.COMPLEX
         
         # PRIORITY 2: Check simple keywords (only if no complex keywords found)
@@ -111,12 +135,6 @@ class TaskClassifier:
         for keyword in self.simple_keywords:
             # Check if keyword is a complete word (to avoid false matches like "пока" in "покажи")
             if keyword in words:
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:_heuristic_classify","message":"Simple keyword found","data":{"keyword":keyword,"result":"SIMPLE","matched_as_word":True},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
                 return TaskType.SIMPLE
         
         # PRIORITY 3: Check length and structure
@@ -124,12 +142,6 @@ class TaskClassifier:
         words_list = request_lower.split()
         if len(words_list) <= 3 and len(request_lower) < 30:
             # Short and simple - likely a simple task
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:_heuristic_classify","message":"Short request detected","data":{"word_count":len(words_list),"length":len(request_lower),"result":"SIMPLE"},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             return TaskType.SIMPLE
         
         # PRIORITY 4: Check for complexity indicators
@@ -147,12 +159,6 @@ class TaskClassifier:
             return TaskType.COMPLEX
         
         # Uncertain - return None to use LLM
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:_heuristic_classify","message":"Heuristic uncertain, will use LLM","data":{"user_request":user_request[:200]},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         return None
     
     async def _llm_classify(self, user_request: str, context: ConversationContext) -> TaskType:
@@ -208,13 +214,116 @@ class TaskClassifier:
             # Default to complex if LLM fails
             return TaskType.COMPLEX
     
+    def _check_for_references(
+        self,
+        user_request: str,
+        context: ConversationContext
+    ) -> bool:
+        """
+        Check if request contains references to previous entities.
+        
+        Patterns: "этот/тот файл", "его/её", "туда", "this/that"
+        
+        Args:
+            user_request: User's request
+            context: Conversation context
+            
+        Returns:
+            True if references detected, False otherwise
+        """
+        reference_patterns = [
+            r'\b(этот|этого|этому|этим|этом|эта|эту|этой|это|эти|этих)\b',  # Все формы "этот"
+            r'\b(тот|того|тому|тем|том|та|ту|той|то|те|тех)\b',  # Все формы "тот"
+            r'\b(такой|такого|такому|таким|таком|такая|такую|такой|такое|такие|таких)\b',
+            r'\b(его|её|их|ему|ей|им)\b',
+            r'\b(туда|там|сюда|здесь)\b',
+            r'\b(the|that|this|these|those)\s+(file|meeting|email|sheet|document)',
+        ]
+        
+        request_lower = user_request.lower()
+        for pattern in reference_patterns:
+            if re.search(pattern, request_lower):
+                # Check if there are entities in memory
+                if hasattr(context, 'entity_memory') and context.entity_memory.has_recent_entities():
+                    logger.info(f"[TaskClassifier] Detected reference pattern: {pattern}")
+                    return True
+        return False
+    
+    def _is_simple_action_with_reference(
+        self,
+        user_request: str
+    ) -> bool:
+        """
+        Проверяет, является ли запрос простым действием с референсом.
+        Простое действие: один глагол + референс, без сложных операций.
+        
+        Примеры простых:
+        - "открой этот файл"
+        - "удали это письмо"
+        - "покажи ту встречу"
+        
+        Примеры сложных:
+        - "открой этот файл и отправь его по почте"
+        - "найди этот файл, прочитай его и создай саммари"
+        """
+        request_lower = user_request.lower().strip()
+        
+        # Проверяем наличие союзов "и", "потом", "затем" - признак многошаговости
+        multi_step_indicators = [' и ', ' потом ', ' затем ', ' после ', ' а затем ', ' then ', ' and then ', ' а потом ']
+        for indicator in multi_step_indicators:
+            if indicator in request_lower:
+                return False  # Это сложное многошаговое действие
+        
+        # Проверяем количество глаголов действия
+        action_verbs = ['открой', 'удали', 'покажи', 'найди', 'создай', 'отправь', 'добавь', 'измени', 'обнови', 'прочитай', 'открыть', 'удалить', 'показать', 'найти', 'создать', 'отправить', 'добавить', 'изменить', 'обновить', 'прочитать']
+        verb_count = sum(1 for verb in action_verbs if verb in request_lower)
+        
+        if verb_count <= 1:
+            return True  # Один глагол = простое действие
+        
+        return False  # Несколько глаголов = сложное
+    
+    def _is_continuation(
+        self,
+        user_request: str,
+        context: ConversationContext
+    ) -> bool:
+        """
+        Check if request is a continuation of previous dialogue.
+        
+        Patterns: "а теперь", "соберем все", "сделай вывод", "то же самое"
+        
+        Args:
+            user_request: User's request
+            context: Conversation context
+            
+        Returns:
+            True if continuation detected, False otherwise
+        """
+        continuation_patterns = [
+            r'\b(а теперь|теперь давай|а сейчас)\b',
+            r'\b(соберем|собери|объедин)',
+            r'\b(вывод|итог|резюм|суммар)',
+            r'\b(все вместе|воедино)\b',
+            r'\b(то же самое|также|тоже)\b',
+        ]
+        
+        request_lower = user_request.lower()
+        for pattern in continuation_patterns:
+            if re.search(pattern, request_lower):
+                # Check if there are previous messages
+                if len(context.messages) > 2:
+                    logger.info(f"[TaskClassifier] Detected continuation pattern: {pattern}")
+                    return True
+        return False
+    
     async def classify_task(
         self,
         user_request: str,
         context: ConversationContext
     ) -> TaskType:
         """
-        Classify task as simple or complex using hybrid approach.
+        Classify task as simple or complex using hybrid approach with context awareness.
         
         Args:
             user_request: User's request
@@ -223,32 +332,36 @@ class TaskClassifier:
         Returns:
             TaskType (SIMPLE or COMPLEX)
         """
+        # Step 0: Check for references or continuation (NEW - context-aware)
+        has_reference = self._check_for_references(user_request, context)
+        is_continuation = self._is_continuation(user_request, context)
+        
+        if has_reference:
+            # Референс обнаружен, но проверяем сложность действия
+            if self._is_simple_action_with_reference(user_request):
+                # Простое действие с референсом: "открой этот файл", "удали это письмо"
+                # НЕ требует планирования - entity_memory автоматически даст ID
+                logger.info(f"[TaskClassifier] Simple action with reference, classifying as SIMPLE for request: {user_request[:50]}")
+                return TaskType.SIMPLE
+            else:
+                # Сложное действие: "найди этот файл и отправь его по почте"
+                logger.info(f"[TaskClassifier] Complex action with reference, classifying as COMPLEX for request: {user_request[:50]}")
+                return TaskType.COMPLEX
+        
+        if is_continuation:
+            logger.info(f"[TaskClassifier] Detected continuation, classifying as COMPLEX for request: {user_request[:50]}")
+            return TaskType.COMPLEX
+        
         # Step 1: Heuristic classification
         heuristic_result = self._heuristic_classify(user_request)
         
         # If heuristic is confident - return result
         if heuristic_result is not None:
             logger.info(f"[TaskClassifier] Heuristic classification: {heuristic_result.value} for request: {user_request[:50]}")
-            # #region agent log
-            import json
-            import time
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:classify_task","message":"Final classification (heuristic)","data":{"result":heuristic_result.value,"user_request":user_request[:200]},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             return heuristic_result
         
         # Step 2: LLM classification for edge cases
         llm_result = await self._llm_classify(user_request, context)
         logger.info(f"[TaskClassifier] LLM classification: {llm_result.value} for request: {user_request[:50]}")
-        # #region agent log
-        import json
-        import time
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"task_classifier.py:classify_task","message":"Final classification (LLM)","data":{"result":llm_result.value,"user_request":user_request[:200]},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         return llm_result
 

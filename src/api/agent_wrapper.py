@@ -122,24 +122,10 @@ Initialize agent wrapper."""
             # Classify task complexity
             task_type = await self.task_classifier.classify_task(user_message, context)
             
-            # #region agent log
-            import json
-            import time
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"agent_wrapper.py:process_message","message":"Task classification result","data":{"task_type":task_type.value,"user_message":user_message[:200],"execution_mode":context.execution_mode},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
             # Simple tasks always use direct streaming (no plan shown), regardless of mode
             if task_type == TaskType.SIMPLE:
                 logger.info(f"[AgentWrapper] Simple task detected, executing directly without workflow")
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"agent_wrapper.py:process_message","message":"Using simple task execution (no planning)","data":{"user_message":user_message[:200]},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
                 result = await self._execute_simple_task(
                     user_message,
                     context,
@@ -151,35 +137,53 @@ Initialize agent wrapper."""
             # Complex tasks use StepOrchestrator with planning
             # Mode depends on execution_mode setting
             logger.info(f"[AgentWrapper] Complex task detected, using StepOrchestrator")
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"agent_wrapper.py:process_message","message":"Using StepOrchestrator with planning","data":{"user_message":user_message[:200],"execution_mode":context.execution_mode},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
-            # CRITICAL: Stop and remove any existing orchestrator for this session
-            # This prevents mixing context from previous requests
+            # Check if there's an existing orchestrator for this session
+            # If previous request is completed, we can reuse the orchestrator
+            # Otherwise, stop it to prevent mixing context
             if session_id in self._active_orchestrators:
                 old_orchestrator = self._active_orchestrators[session_id]
-                logger.info(f"[AgentWrapper] Stopping previous orchestrator for session {session_id}")
-                old_orchestrator.stop()
-                del self._active_orchestrators[session_id]
+                # Check if previous orchestrator is still running
+                is_running = (
+                    hasattr(old_orchestrator, '_streaming_task') and 
+                    old_orchestrator._streaming_task and 
+                    not old_orchestrator._streaming_task.done()
+                ) or (
+                    hasattr(old_orchestrator, '_confirmation_event') and
+                    old_orchestrator._confirmation_event and
+                    not old_orchestrator._confirmation_event.is_set()
+                )
+                
+                if is_running:
+                    # Previous request is still running - stop it
+                    logger.info(f"[AgentWrapper] Stopping active orchestrator for session {session_id}")
+                    old_orchestrator.stop()
+                    del self._active_orchestrators[session_id]
+                else:
+                    # Previous request is completed - reuse orchestrator
+                    logger.info(f"[AgentWrapper] Reusing orchestrator for session {session_id}")
+                    # Clean up state for new request
+                    old_orchestrator._confirmation_event = None
+                    old_orchestrator._confirmation_result = None
+                    old_orchestrator._stop_requested = False
+                    old_orchestrator._streaming_task = None
+                    # Use existing orchestrator instead of creating new one
+                    orchestrator = old_orchestrator
             
             if context.execution_mode == "approval":
                 orchestrator_mode = "plan_and_confirm"
             else:
                 orchestrator_mode = "plan_and_execute"
             
-            # Create StepOrchestrator for this session
-            orchestrator = StepOrchestrator(
-                ws_manager=self.ws_manager,
-                session_id=session_id,
-                model_name=context.model_name
-            )
-            
-            # Store orchestrator for confirmation handling
-            self._active_orchestrators[session_id] = orchestrator
+            # Create StepOrchestrator for this session (only if not reusing existing)
+            if 'orchestrator' not in locals():
+                orchestrator = StepOrchestrator(
+                    ws_manager=self.ws_manager,
+                    session_id=session_id,
+                    model_name=context.model_name
+                )
+                # Store orchestrator for confirmation handling
+                self._active_orchestrators[session_id] = orchestrator
             
             # Execute orchestrator
             # For plan_and_confirm: this will generate plan, wait for confirmation, then execute steps
@@ -228,23 +232,38 @@ Initialize agent wrapper."""
                 return text.replace("{", "{{").replace("}", "}}")
             escaped_error_message = _escape_braces(error_message)
             
+            # Check for API credit balance error (Anthropic API)
+            error_lower = error_message.lower()
+            is_credit_error = (
+                "credit balance" in error_lower or
+                "balance is too low" in error_lower or
+                "insufficient credits" in error_lower or
+                "недостаточно средств" in error_lower
+            )
+            
+            # Create user-friendly message
+            if is_credit_error:
+                friendly_error_message = "⚠️ Недостаточно средств на балансе API ключа Anthropic. Пожалуйста, пополните баланс в разделе Plans & Billing на сайте Anthropic."
+            else:
+                friendly_error_message = error_message
+            
             # Send error event
             await self.ws_manager.send_event(
                 session_id,
                 "error",
                 {
-                    "message": error_message,  # Send original, not escaped
+                    "message": friendly_error_message,  # Send friendly message
                     "type": type(e).__name__
                 }
             )
             
-            # Also send as system message for better visibility (use .format() instead of f-string)
+            # Also send as system message for better visibility
             await self.ws_manager.send_event(
                 session_id,
                 "message",
                 {
                     "role": "system",
-                    "content": "Ошибка: {error}".format(error=escaped_error_message)
+                    "content": friendly_error_message  # Use friendly message directly
                 }
             )
             
@@ -315,8 +334,19 @@ Initialize agent wrapper."""
             # Import exception types
             from src.utils.exceptions import ToolExecutionError, MCPError
             
+            # Check for API credit balance error (Anthropic API)
+            error_lower = error_message.lower()
+            is_credit_error = (
+                "credit balance" in error_lower or
+                "balance is too low" in error_lower or
+                "insufficient credits" in error_lower or
+                "недостаточно средств" in error_lower
+            )
+            
             # Create user-friendly error message using .format() instead of f-string to avoid issues with escaped content
-            if isinstance(e, ToolExecutionError):
+            if is_credit_error:
+                friendly_message = "⚠️ Недостаточно средств на балансе API ключа Anthropic. Пожалуйста, пополните баланс в разделе Plans & Billing на сайте Anthropic."
+            elif isinstance(e, ToolExecutionError):
                 friendly_message = "Не удалось выполнить операцию: {error}".format(error=escaped_error_message)
             elif isinstance(e, MCPError):
                 friendly_message = "Ошибка подключения к сервису: {error}".format(error=escaped_error_message)
@@ -385,7 +415,13 @@ Initialize agent wrapper."""
         file_ids = file_ids or []
         logger.info(f"[AgentWrapper] Executing simple task: {user_message[:50]}")
         
+        # Check if context is needed for simple task (NEW)
+        needs_context = self._needs_context_for_simple(user_message, context)
+        if needs_context:
+            logger.info(f"[AgentWrapper] Adding minimal context for simple task")
+        
         # Use direct streaming execution (no workflow) - stream directly to final_result
+        # Context will be automatically included via base_agent.execute which uses get_context_for_simple_task
         result = await self._execute_with_streaming(
             user_message,
             context,
@@ -405,6 +441,33 @@ Initialize agent wrapper."""
             "response": result.get("response", ""),
             "type": "simple_execution"
         }
+    
+    def _needs_context_for_simple(
+        self,
+        user_message: str,
+        context: ConversationContext
+    ) -> bool:
+        """
+        Check if context is needed for simple task.
+        
+        Args:
+            user_message: User's message
+            context: Conversation context
+            
+        Returns:
+            True if context is needed, False otherwise
+        """
+        # Check for reference keywords
+        reference_keywords = ["этот", "тот", "его", "её", "там", "this", "that"]
+        for keyword in reference_keywords:
+            if keyword in user_message.lower():
+                return True
+        
+        # Check if there are recent messages
+        if len(context.messages) > 0:
+            return True
+        
+        return False
     
     async def _generate_simple_task_result(
         self,
@@ -947,35 +1010,15 @@ Callback to handle streaming events and send to WebSocket."""
         Returns:
             Status dict
         """
-        # #region agent log
-        import time
-        import json
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C,D","location":"agent_wrapper.py:resolve_user_assistance:entry","message":"resolve_user_assistance called","data":{"assistance_id":assistance_id,"user_response":user_response,"session_id":session_id},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
         # Get active orchestrator for this session
         orchestrator = self._active_orchestrators.get(session_id)
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"agent_wrapper.py:resolve_user_assistance:orchestrator_check","message":"Orchestrator check","data":{"orchestrator_found":orchestrator is not None,"active_orchestrators_keys":list(self._active_orchestrators.keys())},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
         if orchestrator:
             # Verify assistance_id matches
             expected_id = orchestrator.get_user_assistance_id()
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"agent_wrapper.py:resolve_user_assistance:id_check","message":"Assistance ID check","data":{"expected_id":expected_id,"received_id":assistance_id,"match":expected_id == assistance_id},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
             if expected_id != assistance_id:
                 logger.warning(f"[AgentWrapper] Assistance ID mismatch: expected {expected_id}, got {assistance_id}")
@@ -984,21 +1027,9 @@ Callback to handle streaming events and send to WebSocket."""
             # Resolve the assistance request in orchestrator
             # This will unblock the _execute_step method that is waiting for assistance
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"agent_wrapper.py:resolve_user_assistance:before_resolve","message":"Before orchestrator.resolve_user_assistance","data":{"user_response":user_response},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
             orchestrator.resolve_user_assistance(assistance_id, user_response)
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"agent_wrapper.py:resolve_user_assistance:after_resolve","message":"After orchestrator.resolve_user_assistance","data":{},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
             # The orchestrator.execute() method is already running and waiting for assistance.
             # Now that we've resolved it, execution will continue.

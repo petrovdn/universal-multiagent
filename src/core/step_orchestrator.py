@@ -144,35 +144,106 @@ class StepOrchestrator:
             logger.error(f"[StepOrchestrator] Failed to load tools: {e}")
             return []
     
-    def _create_llm_with_thinking(self) -> BaseChatModel:
+    def _is_simple_generative_task(self, user_request: str) -> bool:
         """
-Create LLM instance with extended thinking enabled."""
+        Check if task is a simple generative task (writing text, creating content).
+        These tasks don't need verbose reasoning.
+        
+        Args:
+            user_request: User's request
+            
+        Returns:
+            True if task is simple generative
+        """
+        import re
+        request_lower = user_request.lower().strip()
+        
+        # Simple generative patterns (similar to TaskClassifier)
+        simple_generative_patterns = [
+            r"напиши\s+(краткое\s+)?(поздравление|стих|стихотворение|шутку|анекдот|сообщение|текст|письмо\s+с\s+поздравлением|хохку|хайку)",
+            r"придумай\s+(поздравление|стих|шутку|название|имя|историю)",
+            r"сочини\s+(стих|песню|историю|сказку|хохку|хайку)",
+            r"write\s+(a\s+)?(greeting|poem|joke|message|story|haiku)",
+            r"адаптируй.*\s+(и\s+|а\s+потом\s+|потом\s+)?(напиши|придумай|добавь)",
+            r"(напиши|создай).*\s+(и\s+|а\s+потом\s+|потом\s+)?(напиши|придумай|добавь)\s+\w+",
+        ]
+        
+        for pattern in simple_generative_patterns:
+            try:
+                if re.search(pattern, request_lower):
+                    logger.info(f"[StepOrchestrator] Simple generative task detected: {pattern}")
+                    return True
+            except Exception as e:
+                logger.warning(f"[StepOrchestrator] Error matching pattern {pattern}: {e}")
+                continue
+        
+        return False
+    
+    def _create_llm_with_thinking(self, enable_thinking: bool = True, budget_tokens: int = 5000) -> BaseChatModel:
+        """
+        Create LLM instance with optional extended thinking.
+        
+        Args:
+            enable_thinking: If False, create LLM without thinking even if model supports it
+            budget_tokens: Token budget for thinking (if enabled). Lower values = shorter reasoning
+        
+        Returns:
+            BaseChatModel instance
+        """
         from src.utils.config_loader import get_config
         from langchain_anthropic import ChatAnthropic
+        from langchain_openai import ChatOpenAI
         
-        config_model_name = self.model_name or "claude-sonnet-4-5"  # Default to Claude Sonnet 4.5 for thinking
+        config_model_name = self.model_name or "claude-sonnet-4-5"
         config = get_config()
         
         try:
-            # Check if model supports extended thinking
-            from src.agents.model_factory import MODELS, get_available_models
+            from src.agents.model_factory import get_available_models, create_llm
             available_models = get_available_models()
             
             if config_model_name in available_models:
                 model_config = available_models[config_model_name]
-                if model_config.get("supports_reasoning") and model_config.get("reasoning_type") == "extended_thinking":
-                    # Create LLM with extended thinking (budget_tokens will be set per-invocation)
-                    llm = ChatAnthropic(
-                        model=model_config["model_id"],
-                        api_key=config.anthropic_api_key,
-                        streaming=True,
-                        temperature=1,  # Required for extended thinking
-                        thinking={
-                            "type": "enabled",
-                            "budget_tokens": 5000  # Use 5000 for steps
-                        }
-                    )
-                    return llm
+                provider = model_config.get("provider")
+                
+                # If thinking should be disabled, use create_llm (which handles thinking based on model config)
+                if not enable_thinking:
+                    logger.info(f"[StepOrchestrator] Creating LLM without thinking for model {config_model_name}")
+                    # For Anthropic models, create without thinking parameter
+                    if provider == "anthropic":
+                        if model_config.get("supports_reasoning") and model_config.get("reasoning_type") == "extended_thinking":
+                            # Create LLM without thinking even though model supports it
+                            llm = ChatAnthropic(
+                                model=model_config["model_id"],
+                                api_key=config.anthropic_api_key,
+                                streaming=True,
+                                temperature=1.0,  # Standard temperature without thinking
+                            )
+                            return llm
+                    # For OpenAI o1 models, we can't disable reasoning (it's built-in)
+                    # So we'll still use create_llm which handles it properly
+                    return create_llm(config_model_name)
+                
+                # Enable thinking if model supports it
+                if model_config.get("supports_reasoning"):
+                    reasoning_type = model_config.get("reasoning_type")
+                    
+                    if provider == "anthropic" and reasoning_type == "extended_thinking":
+                        # Create LLM with extended thinking
+                        llm = ChatAnthropic(
+                            model=model_config["model_id"],
+                            api_key=config.anthropic_api_key,
+                            streaming=True,
+                            temperature=1,  # Required for extended thinking
+                            thinking={
+                                "type": "enabled",
+                                "budget_tokens": budget_tokens
+                            }
+                        )
+                        return llm
+                    elif provider == "openai" and reasoning_type == "native":
+                        # OpenAI o1 models have native reasoning (built-in, can't disable)
+                        # Use create_llm which handles it properly
+                        return create_llm(config_model_name)
             
             # Fallback: use create_llm for models without thinking support
             return create_llm(config_model_name)
@@ -180,6 +251,7 @@ Create LLM instance with extended thinking enabled."""
             logger.error(f"[StepOrchestrator] Failed to create LLM: {e}")
             # Fallback to default model
             try:
+                from src.agents.model_factory import create_llm
                 return create_llm(config.default_model)
             except Exception as e2:
                 logger.error(f"[StepOrchestrator] Failed to create fallback LLM: {e2}")
@@ -233,7 +305,73 @@ Create LLM instance with extended thinking enabled."""
             self._plan_steps = plan_steps
             self._confirmation_id = str(uuid4())
             
-            # Send plan_generated event
+            # NEW: If plan has only 1 step, skip plan display and execute directly
+            if len(plan_steps) == 1:
+                # #region agent log
+                import json
+                import time
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"step_orchestrator.py:execute","message":"Single-step plan detected","data":{"step_title":plan_steps[0] if plan_steps else "none"},"timestamp":int(time.time()*1000)})+'\n')
+                except: pass
+                # #endregion
+                logger.info(f"[StepOrchestrator] Single-step plan detected, executing directly without showing plan")
+                
+                # Check if stop was requested before executing single step
+                if self._stop_requested:
+                    logger.info(f"[StepOrchestrator] Stop requested before single-step execution")
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "workflow_stopped",
+                        {
+                            "reason": "Остановлено пользователем",
+                            "step": 0,
+                            "remaining_steps": 1
+                        }
+                    )
+                    return {
+                        "status": "stopped",
+                        "message": "Генерация остановлена пользователем",
+                        "plan": plan_text,
+                        "steps": plan_steps
+                    }
+                
+                # Execute step directly
+                step_result = await self._execute_step(
+                    1,
+                    plan_steps[0],
+                    user_request,
+                    plan_text,
+                    plan_steps,
+                    [],
+                    context,
+                    file_ids
+                )
+                
+                # Send final result directly (skip separate generation)
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "final_result_start",
+                    {}
+                )
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "final_result_complete",
+                    {"content": step_result}
+                )
+                
+                # Save to context
+                if hasattr(context, 'add_message'):
+                    context.add_message("assistant", step_result)
+                
+                return {
+                    "status": "completed",
+                    "steps": [{"step": 1, "title": plan_steps[0], "result": step_result}],
+                    "plan": plan_text,
+                    "single_step": True
+                }
+            
+            # Send plan_generated event (only for multi-step plans)
             await self.ws_manager.send_event(
                 self.session_id,
                 "plan_generated",
@@ -632,14 +770,6 @@ Create HumanMessage with text and optional file attachments."""
         Returns:
             Dict with "plan" (text) and "steps" (list of step titles)
         """
-        # #region agent log
-        import time
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"step_orchestrator.py:_generate_plan","message":"Plan generation started","data":{"user_request":user_request[:200],"file_ids":file_ids},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
-        
         # Use dynamic planning prompt
         system_prompt = build_planning_prompt()
 
@@ -650,19 +780,46 @@ Create HumanMessage with text and optional file attachments."""
         plan_request_text = uploaded_files_info + f"\n\nСоздай детальный план выполнения для этого запроса:\n\n{escaped_user_request}"
         user_message = create_message_with_files(plan_request_text, files_data)
         
-        messages = [
-            SystemMessage(content=system_prompt),
-            user_message
-        ]
-        # Add recent context messages if available, but skip the last user message if it matches current user_request
-        recent_messages = context.get_recent_messages(5)
+        # Add entity context to system prompt (combine into single SystemMessage to avoid "multiple non-consecutive system messages" error)
+        has_entity_context = False
+        if hasattr(context, 'entity_memory') and context.entity_memory.has_recent_entities():
+            entity_context = context.entity_memory.to_context_string()
+            if entity_context:
+                system_prompt += f"""
+
+КОНТЕКСТ УПОМЯНУТЫХ ОБЪЕКТОВ:
+
+{entity_context}
+
+ℹ️ ИНСТРУКЦИЯ: Объекты выше уже доступны в контексте диалога. При планировании шагов:
+- Если пользователь ссылается на них (через "этот", "тот", "такой") - используй их напрямую
+- НЕ планируй повторное получение объекта, который уже есть в списке выше
+- Используй идентификаторы (ID) объектов для прямого доступа к ним"""
+                has_entity_context = True
         
-        # Only add assistant messages from recent context for planning
-        # Do NOT add previous user messages - they can cause confusion and message concatenation
-        # IMPORTANT: When using extended thinking, assistant messages from previous requests
-        # may not have thinking blocks, which causes API errors. Skip them.
-        added_context_messages = []
-        # Check if LLM uses extended thinking
+        messages = [
+            SystemMessage(content=system_prompt),  # Single SystemMessage with all system info
+        ]
+        
+        # Get context for planning (includes last 10 messages)
+        recent_messages = context.get_context_for_planning()
+        
+        # Check if task is simple generative - disable reasoning for such tasks
+        is_simple_generative = self._is_simple_generative_task(user_request)
+        
+        # Create LLM for planning (without thinking for simple generative tasks, reduced budget for complex tasks)
+        # Use lower budget_tokens (3000) for complex tasks to reduce verbose reasoning
+        budget_tokens = 3000  # Reduced from 5000 to minimize verbose reasoning
+        planning_llm = self._create_llm_with_thinking(
+            enable_thinking=not is_simple_generative,
+            budget_tokens=budget_tokens
+        )
+        if is_simple_generative:
+            logger.info(f"[StepOrchestrator] Simple generative task detected, planning without thinking")
+        else:
+            logger.info(f"[StepOrchestrator] Complex task detected, planning with thinking (budget: {budget_tokens} tokens)")
+        
+        # Check if LLM uses extended thinking (for message formatting)
         uses_extended_thinking = False
         try:
             from src.agents.model_factory import get_available_models
@@ -670,26 +827,35 @@ Create HumanMessage with text and optional file attachments."""
             config_model_name = self.model_name or "claude-sonnet-4-5"
             if config_model_name in available_models:
                 model_config = available_models[config_model_name]
-                if model_config.get("supports_reasoning") and model_config.get("reasoning_type") == "extended_thinking":
+                # Only check if thinking is enabled AND task is not simple generative
+                if not is_simple_generative and model_config.get("supports_reasoning") and model_config.get("reasoning_type") == "extended_thinking":
                     uses_extended_thinking = True
         except:
             pass
         
+        # Add all recent messages (user + assistant) for context (UPDATED)
+        # This enables understanding of references and continuation
         for msg in recent_messages:
             role = msg.get("role")
             content = msg.get("content", "")
-            # Skip all user messages - we only want the current user_request in the prompt
-            # This prevents message concatenation issues
             if role == "user":
-                continue
+                # Add user messages for context (NEW - previously skipped)
+                messages.append(HumanMessage(content=content))
             elif role == "assistant":
-                # When using extended thinking, skip assistant messages from previous requests
-                # because they may not have thinking blocks, causing API errors
+                # Include assistant messages for context to enable references to previous responses
+                # For extended thinking models, wrap as HumanMessage to avoid thinking block errors and "multiple system messages" error
                 if uses_extended_thinking:
-                    # Skip assistant messages from previous requests to avoid thinking block errors
-                    continue
-                # Add assistant messages for context (only when not using extended thinking)
-                messages.append(AIMessage(content=content))
+                    # Wrap assistant message as HumanMessage with label to preserve context while avoiding API errors
+                    # Using HumanMessage instead of SystemMessage to avoid "multiple non-consecutive system messages" error
+                    messages.append(HumanMessage(
+                        content=f"[Предыдущий ответ ассистента]:\n{content}"
+                    ))
+                else:
+                    # Normal AIMessage for non-extended-thinking models
+                    messages.append(AIMessage(content=content))
+        
+        # Add current user request message
+        messages.append(user_message)
         try:
             # Check if stop was requested before starting streaming
             if self._stop_requested:
@@ -699,14 +865,14 @@ Create HumanMessage with text and optional file attachments."""
                     "steps": ["Execute request"]
                 }
             
-            # Stream LLM response with thinking
+            # Stream LLM response with thinking (if enabled)
             accumulated_thinking = ""
             accumulated_response = ""
             
             # Создать задачу для стриминга, чтобы можно было её отменить
             async def stream_plan():
                 nonlocal accumulated_thinking, accumulated_response
-                async for chunk in self.llm.astream(messages):
+                async for chunk in planning_llm.astream(messages):
                     if self._stop_requested:
                         break
                     
@@ -804,12 +970,13 @@ Create HumanMessage with text and optional file attachments."""
             
             logger.info(f"[StepOrchestrator] Generated plan with {len(steps)} steps (thinking: {len(accumulated_thinking)} chars)")
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"step_orchestrator.py:_generate_plan","message":"Plan generated successfully","data":{"steps_count":len(steps),"plan_preview":plan_text[:200],"steps":steps},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
+            # Send event to stop plan thinking streaming before returning plan
+            # This ensures the thinking block collapses immediately when plan is generated
+            await self.ws_manager.send_event(
+                self.session_id,
+                "plan_thinking_complete",
+                {}
+            )
             
             return {
                 "plan": plan_text,
@@ -970,12 +1137,69 @@ Create HumanMessage with text and optional file attachments."""
         # Build dynamic system prompt based on available capabilities
         system_prompt = build_step_executor_prompt(capabilities, workspace_folder_info)
         
+        # Add conversation history for context (NEW - enables access to previous assistant responses)
+        # This allows the model to see its previous responses (e.g., generated text, analysis)
+        recent_messages = context.get_context_for_planning()  # Get last 10 messages
+        
+        # Check if LLM uses extended thinking
+        uses_extended_thinking = False
+        try:
+            from src.agents.model_factory import get_available_models
+            available_models = get_available_models()
+            config_model_name = self.model_name or "claude-sonnet-4-5"
+            if config_model_name in available_models:
+                model_config = available_models[config_model_name]
+                if model_config.get("supports_reasoning") and model_config.get("reasoning_type") == "extended_thinking":
+                    uses_extended_thinking = True
+        except:
+            pass
+        
+        # Add entity context to system prompt (combine into single SystemMessage to avoid "multiple non-consecutive system messages" error)
+        if hasattr(context, 'entity_memory') and context.entity_memory.has_recent_entities():
+            entity_context = context.entity_memory.to_context_string()
+            if entity_context:
+                system_prompt += f"""
+
+КОНТЕКСТ УПОМЯНУТЫХ ОБЪЕКТОВ:
+
+{entity_context}
+
+ℹ️ ИНСТРУКЦИЯ: Объекты выше уже доступны в контексте диалога. При выполнении шага:
+- Если пользователь ссылается на них (через "этот", "тот", "такой") - используй их напрямую
+- НЕ планируй повторное получение объекта, который уже есть в списке выше
+- Используй идентификаторы (ID) объектов для прямого доступа к ним"""
+        
         # Prepare messages with file attachments if any (files_data already loaded above)
         step_message = create_message_with_files(step_context, files_data)
         messages = [
-            SystemMessage(content=system_prompt),
-            step_message
+            SystemMessage(content=system_prompt),  # Single SystemMessage with all system info
         ]
+        
+        # Add recent messages from conversation history
+        assistant_messages_count = 0
+        user_messages_count = 0
+        for msg in recent_messages:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if role == "user":
+                messages.append(HumanMessage(content=content))
+                user_messages_count += 1
+            elif role == "assistant":
+                # Include assistant messages for context to enable references to previous responses
+                assistant_messages_count += 1
+                if uses_extended_thinking:
+                    # Wrap as HumanMessage with label to preserve context while avoiding API errors
+                    # Using HumanMessage instead of SystemMessage to avoid "multiple non-consecutive system messages" error
+                    assistant_context = f"[Предыдущий ответ ассистента]:\n{content}"
+                    messages.append(HumanMessage(content=assistant_context))
+                    
+                else:
+                    messages.append(AIMessage(content=content))
+                    
+        
+        # Add step message with context
+        messages.append(step_message)
+        
         # Check if stop was requested before starting streaming
         if self._stop_requested:
             logger.info(f"[StepOrchestrator] Stop requested before step {step_index} execution")
@@ -1015,20 +1239,7 @@ Create HumanMessage with text and optional file attachments."""
                                     # For thinking blocks, text is in 'thinking' key, not 'text'!
                                     thinking_text = block.get("thinking", "") if isinstance(block, dict) else getattr(block, "thinking", "")
                                     if thinking_text:
-                                        # #region agent log
-                                        import time
-                                        try:
-                                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"step_orchestrator.py:_execute_step:thinking_chunk","message":"Thinking chunk received","data":{"thinking_length":len(thinking_text),"accumulated_length_before":len(accumulated_thinking),"step":step_index},"timestamp":int(time.time()*1000)})+'\n')
-                                        except: pass
-                                        # #endregion
                                         accumulated_thinking += thinking_text
-                                        # #region agent log
-                                        try:
-                                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"J","location":"step_orchestrator.py:_execute_step:thinking_chunk_after","message":"Thinking chunk added","data":{"accumulated_length_after":len(accumulated_thinking)},"timestamp":int(time.time()*1000)})+'\n')
-                                        except: pass
-                                        # #endregion
                                         # Send thinking chunk
                                         await self.ws_manager.send_event(
                                             self.session_id,
@@ -1121,6 +1332,18 @@ Create HumanMessage with text and optional file attachments."""
                                     result = await tool.ainvoke(tool_args)
                                     tool_messages.append(ToolMessage(content=str(result), tool_call_id=tool_id or tool_name))
                                     accumulated_response += f"\n\nРезультат инструмента {tool_name}: {result}\n"
+                                    
+                                    # NEW: Extract entities from tool result and add to entity memory
+                                    if hasattr(context, 'add_entity_from_tool_result'):
+                                        try:
+                                            context.add_entity_from_tool_result(
+                                                tool_name=tool_name,
+                                                tool_result=result,
+                                                turn_number=len(context.messages)
+                                            )
+                                            logger.debug(f"[StepOrchestrator] Extracted entities from tool {tool_name}")
+                                        except Exception as e:
+                                            logger.warning(f"[StepOrchestrator] Failed to extract entities from tool result: {e}")
                                 except Exception as e:
                                     logger.error(f"[StepOrchestrator] Tool {tool_name} execution failed: {e}")
                                     tool_messages.append(ToolMessage(content=f"Ошибка: {str(e)}", tool_call_id=tool_id or tool_name))
@@ -1168,6 +1391,122 @@ Create HumanMessage with text and optional file attachments."""
             )
             raise
     
+    def _needs_final_result_generation(
+        self,
+        user_request: str,
+        step_results: List[Dict[str, Any]]
+    ) -> bool:
+        """
+        Determine if separate final result generation is needed.
+        
+        Returns False if last step result can be used directly.
+        
+        Args:
+            user_request: Original user request
+            step_results: Results from all executed steps
+            
+        Returns:
+            True if separate final result generation is needed, False otherwise
+        """
+        # #region agent log
+        import json
+        import time
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"step_orchestrator.py:_needs_final_result_generation","message":"Method entry","data":{"step_results_type":type(step_results).__name__,"step_results_count":len(step_results) if isinstance(step_results, list) else "not_list","user_request_type":type(user_request).__name__},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        if not isinstance(step_results, list):
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"step_orchestrator.py:_needs_final_result_generation","message":"ERROR: step_results is not a list","data":{"step_results_type":type(step_results).__name__},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            logger.error(f"[StepOrchestrator] step_results is not a list: {type(step_results)}")
+            return True  # Safe default: generate result
+        if not isinstance(user_request, str):
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"step_orchestrator.py:_needs_final_result_generation","message":"ERROR: user_request is not a string","data":{"user_request_type":type(user_request).__name__},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            logger.error(f"[StepOrchestrator] user_request is not a string: {type(user_request)}")
+            return True  # Safe default: generate result
+        request_lower = user_request.lower()
+        
+        # 1. Single step - last result IS the final result
+        if len(step_results) <= 1:
+            return False
+        
+        # 2. Generative tasks - result is the generated content
+        generative_indicators = [
+            "напиши", "создай текст", "придумай", "сочини",
+            "write", "compose", "create a message"
+        ]
+        for indicator in generative_indicators:
+            if indicator in request_lower:
+                return False
+        
+        # 2.5. Generative tasks with structured data (tables, lists) - last step result is final
+        structured_data_indicators = [
+            "таблиц", "список", "табличку", "таблицу", 
+            "table", "list", "списка", "таблицы"
+        ]
+        is_structured_data_task = any(indicator in request_lower for indicator in structured_data_indicators)
+        
+        if is_structured_data_task:
+            # Check if last step result contains structured data (table markdown, list format)
+            if step_results:
+                last_result = step_results[-1].get("result", "")
+                last_result_lower = last_result.lower()
+                
+                # Check for table indicators in result
+                table_indicators = ["|", "---", "таблиц", "таблица", "table"]
+                has_table = any(indicator in last_result_lower or indicator in last_result for indicator in table_indicators)
+                
+                # Check for list indicators
+                list_indicators = ["- ", "* ", "1. ", "• ", "список"]
+                has_list = any(indicator in last_result for indicator in list_indicators)
+                
+                # If last step contains structured data, it's the final result
+                if has_table or has_list:
+                    logger.info(f"[StepOrchestrator] Last step contains structured data (table/list), using it as final result")
+                    return False
+        
+        # 3. Check if steps performed actions that need summarizing
+        action_indicators = [
+            "отправлено", "создано", "обновлено", "удалено",
+            "sent", "created", "updated", "deleted",
+            "Результат инструмента", "Tool result"
+        ]
+        action_count = 0
+        for step in step_results:
+            result = step.get("result", "")
+            for indicator in action_indicators:
+                if indicator in result:
+                    action_count += 1
+                    break
+        
+        # If multiple actions were performed, need summary
+        if action_count > 1:
+            return True
+        
+        # 4. Multiple data-gathering steps - need consolidation (but skip if structured data)
+        # If it's a structured data task and last step has the data, don't generate
+        if len(step_results) > 2:
+            # Double-check: if this is structured data task and last step has it, use it
+            if is_structured_data_task and step_results:
+                last_result = step_results[-1].get("result", "")
+                # If last result is substantial (more than 200 chars), it's likely complete
+                if len(last_result) > 200:
+                    return False
+            return True
+        
+        # Default: no generation needed
+        return False
+    
     async def _generate_final_result(
         self,
         user_request: str,
@@ -1185,6 +1524,59 @@ Create HumanMessage with text and optional file attachments."""
             step_results: Results from all executed steps
             context: Conversation context
         """
+        # NEW: Check if separate final result generation is needed
+        # #region agent log
+        import json
+        import time
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"step_orchestrator.py:_generate_final_result","message":"Checking if final result generation needed","data":{"step_results_count":len(step_results),"user_request_preview":user_request[:100]},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        needs_generation = self._needs_final_result_generation(user_request, step_results)
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"step_orchestrator.py:_generate_final_result","message":"Final result generation check result","data":{"needs_generation":needs_generation,"step_results_count":len(step_results)},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        if not needs_generation:
+            # Use last step result directly as final result
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"step_orchestrator.py:_generate_final_result","message":"Using last step result directly","data":{"step_results_count":len(step_results),"has_results":bool(step_results)},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            if not step_results:
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"step_orchestrator.py:_generate_final_result","message":"ERROR: step_results is empty","data":{},"timestamp":int(time.time()*1000)})+'\n')
+                except: pass
+                # #endregion
+                logger.error(f"[StepOrchestrator] step_results is empty, cannot use last result")
+                last_result = ""
+            else:
+                last_result = step_results[-1].get("result", "")
+            logger.info(f"[StepOrchestrator] Using last step result as final result (no generation needed)")
+            
+            await self.ws_manager.send_event(
+                self.session_id,
+                "final_result_start",
+                {}
+            )
+            await self.ws_manager.send_event(
+                self.session_id,
+                "final_result_complete",
+                {"content": last_result}
+            )
+            
+            # Save to context
+            if hasattr(context, 'add_message'):
+                context.add_message("assistant", last_result)
+            return
+        
         # Build summary of all steps - format as context data without step numbering
         # This prevents the model from copying "Шаг N:" format into the final answer
         steps_summary = ""
@@ -1296,6 +1688,11 @@ Create HumanMessage with text and optional file attachments."""
             final_result = accumulated_result.strip()
             logger.info(f"[StepOrchestrator] Generated and streamed final result, length: {len(final_result)}")
             
+            # Save final result to context (NEW - enables access to previous responses)
+            if hasattr(context, 'add_message'):
+                context.add_message("assistant", final_result)
+                logger.info(f"[StepOrchestrator] Final result saved to context, context now has {len(context.messages)} messages")
+            
             # Send final_result_complete event
             await self.ws_manager.send_event(
                 self.session_id,
@@ -1392,14 +1789,6 @@ Get the confirmation ID for the current plan."""
             assistance_id: Assistance request ID
             user_response: User's response text (can be number, ordinal, label, etc.)
         """
-        # #region agent log
-        import time
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C,D","location":"step_orchestrator.py:resolve_user_assistance:entry","message":"resolve_user_assistance called","data":{"assistance_id":assistance_id,"user_response":user_response,"current_assistance_id":self._user_assistance_id,"has_options":self._user_assistance_options is not None,"options_count":len(self._user_assistance_options) if self._user_assistance_options else 0},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
-        
         if self._user_assistance_id != assistance_id:
             logger.warning(f"[StepOrchestrator] Assistance ID mismatch: expected {self._user_assistance_id}, got {assistance_id}")
             return
@@ -1409,21 +1798,7 @@ Get the confirmation ID for the current plan."""
             return
         
         # Parse user response to find selected option
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"step_orchestrator.py:resolve_user_assistance:before_parse","message":"Before _parse_user_selection","data":{"user_response":user_response,"options":self._user_assistance_options},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
-        
         selected_option = self._parse_user_selection(user_response, self._user_assistance_options)
-        
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"step_orchestrator.py:resolve_user_assistance:after_parse","message":"After _parse_user_selection","data":{"selected_option":selected_option},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
         if not selected_option:
             logger.warning(f"[StepOrchestrator] Could not parse user selection from response: {user_response}")
@@ -1433,23 +1808,10 @@ Get the confirmation ID for the current plan."""
         if selected_option:
             logger.info(f"[StepOrchestrator] User assistance resolved for session {self.session_id}, selected option: {selected_option.get('id', 'unknown')}")
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"step_orchestrator.py:resolve_user_assistance:before_set_result","message":"Before setting result and event","data":{"selected_option_id":selected_option.get('id'),"has_event":self._user_assistance_event is not None},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
-            
             self._user_assistance_result = selected_option
             if self._user_assistance_event:
                 self._user_assistance_event.set()
                 
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"step_orchestrator.py:resolve_user_assistance:after_set_result","message":"After setting result and event","data":{},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
         else:
             logger.error(f"[StepOrchestrator] No option selected for assistance request {assistance_id}")
     
@@ -1570,12 +1932,6 @@ Get the confirmation ID for the current plan."""
                             if assistance_data and isinstance(assistance_data, dict):
                                 # Ensure options is a list and deduplicate by id
                                 options_list = assistance_data.get("options", [])
-                                # #region agent log
-                                try:
-                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"K","location":"step_orchestrator.py:_parse_assistance_request:before_dedup","message":"Before deduplication","data":{"options_count":len(options_list) if isinstance(options_list, list) else 0,"options_preview":[{"id":opt.get("id"),"label":opt.get("label","")[:50]} for opt in (options_list[:5] if isinstance(options_list, list) else [])]},"timestamp":int(time.time()*1000)})+'\n')
-                                except: pass
-                                # #endregion
                                 if isinstance(options_list, list):
                                     # Deduplicate options by id
                                     seen_ids = set()
@@ -1586,12 +1942,6 @@ Get the confirmation ID for the current plan."""
                                             seen_ids.add(opt_id)
                                             unique_options.append(opt)
                                     
-                                    # #region agent log
-                                    try:
-                                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"K","location":"step_orchestrator.py:_parse_assistance_request:after_dedup","message":"After deduplication","data":{"unique_options_count":len(unique_options),"unique_ids":list(seen_ids),"option_labels_preview":[opt.get("label","")[:80] for opt in unique_options[:5]]},"timestamp":int(time.time()*1000)})+'\n')
-                                    except: pass
-                                    # #endregion
                                     
                                     return {
                                         "question": assistance_data.get("question", ""),
@@ -1677,21 +2027,8 @@ Get the confirmation ID for the current plan."""
         Wait for user to provide assistance response.
         Similar to confirmation wait logic.
         """
-        # #region agent log
-        import time
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"step_orchestrator.py:_wait_for_user_assistance:entry","message":"_wait_for_user_assistance called","data":{"has_event":self._user_assistance_event is not None,"event_is_set":self._user_assistance_event.is_set() if self._user_assistance_event else None},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
         if not self._user_assistance_event:
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"step_orchestrator.py:_wait_for_user_assistance:no_event","message":"No event, returning early","data":{},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             return
         
         confirmation_timeout = 300  # 5 minutes timeout
@@ -1701,12 +2038,6 @@ Get the confirmation ID for the current plan."""
             while not self._user_assistance_event.is_set():
                 elapsed = time.time() - start_time
                 
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"step_orchestrator.py:_wait_for_user_assistance:waiting","message":"Waiting for user assistance","data":{"elapsed":elapsed,"stop_requested":self._stop_requested,"event_is_set":self._user_assistance_event.is_set()},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
                 
                 if self._stop_requested:
                     logger.info(f"[StepOrchestrator] Stop requested during user assistance wait")
@@ -1730,23 +2061,11 @@ Get the confirmation ID for the current plan."""
                         self._user_assistance_event.wait(),
                         timeout=0.5  # Check every 0.5 seconds
                     )
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"step_orchestrator.py:_wait_for_user_assistance:event_set","message":"Event was set, breaking loop","data":{},"timestamp":int(time.time()*1000)})+'\n')
-                    except: pass
-                    # #endregion
                     break
                 except asyncio.TimeoutError:
                     # Continue checking _stop_requested
                     continue
         except Exception as e:
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"step_orchestrator.py:_wait_for_user_assistance:exception","message":"Exception in _wait_for_user_assistance","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             logger.error(f"[StepOrchestrator] Error waiting for user assistance: {e}")
             raise
     

@@ -136,7 +136,9 @@ def create_llm(model_name: str, api_keys: Optional[Dict[str, str]] = None) -> Ba
             # o1 models don't support temperature or top_p
             # They use reasoning_effort parameter instead
             llm_params["reasoning_effort"] = "medium"  # low, medium, or high
-            # Note: o1 streaming works differently - reasoning comes in response
+            # Note: o1 reasoning is internal and not accessible via streaming
+            # OpenAI o1 models perform reasoning internally but don't expose it through the API
+            # Reasoning is not visible to users unlike Claude's extended thinking
         else:
             # For GPT-4o and other standard models
             llm_params["temperature"] = 1.0

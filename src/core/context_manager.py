@@ -10,6 +10,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from src.utils.config_loader import get_config
+from src.core.entity_memory import EntityMemory, extract_entities_from_tool_result
 
 
 class ConversationContext:
@@ -36,6 +37,13 @@ class ConversationContext:
         self.metadata: Dict[str, Any] = {}  # General metadata (e.g., username)
         config = get_config()
         self.model_name: Optional[str] = config.default_model  # Model name for LLM
+        
+        # NEW: Entity tracking for reference resolution
+        self.entity_memory: EntityMemory = EntityMemory()
+        
+        # NEW: Context window settings for demo
+        self.short_term_window: int = 10  # Last 10 messages for planning
+        
         self.created_at = datetime.now().isoformat()
         self.updated_at = datetime.now().isoformat()
     
@@ -73,6 +81,61 @@ class ConversationContext:
             List of recent messages
         """
         return self.messages[-n:]
+    
+    def get_context_for_planning(self) -> List[Dict[str, Any]]:
+        """
+        Get context for planning (complex tasks).
+        Includes: last 10 messages + entity memory
+        
+        Returns:
+            List of recent messages for planning
+        """
+        return self.get_recent_messages(self.short_term_window)
+    
+    def get_context_for_simple_task(self) -> List[Dict[str, Any]]:
+        """
+        Get minimal context for simple tasks.
+        Includes: last 4 messages (2 pairs of user-assistant)
+        
+        Returns:
+            List of recent messages for simple tasks
+        """
+        return self.get_recent_messages(4)
+    
+    def add_entity_from_tool_result(
+        self,
+        tool_name: str,
+        tool_result: Any,
+        turn_number: Optional[int] = None
+    ) -> None:
+        """
+        Automatically extract entities from tool execution results.
+        
+        Args:
+            tool_name: Name of the tool that was executed
+            tool_result: Result from tool execution
+            turn_number: Turn number (if None, uses current message count)
+        """
+        if not hasattr(self, 'entity_memory'):
+            # Backward compatibility: create entity_memory if it doesn't exist
+            self.entity_memory = EntityMemory()
+        
+        # Extract entities from tool result
+        entities = extract_entities_from_tool_result(tool_name, tool_result)
+        
+        
+        # Add to entity memory
+        turn = turn_number if turn_number is not None else len(self.messages)
+        for entity in entities:
+            self.entity_memory.add_reference(
+                entity_type=entity.entity_type,
+                entity_id=entity.entity_id,
+                name=entity.name,
+                metadata=entity.metadata,
+                mentioned_at_turn=turn
+            )
+        
+        self.updated_at = datetime.now().isoformat()
     
     def add_pending_confirmation(
         self,
@@ -237,6 +300,8 @@ class ConversationContext:
             "uploaded_files": getattr(self, "uploaded_files", {}),  # Backward compatibility
             "model_name": getattr(self, "model_name", None),  # Backward compatibility
             "metadata": getattr(self, "metadata", {}),  # Backward compatibility
+            "entity_memory": self.entity_memory.to_dict() if hasattr(self, 'entity_memory') and self.entity_memory else None,
+            "short_term_window": getattr(self, "short_term_window", 10),  # Backward compatibility
             "created_at": self.created_at,
             "updated_at": self.updated_at
         }
@@ -256,6 +321,12 @@ class ConversationContext:
         # Load model_name if exists, otherwise use default from config
         if "model_name" in data:
             context.model_name = data["model_name"]
+        # Load entity_memory if exists
+        if "entity_memory" in data and data["entity_memory"]:
+            context.entity_memory = EntityMemory.from_dict(data["entity_memory"])
+        # Load short_term_window if exists
+        if "short_term_window" in data:
+            context.short_term_window = data["short_term_window"]
         context.created_at = data.get("created_at", datetime.now().isoformat())
         context.updated_at = data.get("updated_at", datetime.now().isoformat())
         return context

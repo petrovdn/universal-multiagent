@@ -518,6 +518,33 @@ export class WebSocketClient {
         console.log('[WebSocket] Plan thinking chunk:', event.data.content?.substring(0, 50))
         break
 
+      case 'plan_thinking_complete':
+        // Stop plan thinking streaming - this ensures the thinking block collapses immediately
+        // This event is sent before plan_generated to stop the thinking stream
+        ensureActiveWorkflow()
+        // Use setState with proper Zustand pattern to update the workflow
+        useChatStore.setState((state) => {
+          const activeId = state.activeWorkflowId
+          if (!activeId) return state
+          const workflow = state.workflows[activeId]
+          if (!workflow?.plan?.planThinkingIsStreaming) return state
+          
+          return {
+            workflows: {
+              ...state.workflows,
+              [activeId]: {
+                ...workflow,
+                plan: {
+                  ...workflow.plan,
+                  planThinkingIsStreaming: false
+                }
+              }
+            }
+          }
+        })
+        console.log('[WebSocket] Plan thinking complete - streaming stopped')
+        break
+
       case 'plan_generated':
         // Ensure active workflow exists before setting plan
         ensureActiveWorkflow()

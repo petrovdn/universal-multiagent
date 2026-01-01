@@ -206,6 +206,14 @@ async def send_message(request: Dict[str, Any]):
     
     # Process message with file attachments
     try:
+        # #region agent log
+        import json
+        import time
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"server.py:send_message","message":"API request received","data":{"session_id":session_id,"user_message_length":len(user_message) if user_message else 0,"file_ids_count":len(file_ids) if file_ids else 0},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         logger.info(f"Processing message for session {session_id}, context session_id: {getattr(context, 'session_id', 'NOT SET')}, file_ids: {file_ids}")
         result = await agent_wrapper.process_message(
             user_message,
@@ -213,6 +221,13 @@ async def send_message(request: Dict[str, Any]):
             session_id,
             file_ids=file_ids
         )
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"server.py:send_message","message":"API request processed successfully","data":{"result_status":result.get("status") if isinstance(result, dict) else "unknown"},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         
         # Update session
         session_manager.update_session(session_id, context)
@@ -222,6 +237,13 @@ async def send_message(request: Dict[str, Any]):
             "result": result
         }
     except Exception as e:
+        # #region agent log
+        import traceback
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"server.py:send_message","message":"Exception in API request","data":{"error":str(e),"error_type":type(e).__name__,"traceback":traceback.format_exc()[:500]},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
         logger.error(f"Error processing message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

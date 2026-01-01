@@ -373,8 +373,28 @@ class BaseAgent:
             # Convert context messages to LangChain message format
             langchain_messages = []
             
+            # Get context messages - use context-aware method if available
+            if hasattr(context, 'get_context_for_simple_task'):
+                # Use method that returns appropriate depth for simple tasks (4 messages)
+                recent_messages = context.get_context_for_simple_task()
+                context_method = "get_context_for_simple_task"
+            else:
+                # Fallback to default method
+                recent_messages = context.get_recent_messages(10)
+                context_method = "get_recent_messages"
+            
+            # Add entity context if available (NEW)
+            has_entity_context = False
+            if hasattr(context, 'entity_memory') and context.entity_memory.has_recent_entities():
+                entity_info = context.entity_memory.to_context_string()
+                if entity_info:
+                    langchain_messages.append(SystemMessage(
+                        content=f"Контекст упомянутых объектов:\n{entity_info}"
+                    ))
+                    has_entity_context = True
+            
+            
             # Add recent messages from context
-            recent_messages = context.get_recent_messages(10)  # Get last 10 messages
             for msg in recent_messages:
                 role = msg.get("role", "user")
                 content = msg.get("content", "")

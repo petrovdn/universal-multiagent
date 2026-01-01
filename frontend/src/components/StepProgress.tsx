@@ -97,7 +97,7 @@ export function StepProgress({ workflowId }: StepProgressProps) {
               marginLeft: 'auto',
               marginRight: 'auto'
             }}>
-              {stepNumber}. {stepTitle}
+              {stepTitle}{status === 'completed' ? ' (Готово)' : ''}
             </h3>
 
             {/* Блок ризонинга шага */}
@@ -133,7 +133,9 @@ export function StepProgress({ workflowId }: StepProgressProps) {
                 width: '100%',
                 marginTop: '12px',
                 marginLeft: 'auto',
-                marginRight: 'auto'
+                marginRight: 'auto',
+                paddingLeft: '16px',
+                paddingRight: '16px'
               }}>
                 <div className="prose max-w-none 
                   prose-p:text-gray-900 
