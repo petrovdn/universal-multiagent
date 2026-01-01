@@ -11,6 +11,9 @@ from src.utils.mcp_loader import get_mcp_manager
 from src.utils.validators import validate_spreadsheet_range
 from src.utils.exceptions import ToolExecutionError, ValidationError
 from src.utils.retry import retry_on_mcp_error
+from src.utils.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 class AddRowsInput(BaseModel):
@@ -57,14 +60,10 @@ class AddRowsTool(BaseTool):
             }
             
             mcp_manager = get_mcp_manager()
-            # #region debug log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"sheets_tools.py:60","message":"Calling sheets_append_rows via Sheets MCP","data":{"tool":"sheets_append_rows","server":"sheets","spreadsheet_id":spreadsheet_id,"sheet_name":sheet_name},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             result = await mcp_manager.call_tool("sheets_append_rows", args, server_name="sheets")
             
             rows_added = len(values)
+            
             return f"Successfully added {rows_added} row(s) to sheet '{sheet_name}'"
             
         except ValidationError as e:
@@ -126,11 +125,6 @@ class UpdateCellsTool(BaseTool):
             }
             
             mcp_manager = get_mcp_manager()
-            # #region debug log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"sheets_tools.py:121","message":"Calling sheets_write_range via Sheets MCP","data":{"tool":"sheets_write_range","server":"sheets","spreadsheet_id":spreadsheet_id,"range":validated_range},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             result = await mcp_manager.call_tool("sheets_write_range", args, server_name="sheets")
             
             return f"Successfully updated cells in range '{validated_range}'"
@@ -178,18 +172,16 @@ class CreateSpreadsheetTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
+            logger.info(f"[CreateSpreadsheet] Creating spreadsheet '{title}' with sheets: {sheet_names}")
             args = {"title": title}
             
             if sheet_names:
                 args["sheetNames"] = sheet_names
             
             mcp_manager = get_mcp_manager()
-            # #region debug log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"sheets_tools.py:177","message":"Calling sheets_create_spreadsheet via Sheets MCP","data":{"tool":"sheets_create_spreadsheet","server":"sheets","title":title},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             result = await mcp_manager.call_tool("sheets_create_spreadsheet", args, server_name="sheets")
+            
+            logger.info(f"[CreateSpreadsheet] Tool call completed, processing result...")
             
             # Handle result - it might be a string (JSON) or dict
             if isinstance(result, str):
@@ -207,8 +199,13 @@ class CreateSpreadsheetTool(BaseTool):
             
             spreadsheet_id = result.get("spreadsheetId", "unknown")
             url = result.get("url", result.get("spreadsheetUrl", ""))
+            sheets = result.get("sheets", [])
+            sheet_names = [sheet if isinstance(sheet, str) else sheet.get("title", sheet.get("name", "")) for sheet in sheets] if sheets else ["Sheet1"]
             
-            return f"Spreadsheet '{title}' created successfully. ID: {spreadsheet_id}. URL: {url}"
+            logger.info(f"[CreateSpreadsheet] Successfully created spreadsheet '{title}': ID={spreadsheet_id}, URL={url}, Sheets={sheet_names}")
+            # Make sheet names very explicit for LLM - put it at the beginning
+            sheets_info = f"Sheet name(s): {', '.join(sheet_names)}. " if sheet_names else ""
+            return f"Spreadsheet '{title}' created successfully. {sheets_info}ID: {spreadsheet_id}. URL: {url}"
             
         except Exception as e:
             raise ToolExecutionError(
@@ -263,14 +260,6 @@ class GetSheetDataTool(BaseTool):
             }
             
             mcp_manager = get_mcp_manager()
-            # #region agent log
-            import json
-            import time
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"sheets_tools.py:get_sheet_data","message":"Calling sheets_read_range via Sheets MCP","data":{"tool":"sheets_read_range","server":"sheets","spreadsheet_id":spreadsheet_id,"range":validated_range},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             result = await mcp_manager.call_tool("sheets_read_range", args, server_name="sheets")
             
             # Handle result - it might be a string (JSON) or dict
@@ -300,6 +289,307 @@ class GetSheetDataTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
+class GetSpreadsheetInfoInput(BaseModel):
+    """Input schema for get_spreadsheet_info tool."""
+    
+    spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID or URL")
+
+
+class GetSpreadsheetInfoTool(BaseTool):
+    """Tool for getting spreadsheet metadata including sheet IDs."""
+    
+    name: str = "get_spreadsheet_info"
+    description: str = """
+    Get metadata about a Google Sheets spreadsheet including all sheets with their IDs.
+    This is REQUIRED before using format_cells or other formatting tools that need sheet_id.
+    
+    Input:
+    - spreadsheet_id: The ID or URL of the spreadsheet
+    
+    Returns information about all sheets including:
+    - sheetId: Required for formatting operations (use this, not sheet name!)
+    - title: Sheet name
+    - rowCount, columnCount: Dimensions
+    """
+    args_schema: type = GetSpreadsheetInfoInput
+    
+    @retry_on_mcp_error()
+    async def _arun(self, spreadsheet_id: str) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            args = {"spreadsheetId": spreadsheet_id}
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("sheets_get_spreadsheet_info", args, server_name="sheets")
+            
+            # Handle result - it might be a string (JSON) or dict
+            if isinstance(result, str):
+                import json
+                result = json.loads(result)
+            elif isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    import json
+                    result = json.loads(first_item.text)
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    import json
+                    result = json.loads(first_item['text'])
+            
+            spreadsheet_title = result.get("title", "Unknown")
+            sheets = result.get("sheets", [])
+            sheets_info = "\n".join([
+                f"  - Sheet '{s.get('title')}': ID={s.get('sheetId')}, "
+                f"Rows={s.get('rowCount')}, Cols={s.get('columnCount')}"
+                for s in sheets
+            ])
+            
+            return f"Spreadsheet '{spreadsheet_title}':\n{sheets_info}"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to get spreadsheet info: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
+class FormatCellsInput(BaseModel):
+    """Input schema for format_cells tool."""
+    
+    spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID")
+    sheet_id: int = Field(description="Sheet ID (integer, get from get_spreadsheet_info, NOT sheet name!)")
+    start_row_index: int = Field(description="Start row index (0-based, inclusive)")
+    end_row_index: int = Field(description="End row index (0-based, exclusive)")
+    start_column_index: int = Field(description="Start column index (0-based, inclusive)")
+    end_column_index: int = Field(description="End column index (0-based, exclusive)")
+    bold: Optional[bool] = Field(default=None, description="Make text bold")
+    italic: Optional[bool] = Field(default=None, description="Make text italic")
+    background_color: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Background color as RGB object: {'red': 0.0-1.0, 'green': 0.0-1.0, 'blue': 0.0-1.0, 'alpha': 0.0-1.0}"
+    )
+    text_color: Optional[Dict[str, float]] = Field(
+        default=None,
+        description="Text color as RGB object: {'red': 0.0-1.0, 'green': 0.0-1.0, 'blue': 0.0-1.0, 'alpha': 0.0-1.0}"
+    )
+
+
+class FormatCellsTool(BaseTool):
+    """Tool for formatting cells in a spreadsheet."""
+    
+    name: str = "format_cells"
+    description: str = """
+    Format cells in Google Sheets (bold, italic, colors, borders).
+    
+    IMPORTANT: You MUST first call get_spreadsheet_info to get the sheet_id (integer).
+    Do NOT use sheet name - use the numeric sheet_id from get_spreadsheet_info!
+    
+    Input:
+    - spreadsheet_id: The ID of the spreadsheet
+    - sheet_id: Sheet ID (integer from get_spreadsheet_info, NOT sheet name!)
+    - start_row_index, end_row_index: Row range (0-based, end exclusive)
+    - start_column_index, end_column_index: Column range (0-based, end exclusive)
+    - bold: Optional boolean to make text bold
+    - italic: Optional boolean to make text italic
+    - background_color: Optional dict with 'red', 'green', 'blue', 'alpha' (0.0-1.0)
+    - text_color: Optional dict with 'red', 'green', 'blue', 'alpha' (0.0-1.0)
+    
+    Example colors:
+    - Red background: {'red': 1.0, 'green': 0.0, 'blue': 0.0, 'alpha': 1.0}
+    - Blue text: {'red': 0.0, 'green': 0.0, 'blue': 1.0, 'alpha': 1.0}
+    - Light gray: {'red': 0.9, 'green': 0.9, 'blue': 0.9, 'alpha': 1.0}
+    """
+    args_schema: type = FormatCellsInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        spreadsheet_id: str,
+        sheet_id: int,
+        start_row_index: int,
+        end_row_index: int,
+        start_column_index: int,
+        end_column_index: int,
+        bold: Optional[bool] = None,
+        italic: Optional[bool] = None,
+        background_color: Optional[Dict[str, float]] = None,
+        text_color: Optional[Dict[str, float]] = None
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            args = {
+                "spreadsheetId": spreadsheet_id,
+                "sheetId": sheet_id,
+                "startRowIndex": start_row_index,
+                "endRowIndex": end_row_index,
+                "startColumnIndex": start_column_index,
+                "endColumnIndex": end_column_index
+            }
+            
+            # Add optional formatting parameters
+            if bold is not None:
+                args["bold"] = bold
+            if italic is not None:
+                args["italic"] = italic
+            if background_color:
+                args["backgroundColor"] = background_color
+            if text_color:
+                args["textColor"] = text_color
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("sheets_format_cells", args, server_name="sheets")
+            
+            # Build description of applied formats
+            formats = []
+            if bold:
+                formats.append("bold")
+            if italic:
+                formats.append("italic")
+            if background_color:
+                formats.append("background color")
+            if text_color:
+                formats.append("text color")
+            
+            format_desc = ", ".join(formats) if formats else "formatting"
+            return f"Successfully applied {format_desc} to cells in range (rows {start_row_index}-{end_row_index-1}, cols {start_column_index}-{end_column_index-1})"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to format cells: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
+class AutoResizeColumnsInput(BaseModel):
+    """Input schema for auto_resize_columns tool."""
+    
+    spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID")
+    sheet_id: int = Field(description="Sheet ID (integer from get_spreadsheet_info)")
+    start_column_index: int = Field(description="Start column index (0-based)")
+    end_column_index: int = Field(description="End column index (exclusive)")
+
+
+class AutoResizeColumnsTool(BaseTool):
+    """Tool for auto-resizing columns to fit content."""
+    
+    name: str = "auto_resize_columns"
+    description: str = """
+    Auto-resize columns in Google Sheets to fit their content.
+    
+    Input:
+    - spreadsheet_id: The ID of the spreadsheet
+    - sheet_id: Sheet ID (integer from get_spreadsheet_info)
+    - start_column_index: Start column index (0-based)
+    - end_column_index: End column index (exclusive)
+    """
+    args_schema: type = AutoResizeColumnsInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        spreadsheet_id: str,
+        sheet_id: int,
+        start_column_index: int,
+        end_column_index: int
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            args = {
+                "spreadsheetId": spreadsheet_id,
+                "sheetId": sheet_id,
+                "startColumnIndex": start_column_index,
+                "endColumnIndex": end_column_index
+            }
+            
+            mcp_manager = get_mcp_manager()
+            await mcp_manager.call_tool("sheets_auto_resize_columns", args, server_name="sheets")
+            
+            return f"Successfully auto-resized columns {start_column_index} to {end_column_index-1}"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to auto-resize columns: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
+class MergeCellsInput(BaseModel):
+    """Input schema for merge_cells tool."""
+    
+    spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID")
+    sheet_id: int = Field(description="Sheet ID (integer from get_spreadsheet_info)")
+    start_row_index: int = Field(description="Start row index (0-based)")
+    end_row_index: int = Field(description="End row index (exclusive)")
+    start_column_index: int = Field(description="Start column index (0-based)")
+    end_column_index: int = Field(description="End column index (exclusive)")
+    merge_type: Optional[str] = Field(
+        default="MERGE_ALL",
+        description="Merge type: MERGE_ALL (default), MERGE_COLUMNS, or MERGE_ROWS"
+    )
+
+
+class MergeCellsTool(BaseTool):
+    """Tool for merging cells in a spreadsheet."""
+    
+    name: str = "merge_cells"
+    description: str = """
+    Merge a range of cells in Google Sheets.
+    
+    Input:
+    - spreadsheet_id: The ID of the spreadsheet
+    - sheet_id: Sheet ID (integer from get_spreadsheet_info)
+    - start_row_index, end_row_index: Row range (0-based, end exclusive)
+    - start_column_index, end_column_index: Column range (0-based, end exclusive)
+    - merge_type: Optional - MERGE_ALL (default), MERGE_COLUMNS, or MERGE_ROWS
+    """
+    args_schema: type = MergeCellsInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        spreadsheet_id: str,
+        sheet_id: int,
+        start_row_index: int,
+        end_row_index: int,
+        start_column_index: int,
+        end_column_index: int,
+        merge_type: Optional[str] = "MERGE_ALL"
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            args = {
+                "spreadsheetId": spreadsheet_id,
+                "sheetId": sheet_id,
+                "startRowIndex": start_row_index,
+                "endRowIndex": end_row_index,
+                "startColumnIndex": start_column_index,
+                "endColumnIndex": end_column_index,
+                "mergeType": merge_type
+            }
+            
+            mcp_manager = get_mcp_manager()
+            await mcp_manager.call_tool("sheets_merge_cells", args, server_name="sheets")
+            
+            return f"Successfully merged cells in range (rows {start_row_index}-{end_row_index-1}, cols {start_column_index}-{end_column_index-1})"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to merge cells: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
 def get_sheets_tools() -> List[BaseTool]:
     """
     Get all Sheets tools.
@@ -312,5 +602,9 @@ def get_sheets_tools() -> List[BaseTool]:
         UpdateCellsTool(),
         CreateSpreadsheetTool(),
         GetSheetDataTool(),
+        GetSpreadsheetInfoTool(),  # Required for getting sheet_id for formatting
+        FormatCellsTool(),  # Formatting: bold, italic, colors
+        AutoResizeColumnsTool(),  # Auto-resize columns
+        MergeCellsTool(),  # Merge cells
     ]
 

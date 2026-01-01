@@ -409,7 +409,16 @@ class GetFileInfoTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("workspace_get_file_info", args, server_name="google_workspace")
             
-            if isinstance(result, str):
+            # MCP returns list of TextContent, extract first item
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result = json.loads(first_item.text)
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result = json.loads(first_item['text'])
+                else:
+                    result = first_item
+            elif isinstance(result, str):
                 result = json.loads(result)
             
             name = result.get("name", "Unknown")
@@ -456,7 +465,16 @@ class CreateFolderTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("workspace_create_folder", args, server_name="google_workspace")
             
-            if isinstance(result, str):
+            # MCP returns list of TextContent, extract first item
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result = json.loads(first_item.text)
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result = json.loads(first_item['text'])
+                else:
+                    result = first_item
+            elif isinstance(result, str):
                 result = json.loads(result)
             
             folder_id = result.get("id", "unknown")
@@ -863,7 +881,16 @@ class CreateDocumentTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("docs_create", args, server_name="google_workspace")
             
-            if isinstance(result, str):
+            # MCP returns list of TextContent, extract first item
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result = json.loads(first_item.text)
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result = json.loads(first_item['text'])
+                else:
+                    result = first_item
+            elif isinstance(result, str):
                 result = json.loads(result)
             
             doc_id = result.get("documentId", "unknown")
@@ -909,7 +936,16 @@ class ReadDocumentTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("docs_read", args, server_name="google_workspace")
             
-            if isinstance(result, str):
+            # MCP returns list of TextContent, extract first item
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result = json.loads(first_item.text)
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result = json.loads(first_item['text'])
+                else:
+                    result = first_item
+            elif isinstance(result, str):
                 result = json.loads(result)
             
             title = result.get("title", "Unknown")
@@ -1017,336 +1053,24 @@ class AppendToDocumentTool(BaseTool):
 
 # ========== SHEETS TOOLS ==========
 
-class CreateSpreadsheetInput(BaseModel):
-    """Input schema for create_spreadsheet tool."""
-    
-    title: str = Field(description="Spreadsheet title")
-    sheet_names: Optional[List[str]] = Field(default=None, description="Initial sheet names")
-
-
-class CreateSpreadsheetTool(BaseTool):
-    """Tool for creating a Google Sheets spreadsheet."""
-    
-    name: str = "create_spreadsheet"
-    description: str = """
-    Create a new Google Sheets spreadsheet in the workspace folder.
-    
-    Input:
-    - title: Title of the spreadsheet
-    - sheet_names: Optional list of initial sheet names (default: ['Sheet1'])
-    """
-    args_schema: type = CreateSpreadsheetInput
-    
-    @retry_on_mcp_error()
-    async def _arun(self, title: str, sheet_names: Optional[List[str]] = None) -> str:
-        """Execute the tool asynchronously."""
-        try:
-            args = {"title": title}
-            if sheet_names:
-                args["sheetNames"] = sheet_names
-            
-            mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("sheets_create_spreadsheet", args, server_name="google_workspace")
-            
-            if isinstance(result, str):
-                result = json.loads(result)
-            
-            spreadsheet_id = result.get("spreadsheetId", "unknown")
-            spreadsheet_title = result.get("title", title)
-            url = result.get("url", "")
-            
-            return f"Spreadsheet '{spreadsheet_title}' created successfully. ID: {spreadsheet_id}. URL: {url}"
-            
-        except Exception as e:
-            raise ToolExecutionError(
-                f"Failed to create spreadsheet: {e}",
-                tool_name=self.name
-            ) from e
-    
-    def _run(self, *args, **kwargs) -> str:
-        raise NotImplementedError("Use async execution")
-
-
-class ReadSpreadsheetInput(BaseModel):
-    """Input schema for read_spreadsheet tool."""
-    
-    spreadsheet_id: str = Field(description="Spreadsheet ID or URL")
-    range: str = Field(description="Cell range in A1 notation (e.g., 'Sheet1!A1:D10')")
-
-
-class ReadSpreadsheetTool(BaseTool):
-    """Tool for reading data from a spreadsheet."""
-    
-    name: str = "read_spreadsheet"
-    description: str = """
-    Read data from a range of cells in a Google Sheets spreadsheet.
-    
-    Input:
-    - spreadsheet_id: Spreadsheet ID or URL
-    - range: A1 notation range (e.g., 'Sheet1!A1:D10', 'A1:B5')
-    """
-    args_schema: type = ReadSpreadsheetInput
-    
-    @retry_on_mcp_error()
-    async def _arun(self, spreadsheet_id: str, range: str) -> str:
-        """Execute the tool asynchronously."""
-        try:
-            args = {
-                "spreadsheetId": spreadsheet_id,
-                "range": range
-            }
-            
-            # #region agent log
-            import time
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"workspace_tools.py:read_spreadsheet","message":"Calling sheets_read_range via Workspace MCP","data":{"tool":"sheets_read_range","server":"google_workspace","spreadsheet_id":spreadsheet_id,"range":range},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
-            
-            mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("sheets_read_range", args, server_name="google_workspace")
-            if isinstance(result, str):
-                result = json.loads(result)
-            
-            # Handle both dict and list results
-            # MCP server may return list directly or dict with "values" key
-            if isinstance(result, dict):
-                values = result.get("values", [])
-            elif isinstance(result, list):
-                # If result is a list, treat it as the values array directly
-                values = result
-            else:
-                values = []
-            
-            if not values:
-                return f"No data found in range '{range}'"
-            
-            # Format as readable text
-            rows_text = []
-            for row in values:
-                rows_text.append(" | ".join(str(cell) for cell in row))
-            
-            return f"Data from range '{range}' ({len(values)} row(s)):\n\n" + "\n".join(rows_text)
-            
-        except Exception as e:
-            raise ToolExecutionError(
-                f"Failed to read spreadsheet: {e}",
-                tool_name=self.name
-            ) from e
-    
-    def _run(self, *args, **kwargs) -> str:
-        raise NotImplementedError("Use async execution")
-
-
-class WriteSpreadsheetInput(BaseModel):
-    """Input schema for write_spreadsheet tool."""
-    
-    spreadsheet_id: str = Field(description="Spreadsheet ID or URL")
-    range: str = Field(description="Cell range in A1 notation")
-    values: List[List[Any]] = Field(description="2D array of values (rows of cells)")
-
-
-class WriteSpreadsheetTool(BaseTool):
-    """Tool for writing data to a spreadsheet."""
-    
-    name: str = "write_spreadsheet"
-    description: str = """
-    Write data to a range of cells in a Google Sheets spreadsheet.
-    
-    Input:
-    - spreadsheet_id: Spreadsheet ID or URL
-    - range: A1 notation range (e.g., 'Sheet1!A1:D10')
-    - values: 2D array of values (list of rows, where each row is a list of cell values)
-    """
-    args_schema: type = WriteSpreadsheetInput
-    
-    @retry_on_mcp_error()
-    async def _arun(
-        self,
-        spreadsheet_id: str,
-        range: str,
-        values: List[List[Any]]
-    ) -> str:
-        """Execute the tool asynchronously."""
-        try:
-            if not values:
-                raise ValueError("No values provided to write")
-            
-            args = {
-                "spreadsheetId": spreadsheet_id,
-                "range": range,
-                "values": values
-            }
-            
-            mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("sheets_write_range", args, server_name="google_workspace")
-            
-            if isinstance(result, str):
-                result = json.loads(result)
-            
-            updated_cells = result.get("updatedCells", 0)
-            updated_rows = result.get("updatedRows", 0)
-            
-            return f"Successfully wrote data to range '{range}'. Updated {updated_cells} cell(s) in {updated_rows} row(s)."
-            
-        except Exception as e:
-            raise ToolExecutionError(
-                f"Failed to write spreadsheet: {e}",
-                tool_name=self.name
-            ) from e
-    
-    def _run(self, *args, **kwargs) -> str:
-        raise NotImplementedError("Use async execution")
-
-
-class AppendRowsInput(BaseModel):
-    """Input schema for append_rows tool."""
-    
-    spreadsheet_id: str = Field(description="Spreadsheet ID or URL")
-    range: str = Field(description="A1 notation range (e.g., 'Sheet1!A:A')")
-    values: List[List[Any]] = Field(description="2D array of values to append")
-
-
-class AppendRowsTool(BaseTool):
-    """Tool for appending rows to a spreadsheet."""
-    
-    name: str = "append_rows"
-    description: str = """
-    Append rows to the end of a sheet in a Google Sheets spreadsheet.
-    
-    Input:
-    - spreadsheet_id: Spreadsheet ID or URL
-    - range: A1 notation range (e.g., 'Sheet1!A:A')
-    - values: 2D array of values to append
-    """
-    args_schema: type = AppendRowsInput
-    
-    @retry_on_mcp_error()
-    async def _arun(
-        self,
-        spreadsheet_id: str,
-        range: str,
-        values: List[List[Any]]
-    ) -> str:
-        """Execute the tool asynchronously."""
-        try:
-            if not values:
-                raise ValueError("No values provided to append")
-            
-            args = {
-                "spreadsheetId": spreadsheet_id,
-                "range": range,
-                "values": values
-            }
-            
-            mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("sheets_append_rows", args, server_name="google_workspace")
-            
-            rows_added = len(values)
-            return f"Successfully appended {rows_added} row(s) to sheet"
-            
-        except Exception as e:
-            raise ToolExecutionError(
-                f"Failed to append rows: {e}",
-                tool_name=self.name
-            ) from e
-    
-    def _run(self, *args, **kwargs) -> str:
-        raise NotImplementedError("Use async execution")
-
-
-class ReadAllDataInput(BaseModel):
-    """Input schema for read_all_data tool."""
-    
-    spreadsheet_id: str = Field(description="Spreadsheet ID or URL")
-    sheet_name: Optional[str] = Field(default=None, description="Sheet name (default: first sheet)")
-    max_rows: int = Field(default=0, description="Maximum rows to read (0 = all rows)")
-
-
-class ReadAllDataTool(BaseTool):
-    """Tool for reading all data from a spreadsheet sheet."""
-    
-    name: str = "read_all_data"
-    description: str = """
-    Read all data from a spreadsheet sheet. Automatically detects the filled range and reads all content.
-    This is more convenient than read_spreadsheet when you don't know the exact range.
-    
-    Input:
-    - spreadsheet_id: Spreadsheet ID or URL
-    - sheet_name: Optional sheet name (default: first sheet)
-    - max_rows: Maximum rows to read (default: 0 = all rows)
-    """
-    args_schema: type = ReadAllDataInput
-    
-    @retry_on_mcp_error()
-    async def _arun(
-        self,
-        spreadsheet_id: str,
-        sheet_name: Optional[str] = None,
-        max_rows: int = 0
-    ) -> str:
-        """Execute the tool asynchronously."""
-        try:
-            args = {"spreadsheetId": spreadsheet_id, "maxRows": max_rows}
-            if sheet_name:
-                args["sheetName"] = sheet_name
-            
-            mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("sheets_read_all_data", args, server_name="google_workspace")
-            
-            # Parse result
-            if isinstance(result, list) and len(result) > 0:
-                first_item = result[0]
-                if hasattr(first_item, 'text'):
-                    result = first_item.text
-                elif isinstance(first_item, dict) and 'text' in first_item:
-                    result = first_item['text']
-            
-            if isinstance(result, str):
-                result = json.loads(result)
-            
-            if "error" in result:
-                return f"Error reading spreadsheet: {result['error']}"
-            
-            values = result.get("values", [])
-            sheet_name = result.get("sheetName", "Sheet1")
-            row_count = result.get("rowCount", 0)
-            col_count = result.get("columnCount", 0)
-            total_rows = result.get("totalRowsInSheet", 0)
-            total_cols = result.get("totalColumnsInSheet", 0)
-            
-            if not values:
-                return f"Spreadsheet sheet '{sheet_name}' is empty"
-            
-            # Format as readable text
-            rows_text = []
-            for row in values:
-                rows_text.append(" | ".join(str(cell) for cell in row))
-            
-            info = f"Sheet: {sheet_name}\nRows read: {row_count} (total in sheet: {total_rows})\nColumns: {col_count} (total: {total_cols})\n\n"
-            
-            return info + "\n".join(rows_text)
-            
-        except Exception as e:
-            raise ToolExecutionError(
-                f"Failed to read all data: {e}",
-                tool_name=self.name
-            ) from e
-    
-    def _run(self, *args, **kwargs) -> str:
-        raise NotImplementedError("Use async execution")
+# Sheets tools removed - use sheets_tools.py instead
+# All spreadsheet operations should go through sheets MCP server, not workspace MCP
 
 
 def get_workspace_tools() -> List[BaseTool]:
     """
-    Get all Google Workspace tools.
+    Get Google Workspace tools for file navigation and management.
+    
+    NOTE: Spreadsheet operations are handled by sheets_tools.py (uses sheets MCP server).
+    This module only provides file search, navigation, and document operations.
     
     Returns:
-        List of BaseTool instances for workspace operations
+        List of BaseTool instances for workspace operations:
+        - Drive: file search, navigation, folder management
+        - Docs: document creation and editing
     """
     return [
-        # Drive tools
+        # Drive tools - file navigation and management
         ListFilesTool(),
         GetFileInfoTool(),
         CreateFolderTool(),
@@ -1354,257 +1078,11 @@ def get_workspace_tools() -> List[BaseTool]:
         SearchFilesTool(),
         OpenFileTool(),
         FindAndOpenFileTool(),
-        # Docs tools
+        # Docs tools - document operations
         CreateDocumentTool(),
         ReadDocumentTool(),
         UpdateDocumentTool(),
         AppendToDocumentTool(),
-        # Sheets tools
-        CreateSpreadsheetTool(),
-        ReadSpreadsheetTool(),
-        WriteSpreadsheetTool(),
-        AppendRowsTool(),
-        ReadAllDataTool(),
-    ]
-
-
-def get_workspace_sheets_tools() -> List[BaseTool]:
-    """
-    Get Google Sheets tools compatible with sheets_tools interface, but using Workspace MCP server.
-    
-    These tools have the same names and interfaces as sheets_tools, but use the google_workspace
-    MCP server instead of the sheets server.
-    
-    Returns:
-        List of BaseTool instances for Sheets operations via Workspace
-    """
-    # Define input schemas compatible with sheets_tools
-    class GetSheetDataInput(BaseModel):
-        """Input schema for get_sheet_data tool."""
-        spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID")
-        range: str = Field(description="Cell range in A1 notation")
-        sheet_name: Optional[str] = Field(default=None, description="Sheet name within spreadsheet (if not in range)")
-    
-    class AddRowsInput(BaseModel):
-        """Input schema for add_rows tool."""
-        spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID")
-        sheet_name: str = Field(description="Sheet name within spreadsheet")
-        values: List[List[Any]] = Field(description="Rows of data to add (list of lists)")
-    
-    class UpdateCellsInput(BaseModel):
-        """Input schema for update_cells tool."""
-        spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID")
-        range: str = Field(description="Cell range in A1 notation")
-        values: List[List[Any]] = Field(description="2D array of values (rows of cells)")
-    
-    class CreateSpreadsheetToolWrapper(BaseTool):
-        """Tool for creating a spreadsheet (Workspace version with sheets_tools interface)."""
-        name: str = "create_spreadsheet"
-        description: str = """
-        Create a new Google Sheets spreadsheet.
-        
-        Input:
-        - title: Title of the spreadsheet
-        - sheet_names: Optional list of initial sheet names (default: ['Sheet1'])
-        """
-        args_schema: type = CreateSpreadsheetInput
-        
-        @retry_on_mcp_error()
-        async def _arun(
-            self,
-            title: str,
-            sheet_names: Optional[List[str]] = None
-        ) -> str:
-            """Execute the tool asynchronously."""
-            try:
-                args = {"title": title}
-                if sheet_names:
-                    args["sheetNames"] = sheet_names
-                
-                mcp_manager = get_mcp_manager()
-                result = await mcp_manager.call_tool("sheets_create_spreadsheet", args, server_name="google_workspace")
-                
-                if isinstance(result, str):
-                    result = json.loads(result)
-                
-                spreadsheet_id = result.get("spreadsheetId", "unknown")
-                spreadsheet_title = result.get("title", title)
-                url = result.get("url", "")
-                
-                return f"Spreadsheet '{spreadsheet_title}' created successfully. ID: {spreadsheet_id}. URL: {url}"
-                
-            except Exception as e:
-                raise ToolExecutionError(
-                    f"Failed to create spreadsheet: {e}",
-                    tool_name=self.name
-                ) from e
-        
-        def _run(self, *args, **kwargs) -> str:
-            raise NotImplementedError("Use async execution")
-    
-    class GetSheetDataTool(BaseTool):
-        """Tool for reading data from a spreadsheet (Workspace version)."""
-        name: str = "get_sheet_data"
-        description: str = """
-        Read data from a Google Sheets spreadsheet.
-        
-        Input:
-        - spreadsheet_id: The ID of the spreadsheet
-        - range: Cell range in A1 notation (e.g., 'Sheet1!A1:D10' or 'A1:B5')
-        - sheet_name: Optional sheet name (if not included in range)
-        """
-        args_schema: type = GetSheetDataInput
-        
-        @retry_on_mcp_error()
-        async def _arun(self, spreadsheet_id: str, range: str, sheet_name: Optional[str] = None) -> str:
-            """Execute the tool asynchronously."""
-            try:
-                # Construct range with sheet name if provided
-                if sheet_name and not '!' in range:
-                    validated_range = f"{sheet_name}!{range}"
-                else:
-                    validated_range = validate_spreadsheet_range(range)
-                
-                args = {
-                    "spreadsheetId": spreadsheet_id,
-                    "range": validated_range
-                }
-                
-                mcp_manager = get_mcp_manager()
-                result = await mcp_manager.call_tool("sheets_read_range", args, server_name="google_workspace")
-                if isinstance(result, str):
-                    result = json.loads(result)
-                
-                # Handle both dict and list results
-                # MCP server may return list directly or dict with "values" key
-                if isinstance(result, dict):
-                    values = result.get("values", [])
-                elif isinstance(result, list):
-                    # If result is a list, treat it as the values array directly
-                    values = result
-                else:
-                    values = []
-                
-                return f"Retrieved {len(values)} row(s) from range '{validated_range}'"
-                
-            except Exception as e:
-                raise ToolExecutionError(
-                    f"Failed to get sheet data: {e}",
-                    tool_name=self.name
-                ) from e
-        
-        def _run(self, *args, **kwargs) -> str:
-            raise NotImplementedError("Use async execution")
-    
-    class AddRowsTool(BaseTool):
-        """Tool for adding rows to a spreadsheet (Workspace version)."""
-        name: str = "add_rows"
-        description: str = """
-        Add rows of data to a Google Sheets spreadsheet.
-        
-        Input:
-        - spreadsheet_id: The ID of the spreadsheet
-        - sheet_name: Name of the sheet within the spreadsheet
-        - values: List of rows, where each row is a list of cell values
-        """
-        args_schema: type = AddRowsInput
-        
-        @retry_on_mcp_error()
-        async def _arun(
-            self,
-            spreadsheet_id: str,
-            sheet_name: str,
-            values: List[List[Any]]
-        ) -> str:
-            """Execute the tool asynchronously."""
-            try:
-                if not values:
-                    raise ValueError("No values provided to add")
-                
-                # Use sheet name as range (e.g., 'Sheet1!A:A' to append to column A)
-                range_str = f"{sheet_name}!A:A"
-                
-                args = {
-                    "spreadsheetId": spreadsheet_id,
-                    "range": range_str,
-                    "values": values
-                }
-                
-                mcp_manager = get_mcp_manager()
-                result = await mcp_manager.call_tool("sheets_append_rows", args, server_name="google_workspace")
-                
-                if isinstance(result, str):
-                    result = json.loads(result)
-                
-                rows_added = len(values)
-                return f"Successfully added {rows_added} row(s) to sheet '{sheet_name}'"
-                
-            except Exception as e:
-                raise ToolExecutionError(
-                    f"Failed to add rows: {e}",
-                    tool_name=self.name
-                ) from e
-        
-        def _run(self, *args, **kwargs) -> str:
-            raise NotImplementedError("Use async execution")
-    
-    class UpdateCellsTool(BaseTool):
-        """Tool for updating cells in a spreadsheet (Workspace version)."""
-        name: str = "update_cells"
-        description: str = """
-        Update cells in a Google Sheets spreadsheet.
-        
-        Input:
-        - spreadsheet_id: The ID of the spreadsheet
-        - range: Cell range in A1 notation (e.g., 'Sheet1!A1:D10')
-        - values: 2D array of values (list of rows, where each row is a list of cell values)
-        """
-        args_schema: type = UpdateCellsInput
-        
-        @retry_on_mcp_error()
-        async def _arun(
-            self,
-            spreadsheet_id: str,
-            range: str,
-            values: List[List[Any]]
-        ) -> str:
-            """Execute the tool asynchronously."""
-            try:
-                if not values:
-                    raise ValueError("No values provided to update")
-                
-                validated_range = validate_spreadsheet_range(range)
-                
-                args = {
-                    "spreadsheetId": spreadsheet_id,
-                    "range": validated_range,
-                    "values": values
-                }
-                
-                mcp_manager = get_mcp_manager()
-                result = await mcp_manager.call_tool("sheets_write_range", args, server_name="google_workspace")
-                
-                if isinstance(result, str):
-                    result = json.loads(result)
-                
-                updated_cells = result.get("updatedCells", 0)
-                updated_rows = result.get("updatedRows", 0)
-                
-                return f"Successfully updated {updated_cells} cell(s) in {updated_rows} row(s) in range '{validated_range}'"
-                
-            except Exception as e:
-                raise ToolExecutionError(
-                    f"Failed to update cells: {e}",
-                    tool_name=self.name
-                ) from e
-        
-        def _run(self, *args, **kwargs) -> str:
-            raise NotImplementedError("Use async execution")
-    
-    return [
-        CreateSpreadsheetToolWrapper(),
-        GetSheetDataTool(),
-        AddRowsTool(),
-        UpdateCellsTool(),
+        # NOTE: Sheets tools are in sheets_tools.py (uses sheets MCP server)
     ]
 

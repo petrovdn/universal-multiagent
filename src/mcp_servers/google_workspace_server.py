@@ -1357,6 +1357,14 @@ class GoogleWorkspaceMCPServer:
                 
                 # ========== SHEETS OPERATIONS ==========
                 elif name == "sheets_create_spreadsheet":
+                    # #region agent log
+                    import json
+                    import time
+                    call_id = f"mcp_create_{int(time.time()*1000)}"
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"google_workspace_server.py:sheets_create_spreadsheet:entry","message":"MCP sheets_create_spreadsheet ENTRY","data":{"call_id":call_id,"arguments":arguments},"timestamp":int(time.time()*1000)})+'\n')
+                    # #endregion
+                    
                     sheets_service = self._get_sheets_service()
                     drive_service = self._get_drive_service()
                     folder_id = self._get_workspace_folder_id()
@@ -1372,11 +1380,21 @@ class GoogleWorkspaceMCPServer:
                         ]
                     }
                     
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"google_workspace_server.py:sheets_create_spreadsheet:before_api","message":"Before Google API create","data":{"call_id":call_id,"title":title},"timestamp":int(time.time()*1000)})+'\n')
+                    # #endregion
+                    
                     spreadsheet = sheets_service.spreadsheets().create(
                         body=spreadsheet_body
                     ).execute()
                     
                     spreadsheet_id = spreadsheet.get('spreadsheetId')
+                    
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"google_workspace_server.py:sheets_create_spreadsheet:after_api","message":"After Google API create","data":{"call_id":call_id,"spreadsheet_id":spreadsheet_id},"timestamp":int(time.time()*1000)})+'\n')
+                    # #endregion
                     
                     # Move to workspace folder
                     if folder_id:
@@ -1397,6 +1415,11 @@ class GoogleWorkspaceMCPServer:
                         fileId=spreadsheet_id,
                         fields="webViewLink"
                     ).execute()
+                    
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"google_workspace_server.py:sheets_create_spreadsheet:exit","message":"MCP sheets_create_spreadsheet EXIT","data":{"call_id":call_id,"spreadsheet_id":spreadsheet_id},"timestamp":int(time.time()*1000)})+'\n')
+                    # #endregion
                     
                     return [TextContent(
                         type="text",

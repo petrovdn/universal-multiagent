@@ -676,6 +676,14 @@ class MCPServerManager:
         Raises:
             MCPError: If tool not found or execution fails
         """
+        # #region agent log
+        import json
+        import time
+        call_id = f"mgr_call_{int(time.time()*1000)}"
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"mcp_loader.py:MCPServerManager:call_tool:entry","message":"MCPServerManager.call_tool ENTRY","data":{"call_id":call_id,"tool_name":tool_name,"server_name":server_name,"arguments":arguments},"timestamp":int(time.time()*1000)})+'\n')
+        # #endregion
+        
         logger.info(f"[MCPServerManager] call_tool called: tool={tool_name}, server={server_name}")
         
         if server_name:
@@ -720,7 +728,19 @@ class MCPServerManager:
                     tool_name=tool_name
                 )
         
-        return await connection.call_tool(tool_name, arguments)
+        # #region agent log
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"mcp_loader.py:MCPServerManager:call_tool:before_delegate","message":"Before delegating to connection","data":{"call_id":call_id,"connection_name":connection.config.name},"timestamp":int(time.time()*1000)})+'\n')
+        # #endregion
+        
+        result = await connection.call_tool(tool_name, arguments)
+        
+        # #region agent log
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"G","location":"mcp_loader.py:MCPServerManager:call_tool:exit","message":"MCPServerManager.call_tool EXIT","data":{"call_id":call_id,"result_type":str(type(result).__name__)},"timestamp":int(time.time()*1000)})+'\n')
+        # #endregion
+        
+        return result
     
     async def health_check(self) -> Dict[str, Dict[str, Any]]:
         """

@@ -307,14 +307,6 @@ class StepOrchestrator:
             
             # NEW: If plan has only 1 step, skip plan display and execute directly
             if len(plan_steps) == 1:
-                # #region agent log
-                import json
-                import time
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"step_orchestrator.py:execute","message":"Single-step plan detected","data":{"step_title":plan_steps[0] if plan_steps else "none"},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
                 logger.info(f"[StepOrchestrator] Single-step plan detected, executing directly without showing plan")
                 
                 # Check if stop was requested before executing single step
@@ -1331,7 +1323,7 @@ Create HumanMessage with text and optional file attachments."""
                                 try:
                                     result = await tool.ainvoke(tool_args)
                                     tool_messages.append(ToolMessage(content=str(result), tool_call_id=tool_id or tool_name))
-                                    accumulated_response += f"\n\nРезультат инструмента {tool_name}: {result}\n"
+                                    # Don't add raw tool results to user-facing response - LLM will generate user-friendly message
                                     
                                     # NEW: Extract entities from tool result and add to entity memory
                                     if hasattr(context, 'add_entity_from_tool_result'):
@@ -1352,17 +1344,82 @@ Create HumanMessage with text and optional file attachments."""
                     if tool_messages:
                         messages_with_tools = messages + [full_response] + tool_messages
                         final_response = await self.llm_with_tools.ainvoke(messages_with_tools)
+                        
                         if hasattr(final_response, 'content'):
                             final_text = final_response.content
+                            # Handle list content (Anthropic format)
+                            if isinstance(final_text, list):
+                                # Extract text from list of blocks
+                                text_parts = []
+                                for block in final_text:
+                                    if isinstance(block, dict):
+                                        if block.get('type') == 'text':
+                                            text_parts.append(block.get('text', ''))
+                                    elif hasattr(block, 'text'):
+                                        text_parts.append(block.text)
+                                    elif isinstance(block, str):
+                                        text_parts.append(block)
+                                final_text = ''.join(text_parts) if text_parts else str(final_text)
+                            elif not isinstance(final_text, str):
+                                final_text = str(final_text)
+                            
                             if final_text and final_text not in accumulated_response:
                                 accumulated_response += final_text
+                        
+                        # Check if final_response has more tool calls (recursive tool calling)
+                        # IMPORTANT: Anthropic returns tool_calls as a list, but it might be empty list
+                        tool_calls_to_execute = None
+                        try:
+                            if hasattr(final_response, 'tool_calls'):
+                                tool_calls_raw = final_response.tool_calls
+                                # Check if it's a non-empty list
+                                if tool_calls_raw and len(tool_calls_raw) > 0:
+                                    tool_calls_to_execute = tool_calls_raw
+                        except Exception as e:
+                            logger.error(f"[StepOrchestrator] Error checking tool_calls: {e}")
+                        
+                        if tool_calls_to_execute and len(tool_calls_to_execute) > 0:
+                            # Execute additional tool calls recursively
+                            for tool_call in tool_calls_to_execute:
+                                tool_name = tool_call.get("name") if isinstance(tool_call, dict) else getattr(tool_call, "name", None)
+                                tool_args = tool_call.get("args") if isinstance(tool_call, dict) else getattr(tool_call, "args", {})
+                                tool_id = tool_call.get("id") if isinstance(tool_call, dict) else getattr(tool_call, "id", None)
+                                
+                                if tool_name:
+                                    tool = next((t for t in self.tools if t.name == tool_name), None)
+                                    if tool:
+                                        try:
+                                            result = await tool.ainvoke(tool_args)
+                                            tool_messages.append(ToolMessage(content=str(result), tool_call_id=tool_id or tool_name))
+                                            # Don't add raw tool results to user-facing response - LLM will generate user-friendly message
+                                        except Exception as e:
+                                            logger.error(f"[StepOrchestrator] Recursive tool {tool_name} execution failed: {e}")
+                                            tool_messages.append(ToolMessage(content=f"Ошибка: {str(e)}", tool_call_id=tool_id or tool_name))
+                            
+                            # If we got more tool results, call LLM one more time (but limit recursion)
+                            if len(tool_messages) > len([tm for tm in tool_messages if hasattr(tm, 'tool_call_id')]):
+                                # Limit to 3 iterations to avoid infinite loops
+                                if len([m for m in messages_with_tools if isinstance(m, ToolMessage)]) < 10:
+                                    messages_with_tools = messages_with_tools + [final_response] + tool_messages[-len(final_response.tool_calls):]
+                                    final_response = await self.llm_with_tools.ainvoke(messages_with_tools)
+                                    if hasattr(final_response, 'content'):
+                                        final_text = final_response.content
+                                        if final_text and final_text not in accumulated_response:
+                                            accumulated_response += final_text
             except Exception as e:
                 logger.error(f"[StepOrchestrator] Error checking/executing tool calls: {e}")
             
             # Check if response contains user assistance request
             assistance_request = self._parse_assistance_request(accumulated_response)
             
+            # If no explicit request, check for missing tool scenario
+            if not assistance_request:
+                assistance_request = self._detect_missing_tool_scenario(accumulated_response)
+            
             if assistance_request:
+                # Remove JSON from response before returning (to avoid showing raw JSON in chat)
+                accumulated_response = self._remove_assistance_request_json(accumulated_response)
+                
                 # Pause execution and request user assistance
                 await self._request_user_assistance(assistance_request, step_index, context)
                 # Wait for user response
@@ -1374,6 +1431,9 @@ Create HumanMessage with text and optional file attachments."""
                     accumulated_response += f"\n\nВыбранный вариант пользователем: {selected_option.get('label', '')}\n"
                     if 'data' in selected_option:
                         accumulated_response += f"Данные выбора: {json.dumps(selected_option['data'], ensure_ascii=False)}\n"
+            else:
+                # Even if no assistance request, clean any JSON that might be present
+                accumulated_response = self._remove_assistance_request_json(accumulated_response)
             
             return accumulated_response
             
@@ -1408,30 +1468,10 @@ Create HumanMessage with text and optional file attachments."""
         Returns:
             True if separate final result generation is needed, False otherwise
         """
-        # #region agent log
-        import json
-        import time
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"step_orchestrator.py:_needs_final_result_generation","message":"Method entry","data":{"step_results_type":type(step_results).__name__,"step_results_count":len(step_results) if isinstance(step_results, list) else "not_list","user_request_type":type(user_request).__name__},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         if not isinstance(step_results, list):
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"step_orchestrator.py:_needs_final_result_generation","message":"ERROR: step_results is not a list","data":{"step_results_type":type(step_results).__name__},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             logger.error(f"[StepOrchestrator] step_results is not a list: {type(step_results)}")
             return True  # Safe default: generate result
         if not isinstance(user_request, str):
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"step_orchestrator.py:_needs_final_result_generation","message":"ERROR: user_request is not a string","data":{"user_request_type":type(user_request).__name__},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             logger.error(f"[StepOrchestrator] user_request is not a string: {type(user_request)}")
             return True  # Safe default: generate result
         request_lower = user_request.lower()
@@ -1525,36 +1565,10 @@ Create HumanMessage with text and optional file attachments."""
             context: Conversation context
         """
         # NEW: Check if separate final result generation is needed
-        # #region agent log
-        import json
-        import time
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"step_orchestrator.py:_generate_final_result","message":"Checking if final result generation needed","data":{"step_results_count":len(step_results),"user_request_preview":user_request[:100]},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         needs_generation = self._needs_final_result_generation(user_request, step_results)
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"step_orchestrator.py:_generate_final_result","message":"Final result generation check result","data":{"needs_generation":needs_generation,"step_results_count":len(step_results)},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         if not needs_generation:
             # Use last step result directly as final result
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"step_orchestrator.py:_generate_final_result","message":"Using last step result directly","data":{"step_results_count":len(step_results),"has_results":bool(step_results)},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             if not step_results:
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"step_orchestrator.py:_generate_final_result","message":"ERROR: step_results is empty","data":{},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
                 logger.error(f"[StepOrchestrator] step_results is empty, cannot use last result")
                 last_result = ""
             else:
@@ -1823,6 +1837,119 @@ Get the confirmation ID for the current plan."""
             Assistance ID or None if no pending request
         """
         return self._user_assistance_id
+    
+    def _detect_missing_tool_scenario(self, response_text: str) -> Optional[Dict[str, Any]]:
+        """
+        Detect if LLM indicates it cannot find a suitable tool.
+        Returns assistance request if detected.
+        
+        Args:
+            response_text: LLM response text
+            
+        Returns:
+            Assistance request dict or None if not detected
+        """
+        # Паттерны, указывающие на отсутствие инструмента
+        patterns = [
+            r"не\s+поддерживает\s+форматирование",
+            r"ни\s+один.*инструмент.*не\s+поддерживает",
+            r"нет.*инструмент.*для\s+форматирования",
+            r"отсутствует.*возможность.*форматировать",
+            r"невозможно.*выполнить.*форматирование",
+            r"не\s+нашел.*инструмент.*для",
+            r"нет.*подходящего.*инструмент",
+            r"инструмент.*не\s+поддерживает",
+        ]
+        
+        for pattern in patterns:
+            if re.search(pattern, response_text, re.IGNORECASE):
+                logger.info(f"[StepOrchestrator] Detected missing tool scenario in response")
+                # Генерируем варианты действий
+                return {
+                    "question": "Система не может найти подходящий инструмент для выполнения требуемой операции. Как поступить?",
+                    "options": [
+                        {
+                            "id": "1",
+                            "label": "Продолжить без этого действия",
+                            "description": "Пропустить невозможную операцию и продолжить выполнение задачи",
+                            "data": {"action": "skip"}
+                        },
+                        {
+                            "id": "2",
+                            "label": "Попробовать альтернативный подход",
+                            "description": "Найти обходной путь или использовать другие доступные инструменты",
+                            "data": {"action": "alternative"}
+                        },
+                        {
+                            "id": "3",
+                            "label": "Остановить выполнение",
+                            "description": "Прервать выполнение текущей задачи",
+                            "data": {"action": "stop"}
+                        }
+                    ],
+                    "context": {
+                        "detected_pattern": pattern,
+                        "reason": "missing_tool"
+                    }
+                }
+        
+        return None
+    
+    def _remove_assistance_request_json(self, text: str) -> str:
+        """
+        Remove JSON user assistance request from text to prevent it from appearing in chat.
+        
+        Args:
+            text: Text that may contain assistance request JSON
+            
+        Returns:
+            Text with assistance request JSON removed
+        """
+        if "🔍 ЗАПРОС ПОМОЩИ ПОЛЬЗОВАТЕЛЯ" not in text:
+            return text
+        
+        try:
+            # Find all JSON blocks with the marker
+            marker_pos = text.find('🔍 ЗАПРОС ПОМОЩИ ПОЛЬЗОВАТЕЛЯ')
+            while marker_pos != -1:
+                # Find the opening brace before the marker
+                start_pos = text.rfind('{', 0, marker_pos)
+                if start_pos != -1:
+                    # Find the matching closing brace
+                    brace_count = 0
+                    end_pos = start_pos
+                    for i in range(start_pos, len(text)):
+                        if text[i] == '{':
+                            brace_count += 1
+                        elif text[i] == '}':
+                            brace_count -= 1
+                            if brace_count == 0:
+                                end_pos = i + 1
+                                break
+                    
+                    if end_pos > start_pos:
+                        # Remove the JSON block
+                        text = text[:start_pos] + text[end_pos:]
+                        # Remove any trailing whitespace/newlines
+                        text = text.rstrip()
+                
+                # Find next marker
+                marker_pos = text.find('🔍 ЗАПРОС ПОМОЩИ ПОЛЬЗОВАТЕЛЯ', marker_pos)
+                if marker_pos == -1:
+                    break
+            
+            # Also try regex pattern as fallback
+            text = re.sub(
+                r'\{\s*["\']?🔍\s*ЗАПРОС\s*ПОМОЩИ\s*ПОЛЬЗОВАТЕЛЯ["\']?\s*:\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}\s*\}',
+                '',
+                text,
+                flags=re.DOTALL | re.IGNORECASE
+            )
+            
+            return text.strip()
+        except Exception as e:
+            logger.debug(f"[StepOrchestrator] Error removing assistance request JSON: {e}")
+            return text
     
     def _parse_assistance_request(self, step_result: str) -> Optional[Dict[str, Any]]:
         """

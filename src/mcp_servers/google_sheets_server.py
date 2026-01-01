@@ -31,16 +31,19 @@ SHEETS_SCOPES = [
 class GoogleSheetsMCPServer:
     """MCP Server for Google Sheets operations."""
     
-    def __init__(self, token_path: Path):
+    def __init__(self, token_path: Path, config_path: Optional[Path] = None):
         """
         Initialize Google Sheets MCP Server.
         
         Args:
             token_path: Path to OAuth token file
+            config_path: Path to workspace config file (optional, defaults to config/workspace_config.json)
         """
         self.token_path = Path(token_path)
+        self.config_path = config_path or Path("config/workspace_config.json")
         self._sheets_service = None
         self._drive_service = None
+        self._workspace_folder_id = None
         self.server = Server("google-sheets-mcp")
         self._setup_tools()
     
@@ -90,6 +93,25 @@ class GoogleSheetsMCPServer:
             self._drive_service = build('drive', 'v3', credentials=creds)
         
         return self._drive_service
+    
+    def _load_config(self) -> Dict[str, Any]:
+        """Load workspace configuration."""
+        if not self.config_path.exists():
+            return {}
+        
+        try:
+            with open(self.config_path, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"Failed to load workspace config: {e}")
+            return {}
+    
+    def _get_workspace_folder_id(self) -> Optional[str]:
+        """Get the workspace folder ID from config."""
+        if self._workspace_folder_id is None:
+            config = self._load_config()
+            self._workspace_folder_id = config.get("folder_id")
+        return self._workspace_folder_id
     
     @staticmethod
     def _extract_spreadsheet_id(spreadsheet_id_or_url: str) -> str:
@@ -794,12 +816,41 @@ class GoogleSheetsMCPServer:
                         body=spreadsheet_body
                     ).execute()
                     
+                    spreadsheet_id = spreadsheet.get('spreadsheetId')
+                    
+                    # Move to workspace folder if configured
+                    folder_id = self._get_workspace_folder_id()
+                    if folder_id:
+                        try:
+                            drive_service = self._get_drive_service()
+                            file_info = drive_service.files().get(
+                                fileId=spreadsheet_id,
+                                fields="parents"
+                            ).execute()
+                            previous_parents = ",".join(file_info.get('parents', []))
+                            drive_service.files().update(
+                                fileId=spreadsheet_id,
+                                addParents=folder_id,
+                                removeParents=previous_parents,
+                                fields="id, parents"
+                            ).execute()
+                            logger.info(f"Moved spreadsheet {spreadsheet_id} to workspace folder {folder_id}")
+                        except Exception as e:
+                            logger.warning(f"Failed to move spreadsheet to workspace folder: {e}")
+                    
+                    # Get spreadsheet URL
+                    drive_service = self._get_drive_service()
+                    sheet_file = drive_service.files().get(
+                        fileId=spreadsheet_id,
+                        fields="webViewLink"
+                    ).execute()
+                    
                     return [TextContent(
                         type="text",
                         text=json.dumps({
-                            "spreadsheetId": spreadsheet.get('spreadsheetId'),
+                            "spreadsheetId": spreadsheet_id,
                             "title": spreadsheet.get('properties', {}).get('title'),
-                            "url": spreadsheet.get('spreadsheetUrl'),
+                            "url": sheet_file.get('webViewLink', spreadsheet.get('spreadsheetUrl', '')),
                             "sheets": [
                                 sheet['properties']['title']
                                 for sheet in spreadsheet.get('sheets', [])
@@ -1486,7 +1537,8 @@ async def main():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
-    server = GoogleSheetsMCPServer(Path(args.token_path))
+    config_path = Path("config/workspace_config.json")
+    server = GoogleSheetsMCPServer(Path(args.token_path), config_path=config_path)
     await server.run()
 
 

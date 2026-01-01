@@ -310,9 +310,10 @@ def validate_spreadsheet_range(range_str: str) -> str:
         raise ValidationError("Spreadsheet range is required", field="range")
     
     # Basic A1 notation pattern
-    # Matches: A1, A1:B10, Sheet1!A1:B10
+    # Matches: A1, A1:B10, Sheet1!A1:B10, Лист1!A1:B10
+    # Sheet name can contain any characters except '!'
     range_pattern = re.compile(
-        r'^([A-Za-z0-9_]+!)?([A-Z]+[0-9]+)(:([A-Z]+[0-9]+))?$'
+        r'^([^!]+!)?([A-Z]+[0-9]+)(:([A-Z]+[0-9]+))?$'
     )
     
     if not range_pattern.match(range_str):

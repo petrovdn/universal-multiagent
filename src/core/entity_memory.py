@@ -376,6 +376,38 @@ def extract_entities_from_tool_result(
                     ))
                     return entities
             
+            # Pattern 4: Extract spreadsheet_id from create_spreadsheet result
+            # Format: "Spreadsheet 'Новая 21' created successfully. Sheet name(s): Лист1. ID: 1CycDG1YcdJFfZgRUtiUES9f-TJgTGcgVaviXDHA7iBQ"
+            if tool_name == "create_spreadsheet":
+                # Pattern 4a: "Spreadsheet 'name' created successfully... ID: spreadsheet_id"
+                spreadsheet_match = re.search(r"Spreadsheet\s+['\"]([^'\"]+)['\"].*?ID:\s*([\w\-]+)", tool_result, re.IGNORECASE | re.DOTALL)
+                if spreadsheet_match:
+                    sheet_name = spreadsheet_match.group(1).strip()
+                    spreadsheet_id = spreadsheet_match.group(2).strip()
+                    entities.append(EntityReference(
+                        entity_type="sheet",
+                        entity_id=spreadsheet_id,
+                        name=sheet_name,
+                        mentioned_at_turn=0,
+                        metadata={"extracted_from": tool_result, "tool_name": tool_name}
+                    ))
+                    return entities
+                # Pattern 4b: "ID: spreadsheet_id" anywhere in the result
+                id_match = re.search(r'ID:\s*([\w\-]+)', tool_result, re.IGNORECASE)
+                if id_match:
+                    spreadsheet_id = id_match.group(1).strip()
+                    # Try to extract name
+                    name_match = re.search(r"Spreadsheet\s+['\"]([^'\"]+)['\"]", tool_result, re.IGNORECASE)
+                    sheet_name = name_match.group(1).strip() if name_match else "Spreadsheet"
+                    entities.append(EntityReference(
+                        entity_type="sheet",
+                        entity_id=spreadsheet_id,
+                        name=sheet_name,
+                        mentioned_at_turn=0,
+                        metadata={"extracted_from": tool_result, "tool_name": tool_name}
+                    ))
+                    return entities
+            
             return entities
     
     # Handle list results (e.g., search_files returns list of files)

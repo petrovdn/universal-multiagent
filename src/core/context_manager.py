@@ -123,7 +123,6 @@ class ConversationContext:
         # Extract entities from tool result
         entities = extract_entities_from_tool_result(tool_name, tool_result)
         
-        
         # Add to entity memory
         turn = turn_number if turn_number is not None else len(self.messages)
         for entity in entities:
