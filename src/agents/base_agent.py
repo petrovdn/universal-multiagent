@@ -43,6 +43,8 @@ class StreamingCallbackHandler(AsyncCallbackHandler):
         self.logger = logger
         self.accumulated_text = ""
         self.accumulated_thinking = ""
+        # Cache tool names by run_id for TOOL_RESULT events
+        self._tool_name_cache: Dict[str, str] = {}
     
     async def on_llm_new_token(self, token: Any, **kwargs) -> None:
         """Called when a new token is generated."""
@@ -151,13 +153,16 @@ class StreamingCallbackHandler(AsyncCallbackHandler):
     ) -> None:
         """Called when a tool starts executing."""
         tool_name = serialized.get("name", "unknown")
+        # Cache tool name for use in on_tool_end
+        self._tool_name_cache[str(run_id)] = tool_name
         if self.logger:
             self.logger.info(f"[StreamingCallback] Tool start: {tool_name}")
         if self.event_callback:
             await self.event_callback(StreamEvent.TOOL_CALL, {
                 "tool_name": tool_name,
                 "arguments": input_str,
-                "status": "starting"
+                "status": "starting",
+                "run_id": str(run_id)
             })
     
     async def on_tool_end(
@@ -188,8 +193,13 @@ class StreamingCallbackHandler(AsyncCallbackHandler):
             else:
                 display_output = output_str
             
+            # Get tool name from cache
+            tool_name = self._tool_name_cache.pop(str(run_id), "unknown")
+            
             await self.event_callback(StreamEvent.TOOL_RESULT, {
-                "result": display_output
+                "result": display_output,
+                "run_id": str(run_id),
+                "tool_name": tool_name
             })
     
     def get_accumulated_text(self) -> str:

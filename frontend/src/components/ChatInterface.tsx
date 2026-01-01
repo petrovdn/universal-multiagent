@@ -8,7 +8,6 @@ import { useModelStore } from '../store/modelStore'
 import { wsClient } from '../services/websocket'
 import { sendMessage, createSession, updateSettings, setSessionModel, uploadFile } from '../services/api'
 import { ChatMessage } from './ChatMessage'
-import { Header } from './Header'
 import { PlanBlock } from './PlanBlock'
 import { StepProgress } from './StepProgress'
 import { FinalResultBlock } from './FinalResultBlock'
@@ -630,9 +629,6 @@ export function ChatInterface() {
         />
       )}
       <div className="chat-container">
-      {/* Header */}
-      <Header />
-
       {/* Messages Container */}
       <div className="messages-container" ref={messagesContainerRef}>
         {/* Render all messages */}
@@ -785,11 +781,21 @@ export function ChatInterface() {
               // Don't render assistant-message-wrapper if workflow exists
               // Multi-step workflows display content through PlanBlock, StepProgress, FinalResultBlock
               if (lastUserWorkflow) {
+                // Simple task: no plan or plan has no steps
+                const isSimpleTask = !lastUserWorkflow.plan || !lastUserWorkflow.plan.steps || lastUserWorkflow.plan.steps.length === 0
+                
+                // For simple tasks, don't render ChatMessage (reasoning/answer blocks)
+                // The result will be shown in FinalResultBlock instead
+                if (isSimpleTask) {
+                  return null
+                }
+                
+                // For multi-step workflows, also don't render ChatMessage
                 return null
               }
               
-              // Simple task: no plan or plan has no steps
-              const isSimpleTask = !lastUserWorkflow?.plan || !lastUserWorkflow.plan.steps || lastUserWorkflow.plan.steps.length === 0
+              // No workflow - render normally
+              const isSimpleTask = false
               
               // For simple tasks, don't render ChatMessage (reasoning/answer blocks)
               // The result will be shown in FinalResultBlock instead
@@ -866,19 +872,6 @@ export function ChatInterface() {
         })
         })()}
         
-        {/* Welcome screen */}
-        {messages.length === 0 && Object.keys(assistantMessages).length === 0 && (
-          <div className="start-dialog-container-compact">
-            <div className="start-dialog-content-compact">
-              <div className="start-dialog-icon-compact">
-                <Sparkles className="w-8 h-8 text-[#00D9FF]" />
-              </div>
-              <h3 className="start-dialog-title-compact">
-                Чем могу помочь?
-              </h3>
-            </div>
-          </div>
-        )}
         
         {/* Scroll spacer */}
         <div className="scroll-spacer" />

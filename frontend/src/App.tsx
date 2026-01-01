@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
-import { ChatInterface } from './components/ChatInterface'
 import { Header } from './components/Header'
+import { SplitLayout } from './components/SplitLayout'
 import { LoginDialog } from './components/LoginDialog'
 import { useSettingsStore } from './store/settingsStore'
 import { getGoogleCalendarStatus, getGmailStatus, getGoogleWorkspaceStatus, getCurrentUser } from './services/api'
@@ -263,7 +263,7 @@ function App() {
     <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-900">
       <Header />
       <div className="flex-1 overflow-hidden">
-        <ChatInterface />
+        <SplitLayout />
       </div>
       {/* Notification */}
       {notification && (

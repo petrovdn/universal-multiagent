@@ -37,6 +37,8 @@ Initialize agent wrapper."""
         self._active_orchestrators: Dict[str, StepOrchestrator] = {}
         # Task classifier for determining task complexity
         self.task_classifier = TaskClassifier()
+        # Store tool arguments for workspace events (key: run_id, value: {tool_name, arguments})
+        self._tool_args_cache: Dict[str, Dict[str, Any]] = {}
     
     def get_main_agent(self, model_name: Optional[str] = None) -> MainAgent:
         """
@@ -657,15 +659,58 @@ Callback to handle streaming events and send to WebSocket."""
             
             elif event_type == StreamEvent.TOOL_CALL:
                 # Send tool call event
+                tool_name = data.get("tool_name", "unknown")
+                tool_args_raw = data.get("arguments", "")
+                run_id = data.get("run_id", "")
+                
+                # Parse arguments from JSON string if needed
+                tool_args = {}
+                if isinstance(tool_args_raw, str):
+                    try:
+                        import json
+                        tool_args = json.loads(tool_args_raw)
+                    except:
+                        # If not JSON, treat as plain string
+                        tool_args = {"input": tool_args_raw}
+                elif isinstance(tool_args_raw, dict):
+                    tool_args = tool_args_raw
+                
+                # Cache tool arguments for use in TOOL_RESULT (use run_id as key)
+                if run_id:
+                    self._tool_args_cache[run_id] = {
+                        "tool_name": tool_name,
+                        "arguments": tool_args
+                    }
+                
                 await self.ws_manager.send_event(
                     session_id,
                     "tool_call",
                     {
-                        "tool_name": data.get("tool_name", "unknown"),
-                        "arguments": data.get("arguments", {}),
+                        "tool_name": tool_name,
+                        "arguments": tool_args,
                         "status": data.get("status", "calling")
                     }
                 )
+                
+                # Send email preview event when preparing to send email
+                if tool_name == "send_email":
+                    try:
+                        await self.ws_manager.send_event(
+                            session_id,
+                            "email_preview",
+                            {
+                                "to": tool_args.get("to", ""),
+                                "subject": tool_args.get("subject", ""),
+                                "body": tool_args.get("body", ""),
+                                "cc": tool_args.get("cc"),
+                                "bcc": tool_args.get("bcc"),
+                                "attachments": []
+                            }
+                        )
+                        logger.info(f"[AgentWrapper] Sent email_preview event for email to {tool_args.get('to')}")
+                    except Exception as e:
+                        logger.warning(f"[AgentWrapper] Failed to send email_preview event: {e}")
+                
                 # Also send as thinking step for visibility (skip if streaming to final_result)
                 if not stream_to_final_result:
                     await self.ws_manager.send_event(
@@ -673,13 +718,20 @@ Callback to handle streaming events and send to WebSocket."""
                         "thinking",
                         {
                             "step": "tool_call",
-                            "message": f"Вызываю: {data.get('tool_name', 'unknown')}"
+                            "message": f"Вызываю: {tool_name}"
                         }
                     )
             
             elif event_type == StreamEvent.TOOL_RESULT:
                 # Send tool result event with compact formatting
                 result = data.get("result", "")
+                run_id = data.get("run_id", "")
+                
+                # Get cached tool name and arguments using run_id
+                cached_data = self._tool_args_cache.pop(run_id, {}) if run_id else {}
+                tool_name = cached_data.get("tool_name", "unknown")
+                tool_args = cached_data.get("arguments", {})
+                
                 # Make result more compact if it's too long
                 if len(result) > 2000:
                     result = result[:2000] + "\n\n... (результат обрезан, показаны первые 2000 символов) ..."
@@ -688,10 +740,30 @@ Callback to handle streaming events and send to WebSocket."""
                     session_id,
                     "tool_result",
                     {
-                        "tool_name": data.get("tool_name", "unknown"),
+                        "tool_name": tool_name,
                         "result": result
                     }
                 )
+                
+                # Send workspace panel events based on tool results
+                # #region agent log
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:TOOL_RESULT-before-handle","message":"Before calling _handle_workspace_events","data":{"tool_name":tool_name,"result_length":len(result),"has_tool_args":bool(tool_args)},"timestamp":int(time.time()*1000)})+'\n')
+                # #endregion
+                try:
+                    await self._handle_workspace_events(session_id, tool_name, result, tool_args)
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:TOOL_RESULT-after-handle","message":"After calling _handle_workspace_events","data":{"tool_name":tool_name},"timestamp":int(time.time()*1000)})+'\n')
+                    # #endregion
+                except Exception as e:
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:TOOL_RESULT-handle-error","message":"Error in _handle_workspace_events","data":{"tool_name":tool_name,"error":str(e)},"timestamp":int(time.time()*1000)})+'\n')
+                    # #endregion
+                    logger.warning(f"[AgentWrapper] Failed to handle workspace events: {e}")
             
             elif event_type == StreamEvent.DONE:
                 # Complete the streaming message
@@ -1079,6 +1151,136 @@ Callback to handle streaming events and send to WebSocket."""
             StepOrchestrator instance or None
         """
         return self._active_orchestrators.get(session_id)
+    
+    async def _handle_workspace_events(
+        self,
+        session_id: str,
+        tool_name: str,
+        result: str,
+        tool_args: Dict[str, Any]
+    ) -> None:
+        """
+        Handle workspace panel events based on tool execution results.
+        
+        Args:
+            session_id: Session identifier
+            tool_name: Name of the executed tool
+            result: Tool execution result
+            tool_args: Tool arguments
+        """
+        import re
+        
+        # Handle create_spreadsheet
+        if tool_name == "create_spreadsheet":
+            # #region agent log
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:_handle_workspace_events:create_spreadsheet-entry","message":"Processing create_spreadsheet result","data":{"result":result[:200],"tool_args":tool_args},"timestamp":int(time.time()*1000)})+'\n')
+            # #endregion
+            # Extract spreadsheet ID and URL from result
+            # Result format: "Spreadsheet 'title' created successfully. ID: {id}. URL: {url}"
+            spreadsheet_id_match = re.search(r'ID:\s*([a-zA-Z0-9_-]+)', result)
+            url_match = re.search(r'URL:\s*(https?://[^\s]+)', result)
+            title_match = re.search(r"Spreadsheet\s+'([^']+)'", result)
+            
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:_handle_workspace_events:create_spreadsheet-match","message":"Regex match results","data":{"spreadsheet_id_match":bool(spreadsheet_id_match),"url_match":bool(url_match),"title_match":bool(title_match)},"timestamp":int(time.time()*1000)})+'\n')
+            # #endregion
+            
+            if spreadsheet_id_match:
+                spreadsheet_id = spreadsheet_id_match.group(1)
+                url = url_match.group(1) if url_match else f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
+                title = title_match.group(1) if title_match else tool_args.get("title", "Google Sheets")
+                
+                event_data = {
+                    "spreadsheet_id": spreadsheet_id,
+                    "spreadsheet_url": url,
+                    "title": title,
+                    "action": "created"
+                }
+                # #region agent log
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:_handle_workspace_events:create_spreadsheet-before-send","message":"Before sending sheets_action event","data":event_data,"timestamp":int(time.time()*1000)})+'\n')
+                # #endregion
+                
+                await self.ws_manager.send_event(
+                    session_id,
+                    "sheets_action",
+                    event_data
+                )
+                # #region agent log
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:_handle_workspace_events:create_spreadsheet-after-send","message":"After sending sheets_action event","data":{"spreadsheet_id":spreadsheet_id},"timestamp":int(time.time()*1000)})+'\n')
+                # #endregion
+                logger.info(f"[AgentWrapper] Sent sheets_action event for spreadsheet {spreadsheet_id}")
+            else:
+                # #region agent log
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:_handle_workspace_events:create_spreadsheet-no-match","message":"No spreadsheet_id match found","data":{"result":result[:200]},"timestamp":int(time.time()*1000)})+'\n')
+                # #endregion
+        
+        # Handle create_document
+        elif tool_name == "create_document":
+            # Extract document ID and URL from result
+            # Result format: "Document 'title' created successfully. ID: {id}. URL: {url}"
+            doc_id_match = re.search(r'ID:\s*([a-zA-Z0-9_-]+)', result)
+            url_match = re.search(r'URL:\s*(https?://[^\s]+)', result)
+            title_match = re.search(r"Document\s+'([^']+)'", result)
+            
+            if doc_id_match:
+                document_id = doc_id_match.group(1)
+                url = url_match.group(1) if url_match else f"https://docs.google.com/document/d/{document_id}/edit"
+                title = title_match.group(1) if title_match else tool_args.get("title", "Google Docs")
+                
+                await self.ws_manager.send_event(
+                    session_id,
+                    "docs_action",
+                    {
+                        "document_id": document_id,
+                        "document_url": url,
+                        "title": title
+                    }
+                )
+                logger.info(f"[AgentWrapper] Sent docs_action event for document {document_id}")
+        
+        # Handle execute_python_code - show code in code viewer
+        elif tool_name == "execute_python_code":
+            code = tool_args.get("code", "")
+            if code:
+                # Extract filename from code if it's a script
+                filename = "executed_code.py"
+                if "def " in code or "import " in code:
+                    filename = "script.py"
+                
+                await self.ws_manager.send_event(
+                    session_id,
+                    "code_display",
+                    {
+                        "filename": filename,
+                        "language": "python",
+                        "code": code
+                    }
+                )
+                logger.info(f"[AgentWrapper] Sent code_display event for Python code")
+        
+        # Handle update_cells, add_rows - update existing spreadsheet
+        elif tool_name in ["update_cells", "add_rows"]:
+            spreadsheet_id = tool_args.get("spreadsheet_id")
+            if spreadsheet_id:
+                url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
+                await self.ws_manager.send_event(
+                    session_id,
+                    "sheets_action",
+                    {
+                        "spreadsheet_id": spreadsheet_id,
+                        "spreadsheet_url": url,
+                        "title": "Google Sheets",
+                        "action": "updated"
+                    }
+                )
+                logger.info(f"[AgentWrapper] Sent sheets_action event for updated spreadsheet {spreadsheet_id}")
     
     async def update_plan(
         self,

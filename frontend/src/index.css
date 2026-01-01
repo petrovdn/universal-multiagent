@@ -1374,14 +1374,13 @@ body {
    INPUT AREA - FIXED BOTTOM
    ============================================ */
 .input-area {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  position: relative;
+  width: 100%;
   z-index: 100;
   padding: 0 20px 16px;
   background: transparent;
   pointer-events: none;
+  flex-shrink: 0;
 }
 
 .input-fade {
@@ -1396,8 +1395,7 @@ body {
 }
 
 .input-form {
-  max-width: 900px;
-  margin: 0 auto;
+  width: 100%;
   pointer-events: auto;
 }
 
@@ -2279,4 +2277,137 @@ body {
 
 .dark .user-assistance-overlay {
   background: rgba(0, 0, 0, 0.75);
+}
+
+/* ============================================
+   SPLIT LAYOUT & WORKSPACE PANEL STYLES
+   ============================================ */
+
+/* Resize handle styling */
+[data-panel-group] {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+[data-resize-handle] {
+  width: 2px !important;
+  min-width: 2px !important;
+  background: rgb(203 213 225) !important; /* slate-300 */
+  transition: background 0.2s ease !important;
+  cursor: col-resize !important;
+  border: none !important;
+}
+
+[data-resize-handle]:hover {
+  background: rgb(59 130 246) !important; /* blue-500 */
+  width: 3px !important;
+}
+
+.dark [data-resize-handle] {
+  background: rgb(71 85 105) !important; /* slate-600 */
+}
+
+.dark [data-panel-resize-handle]:hover {
+  background: rgb(59 130 246) !important; /* blue-500 */
+}
+
+/* Tab bar styles */
+.workspace-tab-bar {
+  display: flex;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-primary) transparent;
+}
+
+/* IDE-style tab bar - Cursor-like */
+.flex.border-t,
+[class*="border-t"] {
+  border-top-width: 1px !important;
+  border-top-style: solid !important;
+  border-top-color: rgb(226 232 240) !important; /* slate-200 */
+  min-height: 35px !important;
+  height: auto !important;
+  display: flex !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  z-index: 10 !important; /* Above content but below Header (95) */
+  position: relative !important;
+  background-color: rgb(241 245 249) !important; /* slate-100 */
+  box-shadow: none !important; /* Убираем тень для минималистичного вида */
+}
+
+.dark .flex.border-t,
+.dark [class*="border-t"] {
+  background-color: rgb(15 23 42) !important; /* slate-900 */
+  border-top-color: rgb(51 65 85) !important; /* slate-700 */
+}
+
+.flex.bg-slate-50,
+[class*="bg-slate-50"] {
+  background-color: rgb(248 250 252) !important; /* slate-50 */
+}
+
+.dark .flex.bg-slate-800,
+.dark [class*="bg-slate-800"] {
+  background-color: rgb(30 41 59) !important; /* slate-800 */
+}
+
+.workspace-tab-bar::-webkit-scrollbar {
+  height: 6px;
+}
+
+.workspace-tab-bar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.workspace-tab-bar::-webkit-scrollbar-thumb {
+  background: var(--border-primary);
+  border-radius: 3px;
+}
+
+/* Workspace panel content */
+.workspace-content {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Viewer iframe styles */
+.viewer-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* Chart viewer container */
+.chart-viewer-container {
+  padding: 1.5rem;
+  height: 100%;
+  overflow: auto;
+}
+
+/* Code viewer container */
+.code-viewer-container {
+  height: 100%;
+  overflow: auto;
+}
+
+/* Calendar viewer container */
+.calendar-viewer-container {
+  padding: 1rem;
+  height: 100%;
+  overflow: auto;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+  [data-panel-group] {
+    flex-direction: column;
+  }
+
+  [data-panel-resize-handle] {
+    width: 100%;
+    height: 4px;
+    cursor: row-resize;
+  }
 }

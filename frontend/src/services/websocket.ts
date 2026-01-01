@@ -117,6 +117,9 @@ export class WebSocketClient {
   }
 
   private handleEvent(event: WebSocketEvent): void {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:handleEvent-entry',message:'handleEvent called',data:{eventType:event.type,hasData:!!event.data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     const chatStore = useChatStore.getState()
     
     // Helper function to ensure active workflow exists for current user message
@@ -143,6 +146,10 @@ export class WebSocketClient {
     const settingsStore = useSettingsStore.getState()
     const debugMode = settingsStore.debugMode
     console.log('[WebSocket] Received event:', event.type, event.data)
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:handleEvent-before-switch',message:'Before switch statement',data:{eventType:event.type,eventDataKeys:event.data?Object.keys(event.data):[]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
     
     // Helper function to add debug chunk if debug mode is enabled
     const addDebugChunkIfEnabled = (messageId: string, chunkType: DebugChunkType, content: string, metadata?: Record<string, any>) => {
@@ -687,6 +694,133 @@ export class WebSocketClient {
         // Don't set agentTyping to false here - let message_complete handle it
         // This ensures proper cleanup if message_complete arrives after error
         break
+
+      // Workspace panel events
+      case 'sheets_action': {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action-entry',message:'sheets_action event received',data:event.data,timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action-before-addTab',message:'Before calling addTab',data:{spreadsheet_id:event.data.spreadsheet_id,title:event.data.title},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          const workspaceStore = useWorkspaceStore.getState()
+          const { spreadsheet_id, spreadsheet_url, title, action } = event.data
+          workspaceStore.addTab({
+            type: 'sheets',
+            title: title || 'Google Sheets',
+            url: spreadsheet_url || (spreadsheet_id 
+              ? `https://docs.google.com/spreadsheets/d/${spreadsheet_id}/edit`
+              : undefined),
+            data: { spreadsheetId: spreadsheet_id },
+            closeable: true,
+          })
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action-after-addTab',message:'After calling addTab',data:{spreadsheet_id,action},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          console.log('[WebSocket] Sheets action:', action, spreadsheet_id)
+        }).catch((err) => {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action-error',message:'Error in sheets_action handler',data:{error:String(err)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
+          console.error('[WebSocket] Error handling sheets_action:', err)
+        })
+        break
+      }
+
+      case 'docs_action': {
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          const workspaceStore = useWorkspaceStore.getState()
+          const { document_id, document_url, title } = event.data
+          workspaceStore.addTab({
+            type: 'docs',
+            title: title || 'Google Docs',
+            url: document_url || (document_id
+              ? `https://docs.google.com/document/d/${document_id}/edit`
+              : undefined),
+            data: { documentId: document_id },
+            closeable: true,
+          })
+          console.log('[WebSocket] Docs action:', document_id)
+        })
+        break
+      }
+
+      case 'email_preview': {
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          const workspaceStore = useWorkspaceStore.getState()
+          const { to, subject, body, attachments } = event.data
+          workspaceStore.addTab({
+            type: 'email',
+            title: `Email: ${subject || 'Без темы'}`,
+            data: { to, subject, body, attachments },
+            closeable: true,
+          })
+          console.log('[WebSocket] Email preview:', subject)
+        })
+        break
+      }
+
+      case 'dashboard_ready': {
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          const workspaceStore = useWorkspaceStore.getState()
+          const { title, url, data } = event.data
+          workspaceStore.addTab({
+            type: 'dashboard',
+            title: title || 'Dashboard',
+            url: url,
+            data: data,
+            closeable: true,
+          })
+          console.log('[WebSocket] Dashboard ready:', url)
+        })
+        break
+      }
+
+      case 'chart_data': {
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          const workspaceStore = useWorkspaceStore.getState()
+          const { title, chartType, series, options } = event.data
+          workspaceStore.addTab({
+            type: 'chart',
+            title: title || 'Chart',
+            data: { chartType, series, options },
+            closeable: true,
+          })
+          console.log('[WebSocket] Chart data:', chartType)
+        })
+        break
+      }
+
+      case 'code_display': {
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          const workspaceStore = useWorkspaceStore.getState()
+          const { filename, language, code } = event.data
+          workspaceStore.addTab({
+            type: 'code',
+            title: filename || 'Code',
+            data: { language: language || 'python', code, filename },
+            closeable: true,
+          })
+          console.log('[WebSocket] Code display:', filename, language)
+        })
+        break
+      }
+
+      case 'calendar_view': {
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          const workspaceStore = useWorkspaceStore.getState()
+          const { title, mode, calendarId, events } = event.data
+          workspaceStore.addTab({
+            type: 'calendar',
+            title: title || 'Calendar',
+            data: { mode: mode || 'iframe', calendarId: calendarId || 'primary', events },
+            closeable: true,
+          })
+          console.log('[WebSocket] Calendar view:', mode, calendarId)
+        })
+        break
+      }
       }
     } catch (error) {
       console.error('[WebSocket] Error handling event:', event.type, error, event.data)
