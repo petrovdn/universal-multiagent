@@ -611,14 +611,42 @@ export class WebSocketClient {
         console.log('[WebSocket] Workflow completed')
         break
 
+      case 'final_result_start':
+        // Initialize final result for the active workflow
+        const finalResultStartWorkflowId = ensureActiveWorkflow()
+        if (finalResultStartWorkflowId) {
+          chatStore.updateWorkflowFinalResult(finalResultStartWorkflowId, '')
+        }
+        console.log('[WebSocket] Final result streaming started')
+        break
+
+      case 'final_result_chunk':
+        // Update final result with accumulated content (streaming)
+        const finalResultChunkWorkflowId = ensureActiveWorkflow()
+        if (finalResultChunkWorkflowId) {
+          chatStore.updateWorkflowFinalResult(finalResultChunkWorkflowId, event.data.content || '')
+        }
+        console.log('[WebSocket] Final result chunk received, length:', event.data.content?.length || 0)
+        break
+
+      case 'final_result_complete':
+        // Complete final result streaming
+        const finalResultCompleteWorkflowId = ensureActiveWorkflow()
+        if (finalResultCompleteWorkflowId) {
+          chatStore.updateWorkflowFinalResult(finalResultCompleteWorkflowId, event.data.content || '')
+        }
+        chatStore.setAgentTyping(false)
+        console.log('[WebSocket] Final result streaming completed')
+        break
+
       case 'final_result':
-        // Set final result for the active workflow
+        // Legacy: Set final result for the active workflow (backward compatibility)
         const finalResultWorkflowId = ensureActiveWorkflow()
         if (finalResultWorkflowId) {
           chatStore.setWorkflowFinalResult(finalResultWorkflowId, event.data.content)
         }
         chatStore.setAgentTyping(false)
-        console.log('[WebSocket] Final result received')
+        console.log('[WebSocket] Final result received (legacy)')
         break
 
       case 'error':

@@ -254,7 +254,8 @@ Initialize agent wrapper."""
         self,
         user_message: str,
         context: ConversationContext,
-        session_id: str
+        session_id: str,
+        stream_to_final_result: bool = False
     ) -> Dict[str, Any]:
         """
         Execute agent with real-time streaming of tokens and events.
@@ -263,6 +264,7 @@ Initialize agent wrapper."""
             user_message: User's message
             context: Conversation context
             session_id: Session identifier
+            stream_to_final_result: If True, stream tokens directly to final_result events instead of message_chunk
             
         Returns:
             Execution result
@@ -276,14 +278,15 @@ Initialize agent wrapper."""
         )
         
         session_id_val = getattr(context, 'session_id', 'NOT SET')
-        logger.info(f"[AgentWrapper] Starting streaming execution, context.session_id: {session_id_val}")
+        logger.info(f"[AgentWrapper] Starting streaming execution, context.session_id: {session_id_val}, stream_to_final_result={stream_to_final_result}")
         try:
             # Execute agent with real-time event streaming
             # Events are sent directly to WebSocket via callback in _execute_with_event_streaming
             result = await self._execute_with_event_streaming(
                 user_message,
                 context,
-                session_id
+                session_id,
+                stream_to_final_result=stream_to_final_result
             )
             logger.info(f"[AgentWrapper] Streaming execution SUCCESS")
             
@@ -382,33 +385,13 @@ Initialize agent wrapper."""
         file_ids = file_ids or []
         logger.info(f"[AgentWrapper] Executing simple task: {user_message[:50]}")
         
-        # Use direct streaming execution (no workflow)
+        # Use direct streaming execution (no workflow) - stream directly to final_result
         result = await self._execute_with_streaming(
             user_message,
             context,
-            session_id
+            session_id,
+            stream_to_final_result=True
         )
-        
-        # Generate final result summary
-        try:
-            final_result = await self._generate_simple_task_result(
-                user_message,
-                result.get("response", ""),
-                context
-            )
-            
-            # Send final_result event
-            await self.ws_manager.send_event(
-                session_id,
-                "final_result",
-                {
-                    "content": final_result,
-                    "summary": True
-                }
-            )
-        except Exception as e:
-            logger.error(f"[AgentWrapper] Error generating final result for simple task: {e}")
-            # Don't fail the whole task if result generation fails
         
         # Log the action
         self.audit_logger.log_agent_action(
@@ -506,7 +489,8 @@ Escape curly braces in text to safely use in f-strings."""
         self,
         user_message: str,
         context: ConversationContext,
-        session_id: str
+        session_id: str,
+        stream_to_final_result: bool = False
     ) -> Dict[str, Any]:
         """
         Execute agent with real-time event streaming.
@@ -518,11 +502,12 @@ Escape curly braces in text to safely use in f-strings."""
             user_message: User's message
             context: Conversation context
             session_id: Session identifier
+            stream_to_final_result: If True, stream tokens directly to final_result events instead of message_chunk
             
         Returns:
             Execution result
         """
-        logger.info(f"[AgentWrapper] Starting real-time streaming for session {session_id}")
+        logger.info(f"[AgentWrapper] Starting real-time streaming for session {session_id}, stream_to_final_result={stream_to_final_result}")
         
         # Generate unique message ID for this streaming response
         message_id = f"stream_{session_id}_{asyncio.get_event_loop().time()}"
@@ -530,58 +515,82 @@ Escape curly braces in text to safely use in f-strings."""
         # Store message_id so exception handler can access it
         self._current_streaming_message_id = message_id
         
-        # Track if we've sent message_start
+        # Track if we've sent message_start or final_result_start
         message_started = False
+        final_result_started = False
         accumulated_tokens = ""
         
         async def stream_event_callback(event_type: str, data: Dict[str, Any]):
             """
 Callback to handle streaming events and send to WebSocket."""
-            nonlocal message_started, accumulated_tokens, message_id
+            nonlocal message_started, accumulated_tokens, message_id, final_result_started
             
             logger.debug(f"[AgentWrapper] Stream event: {event_type}, data keys: {list(data.keys())}")
+            
+            # For stream_to_final_result mode, skip thinking events (don't show reasoning blocks)
             if event_type == StreamEvent.THINKING:
-                # Send thinking/reasoning step
-                # message contains the accumulated thinking text
-                thinking_message = data.get("message", data.get("step", "Обрабатываю..."))
-                await self.ws_manager.send_event(
-                    session_id,
-                    "thinking",
-                    {
-                        "step": data.get("step", "reasoning"),
-                        "message": thinking_message  # This is the accumulated thinking text
-                    }
-                )
+                if not stream_to_final_result:
+                    # Send thinking/reasoning step only if not streaming to final_result
+                    thinking_message = data.get("message", data.get("step", "Обрабатываю..."))
+                    await self.ws_manager.send_event(
+                        session_id,
+                        "thinking",
+                        {
+                            "step": data.get("step", "reasoning"),
+                            "message": thinking_message  # This is the accumulated thinking text
+                        }
+                    )
+                # Skip thinking events when streaming to final_result
             
             elif event_type == StreamEvent.TOKEN:
                 # Send streaming token
                 token = data.get("token", "")
                 accumulated_tokens = data.get("accumulated", accumulated_tokens + token)
                 
-                # Start message if not started
-                if not message_started:
+                if stream_to_final_result:
+                    # Stream directly to final_result block
+                    if not final_result_started:
+                        await self.ws_manager.send_event(
+                            session_id,
+                            "final_result_start",
+                            {}
+                        )
+                        final_result_started = True
+                    
+                    # Send as final_result_chunk (with accumulated content)
                     await self.ws_manager.send_event(
                         session_id,
-                        "message_start",
+                        "final_result_chunk",
+                        {
+                            "content": accumulated_tokens
+                        }
+                    )
+                else:
+                    # Normal mode: stream to message_chunk
+                    # Start message if not started
+                    if not message_started:
+                        await self.ws_manager.send_event(
+                            session_id,
+                            "message_start",
+                            {
+                                "role": "assistant",
+                                "message_id": message_id,
+                                "content": ""
+                            }
+                        )
+                        message_started = True
+                    
+                    # Send token chunk
+                    await self.ws_manager.send_event(
+                        session_id,
+                        "message_chunk",
                         {
                             "role": "assistant",
                             "message_id": message_id,
-                            "content": ""
+                            "chunk": token,
+                            "content": accumulated_tokens
                         }
                     )
-                    message_started = True
-                
-                # Send token chunk
-                await self.ws_manager.send_event(
-                    session_id,
-                    "message_chunk",
-                    {
-                        "role": "assistant",
-                        "message_id": message_id,
-                        "chunk": token,
-                        "content": accumulated_tokens
-                    }
-                )
             
             elif event_type == StreamEvent.TOOL_CALL:
                 # Send tool call event
@@ -594,15 +603,16 @@ Callback to handle streaming events and send to WebSocket."""
                         "status": data.get("status", "calling")
                     }
                 )
-                # Also send as thinking step for visibility
-                await self.ws_manager.send_event(
-                    session_id,
-                    "thinking",
-                    {
-                        "step": "tool_call",
-                        "message": f"Вызываю: {data.get('tool_name', 'unknown')}"
-                    }
-                )
+                # Also send as thinking step for visibility (skip if streaming to final_result)
+                if not stream_to_final_result:
+                    await self.ws_manager.send_event(
+                        session_id,
+                        "thinking",
+                        {
+                            "step": "tool_call",
+                            "message": f"Вызываю: {data.get('tool_name', 'unknown')}"
+                        }
+                    )
             
             elif event_type == StreamEvent.TOOL_RESULT:
                 # Send tool result event with compact formatting
@@ -623,31 +633,54 @@ Callback to handle streaming events and send to WebSocket."""
             elif event_type == StreamEvent.DONE:
                 # Complete the streaming message
                 response = data.get("response", accumulated_tokens)
-                logger.info(f"[AgentWrapper] DONE event received, response length: {len(response)}, message_started: {message_started}")
+                logger.info(f"[AgentWrapper] DONE event received, response length: {len(response)}, message_started: {message_started}, final_result_started: {final_result_started}")
                 
-                # Always send response, even if empty or no tokens were streamed
-                if message_started:
-                    logger.info(f"[AgentWrapper] Sending message_complete event")
-                    await self.ws_manager.send_event(
-                        session_id,
-                        "message_complete",
-                        {
-                            "role": "assistant",
-                            "message_id": message_id,
-                            "content": response
-                        }
-                    )
+                if stream_to_final_result:
+                    # Stream to final_result mode: send final_result_complete
+                    if final_result_started:
+                        logger.info(f"[AgentWrapper] Sending final_result_complete event")
+                        await self.ws_manager.send_event(
+                            session_id,
+                            "final_result_complete",
+                            {
+                                "content": response
+                            }
+                        )
+                    else:
+                        # If no tokens were streamed, still send final_result with content
+                        logger.info(f"[AgentWrapper] Sending final_result event (no streaming)")
+                        await self.ws_manager.send_event(
+                            session_id,
+                            "final_result",
+                            {
+                                "content": response if response else "Запрос выполнен."
+                            }
+                        )
                 else:
-                    # If no tokens were streamed, send as regular message
-                    logger.info(f"[AgentWrapper] Sending regular message (no streaming)")
-                    await self.ws_manager.send_event(
-                        session_id,
-                        "message",
-                        {
-                            "role": "assistant",
-                            "content": response if response else "Извините, не удалось получить ответ."
-                        }
-                    )
+                    # Normal mode: send message_complete
+                    # Always send response, even if empty or no tokens were streamed
+                    if message_started:
+                        logger.info(f"[AgentWrapper] Sending message_complete event")
+                        await self.ws_manager.send_event(
+                            session_id,
+                            "message_complete",
+                            {
+                                "role": "assistant",
+                                "message_id": message_id,
+                                "content": response
+                            }
+                        )
+                    else:
+                        # If no tokens were streamed, send as regular message
+                        logger.info(f"[AgentWrapper] Sending regular message (no streaming)")
+                        await self.ws_manager.send_event(
+                            session_id,
+                            "message",
+                            {
+                                "role": "assistant",
+                                "content": response if response else "Извините, не удалось получить ответ."
+                            }
+                        )
             
             elif event_type == StreamEvent.ERROR:
                 # Send error
@@ -658,19 +691,29 @@ Callback to handle streaming events and send to WebSocket."""
                     {
                         "message": error_msg
                     }
-                )# Always send message_complete after error to signal end of streaming
+                )# Always send completion event after error to signal end of streaming
                 # This ensures the frontend knows streaming is done even after error
-                # If message was started, complete it. If not, still send message_complete with empty content
-                logger.info(f"[AgentWrapper] Sending message_complete after error, message_id: {message_id}, message_started: {message_started}")
-                await self.ws_manager.send_event(
-                    session_id,
-                    "message_complete",
-                    {
-                        "role": "assistant",
-                        "message_id": message_id,
-                        "content": accumulated_tokens if accumulated_tokens else ""
-                    }
-                )
+                if stream_to_final_result:
+                    if final_result_started:
+                        logger.info(f"[AgentWrapper] Sending final_result_complete after error")
+                        await self.ws_manager.send_event(
+                            session_id,
+                            "final_result_complete",
+                            {
+                                "content": accumulated_tokens if accumulated_tokens else ""
+                            }
+                        )
+                else:
+                    logger.info(f"[AgentWrapper] Sending message_complete after error, message_id: {message_id}, message_started: {message_started}")
+                    await self.ws_manager.send_event(
+                        session_id,
+                        "message_complete",
+                        {
+                            "role": "assistant",
+                            "message_id": message_id,
+                            "content": accumulated_tokens if accumulated_tokens else ""
+                        }
+                    )
         
         # Execute with streaming
         logger.info(f"[AgentWrapper] Calling main_agent.execute_with_streaming")

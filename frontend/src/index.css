@@ -494,6 +494,17 @@ body {
   scroll-margin-top: 52px; /* Смещение для прокрутки (высота Header 40px + border 1px + отступ 11px) */
 }
 
+/* Скрываем пустой user-query-flow-block */
+.user-query-flow-block:has(.user-query-text:empty),
+.user-query-flow-block:has(.user-query-text:not(:has(*))) {
+  height: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  overflow: hidden;
+}
+
 /* User interaction container - контейнер для каждого запроса */
 .user-interaction-container {
   max-width: 900px;
@@ -523,7 +534,7 @@ body {
 .sticky-query-section.sticky-active {
   position: sticky;
   top: 0; /* Доходит до самого верха страницы при прокрутке */
-  z-index: 20; /* Ниже header (95), но выше контента */
+  z-index: 23; /* Самый высокий среди sticky-секций */
   background: var(--bg-primary);
   max-width: 900px;
   width: 100%;
@@ -543,7 +554,7 @@ body {
 .sticky-plan-section.sticky-active {
   position: sticky;
   /* top устанавливается динамически через JavaScript (высота запроса + высоты предыдущих запросов) */
-  z-index: 21; /* Выше результата (22), но ниже header (95) */
+  z-index: 22; /* Выше результата (21), но ниже header (95) */
   background: var(--bg-primary);
   max-width: 900px;
   width: 100%;
@@ -602,14 +613,21 @@ body {
 .sticky-result-section.sticky-result-active {
   position: sticky;
   /* top устанавливается динамически через JavaScript (высота запроса + высота плана + высота шагов + высоты предыдущих запросов) */
-  z-index: 22; /* Выше плана (21), но ниже header (95) */
+  z-index: 21; /* Ниже плана (22), но выше контента */
   background: var(--bg-primary);
-  /* Добавляем верхнюю границу для визуального разделения */
-  border-top: 1px solid var(--border-secondary);
-  padding-top: 12px;
+  /* Убрали верхнюю границу и padding-top */
+  border-top: none;
+  padding-top: 0;
   margin-top: 0;
   /* Перекрывает шаги */
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+/* Убираем отступы у первого дочернего блока в sticky-result-section */
+.sticky-result-section > div:first-child {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+  border-top: none !important;
 }
 
 /* Remove margins between plan blocks */
@@ -651,8 +669,6 @@ body {
   margin-top: 0;
   margin-bottom: 0; /* Убрали нижний отступ - контент доходит до низа */
   flex-shrink: 0; /* Не сжимается - позволяет контенту быть длиннее */
-  padding-top: 20px;
-  padding-bottom: 100px; /* Отступ снизу для input area */
   box-sizing: border-box;
   /* Создаем минимальную высоту для заполнения страницы - критично для Perplexity-style */
   /* Когда контент пустой или маленький, блок занимает всю видимую область */
@@ -1161,8 +1177,8 @@ body {
   }
 }
 
-.reasoning-block-streaming .reasoning-block-icon-wrapper svg[class*="Brain"],
-.reasoning-block-streaming .reasoning-block-icon[class*="Brain"] {
+.reasoning-block-streaming .reasoning-block-icon-wrapper svg,
+.reasoning-block-streaming .reasoning-block-icon {
   animation: brainBlink 1s ease-in-out infinite;
 }
 
@@ -1177,14 +1193,15 @@ body {
   line-height: 1.4;
 }
 
-.reasoning-block-streaming-indicator {
+/* Удалено: индикатор точки заменен на мигание иконки мозга */
+/* .reasoning-block-streaming-indicator {
   width: 8px;
   height: 8px;
   background: var(--accent-primary);
   border-radius: 50%;
   animation: pulse 1.5s ease-in-out infinite;
   margin-left: auto;
-}
+} */
 
 @keyframes pulse {
   0%, 100% {
@@ -1196,8 +1213,8 @@ body {
 }
 
 .reasoning-block-content {
-  min-height: 84px;
-  max-height: 40vh;
+  min-height: 42px;
+  max-height: 20vh;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 12px 14px;
@@ -1348,7 +1365,7 @@ body {
 /* Пустой блок внизу страницы, который позволяет скроллить любое сообщение к верху */
 .scroll-spacer {
   width: 100%;
-  min-height: calc(100vh - 200px); /* Почти полная высота экрана минус Header и input area */
+  min-height: 200vh; /* 2x высоты экрана - достаточно для прокрутки любого запроса до верха */
   flex-shrink: 0;
   pointer-events: none;
 }
@@ -1910,14 +1927,14 @@ body {
   
   /* Mobile: reasoning block should not exceed 50% of viewport */
   .reasoning-block-visible {
-    max-height: 50vh;
-    min-height: 150px;
+    max-height: 25vh;
+    min-height: 75px;
   }
   
   .reasoning-block-content {
-    height: calc(50vh - 60px);
-    max-height: calc(50vh - 60px);
-    min-height: 100px;
+    height: calc(25vh - 60px);
+    max-height: calc(25vh - 60px);
+    min-height: 50px;
   }
 }
 

@@ -71,88 +71,110 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
   }
 
   return (
-    <div style={{ maxWidth: '900px', width: '100%', margin: '0 auto', marginBottom: '0' }}>
-      {/* Блок ризонинга плана - первым, сразу под запросом пользователя */}
-      {(workflowPlan.planThinking || workflowPlan.planThinkingIsStreaming) && (
-        <CollapsibleBlock
-          title="составляю план..."
-          icon={<Brain className="reasoning-block-icon" />}
-          isStreaming={workflowPlan.planThinkingIsStreaming}
-          isCollapsed={true}
-          autoCollapse={true}
-          className="plan-reasoning-block"
-        >
-          {workflowPlan.planThinking || (workflowPlan.planThinkingIsStreaming ? 'Анализирую запрос...' : '')}
-        </CollapsibleBlock>
-      )}
-      
-      {/* Блок самого плана - сразу под ризонингом */}
-      {workflowPlan.plan && workflowPlan.plan.trim() && (
+    <>
+      {/* Внешний контейнер "План" */}
+      {(workflowPlan.plan && workflowPlan.plan.trim()) || (workflowPlan.planThinking || workflowPlan.planThinkingIsStreaming) ? (
         <>
-          <CollapsibleBlock
-            title={`План: ${workflowPlan.plan}`}
-            icon={<FileText className="reasoning-block-icon" />}
-            isStreaming={false}
-            isCollapsed={false}
-            autoCollapse={false}
-            className="plan-content-block"
-          >
-            {workflowPlan.steps && workflowPlan.steps.length > 0 && (
-              <ol style={{ paddingLeft: '24px', margin: 0, fontSize: '13px', fontWeight: 'normal', lineHeight: '1.6', color: '#111' }}>
-                {workflowPlan.steps.map((step, index) => {
-                  const stepNumber = index + 1
-                  const stepData = workflow?.steps[stepNumber]
-                  const isCompleted = stepData?.status === 'completed'
-                  
-                  return (
-                    <li 
-                      key={index} 
-                      style={{ 
-                        marginBottom: '8px',
-                        paddingLeft: '4px',
-                        textDecoration: isCompleted ? 'line-through' : 'none'
-                      }}
-                    >
-                      {step}
-                    </li>
-                  )
-                })}
-              </ol>
-            )}
-          </CollapsibleBlock>
+          {/* Блок ризонинга - независимое сворачивание */}
+          {(workflowPlan.planThinking || workflowPlan.planThinkingIsStreaming) && (
+            <CollapsibleBlock
+              title="Составляю план..."
+              icon={<Brain className="reasoning-block-icon" />}
+              isStreaming={workflowPlan.planThinkingIsStreaming}
+              isCollapsed={!workflowPlan.planThinkingIsStreaming}
+              autoCollapse={true}
+              className="plan-reasoning-block"
+              ref={(el) => {
+                // #region agent log
+                if (el) {
+                  const style = window.getComputedStyle(el)
+                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlanBlock.tsx:79',message:'Plan reasoning block rendered',data:{workflowId,isStreaming:workflowPlan.planThinkingIsStreaming,offsetTop:el.offsetTop,offsetHeight:el.offsetHeight,fontSize:style.fontSize,className:el.className,parentClassName:el.parentElement?.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H1'})}).catch(()=>{});
+                }
+                // #endregion
+              }}
+            >
+              <div style={{ 
+                // Убираем fontSize - используем CSS из .reasoning-block-content (10px)
+                lineHeight: '1.6', 
+                color: '#666',
+                whiteSpace: 'pre-wrap',
+                maxHeight: '200px', // Уменьшена высота в 2 раза (примерно)
+                overflowY: 'auto'
+              }}>
+                {workflowPlan.planThinking || (workflowPlan.planThinkingIsStreaming ? 'Анализирую запрос...' : '')}
+              </div>
+            </CollapsibleBlock>
+          )}
+          
+          {/* Блок пунктов плана - независимое сворачивание, не сворачивается автоматически */}
+          {workflowPlan.plan && workflowPlan.plan.trim() && (
+            <>
+              <CollapsibleBlock
+                title={`План: ${workflowPlan.plan}`}
+                icon={<FileText className="reasoning-block-icon" />}
+                isStreaming={false}
+                isCollapsed={false}
+                autoCollapse={false}
+                className="plan-content-block"
+              >
+                {workflowPlan.steps && workflowPlan.steps.length > 0 && (
+                  <ol style={{ paddingLeft: '24px', margin: 0, fontSize: '13px', fontWeight: 'normal', lineHeight: '1.6', color: '#111' }}>
+                    {workflowPlan.steps.map((step, index) => {
+                      const stepNumber = index + 1
+                      const stepData = workflow?.steps[stepNumber]
+                      const isCompleted = stepData?.status === 'completed'
+                      
+                      return (
+                        <li 
+                          key={index} 
+                          style={{ 
+                            marginBottom: '8px',
+                            paddingLeft: '4px',
+                            textDecoration: isCompleted ? 'line-through' : 'none'
+                          }}
+                        >
+                          {step}
+                        </li>
+                      )
+                    })}
+                  </ol>
+                )}
+              </CollapsibleBlock>
 
-          {/* Кнопки управления планом - под блоком плана */}
-          {workflowPlan.awaitingConfirmation && (
-            <div style={{ display: 'flex', gap: '10px', marginTop: '0', maxWidth: '900px', width: '100%', marginLeft: 'auto', marginRight: 'auto', padding: '12px 0', background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-secondary)' }}>
-              <button
-                onClick={() => setIsEditingPlan(true)}
-                className="plan-button"
-                style={{
-                  background: '#17a2b8',
-                  color: 'white',
-                  flex: '0 0 auto'
-                }}
-              >
-                Редактировать план
-              </button>
-              <button
-                onClick={handleApprove}
-                className="plan-button plan-button-approve"
-              >
-                <CheckCircle style={{ width: '16px', height: '16px', display: 'inline', marginRight: '5px', verticalAlign: 'middle' }} />
-                Approve
-              </button>
-              <button
-                onClick={handleReject}
-                className="plan-button plan-button-reject"
-              >
-                <XCircle style={{ width: '16px', height: '16px', display: 'inline', marginRight: '5px', verticalAlign: 'middle' }} />
-                Reject
-              </button>
-            </div>
+              {/* Кнопки управления планом - под блоком плана */}
+              {workflowPlan.awaitingConfirmation && (
+                <div style={{ display: 'flex', gap: '10px', marginTop: '0', maxWidth: '900px', width: '100%', marginLeft: 'auto', marginRight: 'auto', padding: '12px 0', background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-secondary)' }}>
+                  <button
+                    onClick={() => setIsEditingPlan(true)}
+                    className="plan-button"
+                    style={{
+                      background: '#17a2b8',
+                      color: 'white',
+                      flex: '0 0 auto'
+                    }}
+                  >
+                    Редактировать план
+                  </button>
+                  <button
+                    onClick={handleApprove}
+                    className="plan-button plan-button-approve"
+                  >
+                    <CheckCircle style={{ width: '16px', height: '16px', display: 'inline', marginRight: '5px', verticalAlign: 'middle' }} />
+                    Approve
+                  </button>
+                  <button
+                    onClick={handleReject}
+                    className="plan-button plan-button-reject"
+                  >
+                    <XCircle style={{ width: '16px', height: '16px', display: 'inline', marginRight: '5px', verticalAlign: 'middle' }} />
+                    Reject
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </>
-      )}
-    </div>
+      ) : null}
+    </>
   )
 }

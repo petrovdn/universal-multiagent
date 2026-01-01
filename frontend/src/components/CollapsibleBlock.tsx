@@ -10,9 +10,10 @@ interface CollapsibleBlockProps {
   alwaysOpen?: boolean // Блок всегда открыт (не показывает кнопку сворачивания)
   children: React.ReactNode
   className?: string
+  ref?: React.Ref<HTMLDivElement> // Добавляем ref для логирования
 }
 
-export function CollapsibleBlock({
+export const CollapsibleBlock = React.forwardRef<HTMLDivElement, Omit<CollapsibleBlockProps, 'ref'>>(({
   title,
   icon,
   isStreaming = false,
@@ -21,12 +22,15 @@ export function CollapsibleBlock({
   alwaysOpen = false,
   children,
   className = '',
-}: CollapsibleBlockProps) {
+}, forwardedRef) => {
   const contentRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isCollapsed, setIsCollapsed] = useState(initialCollapsed)
   const [wasStreaming, setWasStreaming] = useState(isStreaming)
   const [hasEverStreamed, setHasEverStreamed] = useState(isStreaming)
+  
+  // Объединяем forwardedRef с внутренним ref
+  React.useImperativeHandle(forwardedRef, () => containerRef.current as HTMLDivElement)
 
   // Если блок только что начал стримиться, разворачиваем его
   useEffect(() => {
@@ -41,10 +45,40 @@ export function CollapsibleBlock({
   // Автоматически сворачивать после завершения стриминга (если autoCollapse = true)
   useEffect(() => {
     if (autoCollapse && wasStreaming && !isStreaming && !alwaysOpen) {
-      setIsCollapsed(true)
+      // Сигнализируем о начале сворачивания СИНХРОННО
+      const event = new CustomEvent('collapsibleBlockCollapsing', { detail: { title, className } })
+      window.dispatchEvent(event)
+      
+      // #region agent log
+      if (containerRef.current) {
+        const el = containerRef.current
+        const style = window.getComputedStyle(el)
+        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CollapsibleBlock.tsx:43',message:'Auto-collapsing block',data:{title,className,offsetTop:el.offsetTop,offsetHeight:el.offsetHeight,getBoundingClientRect:{top:el.getBoundingClientRect().top,bottom:el.getBoundingClientRect().bottom},fontSize:style.fontSize},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H3'})}).catch(()=>{});
+      }
+      // #endregion
+      
+      // Даем время на установку флага перед изменением состояния
+      requestAnimationFrame(() => {
+        setIsCollapsed(true)
+      })
+      
+      // #region agent log
+      setTimeout(() => {
+        if (containerRef.current) {
+          const el = containerRef.current
+          const style = window.getComputedStyle(el)
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CollapsibleBlock.tsx:50',message:'Block collapsed - after state change',data:{title,className,offsetTop:el.offsetTop,offsetHeight:el.offsetHeight,getBoundingClientRect:{top:el.getBoundingClientRect().top,bottom:el.getBoundingClientRect().bottom},fontSize:style.fontSize},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H3'})}).catch(()=>{});
+        }
+        
+        // Сигнализируем об окончании сворачивания через дополнительную задержку
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('collapsibleBlockCollapsed', { detail: { title, className } }))
+        }, 150)
+      }, 100)
+      // #endregion
     }
     setWasStreaming(isStreaming)
-  }, [isStreaming, autoCollapse, wasStreaming, alwaysOpen])
+  }, [isStreaming, autoCollapse, wasStreaming, alwaysOpen, title, className])
 
   // Разворачивать автоматически при начале стриминга (для уже существующих блоков)
   useEffect(() => {
@@ -67,6 +101,16 @@ export function CollapsibleBlock({
     }
   }
 
+  // #region agent log
+  useEffect(() => {
+    if (containerRef.current) {
+      const el = containerRef.current
+      const style = window.getComputedStyle(el)
+      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CollapsibleBlock.tsx:70',message:'CollapsibleBlock rendered',data:{title,className,isCollapsed,isStreaming,offsetTop:el.offsetTop,offsetHeight:el.offsetHeight,getBoundingClientRect:{top:el.getBoundingClientRect().top},fontSize:style.fontSize,computedClasses:el.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H1'})}).catch(()=>{});
+    }
+  }, [isCollapsed, isStreaming, title, className])
+  // #endregion
+  
   return (
     <div
       ref={containerRef}
@@ -81,9 +125,6 @@ export function CollapsibleBlock({
           {icon}
         </div>
         <span className="reasoning-block-title">{title}</span>
-        {isStreaming && (
-          <span className="reasoning-block-streaming-indicator" />
-        )}
         {!alwaysOpen && (
           <button
             className="reasoning-block-toggle"
@@ -107,5 +148,7 @@ export function CollapsibleBlock({
       </div>
     </div>
   )
-}
+})
+
+
 

@@ -116,9 +116,6 @@ export function AttemptBlock({ id, number, title, content, isStreaming, isVisibl
       >
         <Loader2 className="reasoning-block-icon" style={{ width: '12px', height: '12px' }} />
         <span className="reasoning-block-title">Попытка {number}: {title}</span>
-        {isStreaming && (
-          <span className="reasoning-block-streaming-indicator" />
-        )}
         <button
           className="reasoning-block-toggle"
           onClick={(e) => {

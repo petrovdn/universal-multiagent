@@ -523,26 +523,16 @@ Create LLM instance with extended thinking enabled."""
             
             logger.info(f"[StepOrchestrator] Workflow completed successfully")
             
-            # Generate and send final result
+            # Generate and stream final result (events are sent from _generate_final_result)
             try:
-                final_result = await self._generate_final_result(
+                await self._generate_final_result(
                     user_request,
                     plan_text,
                     step_results,
                     context
                 )
                 
-                # Send final_result event
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "final_result",
-                    {
-                        "content": final_result,
-                        "summary": True
-                    }
-                )
-                
-                logger.info(f"[StepOrchestrator] Final result generated and sent")
+                logger.info(f"[StepOrchestrator] Final result generated and streamed")
             except Exception as e:
                 logger.error(f"[StepOrchestrator] Error generating final result: {e}")
                 # Don't fail the whole workflow if result generation fails
@@ -1184,18 +1174,16 @@ Create HumanMessage with text and optional file attachments."""
         plan_text: str,
         step_results: List[Dict[str, Any]],
         context: ConversationContext
-    ) -> str:
+    ) -> None:
         """
-        Generate final result summary after all steps are completed.
+        Generate and stream final result summary after all steps are completed.
+        Results are sent via WebSocket events (final_result_start, final_result_chunk, final_result_complete).
         
         Args:
             user_request: Original user request
             plan_text: Overall plan description
             step_results: Results from all executed steps
             context: Conversation context
-            
-        Returns:
-            Final result text summarizing the execution
         """
         # Build summary of all steps - format as context data without step numbering
         # This prevents the model from copying "Шаг N:" format into the final answer
@@ -1253,12 +1241,67 @@ Create HumanMessage with text and optional file attachments."""
         ]
         
         try:
-            # Generate final result using LLM
-            response = await self.llm.ainvoke(messages)
-            final_result = response.content.strip()
+            # Send final_result_start event
+            await self.ws_manager.send_event(
+                self.session_id,
+                "final_result_start",
+                {}
+            )
             
-            logger.info(f"[StepOrchestrator] Generated final result, length: {len(final_result)}")
-            return final_result
+            # Stream final result using LLM
+            accumulated_result = ""
+            async for chunk in self.llm.astream(messages):
+                if self._stop_requested:
+                    break
+                
+                # Extract text content from chunk
+                if hasattr(chunk, 'content'):
+                    content = chunk.content
+                    
+                    # Handle list of content blocks (Claude format)
+                    if isinstance(content, list):
+                        for block in content:
+                            block_type = block.get("type") if isinstance(block, dict) else getattr(block, "type", None)
+                            
+                            if block_type == "text":
+                                # Extract text from text blocks
+                                text_content = block.get("text", "") if isinstance(block, dict) else getattr(block, "text", "")
+                                if text_content:
+                                    accumulated_result += text_content
+                                    # Send chunk
+                                    await self.ws_manager.send_event(
+                                        self.session_id,
+                                        "final_result_chunk",
+                                        {"content": accumulated_result}
+                                    )
+                    # Handle string content (fallback)
+                    elif isinstance(content, str) and content:
+                        accumulated_result += content
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "final_result_chunk",
+                            {"content": accumulated_result}
+                        )
+                # Fallback: if chunk has text attribute
+                elif hasattr(chunk, 'text'):
+                    text = chunk.text
+                    if text:
+                        accumulated_result += text
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "final_result_chunk",
+                            {"content": accumulated_result}
+                        )
+            
+            final_result = accumulated_result.strip()
+            logger.info(f"[StepOrchestrator] Generated and streamed final result, length: {len(final_result)}")
+            
+            # Send final_result_complete event
+            await self.ws_manager.send_event(
+                self.session_id,
+                "final_result_complete",
+                {"content": final_result}
+            )
             
         except Exception as e:
             logger.error(f"[StepOrchestrator] Error generating final result: {e}")
@@ -1278,8 +1321,18 @@ Create HumanMessage with text and optional file attachments."""
             if any(len(r.get('result', '')) > 300 for r in step_results):
                 results_text += "\n\n..."
             
-            # Return simple final answer without mentioning steps
-            return results_text if results_text.strip() else "Запрос выполнен."
+            # Send fallback result
+            fallback_result = results_text if results_text.strip() else "Запрос выполнен."
+            await self.ws_manager.send_event(
+                self.session_id,
+                "final_result_start",
+                {}
+            )
+            await self.ws_manager.send_event(
+                self.session_id,
+                "final_result_complete",
+                {"content": fallback_result}
+            )
     
     def confirm_plan(self) -> None:
         """

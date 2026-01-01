@@ -144,7 +144,8 @@ export function StepProgress({ workflowId }: StepProgressProps) {
                   prose-strong:text-gray-900 prose-strong:font-semibold
                   prose-code:text-gray-900 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[13px] prose-code:border prose-code:border-gray-200
                   prose-pre:bg-gray-100 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200 prose-pre:text-[13px] prose-pre:rounded-lg prose-pre:p-4
-                  prose-ul:text-gray-900 prose-ul:my-3
+                  prose-ul:text-gray-900 prose-ul:my-3 prose-ul:pl-8
+                  prose-ol:text-gray-900 prose-ol:my-3 prose-ol:pl-8
                   prose-li:text-gray-900 prose-li:my-1.5 prose-li:text-[15px]
                   prose-a:text-blue-600 prose-a:underline hover:prose-a:text-blue-700
                   prose-blockquote:text-gray-600 prose-blockquote:border-l-gray-300 prose-blockquote:pl-4 prose-blockquote:my-3

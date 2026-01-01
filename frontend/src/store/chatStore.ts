@@ -136,6 +136,7 @@ interface ChatState {
   completeWorkflowStep: (stepNumber: number) => void // Works on active workflow
   completeWorkflow: () => void // Works on active workflow
   setWorkflowFinalResult: (workflowId: string, finalResult: string) => void // Set final result for a workflow
+  updateWorkflowFinalResult: (workflowId: string, content: string) => void // Update final result content (for streaming)
   clearWorkflow: () => void // Clear all workflows (for testing/reset)
   
   // User assistance methods
@@ -871,6 +872,22 @@ export const useChatStore = create<ChatState>()(
               [workflowId]: {
                 ...workflow,
                 finalResult: finalResult,
+              },
+            },
+          }
+        }),
+      
+      updateWorkflowFinalResult: (workflowId: string, content: string) =>
+        set((state) => {
+          const workflow = state.workflows[workflowId]
+          if (!workflow) return state
+          
+          return {
+            workflows: {
+              ...state.workflows,
+              [workflowId]: {
+                ...workflow,
+                finalResult: content,
               },
             },
           }
