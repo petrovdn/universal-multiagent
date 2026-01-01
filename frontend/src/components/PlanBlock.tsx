@@ -84,14 +84,7 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
               isCollapsed={!workflowPlan.planThinkingIsStreaming}
               autoCollapse={true}
               className="plan-reasoning-block"
-              ref={(el) => {
-                // #region agent log
-                if (el) {
-                  const style = window.getComputedStyle(el)
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlanBlock.tsx:79',message:'Plan reasoning block rendered',data:{workflowId,isStreaming:workflowPlan.planThinkingIsStreaming,offsetTop:el.offsetTop,offsetHeight:el.offsetHeight,fontSize:style.fontSize,className:el.className,parentClassName:el.parentElement?.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H1'})}).catch(()=>{});
-                }
-                // #endregion
-              }}
+              ref={(el) => {              }}
             >
               <div style={{ 
                 // Убираем fontSize - используем CSS из .reasoning-block-content (10px)

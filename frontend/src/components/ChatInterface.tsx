@@ -136,10 +136,6 @@ export function ChatInterface() {
     // Проверяем, появилось ли новое user сообщение
     const hasNewUserMessage = currentUserMessageCount > lastUserMessageCountRef.current
     
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:130',message:'Scroll effect triggered',data:{shouldScrollToNew,hasNewUserMessage,currentUserMessageCount,lastUserMessageCount:lastUserMessageCountRef.current,hasCurrentRef:!!currentInteractionRef.current,hasContainer:!!messagesContainerRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'F1'})}).catch(()=>{});
-    // #endregion
-    
     if (!hasNewUserMessage || !currentInteractionRef.current || !messagesContainerRef.current) {
       if (hasNewUserMessage) {
         lastUserMessageCountRef.current = currentUserMessageCount
@@ -154,11 +150,7 @@ export function ChatInterface() {
     
     // Функция для выполнения прокрутки с повторными попытками
     const attemptScroll = (attempt: number) => {
-      if (!currentInteractionRef.current || !messagesContainerRef.current) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:150',message:'Scroll failed - missing refs',data:{attempt},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'F4'})}).catch(()=>{});
-        // #endregion
-        return
+      if (!currentInteractionRef.current || !messagesContainerRef.current) {        return
       }
       
       const container = messagesContainerRef.current
@@ -167,11 +159,7 @@ export function ChatInterface() {
       // Находим родительский user-interaction-container для правильного расчета позиции
       const interactionContainer = element.closest('.user-interaction-container') as HTMLElement
       
-      if (!interactionContainer) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:160',message:'Scroll failed - no interaction container',data:{attempt},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'F4'})}).catch(()=>{});
-        // #endregion
-        return
+      if (!interactionContainer) {        return
       }
       
       // Используем getBoundingClientRect для получения абсолютной позиции
@@ -182,20 +170,12 @@ export function ChatInterface() {
       const scrollTop = container.scrollTop + (elementRect.top - containerRect.top) - 52 // 52px для header
       
       // Проверяем, что элемент имеет правильную позицию (не 0 или отрицательную)
-      if ((elementRect.top - containerRect.top) <= 0 && attempt < 5) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:170',message:'Element not ready, retrying',data:{elementRectTop:elementRect.top,containerRectTop:containerRect.top,diff:elementRect.top - containerRect.top,attempt},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'F4'})}).catch(()=>{});
-        // #endregion
-        // Элемент еще не готов, пробуем еще раз
+      if ((elementRect.top - containerRect.top) <= 0 && attempt < 5) {        // Элемент еще не готов, пробуем еще раз
         setTimeout(() => attemptScroll(attempt + 1), 100)
         return
       }
       
       console.log('[ChatInterface] Scrolling to new message')
-      
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:180',message:'Scrolling to new message',data:{scrollTop:container?.scrollTop,scrollHeight:container?.scrollHeight,clientHeight:container?.clientHeight,elementRectTop:elementRect.top,containerRectTop:containerRect.top,calculatedScrollTop:scrollTop,attempt},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'F3'})}).catch(()=>{});
-      // #endregion
       
       container.scrollTo({
         top: Math.max(0, scrollTop),
@@ -217,10 +197,6 @@ export function ChatInterface() {
   const updateAllPositions = useCallback(() => {
     // Получаем все запросы пользователя в порядке их появления
     const userMessages = messages.filter(m => m.role === 'user')
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:156',message:'updateAllPositions called',data:{userMessagesCount:userMessages.length,totalMessages:messages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-    // #endregion
     
     userMessages.forEach((userMessage, index) => {
       const workflowId = userMessage.timestamp
@@ -255,16 +231,7 @@ export function ChatInterface() {
         const planTop = querySection.offsetHeight
         const beforeHeight = planSection.offsetHeight
         planSection.style.top = `${planTop}px`
-        const afterHeight = planSection.offsetHeight
-        
-        // #region agent log
-        const container = messagesContainerRef.current
-        const containerRect = container?.getBoundingClientRect()
-        const queryRect = querySection.getBoundingClientRect()
-        const planRect = planSection.getBoundingClientRect()
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:188',message:'Plan section positioned',data:{workflowId,index,cumulativeHeight,queryHeight:querySection.offsetHeight,planTop,beforeHeight,afterHeight,getBoundingClientRect:{top:planRect.top},containerScrollTop:container?.scrollTop,queryOffsetTop:querySection.offsetTop,planOffsetTop:planSection.offsetTop,containerRect:{top:containerRect?.top},queryRect:{top:queryRect.top,bottom:queryRect.bottom},planRect:{top:planRect.top},expectedPlanTop:queryRect.bottom,DIFF:(planRect.top - queryRect.bottom)},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
-      }
+        const afterHeight = planSection.offsetHeight      }
       
       if (resultSection) {
         const querySection = document.querySelector(`.user-interaction-container[data-workflow-id="${workflowId}"] .sticky-query-section.sticky-active`) as HTMLElement
@@ -285,18 +252,10 @@ export function ChatInterface() {
   // Слушаем события сворачивания блоков
   useEffect(() => {
     const handleCollapsing = () => {
-      isCollapsingRef.current = true
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:280',message:'Block collapsing - blocking updates',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H6'})}).catch(()=>{});
-      // #endregion
-    }
+      isCollapsingRef.current = true    }
     
     const handleCollapsed = () => {
-      isCollapsingRef.current = false
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:289',message:'Block collapsed - unblocking updates',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H6'})}).catch(()=>{});
-      // #endregion
-    }
+      isCollapsingRef.current = false    }
     
     window.addEventListener('collapsibleBlockCollapsing', handleCollapsing)
     window.addEventListener('collapsibleBlockCollapsed', handleCollapsed)
@@ -310,21 +269,7 @@ export function ChatInterface() {
   // Обновляем позиции всех запросов при изменении размеров
   useEffect(() => {
     // Обновляем при монтировании и изменении размеров
-    updateAllPositions()
-    
-    // #region agent log
-    // Проверяем видимость всех user-interaction-container после рендеринга
-    setTimeout(() => {
-      const containers = document.querySelectorAll('.user-interaction-container')
-      containers.forEach((container, index) => {
-        const el = container as HTMLElement
-        const rect = el.getBoundingClientRect()
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:207',message:'Container visibility check',data:{index,workflowId:el.dataset.workflowId,offsetHeight:el.offsetHeight,offsetTop:el.offsetTop,getBoundingClientRect:{top:rect.top,bottom:rect.bottom,height:rect.height},isVisible:rect.height>0&&rect.bottom>0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      })
-    }, 100)
-    // #endregion
-    
-    // Используем ResizeObserver для отслеживания изменений размера всех элементов
+    updateAllPositions()    // Используем ResizeObserver для отслеживания изменений размера всех элементов
     const observers: ResizeObserver[] = []
     
     // Отслеживаем изменения размера всех запросов
@@ -341,21 +286,10 @@ export function ChatInterface() {
       if (planSection) {
         let lastHeight = planSection.offsetHeight
         
-        const observer = new ResizeObserver((entries) => {
-          // #region agent log
-          entries.forEach(entry => {
-            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:225',message:'Plan section resized',data:{workflowId,contentRect:{width:entry.contentRect.width,height:entry.contentRect.height},borderBoxSize:entry.borderBoxSize?.[0]?.blockSize,getBoundingClientRect:{top:entry.target.getBoundingClientRect().top},currentTop:planSection.style.top,lastHeight,newHeight:planSection.offsetHeight},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H5'})}).catch(()=>{});
-          })
-          // #endregion
-          
-          const currentHeight = planSection.offsetHeight
+        const observer = new ResizeObserver((entries) => {          const currentHeight = planSection.offsetHeight
           
           // Если высота уменьшилась (блоки сворачиваются), НЕ вызываем updateAllPositions
-          if (currentHeight < lastHeight) {
-            // #region agent log
-            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:240',message:'Height decreased - skipping updateAllPositions',data:{workflowId,heightBefore:lastHeight,heightAfter:currentHeight},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'H5'})}).catch(()=>{});
-            // #endregion
-            lastHeight = currentHeight
+          if (currentHeight < lastHeight) {            lastHeight = currentHeight
             return // НЕ вызываем updateAllPositions при сворачивании
           }
           
@@ -508,11 +442,7 @@ export function ChatInterface() {
       timestamp: new Date().toISOString(),
     })
 
-    // Activate scroll to new message
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:401',message:'Setting shouldScrollToNew=true',data:{messagesCount:messages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'F1'})}).catch(()=>{});
-    // #endregion
-    setShouldScrollToNew(true)
+    // Activate scroll to new message    setShouldScrollToNew(true)
     
     // Mark agent as typing
     setAgentTyping(true)
@@ -709,19 +639,11 @@ export function ChatInterface() {
         {messages.map((message, index) => {
           const isLastUserMessage = index === lastUserIndexInMessages
           
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:567',message:'Rendering message',data:{index,role:message.role,isLastUserMessage,totalMessages:messages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
-          
           if (message.role === 'user') {
             const workflowId = message.timestamp
             const workflow = workflows[workflowId]
             const isActive = workflowId === activeWorkflowId
             const isCompleted = !!workflow?.finalResult
-            
-            // #region agent log
-            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:570',message:'Rendering user message',data:{workflowId,hasWorkflow:!!workflow,isActive,isCompleted,content:message.content.substring(0,50)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-            // #endregion
             
             return (
               <React.Fragment key={`fragment-${workflowId}`}>
@@ -734,13 +656,7 @@ export function ChatInterface() {
                   <div className="sticky-query-section sticky-active">
                     <div 
                       ref={(el) => {
-                        if (isLastUserMessage) {
-                          // #region agent log
-                          if (el) {
-                            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:622',message:'Setting currentInteractionRef',data:{workflowId,isLastUserMessage,offsetTop:el.offsetTop},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'F2'})}).catch(()=>{});
-                          }
-                          // #endregion
-                          (currentInteractionRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+                        if (isLastUserMessage) {                          (currentInteractionRef as React.MutableRefObject<HTMLDivElement | null>).current = el
                         }
                       }}
                       className="user-query-flow-block"
@@ -760,21 +676,13 @@ export function ChatInterface() {
                       workflowPlan.awaitingConfirmation
                     )
                     
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:629',message:'Rendering plan block',data:{workflowId,hasPlanContent,hasPlanThinking:!!workflowPlan?.planThinking,hasPlanThinkingIsStreaming:!!workflowPlan?.planThinkingIsStreaming,hasPlan:!!(workflowPlan?.plan && workflowPlan.plan.trim()),hasSteps:!!(workflowPlan?.steps && workflowPlan.steps.length > 0)},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'G1'})}).catch(()=>{});
-                    // #endregion
-                    
                     if (!hasPlanContent) return null
                     
                     return (
                       <div 
                         ref={(el) => {
                           if (el) {
-                            stickyPlanSectionRefs.current.set(workflowId, el)
-                            // #region agent log
-                            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:644',message:'Plan section ref set',data:{workflowId,offsetTop:el.offsetTop,offsetHeight:el.offsetHeight,previousElementSibling:el.previousElementSibling?.className,nextElementSibling:el.nextElementSibling?.className},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'G1'})}).catch(()=>{});
-                            // #endregion
-                          } else {
+                            stickyPlanSectionRefs.current.set(workflowId, el)                          } else {
                             stickyPlanSectionRefs.current.delete(workflowId)
                           }
                         }}
@@ -797,21 +705,13 @@ export function ChatInterface() {
                         workflow?.finalResult
                       )
                     
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:660',message:'Rendering steps block',data:{workflowId,hasStepsContent},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'G1'})}).catch(()=>{});
-                    // #endregion
-                    
                     if (!hasStepsContent) return null
                     
                     return (
                       <div 
                         ref={(el) => {
                           if (el) {
-                            stepsSectionRefs.current.set(workflowId, el)
-                            // #region agent log
-                            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:675',message:'Steps section ref set',data:{workflowId,offsetTop:el.offsetTop,offsetHeight:el.offsetHeight,previousElementSibling:el.previousElementSibling?.className,nextElementSibling:el.nextElementSibling?.className},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'G1'})}).catch(()=>{});
-                            // #endregion
-                          } else {
+                            stepsSectionRefs.current.set(workflowId, el)                          } else {
                             stepsSectionRefs.current.delete(workflowId)
                           }
                         }}
