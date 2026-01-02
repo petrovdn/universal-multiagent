@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { RefreshCw, ExternalLink, AlertCircle } from 'lucide-react'
+import { RefreshCw, AlertCircle } from 'lucide-react'
 import type { WorkspaceTab } from '../../types/workspace'
 
 interface DocsViewerProps {
@@ -9,9 +9,20 @@ interface DocsViewerProps {
 export function DocsViewer({ tab }: DocsViewerProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const url = tab.url || (tab.data?.documentId
-    ? `https://docs.google.com/document/d/${tab.data.documentId}/edit`
-    : null)
+  
+  // Build URL with edit mode for full interface with formatting toolbar
+  const buildUrl = () => {
+    const baseUrl = tab.url || (tab.data?.documentId
+      ? `https://docs.google.com/document/d/${tab.data.documentId}/edit`
+      : null)
+    
+    if (!baseUrl) return null
+    
+    // Ensure we're using edit mode (not preview) to show full interface
+    return baseUrl.replace('/preview', '/edit')
+  }
+  
+  const url = buildUrl()
 
   const handleLoad = () => {
     setIsLoading(false)
@@ -21,21 +32,6 @@ export function DocsViewer({ tab }: DocsViewerProps) {
   const handleError = () => {
     setIsLoading(false)
     setError('Не удалось загрузить документ')
-  }
-
-  const handleRefresh = () => {
-    setIsLoading(true)
-    setError(null)
-    const iframe = document.getElementById(`docs-iframe-${tab.id}`) as HTMLIFrameElement
-    if (iframe) {
-      iframe.src = iframe.src
-    }
-  }
-
-  const handleOpenExternal = () => {
-    if (url) {
-      window.open(url, '_blank')
-    }
   }
 
   if (!url) {
@@ -50,36 +46,11 @@ export function DocsViewer({ tab }: DocsViewerProps) {
   }
 
   return (
-    <div className="h-full w-full flex flex-col bg-white dark:bg-slate-900">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-slate-700">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-            {tab.title}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleRefresh}
-            className="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Обновить"
-          >
-            <RefreshCw className="w-4 h-4 text-slate-600 dark:text-slate-400" />
-          </button>
-          <button
-            onClick={handleOpenExternal}
-            className="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Открыть в новой вкладке"
-          >
-            <ExternalLink className="w-4 h-4 text-slate-600 dark:text-slate-400" />
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 relative">
+    <div className="h-full w-full flex flex-col bg-white dark:bg-slate-900" style={{ height: '100%', width: '100%', minHeight: 0 }}>
+      {/* Content - iframe занимает всю область */}
+      <div className="flex-1 relative bg-white dark:bg-slate-900" style={{ flex: '1 1 auto', minHeight: 0, width: '100%', height: '100%' }}>
         {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-50 dark:bg-slate-950 z-10">
+          <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-900 z-10">
             <div className="text-center">
               <RefreshCw className="w-8 h-8 text-slate-400 animate-spin mx-auto mb-2" />
               <p className="text-sm text-slate-600 dark:text-slate-400">Загрузка документа...</p>
@@ -87,7 +58,7 @@ export function DocsViewer({ tab }: DocsViewerProps) {
           </div>
         )}
         {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-50 dark:bg-slate-950 z-10">
+          <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-900 z-10">
             <div className="text-center">
               <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-2" />
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
@@ -97,10 +68,12 @@ export function DocsViewer({ tab }: DocsViewerProps) {
         <iframe
           id={`docs-iframe-${tab.id}`}
           src={url}
-          className="w-full h-full border-0"
+          className="w-full h-full border-0 bg-white dark:bg-slate-900"
+          style={{ width: '100%', height: '100%', border: 'none', minHeight: 0 }}
           onLoad={handleLoad}
           onError={handleError}
           title={tab.title}
+          allow="fullscreen"
         />
       </div>
     </div>

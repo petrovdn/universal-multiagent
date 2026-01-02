@@ -5,6 +5,7 @@
 export type WorkspaceTabType = 
   | 'sheets' 
   | 'docs' 
+  | 'slides'
   | 'email' 
   | 'dashboard' 
   | 'chart' 

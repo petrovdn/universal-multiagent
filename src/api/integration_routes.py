@@ -1715,6 +1715,282 @@ async def create_workspace_folder(
         )
 
 
+@router.get("/google-workspace/files")
+async def list_workspace_files(
+    request: Request,
+    mime_type: Optional[str] = Query(None, description="Filter by MIME type"),
+    query: Optional[str] = Query(None, description="Search query for file names"),
+    max_results: int = Query(100, description="Maximum number of results")
+):
+    """
+    List files in the workspace folder.
+    
+    Returns:
+        List of files with id, name, mimeType, etc.
+    """
+    if not WORKSPACE_TOKEN_PATH.exists():
+        raise HTTPException(
+            status_code=401,
+            detail="Google Workspace not authenticated. Please enable integration first."
+        )
+    
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request as GoogleRequest
+        from googleapiclient.discovery import build
+        
+        creds = Credentials.from_authorized_user_file(
+            str(WORKSPACE_TOKEN_PATH),
+            WORKSPACE_SCOPES
+        )
+        
+        # Refresh if needed
+        if creds.expired and creds.refresh_token:
+            creds.refresh(GoogleRequest())
+            with open(WORKSPACE_TOKEN_PATH, 'w') as token:
+                token.write(creds.to_json())
+        
+        drive_service = build('drive', 'v3', credentials=creds)
+        
+        # Get workspace folder ID
+        if not WORKSPACE_CONFIG_PATH.exists():
+            raise HTTPException(
+                status_code=400,
+                detail="Workspace folder not configured"
+            )
+        
+        config_text = WORKSPACE_CONFIG_PATH.read_text()
+        config = json.loads(config_text)
+        folder_id = config.get("folder_id")
+        
+        if not folder_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Workspace folder not configured"
+            )
+        
+        # Build query
+        query_parts = [f"'{folder_id}' in parents", "trashed=false"]
+        
+        if mime_type:
+            query_parts.append(f"mimeType='{mime_type}'")
+        
+        if query:
+            query_parts.append(f"name contains '{query}'")
+        
+        drive_query = " and ".join(query_parts)
+        
+        # List files
+        results = drive_service.files().list(
+            q=drive_query,
+            pageSize=min(max_results, 100),
+            fields="files(id, name, mimeType, createdTime, modifiedTime, webViewLink, size, owners)",
+            orderBy="modifiedTime desc",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True
+        ).execute()
+        
+        files = results.get('files', [])
+        
+        return {
+            "files": [
+                {
+                    "id": f.get('id'),
+                    "name": f.get('name'),
+                    "mimeType": f.get('mimeType'),
+                    "createdTime": f.get('createdTime'),
+                    "modifiedTime": f.get('modifiedTime'),
+                    "url": f.get('webViewLink'),
+                    "size": f.get('size'),
+                    "owner": f.get('owners', [{}])[0].get('displayName', 'я') if f.get('owners') else 'я'
+                }
+                for f in files
+            ],
+            "count": len(files)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to list files: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list files: {str(e)}"
+        )
+
+
+@router.get("/google-workspace/file/{file_id}/content")
+async def get_file_content(
+    request: Request,
+    file_id: str
+):
+    """
+    Get file content from workspace.
+    
+    For Google Docs/Sheets, exports as plain text or markdown.
+    For other files, downloads the file content.
+    """
+    if not WORKSPACE_TOKEN_PATH.exists():
+        raise HTTPException(
+            status_code=401,
+            detail="Google Workspace not authenticated. Please enable integration first."
+        )
+    
+    try:
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request as GoogleRequest
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaIoBaseDownload
+        from googleapiclient.errors import HttpError
+        import io
+        
+        creds = Credentials.from_authorized_user_file(
+            str(WORKSPACE_TOKEN_PATH),
+            WORKSPACE_SCOPES
+        )
+        
+        # Refresh if needed
+        if creds.expired and creds.refresh_token:
+            creds.refresh(GoogleRequest())
+            with open(WORKSPACE_TOKEN_PATH, 'w') as token:
+                token.write(creds.to_json())
+        
+        drive_service = build('drive', 'v3', credentials=creds)
+        
+        # Get file metadata
+        file_metadata = drive_service.files().get(
+            fileId=file_id,
+            fields="id, name, mimeType, webViewLink"
+        ).execute()
+        
+        mime_type = file_metadata.get('mimeType', '')
+        file_name = file_metadata.get('name', 'Unknown')
+        web_view_link = file_metadata.get('webViewLink', '')
+        
+        # For Google Sheets, return metadata instead of content
+        if mime_type == 'application/vnd.google-apps.spreadsheet':
+            return {
+                "file_id": file_id,
+                "file_name": file_name,
+                "mime_type": mime_type,
+                "spreadsheet_id": file_id,
+                "url": web_view_link,
+                "is_spreadsheet": True
+            }
+        
+        # For Google Slides presentations, return metadata instead of content
+        if mime_type == 'application/vnd.google-apps.presentation':
+            return {
+                "file_id": file_id,
+                "file_name": file_name,
+                "mime_type": mime_type,
+                "presentation_id": file_id,
+                "url": web_view_link,
+                "is_presentation": True
+            }
+        
+        # Determine export format based on MIME type
+        export_mime_type = None
+        language = 'text'
+        
+        if mime_type == 'application/vnd.google-apps.document':
+            export_mime_type = 'text/plain'
+            language = 'text'
+        elif mime_type.startswith('text/'):
+            # Text files - download directly
+            request_media = drive_service.files().get_media(fileId=file_id)
+            file_content = io.BytesIO()
+            downloader = MediaIoBaseDownload(file_content, request_media)
+            done = False
+            while done is False:
+                status, done = downloader.next_chunk()
+            
+            content = file_content.getvalue().decode('utf-8')
+            
+            # Detect language from extension
+            if file_name.endswith('.py'):
+                language = 'python'
+            elif file_name.endswith('.js') or file_name.endswith('.ts'):
+                language = 'javascript'
+            elif file_name.endswith('.tsx') or file_name.endswith('.jsx'):
+                language = 'jsx'
+            elif file_name.endswith('.html'):
+                language = 'html'
+            elif file_name.endswith('.css'):
+                language = 'css'
+            elif file_name.endswith('.json'):
+                language = 'json'
+            elif file_name.endswith('.md'):
+                language = 'markdown'
+            
+            return {
+                "file_id": file_id,
+                "file_name": file_name,
+                "mime_type": mime_type,
+                "content": content,
+                "language": language
+            }
+        
+        # For Google Workspace files, export them
+        if export_mime_type:
+            request_media = drive_service.files().export_media(
+                fileId=file_id,
+                mimeType=export_mime_type
+            )
+            file_content = io.BytesIO()
+            downloader = MediaIoBaseDownload(file_content, request_media)
+            done = False
+            while done is False:
+                status, done = downloader.next_chunk()
+            
+            content = file_content.getvalue().decode('utf-8')
+            
+            return {
+                "file_id": file_id,
+                "file_name": file_name,
+                "mime_type": mime_type,
+                "content": content,
+                "language": language
+            }
+        
+        # For other file types, try to download as text
+        try:
+            request_media = drive_service.files().get_media(fileId=file_id)
+            file_content = io.BytesIO()
+            downloader = MediaIoBaseDownload(file_content, request_media)
+            done = False
+            while done is False:
+                status, done = downloader.next_chunk()
+            
+            # Try to decode as text
+            try:
+                content = file_content.getvalue().decode('utf-8')
+                return {
+                    "file_id": file_id,
+                    "file_name": file_name,
+                    "mime_type": mime_type,
+                    "content": content,
+                    "language": 'text'
+                }
+            except UnicodeDecodeError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="File is not a text file and cannot be displayed"
+                )
+        except HttpError as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot download file: {str(e)}"
+            )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get file content: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get file content: {str(e)}"
+        )
+
+
 # 1C OData integration endpoints
 @router.post("/onec/config")
 async def save_onec_config_endpoint(

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { X } from 'lucide-react'
 import type { WorkspaceTab } from '../types/workspace'
 
@@ -16,6 +16,26 @@ export function TabComponent({ tab, isActive, onClick, onClose, isLast = false }
     onClose()
   }
 
+  // Вычисляем ширину на основе длины названия файла
+  const tabWidth = useMemo(() => {
+    const MIN_WIDTH = 50 // Минимальная ширина для коротких названий
+    const MAX_WIDTH = 250 // Максимальная ширина
+    const CHAR_WIDTH = 7.5 // Примерная ширина одного символа (зависит от шрифта)
+    const PADDING_LEFT = 12 // paddingLeft
+    const PADDING_RIGHT = 8 // paddingRight (уменьшено, так как после кнопки не нужно много места)
+    const CLOSE_BUTTON_WIDTH = tab.closeable ? 20 : 0 // ширина кнопки закрытия
+    const GAP = tab.closeable ? 8 : 0 // gap между текстом и кнопкой
+    
+    // Вычисляем ширину текста
+    const textWidth = tab.title.length * CHAR_WIDTH
+    
+    // Итоговая ширина = отступ слева + текст + gap + кнопка + отступ справа
+    const calculatedWidth = PADDING_LEFT + textWidth + GAP + CLOSE_BUTTON_WIDTH + PADDING_RIGHT
+    
+    // Ограничиваем минимальной и максимальной шириной
+    return Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, calculatedWidth))
+  }, [tab.title, tab.closeable])
+
   return (
     <div
       data-tab-id={tab.id}
@@ -29,10 +49,10 @@ export function TabComponent({ tab, isActive, onClick, onClose, isLast = false }
         transition: 'all 0.15s',
         whiteSpace: 'nowrap',
         minHeight: '35px',
-        minWidth: '120px',
+        width: `${tabWidth}px`, // Используем вычисленную ширину
         fontSize: '13px',
         paddingLeft: '12px',
-        paddingRight: '12px',
+        paddingRight: '8px', // Уменьшено для более компактного вида
         gap: '8px',
         borderRightWidth: isLast ? '0px' : '1px',
         borderRightStyle: 'solid',
@@ -61,7 +81,18 @@ export function TabComponent({ tab, isActive, onClick, onClose, isLast = false }
         }
       }}
     >
-      <span className="text-sm font-normal truncate">{tab.title}</span>
+      <span 
+        className="text-sm font-normal truncate"
+        style={{
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          flex: '1 1 0%',
+          minWidth: 0
+        }}
+      >
+        {tab.title}
+      </span>
       {tab.closeable && (
         <button
           onClick={handleClose}
@@ -80,7 +111,8 @@ export function TabComponent({ tab, isActive, onClick, onClose, isLast = false }
             cursor: 'pointer',
             transition: 'all 0.15s ease',
             pointerEvents: isActive ? 'auto' : 'none',
-            color: 'rgb(100 116 139)' // slate-500
+            color: 'rgb(100 116 139)', // slate-500
+            flexShrink: 0 // Кнопка не должна сжиматься
           }}
           onMouseEnter={(e) => {
             if (isActive) {

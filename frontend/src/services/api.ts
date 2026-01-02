@@ -382,3 +382,34 @@ export const getCurrentUser = async () => {
   }
 }
 
+export const listWorkspaceFiles = async (mimeType?: string, query?: string, maxResults: number = 100) => {
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:listWorkspaceFiles:entry',message:'listWorkspaceFiles called',data:{mimeType,query,maxResults},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+  // #endregion
+  const params = new URLSearchParams()
+  if (mimeType) params.append('mime_type', mimeType)
+  if (query) params.append('query', query)
+  params.append('max_results', maxResults.toString())
+  
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:listWorkspaceFiles:before-request',message:'About to make API request',data:{url:`/integrations/google-workspace/files?${params.toString()}`},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+  // #endregion
+  try {
+    const response = await api.get(`/integrations/google-workspace/files?${params.toString()}`)
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:listWorkspaceFiles:success',message:'API request successful',data:{status:response.status,filesCount:response.data?.files?.length || 0,count:response.data?.count || 0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
+    return response.data
+  } catch (error: any) {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:listWorkspaceFiles:error',message:'API request failed',data:{error:String(error),message:error?.message,status:error?.response?.status,responseData:error?.response?.data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+    throw error
+  }
+}
+
+export const getWorkspaceFileContent = async (fileId: string) => {
+  const response = await api.get(`/integrations/google-workspace/file/${fileId}/content`)
+  return response.data
+}
+
