@@ -24,7 +24,7 @@ export function PlaceholderViewer() {
           </div>
         </div>
         <h2 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">
-          Чем могу помочь?
+          AI that works. Not talks.
         </h2>
       </div>
     </div>

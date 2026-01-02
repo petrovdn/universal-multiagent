@@ -795,23 +795,42 @@ class GoogleWorkspaceMCPServer:
                     # Collect all files with pagination to ensure we get all results
                     files = []
                     page_token = None
-                    while True:
-                        request = drive_service.files().list(
-                            q=query,
-                            pageSize=min(max_results, 100),  # Google API max is 100
-                            fields="nextPageToken, files(id, name, mimeType, createdTime, modifiedTime, webViewLink)",
-                            orderBy="modifiedTime desc"
-                        )
-                        if page_token:
-                            request.pageToken = page_token
-                        
-                        results = request.execute()
-                        page_files = results.get('files', [])
-                        files.extend(page_files)
-                        
-                        page_token = results.get('nextPageToken')
-                        if not page_token or len(files) >= max_results:
-                            break
+                    try:
+                        while True:
+                            request = drive_service.files().list(
+                                q=query,
+                                pageSize=min(max_results, 100),  # Google API max is 100
+                                fields="nextPageToken, files(id, name, mimeType, createdTime, modifiedTime, webViewLink)",
+                                orderBy="modifiedTime desc",
+                                supportsAllDrives=True,
+                                includeItemsFromAllDrives=True
+                            )
+                            if page_token:
+                                request.pageToken = page_token
+                            
+                            results = request.execute()
+                            page_files = results.get('files', [])
+                            files.extend(page_files)
+                            
+                            # #region agent log
+                            try:
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"google_workspace_server.py:workspace_search_files:api_response","message":"Google Drive API response received","data":{"query":query,"page_files_count":len(page_files),"total_files_so_far":len(files),"file_names":[f.get('name') for f in page_files[:10]],"file_ids":[f.get('id') for f in page_files[:10]]},"timestamp":int(time.time()*1000)})+'\n')
+                            except: pass
+                            # #endregion
+                            
+                            page_token = results.get('nextPageToken')
+                            if not page_token or len(files) >= max_results:
+                                break
+                    except Exception as api_error:
+                        # #region agent log
+                        try:
+                            import traceback
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"google_workspace_server.py:workspace_search_files:api_error","message":"Google Drive API error","data":{"query":query,"error_type":type(api_error).__name__,"error_message":str(api_error),"traceback":traceback.format_exc()[:1000]},"timestamp":int(time.time()*1000)})+'\n')
+                        except: pass
+                        # #endregion
+                        raise
                     
                     # Limit to max_results if we got more
                     files = files[:max_results]
@@ -884,15 +903,39 @@ class GoogleWorkspaceMCPServer:
                 
                 elif name == "workspace_open_file":
                     drive_service = self._get_drive_service()
-                    file_id = self._extract_file_id(arguments.get("fileId"))
+                    file_id_raw = arguments.get("fileId")
+                    file_id = self._extract_file_id(file_id_raw)
                     max_rows = arguments.get("maxRows", 100)
                     sheet_name = arguments.get("sheetName")
                     
+                    # #region agent log
+                    import time
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"google_workspace_server.py:workspace_open_file:entry","message":"workspace_open_file called","data":{"file_id_raw":file_id_raw,"file_id_extracted":file_id,"file_id_length":len(file_id) if file_id else 0},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
+                    
                     # Get file info to determine type
-                    file_info = drive_service.files().get(
-                        fileId=file_id,
-                        fields="id, name, mimeType, webViewLink"
-                    ).execute()
+                    try:
+                        file_info = drive_service.files().get(
+                            fileId=file_id,
+                            fields="id, name, mimeType, webViewLink"
+                        ).execute()
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"google_workspace_server.py:workspace_open_file:file_info_success","message":"File info retrieved successfully","data":{"file_id":file_id,"file_name":file_info.get("name"),"mime_type":file_info.get("mimeType")},"timestamp":int(time.time()*1000)})+'\n')
+                        except: pass
+                        # #endregion
+                    except Exception as e:
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"google_workspace_server.py:workspace_open_file:file_info_error","message":"Error getting file info","data":{"file_id":file_id,"error_type":type(e).__name__,"error_message":str(e)},"timestamp":int(time.time()*1000)})+'\n')
+                        except: pass
+                        # #endregion
+                        raise
                     
                     mime_type = file_info.get('mimeType', '')
                     file_name = file_info.get('name', '')
@@ -1036,6 +1079,14 @@ class GoogleWorkspaceMCPServer:
                         except Exception:
                             continue
                     
+                    # #region agent log
+                    import time
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"google_workspace_server.py:workspace_find_and_open_file:after_search","message":"Search completed in find_and_open_file","data":{"search_query":search_query,"files_found_count":len(files_found),"file_ids":[f.get('id') for f in files_found[:5]],"file_names":[f.get('name') for f in files_found[:5]]},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
+                    
                     if not files_found:
                         return [TextContent(
                             type="text",
@@ -1050,6 +1101,13 @@ class GoogleWorkspaceMCPServer:
                     first_file = files_found[0]
                     file_id = first_file.get('id')
                     file_mime_type = first_file.get('mimeType', '')
+                    
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"google_workspace_server.py:workspace_find_and_open_file:file_selected","message":"File selected for opening","data":{"file_id":file_id,"file_name":first_file.get('name'),"mime_type":file_mime_type},"timestamp":int(time.time()*1000)})+'\n')
+                    except: pass
+                    # #endregion
                     
                     # Use workspace_open_file logic
                     result_data = {
@@ -1358,7 +1416,6 @@ class GoogleWorkspaceMCPServer:
                 # ========== SHEETS OPERATIONS ==========
                 elif name == "sheets_create_spreadsheet":
                     # #region agent log
-                    import json
                     import time
                     call_id = f"mcp_create_{int(time.time()*1000)}"
                     with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:

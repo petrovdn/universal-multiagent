@@ -92,6 +92,8 @@ class StepOrchestrator:
         
         self._stop_requested: bool = False
         self._streaming_task: Optional[asyncio.Task] = None
+        # Track sent workspace events to prevent duplicates (key: (session_id, tool_name, spreadsheet_id), value: timestamp)
+        self._sent_workspace_events: Dict[str, float] = {}
         
         logger.info(f"[StepOrchestrator] Initialized for session {session_id} with model {model_name or 'default'}")
     
@@ -1336,6 +1338,12 @@ Create HumanMessage with text and optional file attachments."""
                                             logger.debug(f"[StepOrchestrator] Extracted entities from tool {tool_name}")
                                         except Exception as e:
                                             logger.warning(f"[StepOrchestrator] Failed to extract entities from tool result: {e}")
+                                    
+                                    # NEW: Handle workspace events (send sheets_action, docs_action, etc.)
+                                    try:
+                                        await self._handle_workspace_events(tool_name, str(result), tool_args)
+                                    except Exception as e:
+                                        logger.warning(f"[StepOrchestrator] Failed to handle workspace events: {e}")
                                 except Exception as e:
                                     logger.error(f"[StepOrchestrator] Tool {tool_name} execution failed: {e}")
                                     tool_messages.append(ToolMessage(content=f"Ошибка: {str(e)}", tool_call_id=tool_id or tool_name))
@@ -1392,6 +1400,12 @@ Create HumanMessage with text and optional file attachments."""
                                             result = await tool.ainvoke(tool_args)
                                             tool_messages.append(ToolMessage(content=str(result), tool_call_id=tool_id or tool_name))
                                             # Don't add raw tool results to user-facing response - LLM will generate user-friendly message
+                                            
+                                            # NEW: Handle workspace events (send sheets_action, docs_action, etc.)
+                                            try:
+                                                await self._handle_workspace_events(tool_name, str(result), tool_args)
+                                            except Exception as e:
+                                                logger.warning(f"[StepOrchestrator] Failed to handle workspace events: {e}")
                                         except Exception as e:
                                             logger.error(f"[StepOrchestrator] Recursive tool {tool_name} execution failed: {e}")
                                             tool_messages.append(ToolMessage(content=f"Ошибка: {str(e)}", tool_call_id=tool_id or tool_name))
@@ -2195,6 +2209,68 @@ Get the confirmation ID for the current plan."""
         except Exception as e:
             logger.error(f"[StepOrchestrator] Error waiting for user assistance: {e}")
             raise
+    
+    async def _handle_workspace_events(
+        self,
+        tool_name: str,
+        result: str,
+        tool_args: Dict[str, Any]
+    ) -> None:
+        """
+        Handle workspace panel events based on tool execution results.
+        
+        Args:
+            tool_name: Name of the executed tool
+            result: Tool execution result
+            tool_args: Tool arguments
+        """
+        # Handle create_spreadsheet
+        if tool_name == "create_spreadsheet":
+            logger.info(f"[StepOrchestrator] Processing create_spreadsheet, result length: {len(result)}, result preview: {result[:200]}")
+            # Extract spreadsheet ID and URL from result
+            # Result format: "Spreadsheet 'title' created successfully. ID: {id}. URL: {url}"
+            spreadsheet_id_match = re.search(r'ID:\s*([a-zA-Z0-9_-]+)', result)
+            url_match = re.search(r'URL:\s*(https?://[^\s]+)', result)
+            title_match = re.search(r"Spreadsheet\s+'([^']+)'", result)
+            
+            logger.info(f"[StepOrchestrator] Regex matches - ID: {bool(spreadsheet_id_match)}, URL: {bool(url_match)}, Title: {bool(title_match)}")
+            
+            if spreadsheet_id_match:
+                spreadsheet_id = spreadsheet_id_match.group(1)
+                
+                # Check if we already sent event for this spreadsheet_id (prevent duplicates)
+                event_key = f"{self.session_id}:create_spreadsheet:{spreadsheet_id}"
+                current_time = time.time()
+                if event_key in self._sent_workspace_events:
+                    last_sent = self._sent_workspace_events[event_key]
+                    # Only skip if sent within last 5 seconds (to allow retries after longer delays)
+                    if current_time - last_sent < 5:
+                        logger.info(f"[StepOrchestrator] Skipping duplicate sheets_action event for spreadsheet {spreadsheet_id} (sent {current_time - last_sent:.2f}s ago)")
+                        return
+                
+                url = url_match.group(1) if url_match else f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
+                title = title_match.group(1) if title_match else tool_args.get("title", "Google Sheets")
+                
+                event_data = {
+                    "action": "create",
+                    "spreadsheet_id": spreadsheet_id,
+                    "spreadsheet_url": url,
+                    "title": title,
+                    "range": None,
+                    "description": f"Создана таблица '{title}'"
+                }
+                
+                logger.info(f"[StepOrchestrator] Sending sheets_action event: {event_data}")
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "sheets_action",
+                    event_data
+                )
+                # Mark as sent
+                self._sent_workspace_events[event_key] = current_time
+                logger.info(f"[StepOrchestrator] Sent sheets_action event for created spreadsheet {spreadsheet_id}")
+            else:
+                logger.warning(f"[StepOrchestrator] Failed to extract spreadsheet_id from result: {result[:500]}")
     
     @staticmethod
     def _parse_user_selection(user_response: str, options: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

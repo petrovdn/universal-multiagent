@@ -95,7 +95,9 @@ export function StepProgress({ workflowId }: StepProgressProps) {
               maxWidth: '900px',
               width: '100%',
               marginLeft: 'auto',
-              marginRight: 'auto'
+              marginRight: 'auto',
+              paddingLeft: '14px',
+              paddingRight: '14px'
             }}>
               {stepTitle}{status === 'completed' ? ' (Готово)' : ''}
             </h3>
@@ -134,12 +136,12 @@ export function StepProgress({ workflowId }: StepProgressProps) {
                 marginTop: '12px',
                 marginLeft: 'auto',
                 marginRight: 'auto',
-                paddingLeft: '16px',
-                paddingRight: '16px'
+                paddingLeft: '14px',
+                paddingRight: '14px'
               }}>
                 <div className="prose max-w-none 
                   prose-p:text-gray-900 
-                  prose-p:leading-6 prose-p:my-3 prose-p:text-[15px]
+                  prose-p:leading-6 prose-p:my-3 prose-p:text-[13px]
                   prose-h1:text-gray-900 prose-h1:text-[20px] prose-h1:font-semibold prose-h1:mb-3 prose-h1:mt-6 prose-h1:first:mt-0 prose-h1:leading-tight
                   prose-h2:text-gray-900 prose-h2:text-[18px] prose-h2:font-semibold prose-h2:mb-2 prose-h2:mt-5 prose-h2:leading-tight
                   prose-h3:text-gray-900 prose-h3:text-[16px] prose-h3:font-semibold prose-h3:mb-2 prose-h3:mt-4 prose-h3:leading-tight
@@ -148,7 +150,7 @@ export function StepProgress({ workflowId }: StepProgressProps) {
                   prose-pre:bg-gray-100 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200 prose-pre:text-[13px] prose-pre:rounded-lg prose-pre:p-4
                   prose-ul:text-gray-900 prose-ul:my-3 prose-ul:pl-8
                   prose-ol:text-gray-900 prose-ol:my-3 prose-ol:pl-8
-                  prose-li:text-gray-900 prose-li:my-1.5 prose-li:text-[15px]
+                  prose-li:text-gray-900 prose-li:my-1.5 prose-li:text-[13px]
                   prose-a:text-blue-600 prose-a:underline hover:prose-a:text-blue-700
                   prose-blockquote:text-gray-600 prose-blockquote:border-l-gray-300 prose-blockquote:pl-4 prose-blockquote:my-3
                   prose-table:w-full prose-table:border-collapse prose-table:my-4
@@ -162,7 +164,7 @@ export function StepProgress({ workflowId }: StepProgressProps) {
 
             {/* Show placeholder when step is in progress but no content yet */}
             {status === 'in_progress' && !thinking && !response && (
-              <div style={{ fontSize: '14px', color: '#6c757d', fontStyle: 'italic', maxWidth: '900px', width: '100%', marginLeft: 'auto', marginRight: 'auto' }}>
+              <div style={{ fontSize: '14px', color: '#6c757d', fontStyle: 'italic', maxWidth: '900px', width: '100%', marginLeft: 'auto', marginRight: 'auto', paddingLeft: '14px', paddingRight: '14px' }}>
                 Выполнение шага...
               </div>
             )}

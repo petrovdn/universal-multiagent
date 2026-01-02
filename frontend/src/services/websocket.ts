@@ -697,33 +697,122 @@ export class WebSocketClient {
 
       // Workspace panel events
       case 'sheets_action': {
+        console.log('[WebSocket] sheets_action event received:', event.data)
         // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action-entry',message:'sheets_action event received',data:event.data,timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:entry',message:'sheets_action event received',data:{eventData:event.data,hasSpreadsheetId:!!event.data?.spreadsheet_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
         // #endregion
         import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action-before-addTab',message:'Before calling addTab',data:{spreadsheet_id:event.data.spreadsheet_id,title:event.data.title},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
           const workspaceStore = useWorkspaceStore.getState()
-          const { spreadsheet_id, spreadsheet_url, title, action } = event.data
+          const { 
+            spreadsheet_id, 
+            spreadsheet_url, 
+            title, 
+            action, 
+            range, 
+            description 
+          } = event.data
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:extracted',message:'Data extracted from event',data:{spreadsheet_id,spreadsheet_url,title,action,range,description},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          
+          if (!spreadsheet_id) {
+            console.warn('[WebSocket] sheets_action event missing spreadsheet_id:', event.data)
+            return
+          }
+          
+          console.log('[WebSocket] Extracted data:', {
+            spreadsheet_id,
+            spreadsheet_url,
+            title,
+            action,
+            range,
+            description
+          })
+          
+          // Force panel visibility first
+          const wasVisible = workspaceStore.isPanelVisible
+          if (!workspaceStore.isPanelVisible) {
+            workspaceStore.togglePanel()
+          }
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:before_check',message:'Before checking existing tabs',data:{spreadsheet_id,tabsCount:workspaceStore.tabs.length,isPanelVisible:workspaceStore.isPanelVisible,wasVisible},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
+          
+          // Check if tab already exists to prevent duplicates
+          const existingTab = workspaceStore.tabs.find(
+            t => t.type === 'sheets' && t.data?.spreadsheetId === spreadsheet_id
+          )
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:after_check',message:'After checking existing tabs',data:{spreadsheet_id,existingTabFound:!!existingTab,existingTabId:existingTab?.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
+          
+          if (existingTab) {
+            console.log('[WebSocket] Tab already exists for spreadsheet_id:', spreadsheet_id, 'updating and activating')
+            // Update existing tab with new action data (addTab will handle this via deduplication)
+            workspaceStore.addTab({
+              type: 'sheets',
+              title: title || existingTab.title || 'Google Sheets',
+              url: spreadsheet_url || existingTab.url || (spreadsheet_id 
+                ? `https://docs.google.com/spreadsheets/d/${spreadsheet_id}/edit`
+                : undefined),
+              data: {
+                spreadsheetId: spreadsheet_id,
+                action: action || 'update',
+                range: range || null,
+                description: description || '',
+                timestamp: Date.now()
+              },
+              closeable: true,
+            })
+            // Ensure the tab is active
+            workspaceStore.setActiveTab(existingTab.id)
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:existing_tab',message:'Updated existing tab',data:{spreadsheet_id,existingTabId:existingTab.id,activeTabId:workspaceStore.activeTabId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+            // #endregion
+            return
+          }
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:before_addTab',message:'About to call addTab for new tab',data:{spreadsheet_id,title,action},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
+          
+          // Create new tab
           workspaceStore.addTab({
             type: 'sheets',
             title: title || 'Google Sheets',
             url: spreadsheet_url || (spreadsheet_id 
               ? `https://docs.google.com/spreadsheets/d/${spreadsheet_id}/edit`
               : undefined),
-            data: { spreadsheetId: spreadsheet_id },
+            data: {
+              spreadsheetId: spreadsheet_id,
+              action: action || 'update',
+              range: range || null,
+              description: description || '',
+              timestamp: Date.now()
+            },
             closeable: true,
           })
+          
           // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action-after-addTab',message:'After calling addTab',data:{spreadsheet_id,action},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:after_addTab',message:'addTab called for new tab',data:{spreadsheet_id,action,range,tabsCount:workspaceStore.tabs.length,activeTabId:workspaceStore.activeTabId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
           // #endregion
-          console.log('[WebSocket] Sheets action:', action, spreadsheet_id)
+          
+          console.log('[WebSocket] Tab added successfully:', {
+            action,
+            spreadsheet_id,
+            range,
+            tabsCount: workspaceStore.tabs.length,
+            activeTabId: workspaceStore.activeTabId
+          })
         }).catch((err) => {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action-error',message:'Error in sheets_action handler',data:{error:String(err)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
           console.error('[WebSocket] Error handling sheets_action:', err)
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:error',message:'Error handling sheets_action',data:{error:err?.message||String(err)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
         })
         break
       }

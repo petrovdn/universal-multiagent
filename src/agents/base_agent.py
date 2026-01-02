@@ -174,6 +174,30 @@ class StreamingCallbackHandler(AsyncCallbackHandler):
         **kwargs
     ) -> None:
         """Called when a tool finishes executing."""
+        # #region agent log
+        import json
+        import time
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({
+                    "location": "base_agent.py:on_tool_end:entry",
+                    "message": "on_tool_end called",
+                    "data": {
+                        "run_id": str(run_id),
+                        "output_length": len(str(output)) if output else 0,
+                        "output_preview": str(output)[:200] if output else "",
+                        "has_event_callback": self.event_callback is not None,
+                        "tool_name_from_cache": self._tool_name_cache.get(str(run_id), "not_found")
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except Exception as e:
+            pass
+        # #endregion
+        
         if self.logger:
             self.logger.info(f"[StreamingCallback] Tool end: {output[:100] if output else 'empty'}")
         if self.event_callback:
@@ -196,11 +220,48 @@ class StreamingCallbackHandler(AsyncCallbackHandler):
             # Get tool name from cache
             tool_name = self._tool_name_cache.pop(str(run_id), "unknown")
             
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "base_agent.py:on_tool_end:before_callback",
+                        "message": "About to call event_callback with TOOL_RESULT",
+                        "data": {
+                            "run_id": str(run_id),
+                            "tool_name": tool_name,
+                            "display_output_length": len(display_output)
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "A"
+                    }) + "\n")
+            except: pass
+            # #endregion
+            
             await self.event_callback(StreamEvent.TOOL_RESULT, {
                 "result": display_output,
                 "run_id": str(run_id),
                 "tool_name": tool_name
             })
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "base_agent.py:on_tool_end:after_callback",
+                        "message": "event_callback called with TOOL_RESULT",
+                        "data": {
+                            "run_id": str(run_id),
+                            "tool_name": tool_name
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "A"
+                    }) + "\n")
+            except: pass
+            # #endregion
     
     def get_accumulated_text(self) -> str:
         """Get all accumulated text."""

@@ -39,6 +39,8 @@ Initialize agent wrapper."""
         self.task_classifier = TaskClassifier()
         # Store tool arguments for workspace events (key: run_id, value: {tool_name, arguments})
         self._tool_args_cache: Dict[str, Dict[str, Any]] = {}
+        # Track sent workspace events to prevent duplicates (key: (session_id, tool_name, spreadsheet_id), value: timestamp)
+        self._sent_workspace_events: Dict[str, float] = {}
     
     def get_main_agent(self, model_name: Optional[str] = None) -> MainAgent:
         """
@@ -732,6 +734,28 @@ Callback to handle streaming events and send to WebSocket."""
                 tool_name = cached_data.get("tool_name", "unknown")
                 tool_args = cached_data.get("arguments", {})
                 
+                # #region agent log
+                import json
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "location": "agent_wrapper.py:TOOL_RESULT",
+                            "message": "TOOL_RESULT event received",
+                            "data": {
+                                "run_id": run_id,
+                                "tool_name": tool_name,
+                                "result_length": len(result),
+                                "result_preview": result[:200] if result else "",
+                                "tool_args_keys": list(tool_args.keys()) if tool_args else []
+                            },
+                            "timestamp": int(time.time() * 1000),
+                            "sessionId": session_id,
+                            "runId": "run1",
+                            "hypothesisId": "A"
+                        }) + "\n")
+                except: pass
+                # #endregion
+                
                 # Make result more compact if it's too long
                 if len(result) > 2000:
                     result = result[:2000] + "\n\n... (результат обрезан, показаны первые 2000 символов) ..."
@@ -746,24 +770,49 @@ Callback to handle streaming events and send to WebSocket."""
                 )
                 
                 # Send workspace panel events based on tool results
-                # #region agent log
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:TOOL_RESULT-before-handle","message":"Before calling _handle_workspace_events","data":{"tool_name":tool_name,"result_length":len(result),"has_tool_args":bool(tool_args)},"timestamp":int(time.time()*1000)})+'\n')
-                # #endregion
                 try:
-                    await self._handle_workspace_events(session_id, tool_name, result, tool_args)
                     # #region agent log
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:TOOL_RESULT-after-handle","message":"After calling _handle_workspace_events","data":{"tool_name":tool_name},"timestamp":int(time.time()*1000)})+'\n')
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({
+                                "location": "agent_wrapper.py:before_handle_workspace_events",
+                                "message": "About to call _handle_workspace_events",
+                                "data": {
+                                    "tool_name": tool_name,
+                                    "run_id": run_id,
+                                    "result_length": len(result)
+                                },
+                                "timestamp": int(time.time() * 1000),
+                                "sessionId": session_id,
+                                "runId": "run1",
+                                "hypothesisId": "A"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
+                    
+                    logger.info(f"[AgentWrapper] Calling _handle_workspace_events for tool: {tool_name}")
+                    await self._handle_workspace_events(session_id, tool_name, result, tool_args)
+                    logger.info(f"[AgentWrapper] _handle_workspace_events completed for tool: {tool_name}")
+                    
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({
+                                "location": "agent_wrapper.py:after_handle_workspace_events",
+                                "message": "_handle_workspace_events completed",
+                                "data": {
+                                    "tool_name": tool_name,
+                                    "run_id": run_id
+                                },
+                                "timestamp": int(time.time() * 1000),
+                                "sessionId": session_id,
+                                "runId": "run1",
+                                "hypothesisId": "A"
+                            }) + "\n")
+                    except: pass
                     # #endregion
                 except Exception as e:
-                    # #region agent log
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:TOOL_RESULT-handle-error","message":"Error in _handle_workspace_events","data":{"tool_name":tool_name,"error":str(e)},"timestamp":int(time.time()*1000)})+'\n')
-                    # #endregion
-                    logger.warning(f"[AgentWrapper] Failed to handle workspace events: {e}")
+                    logger.error(f"[AgentWrapper] Failed to handle workspace events: {e}", exc_info=True)
             
             elif event_type == StreamEvent.DONE:
                 # Complete the streaming message
@@ -1169,40 +1218,122 @@ Callback to handle streaming events and send to WebSocket."""
             tool_args: Tool arguments
         """
         import re
+        import json
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({
+                    "location": "agent_wrapper.py:_handle_workspace_events:entry",
+                    "message": "_handle_workspace_events called",
+                    "data": {
+                        "tool_name": tool_name,
+                        "result_length": len(result),
+                        "result_preview": result[:200] if result else "",
+                        "tool_args_keys": list(tool_args.keys()) if tool_args else []
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "sessionId": session_id,
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except: pass
+        # #endregion
         
         # Handle create_spreadsheet
         if tool_name == "create_spreadsheet":
-            # #region agent log
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:_handle_workspace_events:create_spreadsheet-entry","message":"Processing create_spreadsheet result","data":{"result":result[:200],"tool_args":tool_args},"timestamp":int(time.time()*1000)})+'\n')
-            # #endregion
+            logger.info(f"[AgentWrapper] Processing create_spreadsheet, result length: {len(result)}, result preview: {result[:200]}")
             # Extract spreadsheet ID and URL from result
             # Result format: "Spreadsheet 'title' created successfully. ID: {id}. URL: {url}"
             spreadsheet_id_match = re.search(r'ID:\s*([a-zA-Z0-9_-]+)', result)
             url_match = re.search(r'URL:\s*(https?://[^\s]+)', result)
             title_match = re.search(r"Spreadsheet\s+'([^']+)'", result)
             
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:_handle_workspace_events:create_spreadsheet-match","message":"Regex match results","data":{"spreadsheet_id_match":bool(spreadsheet_id_match),"url_match":bool(url_match),"title_match":bool(title_match)},"timestamp":int(time.time()*1000)})+'\n')
-            # #endregion
+            logger.info(f"[AgentWrapper] Regex matches - ID: {bool(spreadsheet_id_match)}, URL: {bool(url_match)}, Title: {bool(title_match)}")
             
             if spreadsheet_id_match:
                 spreadsheet_id = spreadsheet_id_match.group(1)
+                
+                # Check if we already sent event for this spreadsheet_id (prevent duplicates)
+                event_key = f"{session_id}:create_spreadsheet:{spreadsheet_id}"
+                current_time = time.time()
+                
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "location": "agent_wrapper.py:create_spreadsheet:dedup_check",
+                            "message": "Checking deduplication",
+                            "data": {
+                                "spreadsheet_id": spreadsheet_id,
+                                "event_key": event_key,
+                                "event_key_in_cache": event_key in self._sent_workspace_events,
+                                "cache_size": len(self._sent_workspace_events),
+                                "current_time": current_time
+                            },
+                            "timestamp": int(time.time() * 1000),
+                            "sessionId": session_id,
+                            "runId": "run1",
+                            "hypothesisId": "B"
+                        }) + "\n")
+                except: pass
+                # #endregion
+                
+                if event_key in self._sent_workspace_events:
+                    last_sent = self._sent_workspace_events[event_key]
+                    # Only skip if sent within last 5 seconds (to allow retries after longer delays)
+                    if current_time - last_sent < 5:
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "location": "agent_wrapper.py:create_spreadsheet:dedup_skip",
+                                    "message": "Skipping duplicate event",
+                                    "data": {
+                                        "spreadsheet_id": spreadsheet_id,
+                                        "time_since_last": current_time - last_sent
+                                    },
+                                    "timestamp": int(time.time() * 1000),
+                                    "sessionId": session_id,
+                                    "runId": "run1",
+                                    "hypothesisId": "B"
+                                }) + "\n")
+                        except: pass
+                        # #endregion
+                        logger.info(f"[AgentWrapper] Skipping duplicate sheets_action event for spreadsheet {spreadsheet_id} (sent {current_time - last_sent:.2f}s ago)")
+                        return
+                
                 url = url_match.group(1) if url_match else f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
                 title = title_match.group(1) if title_match else tool_args.get("title", "Google Sheets")
                 
                 event_data = {
+                    "action": "create",
                     "spreadsheet_id": spreadsheet_id,
                     "spreadsheet_url": url,
                     "title": title,
-                    "action": "created"
+                    "range": None,
+                    "description": f"Создана таблица '{title}'"
                 }
+                
+                logger.info(f"[AgentWrapper] Sending sheets_action event: {event_data}")
+                
                 # #region agent log
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:_handle_workspace_events:create_spreadsheet-before-send","message":"Before sending sheets_action event","data":event_data,"timestamp":int(time.time()*1000)})+'\n')
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "location": "agent_wrapper.py:create_spreadsheet:before_send",
+                            "message": "About to send sheets_action event",
+                            "data": {
+                                "spreadsheet_id": spreadsheet_id,
+                                "event_key": event_key,
+                                "event_data": event_data
+                            },
+                            "timestamp": int(time.time() * 1000),
+                            "sessionId": session_id,
+                            "runId": "run1",
+                            "hypothesisId": "B"
+                        }) + "\n")
+                except: pass
                 # #endregion
                 
                 await self.ws_manager.send_event(
@@ -1210,16 +1341,31 @@ Callback to handle streaming events and send to WebSocket."""
                     "sheets_action",
                     event_data
                 )
+                # Mark as sent
+                self._sent_workspace_events[event_key] = current_time
+                
                 # #region agent log
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:_handle_workspace_events:create_spreadsheet-after-send","message":"After sending sheets_action event","data":{"spreadsheet_id":spreadsheet_id},"timestamp":int(time.time()*1000)})+'\n')
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "location": "agent_wrapper.py:create_spreadsheet:after_send",
+                            "message": "sheets_action event sent",
+                            "data": {
+                                "spreadsheet_id": spreadsheet_id,
+                                "event_key": event_key,
+                                "cache_size_after": len(self._sent_workspace_events)
+                            },
+                            "timestamp": int(time.time() * 1000),
+                            "sessionId": session_id,
+                            "runId": "run1",
+                            "hypothesisId": "B"
+                        }) + "\n")
+                except: pass
                 # #endregion
-                logger.info(f"[AgentWrapper] Sent sheets_action event for spreadsheet {spreadsheet_id}")
+                
+                logger.info(f"[AgentWrapper] Sent sheets_action event for created spreadsheet {spreadsheet_id}")
             else:
-                # #region agent log
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"agent_wrapper.py:_handle_workspace_events:create_spreadsheet-no-match","message":"No spreadsheet_id match found","data":{"result":result[:200]},"timestamp":int(time.time()*1000)})+'\n')
-                # #endregion
+                logger.warning(f"[AgentWrapper] Failed to extract spreadsheet_id from result: {result[:500]}")
         
         # Handle create_document
         elif tool_name == "create_document":
@@ -1265,22 +1411,129 @@ Callback to handle streaming events and send to WebSocket."""
                 )
                 logger.info(f"[AgentWrapper] Sent code_display event for Python code")
         
-        # Handle update_cells, add_rows - update existing spreadsheet
-        elif tool_name in ["update_cells", "add_rows"]:
+        # Handle add_rows - append rows to spreadsheet
+        elif tool_name == "add_rows":
             spreadsheet_id = tool_args.get("spreadsheet_id")
+            sheet_name = tool_args.get("sheet_name", "Sheet1")
+            values = tool_args.get("values", [])
+            
             if spreadsheet_id:
+                # Check if we already sent event for this spreadsheet_id (prevent duplicates)
+                event_key = f"{session_id}:add_rows:{spreadsheet_id}"
+                current_time = time.time()
+                if event_key in self._sent_workspace_events:
+                    last_sent = self._sent_workspace_events[event_key]
+                    # Only skip if sent within last 5 seconds (to allow retries after longer delays)
+                    if current_time - last_sent < 5:
+                        logger.info(f"[AgentWrapper] Skipping duplicate sheets_action event for spreadsheet {spreadsheet_id} (sent {current_time - last_sent:.2f}s ago)")
+                        return
+                
+                rows_count = len(values) if isinstance(values, list) else 0
                 url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
+                
+                # Extract title from result if available
+                title_match = re.search(r"sheet\s+'([^']+)'", result, re.IGNORECASE)
+                title = title_match.group(1) if title_match else "Google Sheets"
+                
+                # Try to get spreadsheet title from previous context or use default
+                # For now, use "Google Sheets" as default
+                title = "Google Sheets"
+                
+                # Form description
+                description = f"Добавлено {rows_count} строк(и) в лист '{sheet_name}'"
+                
+                event_data = {
+                    "action": "append",
+                    "spreadsheet_id": spreadsheet_id,
+                    "spreadsheet_url": url,
+                    "title": title,
+                    "range": f"{sheet_name}!A:A",  # Approximate range for append
+                    "description": description
+                }
+                
                 await self.ws_manager.send_event(
                     session_id,
                     "sheets_action",
-                    {
-                        "spreadsheet_id": spreadsheet_id,
-                        "spreadsheet_url": url,
-                        "title": "Google Sheets",
-                        "action": "updated"
-                    }
+                    event_data
                 )
-                logger.info(f"[AgentWrapper] Sent sheets_action event for updated spreadsheet {spreadsheet_id}")
+                # Mark as sent
+                self._sent_workspace_events[event_key] = current_time
+                logger.info(f"[AgentWrapper] Sent sheets_action event for appended rows to spreadsheet {spreadsheet_id}")
+        
+        # Handle update_cells - update specific cell range
+        elif tool_name == "update_cells":
+            spreadsheet_id = tool_args.get("spreadsheet_id")
+            range_str = tool_args.get("range", "")
+            values = tool_args.get("values", [])
+            
+            if spreadsheet_id:
+                # Check if we already sent event for this spreadsheet_id (prevent duplicates)
+                event_key = f"{session_id}:update_cells:{spreadsheet_id}:{range_str}"
+                current_time = time.time()
+                if event_key in self._sent_workspace_events:
+                    last_sent = self._sent_workspace_events[event_key]
+                    # Only skip if sent within last 5 seconds (to allow retries after longer delays)
+                    if current_time - last_sent < 5:
+                        logger.info(f"[AgentWrapper] Skipping duplicate sheets_action event for spreadsheet {spreadsheet_id} (sent {current_time - last_sent:.2f}s ago)")
+                        return
+                
+                rows_count = len(values) if isinstance(values, list) else 0
+                url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
+                
+                # Extract title from result if available, otherwise use default
+                title = "Google Sheets"
+                
+                # Form description
+                description = f"Обновлено {rows_count} строк(и) в диапазоне '{range_str}'"
+                
+                event_data = {
+                    "action": "update",
+                    "spreadsheet_id": spreadsheet_id,
+                    "spreadsheet_url": url,
+                    "title": title,
+                    "range": range_str,
+                    "description": description
+                }
+                
+                await self.ws_manager.send_event(
+                    session_id,
+                    "sheets_action",
+                    event_data
+                )
+                # Mark as sent
+                self._sent_workspace_events[event_key] = current_time
+                logger.info(f"[AgentWrapper] Sent sheets_action event for updated cells in spreadsheet {spreadsheet_id}")
+        
+        # Handle get_sheet_data - optional read action (can be disabled if not needed)
+        elif tool_name == "get_sheet_data":
+            spreadsheet_id = tool_args.get("spreadsheet_id")
+            range_str = tool_args.get("range", "")
+            
+            if spreadsheet_id:
+                url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit"
+                
+                # Extract row count from result
+                rows_match = re.search(r'(\d+)\s+row\(s\)', result, re.IGNORECASE)
+                rows_count = rows_match.group(1) if rows_match else "?"
+                
+                title = "Google Sheets"
+                description = f"Прочитано {rows_count} строк(и) из диапазона '{range_str}'"
+                
+                event_data = {
+                    "action": "read",
+                    "spreadsheet_id": spreadsheet_id,
+                    "spreadsheet_url": url,
+                    "title": title,
+                    "range": range_str,
+                    "description": description
+                }
+                
+                await self.ws_manager.send_event(
+                    session_id,
+                    "sheets_action",
+                    event_data
+                )
+                logger.info(f"[AgentWrapper] Sent sheets_action event for read operation on spreadsheet {spreadsheet_id}")
     
     async def update_plan(
         self,

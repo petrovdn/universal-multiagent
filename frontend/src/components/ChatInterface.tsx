@@ -1024,7 +1024,7 @@ export function ChatInterface() {
                 className="input-icon-button"
                 title="Новый диалог"
               >
-                <Plus className="w-3.5 h-3.5" />
+                <Plus className="w-3 h-3" />
               </button>
               
               {/* File Upload */}
@@ -1042,7 +1042,7 @@ export function ChatInterface() {
                 className="input-icon-button"
                 title="Прикрепить файл (изображение или PDF)"
               >
-                <Paperclip className="w-3.5 h-3.5" />
+                <Paperclip className="w-3 h-3" />
               </button>
 
               {/* Spacer */}
@@ -1056,7 +1056,7 @@ export function ChatInterface() {
                   className="send-button stop-button"
                   title="Остановить генерацию"
                 >
-                  <Square className="w-3.5 h-3.5" />
+                  <Square className="w-3 h-3" />
                 </button>
               ) : (
                 <button
@@ -1065,7 +1065,7 @@ export function ChatInterface() {
                   className="send-button"
                   title="Отправить"
                 >
-                  <Send className="w-3.5 h-3.5" />
+                  <Send className="w-3 h-3" />
                 </button>
               )}
             </div>

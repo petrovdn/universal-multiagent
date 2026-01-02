@@ -36,6 +36,17 @@ export function WorkspacePanel() {
   const { tabs, activeTabId, setActiveTab, closeTab } = useWorkspaceStore()
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0]
 
+  // Debug logging
+  React.useEffect(() => {
+    console.log('[WorkspacePanel] Render:', {
+      tabsCount: tabs.length,
+      activeTabId,
+      activeTabIdInTabs: tabs.some(t => t.id === activeTabId),
+      activeTab: activeTab ? { id: activeTab.id, type: activeTab.type, title: activeTab.title } : null,
+      allTabIds: tabs.map(t => t.id)
+    })
+  }, [tabs, activeTabId, activeTab])
+
   return (
     <div 
       style={{ 

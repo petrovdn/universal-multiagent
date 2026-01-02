@@ -1,6 +1,7 @@
-import React, { useState } from 'react'
-import { RefreshCw, ExternalLink, AlertCircle } from 'lucide-react'
+import React, { useState, useEffect } from 'react'
+import { RefreshCw, AlertCircle } from 'lucide-react'
 import type { WorkspaceTab } from '../../types/workspace'
+import { ActionOverlay } from './ActionOverlay'
 
 interface SheetsViewerProps {
   tab: WorkspaceTab
@@ -9,9 +10,41 @@ interface SheetsViewerProps {
 export function SheetsViewer({ tab }: SheetsViewerProps) {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const url = tab.url || (tab.data?.spreadsheetId 
-    ? `https://docs.google.com/spreadsheets/d/${tab.data.spreadsheetId}/edit`
-    : null)
+  const [currentAction, setCurrentAction] = useState<{
+    action: 'create' | 'append' | 'update' | 'read'
+    description: string
+  } | null>(null)
+  
+  // Build URL with range parameter if available
+  const buildUrl = () => {
+    const baseUrl = tab.url || (tab.data?.spreadsheetId 
+      ? `https://docs.google.com/spreadsheets/d/${tab.data.spreadsheetId}/edit`
+      : null)
+    
+    if (!baseUrl) return null
+    
+    // Add range parameter if available
+    if (tab.data?.range) {
+      const range = tab.data.range
+      // Remove sheet name if present (e.g., "Sheet1!A1:B10" -> "A1:B10")
+      const cellRange = range.includes('!') ? range.split('!')[1] : range
+      return `${baseUrl}#range=${cellRange}`
+    }
+    
+    return baseUrl
+  }
+  
+  const url = buildUrl()
+
+  // Show action overlay when action data is present
+  useEffect(() => {
+    if (tab.data?.action && tab.data?.description) {
+      setCurrentAction({
+        action: tab.data.action as 'create' | 'append' | 'update' | 'read',
+        description: tab.data.description
+      })
+    }
+  }, [tab.data?.action, tab.data?.description])
 
   const handleLoad = () => {
     setIsLoading(false)
@@ -23,21 +56,6 @@ export function SheetsViewer({ tab }: SheetsViewerProps) {
     setError('Не удалось загрузить таблицу')
   }
 
-  const handleRefresh = () => {
-    setIsLoading(true)
-    setError(null)
-    // Force iframe reload
-    const iframe = document.getElementById(`sheets-iframe-${tab.id}`) as HTMLIFrameElement
-    if (iframe) {
-      iframe.src = iframe.src
-    }
-  }
-
-  const handleOpenExternal = () => {
-    if (url) {
-      window.open(url, '_blank')
-    }
-  }
 
   if (!url) {
     return (
@@ -51,34 +69,9 @@ export function SheetsViewer({ tab }: SheetsViewerProps) {
   }
 
   return (
-    <div className="h-full w-full flex flex-col bg-white dark:bg-slate-900">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-slate-700">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-            {tab.title}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleRefresh}
-            className="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Обновить"
-          >
-            <RefreshCw className="w-4 h-4 text-slate-600 dark:text-slate-400" />
-          </button>
-          <button
-            onClick={handleOpenExternal}
-            className="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Открыть в новой вкладке"
-          >
-            <ExternalLink className="w-4 h-4 text-slate-600 dark:text-slate-400" />
-          </button>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 relative">
+    <div className="h-full w-full flex flex-col bg-white dark:bg-slate-900" style={{ height: '100%', width: '100%' }}>
+      {/* Content - iframe занимает всю область */}
+      <div className="flex-1 relative" style={{ flex: '1 1 auto', minHeight: 0, width: '100%', height: '100%' }}>
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-50 dark:bg-slate-950 z-10">
             <div className="text-center">
@@ -99,10 +92,22 @@ export function SheetsViewer({ tab }: SheetsViewerProps) {
           id={`sheets-iframe-${tab.id}`}
           src={url}
           className="w-full h-full border-0"
+          style={{ width: '100%', height: '100%', border: 'none' }}
           onLoad={handleLoad}
           onError={handleError}
           title={tab.title}
         />
+        
+        {/* Action Overlay */}
+        {currentAction && (
+          <ActionOverlay
+            action={currentAction.action}
+            description={currentAction.description}
+            onDismiss={() => setCurrentAction(null)}
+          />
+        )}
+        
+        {/* Action Log - скрыт, чтобы не занимать место */}
       </div>
     </div>
   )

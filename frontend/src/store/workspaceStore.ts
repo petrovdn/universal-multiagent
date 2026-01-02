@@ -18,58 +18,127 @@ const useWorkspaceStore = create<WorkspaceStore>()(
   persist(
     (set, get) => {
       return {
-        tabs: [
-          createPlaceholderTab(),
-          {
-            id: 'test-tab-1',
-            type: 'sheets',
-            title: 'Таблица продаж',
-            closeable: true,
-            timestamp: Date.now(),
-            data: { url: 'https://docs.google.com/spreadsheets/d/1example' }
-          },
-          {
-            id: 'test-tab-2',
-            type: 'docs',
-            title: 'Отчет Q4',
-            closeable: true,
-            timestamp: Date.now() + 1,
-            data: { url: 'https://docs.google.com/document/d/1example' }
-          },
-          {
-            id: 'test-tab-3',
-            type: 'code',
-            title: 'analytics.py',
-            closeable: true,
-            timestamp: Date.now() + 2,
-            data: { code: 'import pandas as pd\n\ndef analyze_data():\n    df = pd.read_csv("data.csv")\n    return df.describe()' }
-          }
-        ],
+        tabs: [createPlaceholderTab()],
         activeTabId: PLACEHOLDER_TAB_ID,
         isPanelVisible: true, // Panel always visible
         panelSize: DEFAULT_PANEL_SIZE,
 
         addTab: (tabData) => {
-        const newTab: WorkspaceTab = {
-          ...tabData,
-          id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-          timestamp: Date.now(),
-        }
-
+        console.log('[WorkspaceStore] addTab called:', {
+          type: tabData.type,
+          title: tabData.title,
+          spreadsheetId: tabData.data?.spreadsheetId,
+          action: tabData.data?.action
+        })
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:entry',message:'addTab called',data:{type:tabData.type,title:tabData.title,spreadsheetId:tabData.data?.spreadsheetId,action:tabData.data?.action},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         set((state) => {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:before_check',message:'Before checking existing tabs',data:{type:tabData.type,spreadsheetId:tabData.data?.spreadsheetId,currentTabsCount:state.tabs.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
+          
+          // Check if tab with same spreadsheetId already exists (for sheets tabs)
+          if (tabData.type === 'sheets' && tabData.data?.spreadsheetId) {
+            console.log('[WorkspaceStore] Checking for existing tab with spreadsheetId:', tabData.data.spreadsheetId)
+            const existingTab = state.tabs.find(
+              t => t.type === 'sheets' && t.data?.spreadsheetId === tabData.data?.spreadsheetId
+            )
+            
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:after_check',message:'After checking existing tabs',data:{spreadsheetId:tabData.data?.spreadsheetId,existingTabFound:!!existingTab,existingTabId:existingTab?.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+            // #endregion
+            
+            if (existingTab) {
+              console.log('[WorkspaceStore] Found existing tab, updating:', existingTab.id)
+              // Update existing tab with new action data
+              const updatedData = {
+                ...existingTab.data,
+                ...tabData.data,
+                // Merge actions array
+                actions: [
+                  ...(existingTab.data?.actions || []),
+                  {
+                    action: tabData.data?.action,
+                    description: tabData.data?.description,
+                    range: tabData.data?.range,
+                    timestamp: tabData.data?.timestamp || Date.now()
+                  }
+                ].filter(Boolean) // Remove null/undefined entries
+              }
+              
+              const updatedTabs = state.tabs.map(t =>
+                t.id === existingTab.id
+                  ? { ...t, title: tabData.title || t.title, url: tabData.url || t.url, data: updatedData }
+                  : t
+              )
+              
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:updating_existing',message:'Updating existing tab',data:{existingTabId:existingTab.id,spreadsheetId:tabData.data?.spreadsheetId,newActiveTabId:existingTab.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+              // #endregion
+              
+              return {
+                tabs: updatedTabs,
+                activeTabId: existingTab.id, // Activate the existing tab
+                isPanelVisible: true, // Ensure panel is visible
+              }
+            }
+          }
+          
+          // Create new tab
+          console.log('[WorkspaceStore] Creating new tab')
+          const newTab: WorkspaceTab = {
+            ...tabData,
+            id: `tab-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            timestamp: Date.now(),
+            // Initialize actions array for sheets tabs
+            data: tabData.type === 'sheets' && tabData.data?.action
+              ? {
+                  ...tabData.data,
+                  actions: [
+                    {
+                      action: tabData.data.action,
+                      description: tabData.data.description,
+                      range: tabData.data.range,
+                      timestamp: tabData.data.timestamp || Date.now()
+                    }
+                  ]
+                }
+              : tabData.data
+          }
+          
           // Remove placeholder if it exists and we're adding a real tab
           const tabs = state.tabs.filter(t => t.id !== PLACEHOLDER_TAB_ID)
           const updatedTabs = [...tabs, newTab]
           
-          const newState = {
+          const finalState = {
             tabs: updatedTabs,
             activeTabId: newTab.id,
-            // Panel always visible - don't change isPanelVisible
+            isPanelVisible: true, // Ensure panel is visible
           }
-          return newState
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:creating_new',message:'Creating new tab',data:{newTabId:newTab.id,type:newTab.type,title:newTab.title,spreadsheetId:tabData.data?.spreadsheetId,newActiveTabId:newTab.id,tabsCount:finalState.tabs.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+          // #endregion
+          
+          console.log('[WorkspaceStore] Tab added, new state:', {
+            tabsCount: finalState.tabs.length,
+            activeTabId: finalState.activeTabId,
+            newTabId: newTab.id,
+            isPanelVisible: finalState.isPanelVisible,
+            newTab: { id: newTab.id, type: newTab.type, title: newTab.title }
+          })
+          return finalState
         })
 
         get().saveToLocalStorage()
+        
+        // #region agent log
+        const finalTabs = get().tabs
+        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:completed',message:'addTab completed',data:{finalTabsCount:finalTabs.length,activeTabId:get().activeTabId,isPanelVisible:get().isPanelVisible,tabs:finalTabs.map(t=>({id:t.id,type:t.type,title:t.title,spreadsheetId:t.data?.spreadsheetId}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        // #endregion
+        
+        console.log('[WorkspaceStore] addTab completed, final tabs:', get().tabs.map(t => ({ id: t.id, type: t.type, title: t.title })))
       },
 
       closeTab: (id) => {
@@ -134,16 +203,15 @@ const useWorkspaceStore = create<WorkspaceStore>()(
             const onlyPlaceholder = parsed.state.tabs?.length === 1 && 
                                     parsed.state.tabs[0].id === PLACEHOLDER_TAB_ID
             
-            // If only placeholder in localStorage, don't load it (keep test tabs from initial state)
+            // If only placeholder in localStorage, don't load it (keep initial state with placeholder)
             if (onlyPlaceholder) {
-              console.log('Only placeholder in localStorage, keeping test tabs')
+              console.log('Only placeholder in localStorage, keeping initial state')
               return
             }
             
             // Load real tabs from localStorage
             const hasRealTabs = parsed.state.tabs?.some((t: WorkspaceTab) => 
-              t.id !== PLACEHOLDER_TAB_ID && 
-              !t.id.startsWith('test-tab')
+              t.id !== PLACEHOLDER_TAB_ID
             )
             
             if (hasRealTabs) {

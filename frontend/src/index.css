@@ -484,7 +484,7 @@ body {
   margin: 0 auto;
   margin-top: 0;
   margin-bottom: 0;
-  padding: 16px 20px;
+  padding: 16px 14px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-secondary);
   border-radius: 0;
@@ -1063,6 +1063,8 @@ body {
   width: 100%;
   margin-left: auto;
   margin-right: auto;
+  padding-left: 14px;
+  padding-right: 14px;
   border: 1px solid var(--border-primary);
   border-radius: 0;
   background: #f5f5f7;
@@ -1377,7 +1379,7 @@ body {
   position: relative;
   width: 100%;
   z-index: 100;
-  padding: 0 20px 16px;
+  padding: 0 14px 16px;
   background: transparent;
   pointer-events: none;
   flex-shrink: 0;
@@ -1444,8 +1446,8 @@ body {
 .mode-selector-dropdown-button {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 6px;
+  gap: 2px;
+  padding: 2px 5px;
   font-size: 11px;
   font-weight: 500;
   border: 1px solid var(--border-primary);
@@ -1507,8 +1509,8 @@ body {
 .model-selector-dropdown-button {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px 6px;
+  gap: 2px;
+  padding: 2px 5px;
   font-size: 11px;
   font-weight: 500;
   border: 1px solid var(--border-primary);
@@ -1533,8 +1535,8 @@ body {
 }
 
 .model-icon svg {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 .model-selector-dropdown {
@@ -1606,8 +1608,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   background: transparent;
   border: none;
   border-radius: 6px;
@@ -1628,12 +1630,12 @@ body {
   width: 100%;
   min-height: 40px;
   max-height: 200px;
-  padding: 8px 10px;
+  padding: 8px 12px;
   background: transparent;
   border: none;
   outline: none;
   resize: none;
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--text-primary);
   font-family: inherit;
@@ -1737,8 +1739,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   background: var(--accent-primary);
   border: none;
   border-radius: 6px;
