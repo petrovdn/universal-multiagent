@@ -87,6 +87,7 @@ export function TabComponent({ tab, isActive, onClick, onClose, isLast = false }
         alignItems: 'center',
         justifyContent: 'flex-start',
         flexWrap: 'nowrap',
+        flexShrink: 0, // Предотвращаем сжатие табов
         cursor: 'pointer',
         transition: 'all 0.15s',
         whiteSpace: 'nowrap',

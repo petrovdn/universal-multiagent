@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, TestTube, Save, Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 import { getOneCConfig, saveOneCConfig, testOneCConnection, type OneCConfig } from '../services/api'
 
 export function OneCSettingsWindow() {
@@ -14,6 +14,7 @@ export function OneCSettingsWindow() {
   const [isTesting, setIsTesting] = useState(false)
   const [error, setError] = useState('')
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+  const [hasExistingPassword, setHasExistingPassword] = useState(false)
 
   useEffect(() => {
     loadConfig()
@@ -23,10 +24,12 @@ export function OneCSettingsWindow() {
     try {
       const result = await getOneCConfig()
       if (result.configured && result.config) {
+        const hasPassword = result.config.password === '***'
+        setHasExistingPassword(hasPassword)
         setValues({
           odata_base_url: result.config.odata_base_url || '',
           username: result.config.username || '',
-          password: result.config.password === '***' ? '' : (result.config.password || ''),
+          password: hasPassword ? '********' : (result.config.password || ''),
           organization_guid: result.config.organization_guid || '',
         })
       }
@@ -65,10 +68,12 @@ export function OneCSettingsWindow() {
     setTestResult(null)
 
     try {
+      // Если пароль не был изменен (остались звездочки), отправляем пустую строку
+      const passwordToSave = hasExistingPassword && values.password === '********' ? '' : values.password
       const config: OneCConfig = {
         odata_base_url: values.odata_base_url,
         username: values.username,
-        password: values.password,
+        password: passwordToSave,
         organization_guid: values.organization_guid || undefined,
       }
       await saveOneCConfig(config)
@@ -97,10 +102,12 @@ export function OneCSettingsWindow() {
     setTestResult(null)
 
     try {
+      // Если пароль не был изменен (остались звездочки), отправляем пустую строку
+      const passwordToSave = hasExistingPassword && values.password === '********' ? '' : values.password
       const config: OneCConfig = {
         odata_base_url: values.odata_base_url,
         username: values.username,
-        password: values.password,
+        password: passwordToSave,
         organization_guid: values.organization_guid || undefined,
       }
       await saveOneCConfig(config)
@@ -125,89 +132,84 @@ export function OneCSettingsWindow() {
       ...prev,
       [key]: value,
     }))
+    // Если пользователь начал изменять пароль, сбрасываем флаг существующего пароля
+    if (key === 'password' && hasExistingPassword && value !== '********') {
+      setHasExistingPassword(false)
+    }
   }
 
   return (
     <div 
-      className="bg-white dark:bg-slate-900"
-      style={{
-        height: '100vh',
-        width: '100%',
-        display: 'flex',
-        flexDirection: 'column'
-      }}
+      className="h-screen w-full flex flex-col bg-white dark:bg-[#1e1e1e]"
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex-shrink-0">
-        <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Настройки 1С:Бухгалтерия</h2>
-        <button
-          onClick={() => window.close()}
-          className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-        >
-          <X className="w-5 h-5" />
-        </button>
+      <div className="px-6 pt-6 pb-3 border-b border-slate-200 dark:border-[#3d3d3d] flex-shrink-0">
+        <h2 className="text-lg font-medium text-slate-900 dark:text-white tracking-tight" style={{ textAlign: 'center' }}>
+          Настройки 1С:Бухгалтерия
+        </h2>
       </div>
 
       {/* Content */}
       <div 
-        className="flex-1 overflow-y-auto p-6"
+        className="flex-1 overflow-y-auto py-5"
         style={{
           minHeight: '0'
         }}
       >
-        <div className="max-w-2xl mx-auto space-y-4">
+        <div className="max-w-2xl mx-auto" style={{ paddingLeft: '24px', paddingRight: '24px' }}>
+          <form className="login-form">
           {/* OData URL */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-              OData URL <span className="text-red-500">*</span>
+          <div className="login-field">
+            <label htmlFor="odata_base_url" className="login-label">
+              OData URL
             </label>
             <input
+              id="odata_base_url"
               type="url"
               value={values.odata_base_url}
               onChange={(e) => updateValue('odata_base_url', e.target.value)}
               placeholder="https://your-domain.1cfresh.com/odata/standard.odata"
-              className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="login-input"
               disabled={isLoading || isTesting}
             />
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-              Базовый URL для OData endpoint из настроек 1С:Фреш
-            </p>
           </div>
 
           {/* Username */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Логин <span className="text-red-500">*</span>
+          <div className="login-field">
+            <label htmlFor="username" className="login-label">
+              Логин
             </label>
             <input
+              id="username"
               type="text"
               value={values.username}
               onChange={(e) => updateValue('username', e.target.value)}
               placeholder="odata_user"
-              className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="login-input"
               disabled={isLoading || isTesting}
             />
           </div>
-
+          
           {/* Password */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-              Пароль <span className="text-red-500">*</span>
+          <div className="login-field">
+            <label htmlFor="password" className="login-label">
+              Пароль
             </label>
-            <div className="relative">
+            <div className="login-password-wrapper">
               <input
-                type={showPassword ? 'text' : 'password'}
+                id="password"
+                type={showPassword ? "text" : "password"}
                 value={values.password}
                 onChange={(e) => updateValue('password', e.target.value)}
                 placeholder="••••••••"
-                className="w-full px-3 py-2 pr-10 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="login-input login-password-input"
                 disabled={isLoading || isTesting}
                 autoComplete="off"
               />
               <button
                 type="button"
                 onClick={togglePasswordVisibility}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300"
+                className="login-password-toggle"
                 tabIndex={-1}
               >
                 {showPassword ? (
@@ -220,83 +222,77 @@ export function OneCSettingsWindow() {
           </div>
 
           {/* Organization GUID */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
-              GUID организации (опционально)
+          <div className="login-field">
+            <label htmlFor="organization_guid" className="login-label">
+              GUID организации <span className="font-normal text-slate-500 dark:text-slate-400">(опционально)</span>
             </label>
             <input
+              id="organization_guid"
               type="text"
               value={values.organization_guid}
               onChange={(e) => updateValue('organization_guid', e.target.value)}
               placeholder="00000000-0000-0000-0000-000000000000"
-              className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 rounded-md bg-white dark:bg-slate-700 text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="login-input"
               disabled={isLoading || isTesting}
             />
-            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Оставьте пустым, если нужны данные по всем организациям
             </p>
           </div>
 
           {/* Error */}
           {error && (
-            <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
-              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <div className="login-error">
+              {error}
             </div>
           )}
 
           {/* Test Result */}
           {testResult && (
-            <div
-              className={`p-3 border rounded-md ${
-                testResult.success
-                  ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
-                  : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
-              }`}
-            >
-              <p
-                className={`text-sm ${
-                  testResult.success
-                    ? 'text-green-600 dark:text-green-400'
-                    : 'text-red-600 dark:text-red-400'
-                }`}
-              >
+            <div className={testResult.success ? 'p-3 bg-green-50 dark:bg-[#1e3a2f] border border-green-200 dark:border-[#2d5a3f] rounded-md' : 'login-error'}>
+              <p className={testResult.success ? 'text-sm text-green-600 dark:text-[#4ade80]' : ''}>
                 {testResult.message}
               </p>
             </div>
           )}
+          </form>
+          
+          {/* Buttons */}
+          <div style={{ 
+            display: 'flex', 
+            gap: '12px', 
+            justifyContent: 'center', 
+            marginTop: '24px',
+            width: '100%'
+          }}>
+            <button
+              onClick={handleTest}
+              disabled={
+                isLoading ||
+                isTesting ||
+                !values.odata_base_url?.trim() ||
+                !values.username?.trim() ||
+                !values.password?.trim()
+              }
+              className="login-button-inline"
+            >
+              {isTesting ? 'Проверка...' : 'Проверить'}
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={
+                isLoading ||
+                isTesting ||
+                !values.odata_base_url?.trim() ||
+                !values.username?.trim() ||
+                !values.password?.trim()
+              }
+              className="login-button-inline"
+            >
+              {isLoading ? 'Сохранение...' : 'Сохранить'}
+            </button>
+          </div>
         </div>
-      </div>
-
-      {/* Footer */}
-      <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex gap-2 flex-shrink-0">
-        <button
-          onClick={handleTest}
-          disabled={
-            isLoading ||
-            isTesting ||
-            !values.odata_base_url?.trim() ||
-            !values.username?.trim() ||
-            !values.password?.trim()
-          }
-          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-md hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          <TestTube className="w-4 h-4" />
-          {isTesting ? 'Проверка...' : 'Проверить'}
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={
-            isLoading ||
-            isTesting ||
-            !values.odata_base_url?.trim() ||
-            !values.username?.trim() ||
-            !values.password?.trim()
-          }
-          className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          <Save className="w-4 h-4" />
-          {isLoading ? 'Сохранение...' : 'Сохранить'}
-        </button>
       </div>
     </div>
   )

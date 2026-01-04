@@ -2258,10 +2258,31 @@ async def save_projectlad_config_endpoint(
     {
         "base_url": "https://api.staging.po.ladcloud.ru",
         "email": "...",
-        "password": "..."
+        "password": "..." (can be empty string to keep existing password)
     }
     """
     try:
+        # If password is empty, load existing config and use its password
+        # #region agent log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"integration_routes.py:save_projectlad_config_endpoint:entry","message":"API endpoint called","data":{"password_received":config.get("password","")[:3]+"***" if config.get("password") and len(config.get("password","")) > 3 else (config.get("password","") or "empty"),"password_length":len(config.get("password","")) if config.get("password") else 0},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        if not config.get("password") or config.get("password", "").strip() == "":
+            existing_config = get_projectlad_config()
+            # #region agent log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"integration_routes.py:save_projectlad_config_endpoint:empty_password","message":"Password is empty, loading existing config","data":{"existing_config_exists":existing_config is not None,"existing_password_exists":existing_config.password is not None if existing_config else False},"timestamp":int(__import__('time').time()*1000)})+'\n')
+            # #endregion
+            if existing_config and existing_config.password:
+                config["password"] = existing_config.password
+                # #region agent log
+                import json
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"integration_routes.py:save_projectlad_config_endpoint:password_restored","message":"Password restored from existing config","data":{"restored_password_length":len(config["password"])},"timestamp":int(__import__('time').time()*1000)})+'\n')
+                # #endregion
+        
         projectlad_config = ProjectLadConfig(**config)
         save_projectlad_config(projectlad_config)
         
@@ -2330,6 +2351,9 @@ async def test_projectlad_connection(request: Request):
         
         # Test connection by authenticating
         import httpx
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"integration_routes.py:test_projectlad_connection","message":"Testing connection with password from config","data":{"password_length":len(projectlad_config.password) if projectlad_config.password else 0,"password_preview":projectlad_config.password[:3]+"***" if projectlad_config.password and len(projectlad_config.password) > 3 else (projectlad_config.password or "empty"),"email":projectlad_config.email},"timestamp":int(__import__('time').time()*1000)})+'\n')
         
         login_url = f"{projectlad_config.base_url}/v1/auth/login"
         payload = {

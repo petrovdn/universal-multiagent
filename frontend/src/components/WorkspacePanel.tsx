@@ -224,7 +224,13 @@ export function WorkspacePanel() {
       {/* Tab Bar - Always visible */}
       <div 
         className="flex border-t border-slate-200 dark:border-slate-700 overflow-x-auto scrollbar-thin bg-slate-100 dark:bg-slate-900 flex-shrink-0"
-        style={{ borderTopWidth: '1px', minHeight: '35px' }}
+        style={{ 
+          borderTopWidth: '1px', 
+          minHeight: '35px',
+          flexWrap: 'nowrap',
+          overflowX: 'auto',
+          overflowY: 'hidden'
+        }}
       >
         {tabs.map((tab, index) => (
           <TabComponent
@@ -254,6 +260,7 @@ export function WorkspacePanel() {
             transition: 'all 0.15s ease',
             color: 'rgb(100 116 139)', // slate-500
             marginLeft: '8px',
+            marginRight: '8px',
             alignSelf: 'center'
           }}
           onMouseEnter={(e) => {

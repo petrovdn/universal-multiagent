@@ -669,7 +669,7 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
                 className="toggle-button"
                 type="button"
               >
-                <div className={`toggle-slider ${integrations.onec.authenticated ? 'active' : ''}`}></div>
+                <div className={`toggle-slider onec-toggle ${integrations.onec.authenticated ? 'active' : ''}`}></div>
               </button>
             </div>
           </div>
@@ -732,7 +732,7 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
                 className="toggle-button"
                 type="button"
               >
-                <div className={`toggle-slider ${integrations.projectlad.authenticated ? 'active' : ''}`}></div>
+                <div className={`toggle-slider projectlad-toggle ${integrations.projectlad.authenticated ? 'active' : ''}`}></div>
               </button>
             </div>
           </div>

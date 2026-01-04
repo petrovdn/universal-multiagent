@@ -137,14 +137,15 @@ class ProjectLadMCPServer:
         
         token = await self._authenticate()
         # По Swagger используется apiKey в header Authorization
-        # Пробуем разные форматы
+        # Но для JWT токенов обычно используется формат "Bearer <token>"
+        # Попробуем формат "Bearer <token>" сначала
         if token.startswith('Bearer '):
             auth_header = token
         elif token.startswith('ApiKey ') or token.startswith('apiKey '):
             auth_header = token
         else:
-            # Пробуем сначала без Bearer (как apiKey), потом с Bearer
-            auth_header = token
+            # Используем формат "Bearer <token>" для JWT токенов
+            auth_header = f"Bearer {token}"
         
         headers = {
             "Authorization": auth_header,

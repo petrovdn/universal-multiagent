@@ -446,17 +446,30 @@ class GoogleSlidesMCPServer:
                         # Use first available layout
                         layout_id = layouts[0].get('objectId')
                     
+                    # Generate a short objectId (Google Slides API requires max 50 characters)
+                    # Use hash of presentation_id + timestamp to create unique short ID
+                    import hashlib
+                    import time as time_module
+                    unique_str = f"{presentation_id}_{time_module.time()}_{insertion_index or 0}"
+                    object_id_hash = hashlib.md5(unique_str.encode()).hexdigest()[:16]
+                    object_id = f"slide_{object_id_hash}"
+                    
+                    create_slide_request = {
+                        "objectId": object_id,
+                        "slideLayoutReference": {
+                            "layoutId": layout_id
+                        } if layout_id else None
+                    }
+                    
+                    # Only include insertionIndex if it's not None
+                    if insertion_index is not None:
+                        create_slide_request["insertionIndex"] = insertion_index
+                    
                     requests = [{
-                        "createSlide": {
-                            "objectId": f"slide_{presentation_id}_{insertion_index or 0}",
-                            "insertionIndex": insertion_index,
-                            "slideLayoutReference": {
-                                "layoutId": layout_id
-                            } if layout_id else None
-                        }
+                        "createSlide": create_slide_request
                     }]
                     
-                    # Remove None values
+                    # Remove None values for slideLayoutReference
                     if not requests[0]["createSlide"]["slideLayoutReference"]:
                         del requests[0]["createSlide"]["slideLayoutReference"]
                     

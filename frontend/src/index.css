@@ -886,6 +886,22 @@ body {
   background: #10B981;
 }
 
+.onec-toggle {
+  background: #D1D5DB;
+}
+
+.onec-toggle.active {
+  background: #6366F1;
+}
+
+.projectlad-toggle {
+  background: #D1D5DB;
+}
+
+.projectlad-toggle.active {
+  background: #8b5cf6;
+}
+
 /* Session title bar removed - не используется */
 
 /* ============================================
@@ -2572,6 +2588,32 @@ body {
 }
 
 .login-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.login-button-inline {
+  width: auto !important;
+  min-width: 120px;
+  padding: 12px;
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.login-button-inline:hover:not(:disabled) {
+  background: var(--accent-secondary);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+}
+
+.login-button-inline:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;

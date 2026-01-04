@@ -525,6 +525,12 @@ def save_onec_config(onec_config: OneCConfig) -> None:
     # Ensure config directory exists
     config_path.parent.mkdir(parents=True, exist_ok=True)
     
+    # If password is empty or "***", load existing config and use its password
+    if not onec_config.password or onec_config.password == "***":
+        existing_config = get_onec_config()
+        if existing_config and existing_config.password:
+            onec_config.password = existing_config.password
+    
     # Save config (password will be stored in plain text for demo purposes)
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(onec_config.model_dump(), f, indent=2, ensure_ascii=False)
@@ -570,6 +576,33 @@ def save_projectlad_config(projectlad_config: ProjectLadConfig) -> None:
     
     # Ensure config directory exists
     config_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # If password is empty or "***", load existing config and use its password
+    # #region agent log
+    import json
+    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"config_loader.py:save_projectlad_config:before_check","message":"save_projectlad_config called","data":{"password_received":projectlad_config.password[:3]+"***" if projectlad_config.password and len(projectlad_config.password) > 3 else (projectlad_config.password or "empty"),"password_length":len(projectlad_config.password) if projectlad_config.password else 0},"timestamp":int(__import__('time').time()*1000)})+'\n')
+    # #endregion
+    if not projectlad_config.password or projectlad_config.password == "***":
+        existing_config = get_projectlad_config()
+        # #region agent log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"config_loader.py:save_projectlad_config:empty_password","message":"Password is empty or ***, loading existing config","data":{"existing_config_exists":existing_config is not None,"existing_password_exists":existing_config.password is not None if existing_config else False},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        if existing_config and existing_config.password:
+            projectlad_config.password = existing_config.password
+            # #region agent log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"config_loader.py:save_projectlad_config:password_restored","message":"Restored password from existing config","data":{"restored_password_length":len(projectlad_config.password)},"timestamp":int(__import__('time').time()*1000)})+'\n')
+            # #endregion
+    else:
+        # #region agent log
+        import json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"config_loader.py:save_projectlad_config:new_password","message":"Saving new password","data":{"new_password_length":len(projectlad_config.password)},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
     
     # Save config (password will be stored in plain text for demo purposes)
     with open(config_path, 'w', encoding='utf-8') as f:
