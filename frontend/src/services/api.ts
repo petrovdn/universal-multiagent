@@ -22,10 +22,13 @@ api.interceptors.response.use(
       if (status === 404) {
         // Don't override message for /auth/me endpoint - let it use the detail from server
         const url = error.config?.url || ''
-        if (!url.includes('/auth/me')) {
-          error.message = 'Сессия не найдена'
-        } else {
+        if (url.includes('/auth/me')) {
           error.message = error.response.data?.detail || 'Сессия не найдена'
+        } else if (url.includes('/onec/disable') || url.includes('/projectlad/disable')) {
+          // For disable endpoints, use server detail or show endpoint not found
+          error.message = error.response.data?.detail || 'Endpoint не найден. Убедитесь, что сервер перезапущен.'
+        } else {
+          error.message = 'Сессия не найдена'
         }
       } else if (status === 401) {
         error.message = error.response.data?.detail || 'Требуется авторизация'
@@ -304,6 +307,27 @@ export const getOneCStatus = async () => {
   return response.data
 }
 
+export const disableOneC = async () => {
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:disableOneC:entry',message:'disableOneC API called',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  try {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:disableOneC:before_request',message:'About to make API request',data:{url:'/integrations/onec/disable'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    const response = await api.post('/integrations/onec/disable')
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:disableOneC:success',message:'disableOneC API request successful',data:{status:response.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    return response.data
+  } catch (err: any) {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:disableOneC:error',message:'disableOneC API request failed',data:{error:String(err),status:err?.response?.status,statusText:err?.response?.statusText,url:err?.config?.url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    throw err
+  }
+}
+
 // Project Lad Integration APIs
 export interface ProjectLadConfig {
   base_url: string
@@ -329,6 +353,27 @@ export const testProjectLadConnection = async () => {
 export const getProjectLadStatus = async () => {
   const response = await api.get('/integrations/projectlad/status')
   return response.data
+}
+
+export const disableProjectLad = async () => {
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:disableProjectLad:entry',message:'disableProjectLad API called',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  try {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:disableProjectLad:before_request',message:'About to make API request',data:{url:'/integrations/projectlad/disable'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    const response = await api.post('/integrations/projectlad/disable')
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:disableProjectLad:success',message:'disableProjectLad API request successful',data:{status:response.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    return response.data
+  } catch (err: any) {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:disableProjectLad:error',message:'disableProjectLad API request failed',data:{error:String(err),status:err?.response?.status,statusText:err?.response?.statusText,url:err?.config?.url},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    throw err
+  }
 }
 
 // Model APIs
@@ -389,8 +434,24 @@ export const login = async (username: string, password: string) => {
 }
 
 export const logout = async () => {
-  const response = await api.post('/auth/logout')
-  return response.data
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:logout:entry',message:'logout API called',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  // #endregion
+  try {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:logout:before_request',message:'About to make API request',data:{url:'/auth/logout'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    const response = await api.post('/auth/logout')
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:logout:success',message:'Logout API request successful',data:{status:response.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    return response.data
+  } catch (err: any) {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'api.ts:logout:error',message:'Logout API request failed',data:{error:String(err),status:err?.response?.status,statusText:err?.response?.statusText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    throw err
+  }
 }
 
 export const getCurrentUser = async () => {

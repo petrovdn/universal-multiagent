@@ -150,6 +150,55 @@ function App() {
           detail: { action: event.data.action }
         }))
       }
+      
+      if (event.data?.type === 'workspace-folder-selected') {
+        // Folder was selected in separate window, reload workspace status
+        getGoogleWorkspaceStatus()
+          .then((status) => {
+            setIntegrationStatus('googleWorkspace', {
+              enabled: status.authenticated && status.folder_configured,
+              authenticated: status.authenticated || false,
+              folderConfigured: status.folder_configured || false,
+              folderName: status.folder?.name,
+              folderId: status.folder?.id,
+            })
+            setNotification({ 
+              type: 'success', 
+              message: `Рабочая папка "${status.folder?.name || ''}" успешно выбрана!` 
+            })
+            setTimeout(() => setNotification(null), 5000)
+            // Trigger status reload in Header component
+            window.dispatchEvent(new CustomEvent('integration-status-changed'))
+          })
+          .catch((error) => {
+            console.error('Failed to reload workspace status after folder selection:', error)
+            setNotification({ 
+              type: 'error', 
+              message: 'Не удалось обновить статус после выбора папки' 
+            })
+            setTimeout(() => setNotification(null), 5000)
+          })
+      }
+      
+      if (event.data?.type === 'onec-config-saved') {
+        // 1C config was saved in separate window, reload integration status
+        window.dispatchEvent(new CustomEvent('integration-status-changed'))
+        setNotification({ 
+          type: 'success', 
+          message: 'Настройки 1С:Бухгалтерия успешно сохранены!' 
+        })
+        setTimeout(() => setNotification(null), 5000)
+      }
+      
+      if (event.data?.type === 'projectlad-config-saved') {
+        // ProjectLad config was saved in separate window, reload integration status
+        window.dispatchEvent(new CustomEvent('integration-status-changed'))
+        setNotification({ 
+          type: 'success', 
+          message: 'Настройки Project Lad успешно сохранены!' 
+        })
+        setTimeout(() => setNotification(null), 5000)
+      }
     }
     
     window.addEventListener('message', handleMessage)

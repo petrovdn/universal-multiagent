@@ -278,6 +278,28 @@ class CreateSlideTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("slides_create_slide", args, server_name="slides")
             
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "slides_tools.py:CreateSlideTool._arun:after_mcp_call",
+                        "message": "After MCP call, before parsing",
+                        "data": {
+                            "result_type": type(result).__name__,
+                            "result_is_list": isinstance(result, list),
+                            "result_length": len(result) if isinstance(result, list) else None,
+                            "result_preview": str(result)[:500] if result else None
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "I"
+                    }) + "\n")
+            except: pass
+            # #endregion
+            
             # Parse result
             if isinstance(result, list) and len(result) > 0:
                 first_item = result[0]
@@ -290,7 +312,57 @@ class CreateSlideTool(BaseTool):
                 import json
                 result = json.loads(result)
             
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "slides_tools.py:CreateSlideTool._arun:after_parse",
+                        "message": "After parsing, before extracting slide_id",
+                        "data": {
+                            "result_type": type(result).__name__,
+                            "result_keys": list(result.keys()) if isinstance(result, dict) else None,
+                            "result_preview": str(result)[:500] if result else None
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "I"
+                    }) + "\n")
+            except: pass
+            # #endregion
+            
             slide_id = result.get("slideId")
+            
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "slides_tools.py:CreateSlideTool._arun:before_return",
+                        "message": "Before returning result string",
+                        "data": {
+                            "slide_id": slide_id,
+                            "slide_id_type": type(slide_id).__name__ if slide_id is not None else None,
+                            "result_keys": list(result.keys()) if isinstance(result, dict) else None,
+                            "result_preview": str(result)[:500] if result else None
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "H"
+                    }) + "\n")
+            except: pass
+            # #endregion
+            
+            if not slide_id:
+                raise ToolExecutionError(
+                    f"Failed to create slide: slideId is missing from API response",
+                    tool_name=self.name
+                )
+            
             return f"Slide created successfully (ID: {slide_id})"
             
         except Exception as e:

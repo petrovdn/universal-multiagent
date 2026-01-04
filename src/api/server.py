@@ -77,6 +77,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Request logging middleware for debugging
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        # Log ALL requests to /api/integrations (for debugging)
+        if '/api/integrations' in request.url.path:
+            import json
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"server.py:RequestLoggingMiddleware:request_received","message":"Request received for integrations endpoint","data":{"path":request.url.path,"method":request.method,"full_path":str(request.url)},"timestamp":int(time.time()*1000)})+'\n')
+            except Exception as e:
+                pass
+        response = await call_next(request)
+        if '/api/integrations' in request.url.path:
+            import json
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"server.py:RequestLoggingMiddleware:response_sent","message":"Response sent for integrations endpoint","data":{"path":request.url.path,"status_code":response.status_code},"timestamp":int(time.time()*1000)})+'\n')
+            except Exception as e:
+                pass
+        return response
+
+app.add_middleware(RequestLoggingMiddleware)
+
 # Initialize managers with error handling
 # Allow app to start even if some managers fail (for healthcheck)
 try:
@@ -107,6 +133,26 @@ except Exception as e:
 app.include_router(auth_router)
 # Include integration routes
 app.include_router(integration_router)
+
+# Log registered routes for debugging
+import json
+try:
+    all_routes = []
+    disable_routes = []
+    for r in integration_router.routes:
+        if hasattr(r, 'path'):
+            route_info = {"path": r.path, "methods": list(r.methods) if hasattr(r, 'methods') else []}
+            all_routes.append(route_info)
+            if 'disable' in r.path:
+                disable_routes.append(route_info)
+    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"server.py:router_registration","message":"Integration router registered","data":{"total_routes":len(all_routes),"disable_routes_count":len(disable_routes),"disable_routes":disable_routes,"all_routes_sample":all_routes[:10]},"timestamp":int(time.time()*1000)})+'\n')
+    print(f"[DEBUG] Integration router registered: {len(all_routes)} total routes, {len(disable_routes)} disable routes", flush=True)
+except Exception as e:
+    import traceback
+    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"server.py:router_registration:error","message":"Error logging router registration","data":{"error":str(e),"traceback":traceback.format_exc()},"timestamp":int(time.time()*1000)})+'\n')
+    print(f"[DEBUG] Error logging router registration: {e}", flush=True)
 
 # Serve static files in production
 if config.is_production:

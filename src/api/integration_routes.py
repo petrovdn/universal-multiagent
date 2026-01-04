@@ -156,6 +156,7 @@ WORKSPACE_SCOPES = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/presentations",  # For Google Slides API
 ]
 
 
@@ -2183,7 +2184,64 @@ async def get_onec_status(request: Request):
         "enabled": onec_config is not None,
         "configured": onec_config is not None,
         "config_exists": onec_config is not None
-    }
+}
+
+
+@router.post("/onec/disable")
+async def disable_onec_integration(request: Request):
+    """
+    Disable 1C integration.
+    Removes the configuration file.
+    """
+    session_id = request.cookies.get("session_id")
+    
+    # #region debug log
+    import json
+    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_onec_integration:entry","message":"disable_onec_integration called","data":{"session_id":session_id,"has_session":session_id is not None},"timestamp":int(__import__('time').time()*1000)})+'\n')
+    # #endregion
+    
+    try:
+        config = get_config()
+        config_path = config.config_dir / "onec_config.json"
+        
+        # #region debug log
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_onec_integration:before_delete","message":"About to delete config file","data":{"config_path":str(config_path),"exists":config_path.exists()},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        
+        # Remove config file
+        if config_path.exists():
+            config_path.unlink()
+        
+        # Log action
+        audit_logger = get_audit_logger()
+        audit_logger.log_user_interaction(
+            "onec_integration_disabled",
+            "1C integration disabled",
+            session_id=session_id
+        )
+        
+        # #region debug log
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_onec_integration:success","message":"1C integration disabled successfully","data":{},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        
+        return {
+            "status": "disabled",
+            "message": "1C integration has been disabled"
+        }
+        
+    except Exception as e:
+        # #region debug log
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_onec_integration:error","message":"Error disabling 1C integration","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        logger.error(f"Failed to disable 1C integration: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to disable integration: {str(e)}"
+        )
 
 
 # ========== PROJECT LAD INTEGRATION ==========
@@ -2335,4 +2393,61 @@ async def get_projectlad_status(request: Request):
         "configured": projectlad_config is not None,
         "config_exists": projectlad_config is not None
     }
+
+
+@router.post("/projectlad/disable")
+async def disable_projectlad_integration(request: Request):
+    """
+    Disable Project Lad integration.
+    Removes the configuration file.
+    """
+    session_id = request.cookies.get("session_id")
+    
+    # #region debug log
+    import json
+    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+        f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_projectlad_integration:entry","message":"disable_projectlad_integration called","data":{"session_id":session_id,"has_session":session_id is not None},"timestamp":int(__import__('time').time()*1000)})+'\n')
+    # #endregion
+    
+    try:
+        config = get_config()
+        config_path = config.config_dir / "projectlad_config.json"
+        
+        # #region debug log
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_projectlad_integration:before_delete","message":"About to delete config file","data":{"config_path":str(config_path),"exists":config_path.exists()},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        
+        # Remove config file
+        if config_path.exists():
+            config_path.unlink()
+        
+        # Log action
+        audit_logger = get_audit_logger()
+        audit_logger.log_user_interaction(
+            "projectlad_integration_disabled",
+            "Project Lad integration disabled",
+            session_id=session_id
+        )
+        
+        # #region debug log
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_projectlad_integration:success","message":"Project Lad integration disabled successfully","data":{},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        
+        return {
+            "status": "disabled",
+            "message": "Project Lad integration has been disabled"
+        }
+        
+    except Exception as e:
+        # #region debug log
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_projectlad_integration:error","message":"Error disabling Project Lad integration","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)})+'\n')
+        # #endregion
+        logger.error(f"Failed to disable Project Lad integration: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to disable integration: {str(e)}"
+        )
 

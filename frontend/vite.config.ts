@@ -33,7 +33,10 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        fileSelector: resolve(__dirname, 'file-selector.html')
+        fileSelector: resolve(__dirname, 'file-selector.html'),
+        workspaceFolderSelector: resolve(__dirname, 'workspace-folder-selector.html'),
+        onecSettings: resolve(__dirname, 'onec-settings.html'),
+        projectladSettings: resolve(__dirname, 'projectlad-settings.html')
       },
       output: {
         manualChunks: (id) => {
