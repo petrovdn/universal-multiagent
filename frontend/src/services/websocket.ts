@@ -835,6 +835,24 @@ export class WebSocketClient {
         break
       }
 
+      case 'slides_action': {
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          const workspaceStore = useWorkspaceStore.getState()
+          const { presentation_id, presentation_url, title } = event.data
+          workspaceStore.addTab({
+            type: 'slides',
+            title: title || 'Google Slides',
+            url: presentation_url || (presentation_id
+              ? `https://docs.google.com/presentation/d/${presentation_id}/edit`
+              : undefined),
+            data: { presentationId: presentation_id },
+            closeable: true,
+          })
+          console.log('[WebSocket] Slides action:', presentation_id)
+        })
+        break
+      }
+
       case 'email_preview': {
         import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
           const workspaceStore = useWorkspaceStore.getState()

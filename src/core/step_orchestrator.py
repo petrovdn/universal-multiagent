@@ -22,6 +22,8 @@ from src.mcp_tools.workspace_tools import get_workspace_tools
 from src.mcp_tools.sheets_tools import get_sheets_tools
 from src.mcp_tools.gmail_tools import get_gmail_tools
 from src.mcp_tools.calendar_tools import get_calendar_tools
+from src.mcp_tools.slides_tools import get_slides_tools
+from src.mcp_tools.docs_tools import get_docs_tools
 
 logger = get_logger(__name__)
 
@@ -132,6 +134,24 @@ class StepOrchestrator:
             calendar_tools = get_calendar_tools()
             tools.extend(calendar_tools)
             
+            # Load slides tools (Google Slides / Презентации)
+            slides_tools = get_slides_tools()
+            tools.extend(slides_tools)
+            
+            # Load docs tools (Google Docs / Документы)
+            docs_tools = get_docs_tools()
+            tools.extend(docs_tools)
+            
+            # Load 1C tools
+            from src.mcp_tools.onec_tools import get_onec_tools
+            onec_tools = get_onec_tools()
+            tools.extend(onec_tools)
+            
+            # Load Project Lad tools
+            from src.mcp_tools.projectlad_tools import get_projectlad_tools
+            projectlad_tools = get_projectlad_tools()
+            tools.extend(projectlad_tools)
+            
             # Remove duplicates by name
             seen_names = set()
             unique_tools = []
@@ -145,6 +165,70 @@ class StepOrchestrator:
         except Exception as e:
             logger.error(f"[StepOrchestrator] Failed to load tools: {e}")
             return []
+    
+    def _build_open_files_context(self, context: ConversationContext) -> Optional[str]:
+        """
+        Build context string for currently open files in workspace panel.
+        Similar to BaseAgent._build_open_files_context but adapted for StepOrchestrator.
+        
+        Args:
+            context: Conversation context
+            
+        Returns:
+            Context string or None if no open files
+        """
+        open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
+        
+        if not open_files:
+            return None
+        
+        # Extract document_id/spreadsheet_id from URL if missing
+        for file in open_files:
+            if file.get('type') == 'docs' and not file.get('document_id') and file.get('url'):
+                # Extract document ID from URL: /document/d/{ID}/
+                match = re.search(r'/document/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
+                if match:
+                    file['document_id'] = match.group(1)
+            elif file.get('type') == 'sheets' and not file.get('spreadsheet_id') and file.get('url'):
+                # Extract spreadsheet ID from URL: /spreadsheets/d/{ID}/
+                match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
+                if match:
+                    file['spreadsheet_id'] = match.group(1)
+        
+        context_lines = ["## Открытые файлы в рабочей области:\n"]
+        for i, file in enumerate(open_files, 1):
+            file_type = file.get('type', 'unknown')
+            title = file.get('title', 'Без названия')
+            
+            if file_type == 'sheets':
+                spreadsheet_id = file.get('spreadsheet_id', 'N/A')
+                url = file.get('url', '')
+                context_lines.append(f"{i}. 📊 Таблица: {title}")
+                context_lines.append(f"   ID: {spreadsheet_id}")
+                if url:
+                    context_lines.append(f"   URL: {url}")
+            elif file_type == 'docs':
+                document_id = file.get('document_id', 'N/A')
+                url = file.get('url', '')
+                context_lines.append(f"{i}. 📄 Документ: {title}")
+                context_lines.append(f"   ID: {document_id}")
+                if url:
+                    context_lines.append(f"   URL: {url}")
+            else:
+                context_lines.append(f"{i}. {title} ({file_type})")
+                if file.get('url'):
+                    context_lines.append(f"   URL: {file.get('url')}")
+        
+        context_lines.append("\n🚫 КРИТИЧЕСКИ ВАЖНО:")
+        context_lines.append("1. НИКОГДА не используй инструменты find_and_open_file, workspace_find_and_open_file, workspace_search_files или workspace_open_file для файлов из этого списка")
+        context_lines.append("2. Если пользователь упоминает название файла из этого списка (например, 'Сказка', 'документ', 'таблица', 'этот файл'), используй ПРЯМО document_id/spreadsheet_id из списка выше")
+        context_lines.append("3. НЕ создавай шаг 'Найти файл' в плане - файл УЖЕ открыт, просто используй его ID напрямую")
+        context_lines.append("4. Для ДОКУМЕНТОВ используй инструмент docs_read с параметром documentId=<ID из списка выше>")
+        context_lines.append("5. Для ТАБЛИЦ используй инструмент sheets_read_range с параметрами: spreadsheetId=<ID из списка выше>, range='A1:Z100' (БЕЗ имени листа, или 'Sheet1!A1:Z100')")
+        context_lines.append("6. ВАЖНО: НЕ используй название файла как имя листа! Первый лист обычно называется 'Sheet1' или 'Лист1'")
+        context_lines.append("7. Шаг поиска файла должен отображаться ТОЛЬКО если файла НЕТ в этом списке открытых файлов")
+        
+        return "\n".join(context_lines)
     
     def _is_simple_generative_task(self, user_request: str) -> bool:
         """
@@ -791,6 +875,11 @@ Create HumanMessage with text and optional file attachments."""
 - Используй идентификаторы (ID) объектов для прямого доступа к ним"""
                 has_entity_context = True
         
+        # Add open files context to system prompt (if available)
+        open_files_context = self._build_open_files_context(context)
+        if open_files_context:
+            system_prompt += f"\n\n{open_files_context}"
+        
         messages = [
             SystemMessage(content=system_prompt),  # Single SystemMessage with all system info
         ]
@@ -1162,6 +1251,11 @@ Create HumanMessage with text and optional file attachments."""
 - Если пользователь ссылается на них (через "этот", "тот", "такой") - используй их напрямую
 - НЕ планируй повторное получение объекта, который уже есть в списке выше
 - Используй идентификаторы (ID) объектов для прямого доступа к ним"""
+        
+        # Add open files context to system prompt (CRITICAL: enables agent to use already open files)
+        open_files_context = self._build_open_files_context(context)
+        if open_files_context:
+            system_prompt += f"\n\n{open_files_context}"
         
         # Prepare messages with file attachments if any (files_data already loaded above)
         step_message = create_message_with_files(step_context, files_data)
@@ -2271,6 +2365,124 @@ Get the confirmation ID for the current plan."""
                 logger.info(f"[StepOrchestrator] Sent sheets_action event for created spreadsheet {spreadsheet_id}")
             else:
                 logger.warning(f"[StepOrchestrator] Failed to extract spreadsheet_id from result: {result[:500]}")
+        
+        # Handle create_presentation or slides_create (direct MCP call)
+        elif tool_name == "create_presentation" or tool_name == "slides_create":
+            # #region agent log
+            try:
+                import json
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "step_orchestrator.py:_handle_workspace_events:create_presentation:entry",
+                        "message": "Processing create_presentation/slides_create",
+                        "data": {
+                            "tool_name": tool_name,
+                            "result_length": len(result),
+                            "result_preview": result[:300] if result else "",
+                            "tool_args": tool_args
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": self.session_id,
+                        "runId": "run1",
+                        "hypothesisId": "A"
+                    }) + "\n")
+            except: pass
+            # #endregion
+            
+            logger.info(f"[StepOrchestrator] Processing {tool_name}, result length: {len(result)}, result preview: {result[:200]}")
+            
+            # Check if result indicates an error (e.g., "ID: None" means presentation was not created)
+            if "(ID: None)" in result or "ID: None" in result:
+                logger.warning(f"[StepOrchestrator] Presentation creation failed (ID is None), not sending slides_action event")
+                return
+            
+            # Extract presentation ID and URL from result
+            # Result format: "Presentation 'title' created successfully (ID: {id}) URL: {url}" or JSON
+            try:
+                # Try to parse as JSON first
+                import json
+                result_json = json.loads(result) if isinstance(result, str) else result
+                if isinstance(result_json, dict) and "presentationId" in result_json:
+                    presentation_id = result_json.get("presentationId")
+                    url = result_json.get("url", f"https://docs.google.com/presentation/d/{presentation_id}/edit")
+                    title = result_json.get("title", tool_args.get("title", "Google Slides"))
+                else:
+                    # Fallback to regex parsing
+                    presentation_id_match = re.search(r'ID:\s*([a-zA-Z0-9_-]+)', result)
+                    url_match = re.search(r'URL:\s*(https?://[^\s]+)', result)
+                    title_match = re.search(r"Presentation\s+'([^']+)'", result)
+                    
+                    if presentation_id_match:
+                        presentation_id = presentation_id_match.group(1)
+                        url = url_match.group(1) if url_match else f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+                        title = title_match.group(1) if title_match else tool_args.get("title", "Google Slides")
+                    else:
+                        logger.warning(f"[StepOrchestrator] Failed to extract presentation_id from result: {result[:500]}")
+                        return
+            except json.JSONDecodeError:
+                # Not JSON, try regex
+                presentation_id_match = re.search(r'ID:\s*([a-zA-Z0-9_-]+)', result)
+                url_match = re.search(r'URL:\s*(https?://[^\s]+)', result)
+                title_match = re.search(r"Presentation\s+'([^']+)'", result)
+                
+                if presentation_id_match:
+                    presentation_id = presentation_id_match.group(1)
+                    url = url_match.group(1) if url_match else f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+                    title = title_match.group(1) if title_match else tool_args.get("title", "Google Slides")
+                else:
+                    logger.warning(f"[StepOrchestrator] Failed to extract presentation_id from result: {result[:500]}")
+                    return
+            
+            # #region agent log
+            try:
+                import json
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "step_orchestrator.py:_handle_workspace_events:create_presentation:before_send",
+                        "message": "About to send slides_action event",
+                        "data": {
+                            "presentation_id": presentation_id,
+                            "url": url,
+                            "title": title
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": self.session_id,
+                        "runId": "run1",
+                        "hypothesisId": "A"
+                    }) + "\n")
+            except: pass
+            # #endregion
+            
+            await self.ws_manager.send_event(
+                self.session_id,
+                "slides_action",
+                {
+                    "action": "create",
+                    "presentation_id": presentation_id,
+                    "presentation_url": url,
+                    "title": title,
+                    "description": f"Создана презентация '{title}'"
+                }
+            )
+            logger.info(f"[StepOrchestrator] Sent slides_action event for presentation {presentation_id}")
+            
+            # #region agent log
+            try:
+                import json
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "step_orchestrator.py:_handle_workspace_events:create_presentation:after_send",
+                        "message": "slides_action event sent",
+                        "data": {
+                            "presentation_id": presentation_id
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": self.session_id,
+                        "runId": "run1",
+                        "hypothesisId": "A"
+                    }) + "\n")
+            except: pass
+            # #endregion
     
     @staticmethod
     def _parse_user_selection(user_response: str, options: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

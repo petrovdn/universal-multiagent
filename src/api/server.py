@@ -182,11 +182,13 @@ async def send_message(request: Dict[str, Any]):
     - session_id: Optional session ID (creates new if not provided)
     - execution_mode: Optional execution mode (instant/approval)
     - file_ids: Optional list of file IDs to attach to the message
+    - open_files: Optional list of currently open files in workspace panel
     """
     user_message = request.get("message", "")
     session_id = request.get("session_id")
     execution_mode = request.get("execution_mode", "instant")
     file_ids = request.get("file_ids", [])
+    open_files = request.get("open_files", [])
     
     if not user_message and not file_ids:
         raise HTTPException(status_code=400, detail="Message or file is required")
@@ -214,12 +216,13 @@ async def send_message(request: Dict[str, Any]):
                 f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"server.py:send_message","message":"API request received","data":{"session_id":session_id,"user_message_length":len(user_message) if user_message else 0,"file_ids_count":len(file_ids) if file_ids else 0},"timestamp":int(time.time()*1000)})+'\n')
         except: pass
         # #endregion
-        logger.info(f"Processing message for session {session_id}, context session_id: {getattr(context, 'session_id', 'NOT SET')}, file_ids: {file_ids}")
+        logger.info(f"Processing message for session {session_id}, context session_id: {getattr(context, 'session_id', 'NOT SET')}, file_ids: {file_ids}, open_files: {len(open_files)}")
         result = await agent_wrapper.process_message(
             user_message,
             context,
             session_id,
-            file_ids=file_ids
+            file_ids=file_ids,
+            open_files=open_files
         )
         
         # #region agent log

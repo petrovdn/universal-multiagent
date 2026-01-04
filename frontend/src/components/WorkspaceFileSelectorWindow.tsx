@@ -11,7 +11,9 @@ import {
   FileVideo,
   FileAudio,
   Archive,
-  FileType
+  FileType,
+  AlertCircle,
+  Settings
 } from 'lucide-react'
 import { listWorkspaceFiles } from '../services/api'
 
@@ -29,6 +31,7 @@ interface FileItem {
 export function WorkspaceFileSelectorWindow() {
   const [files, setFiles] = useState<FileItem[]>([])
   const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<{ message: string; isConfigError: boolean } | null>(null)
 
   useEffect(() => {
     console.log('[WorkspaceFileSelectorWindow] Component mounted, calling loadFiles')
@@ -42,6 +45,7 @@ export function WorkspaceFileSelectorWindow() {
   const loadFiles = async () => {
     console.log('[WorkspaceFileSelectorWindow] loadFiles called')
     setIsLoading(true)
+    setError(null)
     try {
       console.log('[WorkspaceFileSelectorWindow] About to call listWorkspaceFiles')
       const result = await listWorkspaceFiles(undefined, undefined, 200)
@@ -50,10 +54,33 @@ export function WorkspaceFileSelectorWindow() {
       console.log('[WorkspaceFileSelectorWindow] Files state updated:', result.files?.length || 0)
     } catch (error: any) {
       console.error('[WorkspaceFileSelectorWindow] Error loading files:', error)
-      alert(error.message || 'Не удалось загрузить список файлов')
+      const errorMessage = error.message || error.response?.data?.detail || 'Не удалось загрузить список файлов'
+      const isConfigError = errorMessage.includes('Workspace folder not configured') || 
+                          errorMessage.includes('папка не настроена') ||
+                          errorMessage.includes('folder not configured')
+      setError({
+        message: errorMessage,
+        isConfigError
+      })
     } finally {
       setIsLoading(false)
       console.log('[WorkspaceFileSelectorWindow] loadFiles completed, isLoading:', false)
+    }
+  }
+
+  const handleOpenSettings = () => {
+    if (window.opener) {
+      // Send message to parent window to open settings
+      window.opener.postMessage({
+        type: 'open-workspace-settings',
+        action: 'configure-folder'
+      }, window.location.origin)
+      // Close this window
+      window.close()
+    } else {
+      // If no parent window, just close and show alert
+      alert('Пожалуйста, откройте настройки в главном окне и настройте папку Google Workspace')
+      window.close()
     }
   }
 
@@ -133,15 +160,66 @@ export function WorkspaceFileSelectorWindow() {
   }
 
   return (
-    <div className="h-screen w-full flex flex-col bg-white dark:bg-slate-900">
+    <div 
+      className="bg-white dark:bg-slate-900"
+      style={{
+        height: '100vh',
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column'
+      }}
+    >
       <div className="flex items-center p-4 border-b border-slate-200 dark:border-slate-700 flex-shrink-0 bg-slate-50 dark:bg-slate-800">
         <h2 className="text-xl font-semibold text-slate-900 dark:text-slate-100">Выберите файл из рабочей области</h2>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-white dark:bg-slate-900">
+      <div 
+        className="bg-white dark:bg-slate-900"
+        style={{
+          flex: '1 1 0%',
+          minHeight: '0',
+          overflowY: 'auto',
+          overflowX: 'hidden'
+        }}
+      >
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="w-6 h-6 animate-spin text-slate-400 dark:text-slate-500" />
+          </div>
+        ) : error ? (
+          <div className="flex items-center justify-center py-12 px-4">
+            <div className="max-w-md w-full bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-6 shadow-lg">
+              <div className="flex items-start space-x-4">
+                <div className="flex-shrink-0">
+                  <AlertCircle className="w-8 h-8 text-amber-500 dark:text-amber-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-slate-900 dark:text-slate-100 mb-2">
+                    {error.isConfigError ? 'Папка рабочего пространства не настроена' : 'Ошибка загрузки файлов'}
+                  </h3>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mb-4">
+                    {error.isConfigError 
+                      ? 'Для работы с файлами необходимо настроить папку рабочего пространства в Google Workspace. Пожалуйста, откройте настройки и выберите папку.'
+                      : error.message}
+                  </p>
+                  {error.isConfigError && (
+                    <button
+                      onClick={handleOpenSettings}
+                      className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors font-medium"
+                    >
+                      <Settings className="w-4 h-4" />
+                      <span>Открыть настройки</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={loadFiles}
+                    className={`mt-2 w-full px-4 py-2 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-300 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors ${error.isConfigError ? 'hidden' : ''}`}
+                  >
+                    Попробовать снова
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         ) : files.length === 0 ? (
           <div className="text-center py-8 text-slate-500 dark:text-slate-400">

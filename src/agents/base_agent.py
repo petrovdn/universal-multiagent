@@ -464,6 +464,18 @@ class BaseAgent:
                     ))
                     has_entity_context = True
             
+            # Add open files context if available
+            open_files_context = self._build_open_files_context(context)
+            if open_files_context:
+                # #region agent log
+                import json
+                import time
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:execute:adding_open_files_context","message":"Adding open files context to messages","data":{"context_length":len(open_files_context)},"timestamp":int(time.time()*1000)})+'\n')
+                except: pass
+                # #endregion
+                langchain_messages.append(SystemMessage(content=open_files_context))
             
             # Add recent messages from context
             for msg in recent_messages:
@@ -570,6 +582,85 @@ class BaseAgent:
     def get_tools(self) -> List[BaseTool]:
         """Get list of available tools."""
         return self.tools
+    
+    def _build_open_files_context(self, context: ConversationContext) -> Optional[str]:
+        """
+        Build context string for currently open files in workspace panel.
+        
+        Args:
+            context: Conversation context
+            
+        Returns:
+            Context string or None if no open files
+        """
+        # #region agent log
+        import json
+        import time
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:_build_open_files_context:entry","message":"Building open files context","data":{"context_has_get_open_files":hasattr(context,'get_open_files')},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:_build_open_files_context:after_get","message":"Retrieved open_files from context","data":{"open_files_count":len(open_files) if open_files else 0,"open_files":open_files if open_files else []},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        if not open_files:
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:_build_open_files_context:no_files","message":"No open files found, returning None","data":{},"timestamp":int(time.time()*1000)})+'\n')
+            except: pass
+            # #endregion
+            return None
+        
+        context_lines = ["## Открытые файлы в рабочей области:\n"]
+        for i, file in enumerate(open_files, 1):
+            file_type = file.get('type', 'unknown')
+            title = file.get('title', 'Без названия')
+            
+            if file_type == 'sheets':
+                spreadsheet_id = file.get('spreadsheet_id', 'N/A')
+                url = file.get('url', '')
+                context_lines.append(f"{i}. 📊 Таблица: {title}")
+                context_lines.append(f"   ID: {spreadsheet_id}")
+                if url:
+                    context_lines.append(f"   URL: {url}")
+            elif file_type == 'docs':
+                document_id = file.get('document_id', 'N/A')
+                url = file.get('url', '')
+                context_lines.append(f"{i}. 📄 Документ: {title}")
+                context_lines.append(f"   ID: {document_id}")
+                if url:
+                    context_lines.append(f"   URL: {url}")
+            else:
+                context_lines.append(f"{i}. {title} ({file_type})")
+                if file.get('url'):
+                    context_lines.append(f"   URL: {file.get('url')}")
+        
+        context_lines.append("\n🚫 КРИТИЧЕСКИ ВАЖНО:")
+        context_lines.append("1. НИКОГДА не используй инструменты find_and_open_file, workspace_find_and_open_file или workspace_search_files для файлов из этого списка")
+        context_lines.append("2. Если пользователь упоминает название файла из этого списка (например, 'Сказка', 'документ', 'таблица', 'этот файл'), используй ПРЯМО document_id/spreadsheet_id из списка выше")
+        context_lines.append("3. НЕ создавай шаг 'Найти файл' в плане - файл УЖЕ открыт, просто используй его ID напрямую")
+        context_lines.append("4. Если файл открыт, сразу переходи к выполнению действий с ним (read_document, read_sheet_data и т.д.)")
+        context_lines.append("5. Шаг поиска файла должен отображаться ТОЛЬКО если файла НЕТ в этом списке открытых файлов")
+        
+        result_context = "\n".join(context_lines)
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:_build_open_files_context:return","message":"Returning open files context","data":{"context_length":len(result_context),"context_preview":result_context[:200]},"timestamp":int(time.time()*1000)})+'\n')
+        except: pass
+        # #endregion
+        
+        return result_context
 
     async def execute_with_streaming(
         self,
@@ -595,6 +686,19 @@ class BaseAgent:
             
             # Prepare messages from context history
             langchain_messages = []
+            
+            # Add open files context if available
+            open_files_context = self._build_open_files_context(context)
+            if open_files_context:
+                # #region agent log
+                import json
+                import time
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:execute_with_streaming:adding_open_files_context","message":"Adding open files context to messages","data":{"context_length":len(open_files_context)},"timestamp":int(time.time()*1000)})+'\n')
+                except: pass
+                # #endregion
+                langchain_messages.append(SystemMessage(content=open_files_context))
             
             recent_messages = context.get_recent_messages(10)
             for msg in recent_messages:

@@ -5,6 +5,7 @@ import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain, Square } 
 import { useChatStore } from '../store/chatStore'
 import { useSettingsStore } from '../store/settingsStore'
 import { useModelStore } from '../store/modelStore'
+import { useWorkspaceStore } from '../store/workspaceStore'
 import { wsClient } from '../services/websocket'
 import { sendMessage, createSession, updateSettings, setSessionModel, uploadFile } from '../services/api'
 import { ChatMessage } from './ChatMessage'
@@ -57,6 +58,7 @@ export function ChatInterface() {
   
   const { executionMode, setExecutionMode } = useSettingsStore()
   const { models, selectedModel, setSelectedModel, fetchModels, isLoading: isLoadingModels, error: modelsError } = useModelStore()
+  const { tabs } = useWorkspaceStore()
   
   // Find last user message index
   const lastUserIndexInMessages = messages.map(m => m.role).lastIndexOf('user')
@@ -417,7 +419,19 @@ export function ChatInterface() {
 
     const userMessage = input.trim()
     const fileIds = attachedFiles.map(f => f.id)
-    console.log('[ChatInterface] Sending message:', userMessage, 'with files:', fileIds)
+    
+    // Collect open files from workspace tabs (excluding placeholder)
+    const openFiles = tabs
+      .filter(tab => tab.type !== 'placeholder')
+      .map(tab => ({
+        type: tab.type,
+        title: tab.title,
+        url: tab.url,
+        spreadsheet_id: tab.data?.spreadsheet_id,
+        document_id: tab.data?.document_id,
+      }))
+    
+    console.log('[ChatInterface] Sending message:', userMessage, 'with files:', fileIds, 'open files:', openFiles)
     console.log('[ChatInterface] Current session:', currentSession)
     console.log('[ChatInterface] WebSocket connected:', wsClient.isConnected())
     
@@ -450,13 +464,14 @@ export function ChatInterface() {
       // Try WebSocket first if session exists and connection is open
       if (currentSession && wsClient.isConnected()) {
         // Use REST API when files are attached (WebSocket doesn't support files yet)
-        if (fileIds.length > 0) {
-          console.log('[ChatInterface] Using REST API (files attached)')
+        if (fileIds.length > 0 || openFiles.length > 0) {
+          console.log('[ChatInterface] Using REST API (files attached or open files)')
           await sendMessage({
             message: userMessage,
             session_id: currentSession,
             execution_mode: executionMode,
-            file_ids: fileIds,
+            file_ids: fileIds.length > 0 ? fileIds : undefined,
+            open_files: openFiles.length > 0 ? openFiles : undefined,
           })
         } else {
           console.log('[ChatInterface] Using WebSocket to send message')
@@ -481,6 +496,7 @@ export function ChatInterface() {
           session_id: currentSession,
           execution_mode: executionMode,
           file_ids: fileIds.length > 0 ? fileIds : undefined,
+          open_files: openFiles.length > 0 ? openFiles : undefined,
         })
       } else {
         // Create new session FIRST, then connect WebSocket, then send message
@@ -510,14 +526,15 @@ export function ChatInterface() {
         }
         
         // Now send message via WebSocket or REST API
-        // Note: WebSocket doesn't support file_ids yet, so we use REST API when files are attached
-        if (fileIds.length > 0 || !wsClient.isConnected()) {
-          console.log('[ChatInterface] Using REST API (files attached or WebSocket not connected)')
+        // Note: WebSocket doesn't support file_ids/open_files yet, so we use REST API when files are attached
+        if (fileIds.length > 0 || openFiles.length > 0 || !wsClient.isConnected()) {
+          console.log('[ChatInterface] Using REST API (files attached, open files, or WebSocket not connected)')
           await sendMessage({
             message: userMessage,
             session_id: newSessionId,
             execution_mode: executionMode,
             file_ids: fileIds.length > 0 ? fileIds : undefined,
+            open_files: openFiles.length > 0 ? openFiles : undefined,
           })
         } else {
           console.log('[ChatInterface] Sending message via WebSocket')

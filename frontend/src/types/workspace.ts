@@ -21,6 +21,7 @@ export interface WorkspaceTab {
   data?: any
   closeable: boolean
   timestamp: number
+  isLoading?: boolean
 }
 
 export interface WorkspaceStore {

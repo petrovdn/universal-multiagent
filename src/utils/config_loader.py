@@ -155,15 +155,44 @@ class OneCConfig(BaseModel):
         return v.strip()
 
 
+class ProjectLadConfig(BaseModel):
+    """
+    Configuration for Project Lad API connection."""
+    
+    base_url: str = Field(description="Base URL for Project Lad API (e.g., https://api.staging.po.ladcloud.ru)")
+    email: str = Field(description="Email for authentication")
+    password: str = Field(description="Password for authentication")
+    
+    @field_validator("base_url")
+    @classmethod
+    def validate_url(cls, v):
+        if not v or not isinstance(v, str) or not v.strip():
+            raise ValueError("Base URL is required")
+        v = v.strip().rstrip('/')
+        if not v.startswith(('http://', 'https://')):
+            raise ValueError("Base URL must start with http:// or https://")
+        return v
+    
+    @field_validator("email", "password")
+    @classmethod
+    def validate_credentials(cls, v):
+        if not v or not isinstance(v, str) or not v.strip():
+            raise ValueError("Email and password are required")
+        return v.strip()
+
+
 class MCPConfig(BaseModel):
     """
-MCP servers configuration."""
+    MCP servers configuration."""
     
     gmail: MCPServerConfig
     calendar: MCPServerConfig
     sheets: MCPServerConfig
     google_workspace: MCPServerConfig
+    docs: MCPServerConfig
+    slides: MCPServerConfig
     onec: MCPServerConfig
+    projectlad: MCPServerConfig
     
     @classmethod
     def from_env(cls) -> "MCPConfig":
@@ -193,10 +222,28 @@ Create MCPConfig from environment variables."""
                 transport=os.getenv("WORKSPACE_MCP_TRANSPORT", "stdio"),  # stdio для локального Python сервера
                 api_key=None,  # Не требуется для локального сервера
             ),
+            docs=MCPServerConfig(
+                name="docs",
+                endpoint=os.getenv("DOCS_MCP_ENDPOINT", "http://localhost:9006"),
+                transport=os.getenv("DOCS_MCP_TRANSPORT", "stdio"),  # stdio для локального Python сервера
+                api_key=None,  # Не требуется для локального сервера
+            ),
+            slides=MCPServerConfig(
+                name="slides",
+                endpoint=os.getenv("SLIDES_MCP_ENDPOINT", "http://localhost:9007"),
+                transport=os.getenv("SLIDES_MCP_TRANSPORT", "stdio"),  # stdio для локального Python сервера
+                api_key=None,  # Не требуется для локального сервера
+            ),
             onec=MCPServerConfig(
                 name="onec",
                 endpoint=os.getenv("ONEC_MCP_ENDPOINT", "http://localhost:9005"),
                 transport=os.getenv("ONEC_MCP_TRANSPORT", "stdio"),  # stdio для локального Python сервера
+                api_key=None,  # Не требуется для локального сервера
+            ),
+            projectlad=MCPServerConfig(
+                name="projectlad",
+                endpoint=os.getenv("PROJECTLAD_MCP_ENDPOINT", "http://localhost:9008"),
+                transport=os.getenv("PROJECTLAD_MCP_TRANSPORT", "stdio"),  # stdio для локального Python сервера
                 api_key=None,  # Не требуется для локального сервера
             ),
         )
@@ -485,4 +532,50 @@ def save_onec_config(onec_config: OneCConfig) -> None:
     import logging
     logger = logging.getLogger(__name__)
     logger.info(f"1C config saved to {config_path}")
+
+
+def get_projectlad_config() -> Optional[ProjectLadConfig]:
+    """
+    Load Project Lad configuration from file.
+    
+    Returns:
+        ProjectLadConfig instance or None if config file doesn't exist
+    """
+    config = get_config()
+    config_path = config.config_dir / "projectlad_config.json"
+    
+    if not config_path.exists():
+        return None
+    
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        return ProjectLadConfig(**data)
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to load Project Lad config from {config_path}: {e}")
+        return None
+
+
+def save_projectlad_config(projectlad_config: ProjectLadConfig) -> None:
+    """
+    Save Project Lad configuration to file.
+    
+    Args:
+        projectlad_config: ProjectLadConfig instance to save
+    """
+    config = get_config()
+    config_path = config.config_dir / "projectlad_config.json"
+    
+    # Ensure config directory exists
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Save config (password will be stored in plain text for demo purposes)
+    with open(config_path, 'w', encoding='utf-8') as f:
+        json.dump(projectlad_config.model_dump(), f, indent=2, ensure_ascii=False)
+    
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.info(f"Project Lad config saved to {config_path}")
 

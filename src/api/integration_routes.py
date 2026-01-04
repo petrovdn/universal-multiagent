@@ -13,7 +13,7 @@ import logging
 import os
 
 from src.utils.google_auth import AuthManager, OAuthAuth
-from src.utils.config_loader import get_config, get_onec_config, save_onec_config, OneCConfig
+from src.utils.config_loader import get_config, get_onec_config, save_onec_config, OneCConfig, get_projectlad_config, save_projectlad_config, ProjectLadConfig
 from src.utils.audit import get_audit_logger
 from src.api.session_manager import get_session_manager
 
@@ -2183,5 +2183,156 @@ async def get_onec_status(request: Request):
         "enabled": onec_config is not None,
         "configured": onec_config is not None,
         "config_exists": onec_config is not None
+    }
+
+
+# ========== PROJECT LAD INTEGRATION ==========
+
+@router.post("/projectlad/config")
+async def save_projectlad_config_endpoint(
+    request: Request,
+    config: Dict[str, Any]
+):
+    """
+    Save Project Lad configuration.
+    
+    Expected payload:
+    {
+        "base_url": "https://api.staging.po.ladcloud.ru",
+        "email": "...",
+        "password": "..."
+    }
+    """
+    try:
+        projectlad_config = ProjectLadConfig(**config)
+        save_projectlad_config(projectlad_config)
+        
+        # Log action
+        session_id = request.cookies.get("session_id")
+        audit_logger = get_audit_logger()
+        audit_logger.log_user_interaction(
+            "projectlad_config_saved",
+            f"Project Lad config saved: {projectlad_config.base_url}",
+            session_id=session_id
+        )
+        
+        return {
+            "success": True,
+            "message": "Project Lad configuration saved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Failed to save Project Lad config: {e}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to save Project Lad configuration: {str(e)}"
+        )
+
+
+@router.get("/projectlad/config")
+async def get_projectlad_config_endpoint(request: Request):
+    """
+    Get current Project Lad configuration.
+    Returns config without password for security.
+    """
+    try:
+        projectlad_config = get_projectlad_config()
+        if not projectlad_config:
+            return {
+                "configured": False,
+                "config": None
+            }
+        
+        # Return config without password
+        config_dict = projectlad_config.model_dump()
+        config_dict["password"] = "***"  # Hide password
+        return {
+            "configured": True,
+            "config": config_dict
+        }
+    except Exception as e:
+        logger.error(f"Failed to get Project Lad config: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get Project Lad configuration: {str(e)}"
+        )
+
+
+@router.post("/projectlad/test")
+async def test_projectlad_connection(request: Request):
+    """
+    Test Project Lad connection by authenticating.
+    """
+    try:
+        projectlad_config = get_projectlad_config()
+        if not projectlad_config:
+            raise HTTPException(
+                status_code=400,
+                detail="Project Lad configuration not found. Please configure Project Lad connection first."
+            )
+        
+        # Test connection by authenticating
+        import httpx
+        
+        login_url = f"{projectlad_config.base_url}/v1/auth/login"
+        payload = {
+            "email": projectlad_config.email,
+            "password": projectlad_config.password
+        }
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(login_url, json=payload)
+            
+            if response.status_code == 200:
+                data = response.json()
+                token = data.get('result', {}).get('access_token')
+                
+                # Log action
+                session_id = request.cookies.get("session_id")
+                audit_logger = get_audit_logger()
+                audit_logger.log_user_interaction(
+                    "projectlad_connection_tested",
+                    f"Project Lad connection test successful: {projectlad_config.base_url}",
+                    session_id=session_id
+                )
+                
+                return {
+                    "connected": True,
+                    "message": "Successfully connected to Project Lad API"
+                }
+            else:
+                return {
+                    "connected": False,
+                    "message": f"Connection failed with status {response.status_code}: {response.text[:200]}"
+                }
+                
+    except httpx.TimeoutException as e:
+        raise HTTPException(
+            status_code=408,
+            detail="Connection timeout. Please check the base URL and network connectivity."
+        )
+    except httpx.RequestError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Connection error: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to test Project Lad connection: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to test Project Lad connection: {str(e)}"
+        )
+
+
+@router.get("/projectlad/status")
+async def get_projectlad_status(request: Request):
+    """
+    Get Project Lad integration status.
+    """
+    projectlad_config = get_projectlad_config()
+    
+    return {
+        "enabled": projectlad_config is not None,
+        "configured": projectlad_config is not None,
+        "config_exists": projectlad_config is not None
     }
 

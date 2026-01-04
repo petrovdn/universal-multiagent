@@ -1,4 +1,5 @@
 import axios from 'axios'
+import type { WorkspaceTabType } from '../types/workspace'
 
 const api = axios.create({
   baseURL: '/api',
@@ -50,11 +51,20 @@ export interface Model {
   default: boolean
 }
 
+export interface OpenFile {
+  type: WorkspaceTabType
+  title: string
+  url?: string
+  spreadsheet_id?: string
+  document_id?: string
+}
+
 export interface SendMessageRequest {
   message: string
   session_id?: string
   execution_mode?: 'instant' | 'approval'
   file_ids?: string[]
+  open_files?: OpenFile[]
 }
 
 export interface UploadFileResponse {
@@ -291,6 +301,33 @@ export const testOneCConnection = async () => {
 
 export const getOneCStatus = async () => {
   const response = await api.get('/integrations/onec/status')
+  return response.data
+}
+
+// Project Lad Integration APIs
+export interface ProjectLadConfig {
+  base_url: string
+  email: string
+  password: string
+}
+
+export const saveProjectLadConfig = async (config: ProjectLadConfig) => {
+  const response = await api.post('/integrations/projectlad/config', config)
+  return response.data
+}
+
+export const getProjectLadConfig = async () => {
+  const response = await api.get('/integrations/projectlad/config')
+  return response.data
+}
+
+export const testProjectLadConnection = async () => {
+  const response = await api.post('/integrations/projectlad/test')
+  return response.data
+}
+
+export const getProjectLadStatus = async () => {
+  const response = await api.get('/integrations/projectlad/status')
   return response.data
 }
 

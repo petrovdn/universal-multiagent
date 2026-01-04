@@ -1,7 +1,10 @@
 """
 Google Workspace MCP Server.
-Provides MCP tools for Google Drive, Google Docs, and Google Sheets operations via OAuth2.
+Provides MCP tools for Google Drive and Google Sheets operations via OAuth2.
 Unified integration for working with files in a designated workspace folder.
+
+Note: Google Docs operations are handled by the separate google_docs_server.py MCP server.
+Google Slides operations are handled by the separate google_slides_server.py MCP server.
 """
 
 import asyncio
@@ -25,13 +28,16 @@ logger = logging.getLogger(__name__)
 # Google Workspace API scopes
 WORKSPACE_SCOPES = [
     "https://www.googleapis.com/auth/drive",
-    "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
 
 class GoogleWorkspaceMCPServer:
-    """MCP Server for Google Workspace operations (Drive, Docs, Sheets)."""
+    """MCP Server for Google Workspace operations (Drive and Sheets only).
+    
+    Note: Docs operations are handled by google_docs_server.py
+    Note: Slides operations are handled by google_slides_server.py
+    """
     
     def __init__(self, token_path: Path, config_path: Optional[Path] = None):
         """
@@ -44,7 +50,6 @@ class GoogleWorkspaceMCPServer:
         self.token_path = Path(token_path)
         self.config_path = config_path or Path("config/workspace_config.json")
         self._drive_service = None
-        self._docs_service = None
         self._sheets_service = None
         self._workspace_folder_id = None
         self.server = Server("google-workspace-mcp")
@@ -104,13 +109,6 @@ class GoogleWorkspaceMCPServer:
             creds = self._get_credentials()
             self._drive_service = build('drive', 'v3', credentials=creds)
         return self._drive_service
-    
-    def _get_docs_service(self):
-        """Get or create Google Docs API service."""
-        if self._docs_service is None:
-            creds = self._get_credentials()
-            self._docs_service = build('docs', 'v1', credentials=creds)
-        return self._docs_service
     
     def _get_sheets_service(self):
         """Get or create Google Sheets API service."""
@@ -315,132 +313,6 @@ class GoogleWorkspaceMCPServer:
                             }
                         },
                         "required": ["query"]
-                    }
-                ),
-                
-                # ========== DOCS OPERATIONS ==========
-                Tool(
-                    name="docs_create",
-                    description="Create a new Google Docs document in the workspace folder.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "title": {
-                                "type": "string",
-                                "description": "Title of the document"
-                            },
-                            "initialText": {
-                                "type": "string",
-                                "description": "Initial text content (optional)"
-                            }
-                        },
-                        "required": ["title"]
-                    }
-                ),
-                Tool(
-                    name="docs_read",
-                    description="Read the full content of a Google Docs document.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "documentId": {
-                                "type": "string",
-                                "description": "Document ID or URL"
-                            }
-                        },
-                        "required": ["documentId"]
-                    }
-                ),
-                Tool(
-                    name="docs_update",
-                    description="Replace all content in a Google Docs document with new text.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "documentId": {
-                                "type": "string",
-                                "description": "Document ID or URL"
-                            },
-                            "content": {
-                                "type": "string",
-                                "description": "New content to write"
-                            }
-                        },
-                        "required": ["documentId", "content"]
-                    }
-                ),
-                Tool(
-                    name="docs_append",
-                    description="Append text to the end of a Google Docs document.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "documentId": {
-                                "type": "string",
-                                "description": "Document ID or URL"
-                            },
-                            "content": {
-                                "type": "string",
-                                "description": "Text to append"
-                            }
-                        },
-                        "required": ["documentId", "content"]
-                    }
-                ),
-                Tool(
-                    name="docs_insert",
-                    description="Insert text at a specific position in a Google Docs document.",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "documentId": {
-                                "type": "string",
-                                "description": "Document ID or URL"
-                            },
-                            "index": {
-                                "type": "integer",
-                                "description": "Character index where to insert (0-based)"
-                            },
-                            "content": {
-                                "type": "string",
-                                "description": "Text to insert"
-                            }
-                        },
-                        "required": ["documentId", "index", "content"]
-                    }
-                ),
-                Tool(
-                    name="docs_format_text",
-                    description="Format text in a Google Docs document (bold, italic, underline, etc.).",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "documentId": {
-                                "type": "string",
-                                "description": "Document ID or URL"
-                            },
-                            "startIndex": {
-                                "type": "integer",
-                                "description": "Start character index (0-based)"
-                            },
-                            "endIndex": {
-                                "type": "integer",
-                                "description": "End character index (exclusive)"
-                            },
-                            "bold": {
-                                "type": "boolean",
-                                "description": "Make text bold"
-                            },
-                            "italic": {
-                                "type": "boolean",
-                                "description": "Make text italic"
-                            },
-                            "underline": {
-                                "type": "boolean",
-                                "description": "Make text underlined"
-                            }
-                        },
-                        "required": ["documentId", "startIndex", "endIndex"]
                     }
                 ),
                 
@@ -947,18 +819,8 @@ class GoogleWorkspaceMCPServer:
                         "url": file_info.get('webViewLink')
                     }
                     
-                    # Handle Google Docs
-                    if mime_type == "application/vnd.google-apps.document":
-                        docs_service = self._get_docs_service()
-                        document = docs_service.documents().get(documentId=file_id).execute()
-                        content = document.get('body', {}).get('content', [])
-                        text_content = self._extract_text_from_docs_content(content)
-                        result_data["type"] = "document"
-                        result_data["content"] = text_content
-                        result_data["title"] = document.get('title', file_name)
-                    
                     # Handle Google Sheets
-                    elif mime_type == "application/vnd.google-apps.spreadsheet":
+                    if mime_type == "application/vnd.google-apps.spreadsheet":
                         sheets_service = self._get_sheets_service()
                         
                         # Get spreadsheet info to find sheet name
@@ -1011,10 +873,13 @@ class GoogleWorkspaceMCPServer:
                             result_data["columnCount"] = len(values[0]) if values else 0
                             result_data["range"] = range_to_read
                     
-                    # Handle other file types
+                    # Handle other file types (including Docs - use docs MCP server for Docs files)
                     else:
                         result_data["type"] = "other"
-                        result_data["error"] = f"File type not supported for reading: {mime_type}"
+                        if mime_type == "application/vnd.google-apps.document":
+                            result_data["error"] = f"Document files should be opened using the docs MCP server. File type: {mime_type}"
+                        else:
+                            result_data["error"] = f"File type not supported for reading: {mime_type}"
                     
                     return [TextContent(
                         type="text",
@@ -1124,16 +989,7 @@ class GoogleWorkspaceMCPServer:
                     }
                     
                     # Read content based on type
-                    if file_mime_type == "application/vnd.google-apps.document":
-                        docs_service = self._get_docs_service()
-                        document = docs_service.documents().get(documentId=file_id).execute()
-                        content = document.get('body', {}).get('content', [])
-                        text_content = self._extract_text_from_docs_content(content)
-                        result_data["type"] = "document"
-                        result_data["content"] = text_content
-                        result_data["title"] = document.get('title', first_file.get('name'))
-                    
-                    elif file_mime_type == "application/vnd.google-apps.spreadsheet":
+                    if file_mime_type == "application/vnd.google-apps.spreadsheet":
                         sheets_service = self._get_sheets_service()
                         spreadsheet = sheets_service.spreadsheets().get(spreadsheetId=file_id).execute()
                         sheets_list = spreadsheet.get('sheets', [])
@@ -1169,248 +1025,14 @@ class GoogleWorkspaceMCPServer:
                     
                     else:
                         result_data["type"] = "other"
-                        result_data["error"] = f"File type not supported: {file_mime_type}"
+                        if file_mime_type == "application/vnd.google-apps.document":
+                            result_data["error"] = f"Document files should be opened using the docs MCP server. File type: {file_mime_type}"
+                        else:
+                            result_data["error"] = f"File type not supported: {file_mime_type}"
                     
                     return [TextContent(
                         type="text",
                         text=json.dumps(result_data, indent=2, default=str)
-                    )]
-                
-                # ========== DOCS OPERATIONS ==========
-                elif name == "docs_create":
-                    drive_service = self._get_drive_service()
-                    docs_service = self._get_docs_service()
-                    folder_id = self._get_workspace_folder_id()
-                    
-                    if not folder_id:
-                        return [TextContent(
-                            type="text",
-                            text=json.dumps({
-                                "error": "Workspace folder not configured. Please set workspace folder first."
-                            }, indent=2)
-                        )]
-                    
-                    title = arguments.get("title")
-                    initial_text = arguments.get("initialText", "")
-                    
-                    # Create document
-                    document = docs_service.documents().create(
-                        body={"title": title}
-                    ).execute()
-                    
-                    document_id = document.get('documentId')
-                    
-                    # Move to workspace folder
-                    if folder_id:
-                        file_info = drive_service.files().get(
-                            fileId=document_id,
-                            fields="parents"
-                        ).execute()
-                        previous_parents = ",".join(file_info.get('parents', []))
-                        drive_service.files().update(
-                            fileId=document_id,
-                            addParents=folder_id,
-                            removeParents=previous_parents,
-                            fields="id, parents"
-                        ).execute()
-                    
-                    # Add initial text if provided
-                    if initial_text:
-                        docs_service.documents().batchUpdate(
-                            documentId=document_id,
-                            body={
-                                "requests": [{
-                                    "insertText": {
-                                        "location": {"index": 1},
-                                        "text": initial_text
-                                    }
-                                }]
-                            }
-                        ).execute()
-                    
-                    # Get document URL
-                    doc_file = drive_service.files().get(
-                        fileId=document_id,
-                        fields="webViewLink"
-                    ).execute()
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "documentId": document_id,
-                            "title": title,
-                            "url": doc_file.get('webViewLink')
-                        }, indent=2)
-                    )]
-                
-                elif name == "docs_read":
-                    docs_service = self._get_docs_service()
-                    document_id = self._extract_file_id(arguments.get("documentId"))
-                    
-                    document = docs_service.documents().get(documentId=document_id).execute()
-                    
-                    # Extract text content
-                    content = document.get('body', {}).get('content', [])
-                    text_content = self._extract_text_from_docs_content(content)
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "documentId": document_id,
-                            "title": document.get('title'),
-                            "content": text_content
-                        }, indent=2)
-                    )]
-                
-                elif name == "docs_update":
-                    docs_service = self._get_docs_service()
-                    document_id = self._extract_file_id(arguments.get("documentId"))
-                    content = arguments.get("content")
-                    
-                    # Get document to find end index
-                    document = docs_service.documents().get(documentId=document_id).execute()
-                    end_index = document.get('body', {}).get('content', [{}])[-1].get('endIndex', 1)
-                    
-                    # Delete existing content (except the last newline)
-                    requests = []
-                    if end_index > 1:
-                        requests.append({
-                            "deleteContentRange": {
-                                "range": {
-                                    "startIndex": 1,
-                                    "endIndex": end_index - 1
-                                }
-                            }
-                        })
-                    
-                    # Insert new content
-                    if content:
-                        requests.append({
-                            "insertText": {
-                                "location": {"index": 1},
-                                "text": content
-                            }
-                        })
-                    
-                    if requests:
-                        docs_service.documents().batchUpdate(
-                            documentId=document_id,
-                            body={"requests": requests}
-                        ).execute()
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "updated",
-                            "documentId": document_id
-                        }, indent=2)
-                    )]
-                
-                elif name == "docs_append":
-                    docs_service = self._get_docs_service()
-                    document_id = self._extract_file_id(arguments.get("documentId"))
-                    content = arguments.get("content")
-                    
-                    # Get document to find end index
-                    document = docs_service.documents().get(documentId=document_id).execute()
-                    end_index = document.get('body', {}).get('content', [{}])[-1].get('endIndex', 1)
-                    
-                    # Insert at end (before the last newline)
-                    insert_index = end_index - 1
-                    docs_service.documents().batchUpdate(
-                        documentId=document_id,
-                        body={
-                            "requests": [{
-                                "insertText": {
-                                    "location": {"index": insert_index},
-                                    "text": content
-                                }
-                            }]
-                        }
-                    ).execute()
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "appended",
-                            "documentId": document_id
-                        }, indent=2)
-                    )]
-                
-                elif name == "docs_insert":
-                    docs_service = self._get_docs_service()
-                    document_id = self._extract_file_id(arguments.get("documentId"))
-                    index = arguments.get("index")
-                    content = arguments.get("content")
-                    
-                    docs_service.documents().batchUpdate(
-                        documentId=document_id,
-                        body={
-                            "requests": [{
-                                "insertText": {
-                                    "location": {"index": index},
-                                    "text": content
-                                }
-                            }]
-                        }
-                    ).execute()
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "inserted",
-                            "documentId": document_id,
-                            "index": index
-                        }, indent=2)
-                    )]
-                
-                elif name == "docs_format_text":
-                    docs_service = self._get_docs_service()
-                    document_id = self._extract_file_id(arguments.get("documentId"))
-                    start_index = arguments.get("startIndex")
-                    end_index = arguments.get("endIndex")
-                    
-                    update_mask = []
-                    text_style = {}
-                    
-                    if "bold" in arguments:
-                        text_style["bold"] = arguments["bold"]
-                        update_mask.append("bold")
-                    if "italic" in arguments:
-                        text_style["italic"] = arguments["italic"]
-                        update_mask.append("italic")
-                    if "underline" in arguments:
-                        text_style["underline"] = arguments["underline"]
-                        update_mask.append("underline")
-                    
-                    if not update_mask:
-                        return [TextContent(
-                            type="text",
-                            text=json.dumps({"error": "No formatting options provided"}, indent=2)
-                        )]
-                    
-                    requests = [{
-                        "updateTextStyle": {
-                            "range": {
-                                "startIndex": start_index,
-                                "endIndex": end_index
-                            },
-                            "textStyle": text_style,
-                            "fields": ",".join(update_mask)
-                        }
-                    }]
-                    
-                    docs_service.documents().batchUpdate(
-                        documentId=document_id,
-                        body={"requests": requests}
-                    ).execute()
-                    
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "status": "formatted",
-                            "documentId": document_id
-                        }, indent=2)
                     )]
                 
                 # ========== SHEETS OPERATIONS ==========
@@ -1696,33 +1318,6 @@ class GoogleWorkspaceMCPServer:
                     type="text",
                     text=json.dumps({"error": error_msg}, indent=2)
                 )]
-    
-    def _extract_text_from_docs_content(self, content: List[Dict]) -> str:
-        """Extract plain text from Google Docs content structure."""
-        text_parts = []
-        
-        for element in content:
-            if 'paragraph' in element:
-                paragraph = element['paragraph']
-                elements = paragraph.get('elements', [])
-                for elem in elements:
-                    if 'textRun' in elem:
-                        text_parts.append(elem['textRun'].get('content', ''))
-            elif 'table' in element:
-                # Handle tables - extract cell text
-                table = element['table']
-                for row in table.get('tableRows', []):
-                    row_texts = []
-                    for cell in row.get('tableCells', []):
-                        cell_content = cell.get('content', [])
-                        cell_text = self._extract_text_from_docs_content(cell_content)
-                        row_texts.append(cell_text.strip())
-                    text_parts.append("\t".join(row_texts))
-                text_parts.append("\n")
-            elif 'sectionBreak' in element:
-                text_parts.append("\n\n")
-        
-        return "".join(text_parts)
     
     @staticmethod
     def _column_letter(n: int) -> str:

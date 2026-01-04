@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
 import { Settings, Calendar, Mail, ChevronDown, Folder, LogOut, Database, FileSpreadsheet } from 'lucide-react'
 import { useSettingsStore } from '../store/settingsStore'
-import { enableGoogleCalendar, disableGoogleCalendar, getGoogleCalendarStatus, enableGmail, disableGmail, getGmailStatus, enableGoogleWorkspace, disableGoogleWorkspace, getGoogleWorkspaceStatus, enableGoogleSheets, disableGoogleSheets, getGoogleSheetsStatus, logout, getCurrentUser, getOneCStatus } from '../services/api'
+import { enableGoogleCalendar, disableGoogleCalendar, getGoogleCalendarStatus, enableGmail, disableGmail, getGmailStatus, enableGoogleWorkspace, disableGoogleWorkspace, getGoogleWorkspaceStatus, enableGoogleSheets, disableGoogleSheets, getGoogleSheetsStatus, logout, getCurrentUser, getOneCStatus, getProjectLadStatus } from '../services/api'
 import { WorkspaceFolderSelector } from './WorkspaceFolderSelector'
 import { OneCSettingsDialog } from './OneCSettingsDialog'
+import { ProjectLadSettingsDialog } from './ProjectLadSettingsDialog'
 
 export function Header() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isFolderSelectorOpen, setIsFolderSelectorOpen] = useState(false)
   const [isOneCDialogOpen, setIsOneCDialogOpen] = useState(false)
+  const [isProjectLadDialogOpen, setIsProjectLadDialogOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const { integrations, setIntegrationStatus, debugMode, setDebugMode } = useSettingsStore()
   const [currentUser, setCurrentUser] = useState<string | null>(null)
@@ -23,6 +25,26 @@ export function Header() {
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Handle messages from file selector window to open workspace settings
+  useEffect(() => {
+    const handleOpenWorkspaceSettings = (event: CustomEvent) => {
+      // Open settings dropdown
+      setIsSettingsOpen(true)
+      // Open folder selector if action is to configure folder
+      if (event.detail?.action === 'configure-folder') {
+        // Small delay to ensure dropdown is open
+        setTimeout(() => {
+          setIsFolderSelectorOpen(true)
+        }, 100)
+      }
+    }
+
+    window.addEventListener('open-workspace-settings', handleOpenWorkspaceSettings as EventListener)
+    return () => {
+      window.removeEventListener('open-workspace-settings', handleOpenWorkspaceSettings as EventListener)
+    }
   }, [])
 
   // Load integration status on mount and when status changes
@@ -138,6 +160,13 @@ export function Header() {
       setIntegrationStatus('onec', {
         enabled: onecConfigured,
         authenticated: onecConfigured,
+      })
+      
+      const projectladStatus = await getProjectLadStatus()
+      const projectladConfigured = projectladStatus.configured || false
+      setIntegrationStatus('projectlad', {
+        enabled: projectladConfigured,
+        authenticated: projectladConfigured,
       })
     } catch (error) {
       console.error('Failed to load integration status:', error)
@@ -481,6 +510,36 @@ export function Header() {
                       <div className={`toggle-slider ${integrations.onec.authenticated ? 'active' : ''}`}></div>
                     </button>
                   </div>
+
+                  {/* Project Lad */}
+                  <div className="integration-row">
+                    <div className="flex items-center space-x-2">
+                      <div className={`integration-icon ${integrations.projectlad.authenticated ? 'active' : ''}`} style={{ backgroundColor: integrations.projectlad.authenticated ? '#8b5cf6' : '#94a3b8', color: 'white' }}>
+                        <Folder className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="integration-name">Project Lad</div>
+                        <div className="integration-status">
+                          {integrations.projectlad.authenticated ? 'Настроено' : 'Не настроено'}
+                        </div>
+                        {integrations.projectlad.authenticated && (
+                          <button
+                            onClick={() => setIsProjectLadDialogOpen(true)}
+                            className="text-xs text-blue-600 hover:text-blue-700 mt-1"
+                          >
+                            Изменить настройки
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setIsProjectLadDialogOpen(true)}
+                      disabled={isLoading}
+                      className="toggle-button"
+                    >
+                      <div className={`toggle-slider ${integrations.projectlad.authenticated ? 'active' : ''}`}></div>
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -534,6 +593,15 @@ export function Header() {
         isOpen={isOneCDialogOpen}
         onClose={() => setIsOneCDialogOpen(false)}
         onConfigSaved={handleOneCConfigSaved}
+      />
+      
+      {/* Project Lad Settings Dialog */}
+      <ProjectLadSettingsDialog
+        isOpen={isProjectLadDialogOpen}
+        onClose={() => setIsProjectLadDialogOpen(false)}
+        onConfigSaved={async () => {
+          await loadIntegrationStatus()
+        }}
       />
     </header>
   )

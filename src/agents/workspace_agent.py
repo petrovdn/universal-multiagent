@@ -8,6 +8,8 @@ from langchain_core.tools import BaseTool
 
 from src.agents.base_agent import BaseAgent
 from src.mcp_tools.workspace_tools import get_workspace_tools
+from src.mcp_tools.docs_tools import get_docs_tools
+from src.mcp_tools.slides_tools import get_slides_tools
 
 
 WORKSPACE_AGENT_SYSTEM_PROMPT = """You are an expert assistant specialized in managing documents, spreadsheets, and files within a designated workspace folder.
@@ -36,7 +38,9 @@ Example workflow for complex tasks:
 
 Guidelines:
 - Always work within the configured workspace folder
-- When searching for files, use available search and list tools to see what's available
+- **ПРИОРИТЕТ ОТКРЫТЫХ ФАЙЛОВ**: Если файл уже открыт в рабочей области (указан в системном сообщении об открытых файлах), НЕ ИЩИ его через find_and_open_file или workspace_search_files. Используй document_id/spreadsheet_id напрямую из списка открытых файлов
+- Когда файл открыт, НЕ создавай шаг "Найти файл" в плане - сразу выполняй действия с файлом
+- Когда файл НЕ открыт, используй search tools для его поиска
 - Preserve document structure and formatting when updating
 - Validate data before writing to spreadsheets
 - When creating multiple items (like emails for clients), generate all content first, then save to a document
@@ -74,7 +78,10 @@ class WorkspaceAgent(BaseAgent):
             model_name: Model identifier (optional, uses default from config if None)
         """
         if tools is None:
-            tools = get_workspace_tools()
+            base_tools = get_workspace_tools()
+            docs_tools = get_docs_tools()
+            slides_tools = get_slides_tools()
+            tools = base_tools + docs_tools + slides_tools
         
         super().__init__(
             name="WorkspaceAgent",

@@ -137,6 +137,28 @@ function App() {
   }, [theme])
 
   useEffect(() => {
+    // Handle messages from file selector window
+    const handleMessage = (event: MessageEvent) => {
+      // Only accept messages from same origin
+      if (event.origin !== window.location.origin) {
+        return
+      }
+      
+      if (event.data?.type === 'open-workspace-settings') {
+        // Dispatch custom event to open workspace settings
+        window.dispatchEvent(new CustomEvent('open-workspace-settings', {
+          detail: { action: event.data.action }
+        }))
+      }
+    }
+    
+    window.addEventListener('message', handleMessage)
+    return () => {
+      window.removeEventListener('message', handleMessage)
+    }
+  }, [])
+
+  useEffect(() => {
     // Handle OAuth callback
     const urlParams = new URLSearchParams(window.location.search)
     const calendarAuth = urlParams.get('calendar_auth')

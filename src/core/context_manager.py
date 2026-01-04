@@ -35,6 +35,7 @@ class ConversationContext:
         self.execution_mode: str = "instant"  # "instant" or "approval"
         self.uploaded_files: Dict[str, Dict[str, Any]] = {}  # file_id -> file_data
         self.metadata: Dict[str, Any] = {}  # General metadata (e.g., username)
+        self.open_files: List[Dict[str, Any]] = []  # Currently open files in workspace panel
         config = get_config()
         self.model_name: Optional[str] = config.default_model  # Model name for LLM
         
@@ -286,6 +287,25 @@ class ConversationContext:
         """
         return self.uploaded_files.get(file_id)
     
+    def set_open_files(self, open_files: List[Dict[str, Any]]) -> None:
+        """
+        Store currently open files in workspace panel.
+        
+        Args:
+            open_files: List of open file dictionaries with type, title, url, spreadsheet_id, document_id, etc.
+        """
+        self.open_files = open_files
+        self.updated_at = datetime.now().isoformat()
+    
+    def get_open_files(self) -> List[Dict[str, Any]]:
+        """
+        Get currently open files.
+        
+        Returns:
+            List of open file dictionaries
+        """
+        return self.open_files
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert context to dictionary for serialization."""
         return {
@@ -299,6 +319,7 @@ class ConversationContext:
             "uploaded_files": getattr(self, "uploaded_files", {}),  # Backward compatibility
             "model_name": getattr(self, "model_name", None),  # Backward compatibility
             "metadata": getattr(self, "metadata", {}),  # Backward compatibility
+            "open_files": getattr(self, "open_files", []),  # Backward compatibility
             "entity_memory": self.entity_memory.to_dict() if hasattr(self, 'entity_memory') and self.entity_memory else None,
             "short_term_window": getattr(self, "short_term_window", 10),  # Backward compatibility
             "created_at": self.created_at,
@@ -317,6 +338,7 @@ class ConversationContext:
         context.execution_mode = data.get("execution_mode", "instant")
         context.uploaded_files = data.get("uploaded_files", {})  # Load uploaded files
         context.metadata = data.get("metadata", {})  # Load metadata
+        context.open_files = data.get("open_files", [])  # Load open files
         # Load model_name if exists, otherwise use default from config
         if "model_name" in data:
             context.model_name = data["model_name"]

@@ -19,8 +19,9 @@ export function LoginDialog({ onLoginSuccess }: LoginDialogProps) {
     setIsLoading(true)
 
     try {
-      console.log('Attempting login with username:', username)
-      const result = await login(username, password)
+      const trimmedUsername = username.trim()
+      console.log('Attempting login with username:', trimmedUsername)
+      const result = await login(trimmedUsername, password)
       console.log('Login successful:', result)
       onLoginSuccess(result.session_id, result.username)
     } catch (err: any) {

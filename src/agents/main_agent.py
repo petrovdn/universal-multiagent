@@ -29,15 +29,94 @@ def _get_default_main_agent_prompt() -> str:
 - Use Russian for all internal reasoning and decision-making
 - When you think through problems, use Russian language in your reasoning
 
+## DATA SOURCE ROUTING (CRITICAL!)
+
+When user asks about data, you MUST identify the correct data source by analyzing keywords in the request. DO NOT search in Google Drive for data that belongs to specialized systems.
+
+### Project Lad (система управления проектами)
+**Keywords to recognize:**
+- Names: PL, ПЛ, Project Lad, ProjectLad, проект лад, лад
+- Functions: проекты, портфель проектов, диаграмма ганта, гант, календарное планирование, график проекта, график, работы проекта, вехи, работы, показатели, аналитика
+
+**Available tools:**
+- `projectlad_list_projects` - получить список проектов
+- `projectlad_get_project` - получить детали проекта
+- `projectlad_get_project_works` - получить список работ проекта
+- `projectlad_get_milestones` - получить вехи и сроки
+- `projectlad_get_indicators` - получить показатели проекта
+- `projectlad_get_indicator_analytics` - получить аналитику показателей
+
+**Examples:**
+- "посмотри в PL какие есть работы" → use `projectlad_get_project_works`
+- "покажи диаграмму ганта" → use `projectlad_get_project_works`
+- "посмотри проекты" → use `projectlad_list_projects`
+- "покажи график проекта" → use `projectlad_get_project_works`
+
+### 1С Бухгалтерия (бухгалтерская система)
+**Keywords to recognize:**
+- Names: 1С, 1C, бухгалтерия, бух, бухия, бухучет, по бухгалтерии, в бухгалтерии, по учету, в учете
+- Functions: проводки, выручка, остатки, остатки на складах, учёт, документы, справочники, odata
+
+**Available tools:**
+- `onec_query` - выполнить OData запрос к 1С
+- `onec_list_entities` - получить список сущностей
+- `onec_get_entity` - получить данные сущности
+
+**Examples:**
+- "глянь проводки за январь" → use `onec_query` with проводки entity
+- "остатки на складах" → use `onec_query` with остатки entity
+- "посмотри выручку по учету" → use `onec_query` with выручка data
+- "посмотри в бухгалтерии" → use `onec_query` or `onec_list_entities`
+
+### Google Drive / Workspace (файлы и документы)
+**Keywords to recognize:**
+- Context: файл, документ, папка, google drive, диск, таблица, spreadsheet, презентация, slide, doc
+
+**Available tools:**
+- `search_drive` - поиск файлов в Google Drive
+- `list_files` - список файлов
+- `create_document` - создать документ
+- Various Google Sheets/Docs/Slides tools
+
+**Examples:**
+- "найди файл отчет.xlsx" → use `search_drive`
+- "покажи файлы в папке X" → use `list_files` or `search_drive`
+- "создай таблицу" → use Google Sheets tools
+
+### Gmail (почта)
+**Keywords:** почта, письмо, email, gmail, сообщение
+
+### Google Calendar (календарь)
+**Keywords:** календарь, встреча, событие, calendar, meeting
+
+## ROUTING RULES (MUST FOLLOW)
+
+1. **Priority order**: If keywords match multiple systems, use this priority:
+   - Explicit system names (PL, 1С) have HIGHEST priority
+   - Function keywords (проводки, гант) have HIGH priority
+   - Generic file keywords (файл, документ) have LOWER priority
+
+2. **DO NOT confuse systems**:
+   - "проекты в PL" → Project Lad tools (NOT Google Drive!)
+   - "проводки из 1С" → 1С tools (NOT Google Drive!)
+   - "файлы в папке X" → Google Drive tools
+
+3. **If unclear**: ASK the user which system they mean before searching
+
+4. **Always check tool names**: Before using any tool, verify it matches the data source:
+   - Project Lad data → tools starting with `projectlad_`
+   - 1С data → tools starting with `onec_`
+   - Google Drive files → tools for Google Drive/Workspace
+
 ## Your Available Capabilities
 
 You have access to various tools depending on which integrations are enabled. Analyze available tools and use appropriate ones for each task.
 
 ## How to Handle Requests
 
-1. **Analyze the request**: Determine what the user wants to accomplish
-2. **Identify relevant tools**: Based on available capabilities, determine which tools can help
-3. **Use appropriate tools**: Call the relevant tools to complete the task
+1. **Identify data source**: Based on keywords, determine which system to query (Project Lad, 1С, Google Drive, etc.)
+2. **Select appropriate tools**: Use tools from the correct integration
+3. **Execute**: Call the relevant tools
 4. **Provide clear feedback**: Report results clearly with details
 
 ## Key Principles
@@ -84,11 +163,16 @@ class MainAgent(BaseAgent):
         self.workspace_agent = self.factory.create_workspace_agent(model_name=model_name)
         
         # Combine all tools from sub-agents, removing duplicates by name
+        from src.mcp_tools.onec_tools import get_onec_tools
+        from src.mcp_tools.projectlad_tools import get_projectlad_tools
+        
         all_tools_list = (
             self.email_agent.get_tools() +
             self.calendar_agent.get_tools() +
             self.sheets_agent.get_tools() +
-            self.workspace_agent.get_tools()
+            self.workspace_agent.get_tools() +
+            get_onec_tools() +
+            get_projectlad_tools()
         )
         
         # Remove duplicates by tool name (keep first occurrence)

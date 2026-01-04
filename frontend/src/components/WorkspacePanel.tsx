@@ -11,8 +11,8 @@ import { ChartViewer } from './viewers/ChartViewer'
 import { CodeViewer } from './viewers/CodeViewer'
 import { CalendarViewer } from './viewers/CalendarViewer'
 import { PlaceholderViewer } from './viewers/PlaceholderViewer'
-import { Plus, Loader2 } from 'lucide-react'
-import type { CodeData } from '../types/workspace'
+import { Plus } from 'lucide-react'
+import type { CodeData, WorkspaceTabType } from '../types/workspace'
 
 function TabContent({ tab }: { tab: any }) {
   switch (tab.type) {
@@ -39,9 +39,11 @@ function TabContent({ tab }: { tab: any }) {
 }
 
 export function WorkspacePanel() {
-  const { tabs, activeTabId, setActiveTab, closeTab, addTab } = useWorkspaceStore()
-  const [isLoadingFile, setIsLoadingFile] = useState(false)
+  const { tabs, activeTabId, setActiveTab, closeTab, addTab, updateTab } = useWorkspaceStore()
   const activeTab = tabs.find(t => t.id === activeTabId) || tabs[0]
+  
+  // Получаем актуальное состояние store для синхронного доступа
+  const getStoreState = () => useWorkspaceStore.getState()
 
   // Listen for file selection from popup window
   useEffect(() => {
@@ -72,44 +74,89 @@ export function WorkspacePanel() {
     )
   }
 
+  // Определяем тип файла по mimeType и имени
+  const determineFileType = (mimeType: string, fileName: string): WorkspaceTabType => {
+    if (mimeType === 'application/vnd.google-apps.spreadsheet') {
+      return 'sheets'
+    } else if (mimeType === 'application/vnd.google-apps.document') {
+      return 'docs'
+    } else if (mimeType === 'application/vnd.google-apps.presentation') {
+      return 'slides'
+    } else if (mimeType.startsWith('text/') || 
+               fileName.match(/\.(py|js|ts|tsx|jsx|html|css|json|md|java|cpp|c|go|rs|php|rb|swift|kt)$/i)) {
+      return 'code'
+    }
+    return 'placeholder'
+  }
+
   const handleFileSelect = async (file: { id: string; name: string; mimeType: string }) => {
-    setIsLoadingFile(true)
+    // Определяем тип файла заранее
+    const fileType = determineFileType(file.mimeType, file.name)
+    
+    // Для sheets проверяем, существует ли уже таб с таким spreadsheetId
+    let tabId: string | null = null
+    if (fileType === 'sheets') {
+      // Проверяем существующие табы (но мы еще не знаем spreadsheetId, так что создаем новый)
+      // addTab сам проверит существование по spreadsheetId после загрузки
+    }
+    
+    // Создаем таб сразу с isLoading: true
+    addTab({
+      type: fileType,
+      title: file.name,
+      closeable: true,
+      isLoading: true
+    })
+    
+    // Получаем ID созданного/активного таба из актуального состояния store
+    // addTab устанавливает activeTabId на новый таб (или существующий для sheets)
+    const storeState = getStoreState()
+    tabId = storeState.activeTabId
+    
+    // Если таб не найден, ищем по названию и isLoading
+    if (!tabId) {
+      const loadingTab = storeState.tabs.find(t => t.title === file.name && t.isLoading)
+      tabId = loadingTab?.id || null
+    }
+    
+    // Устанавливаем isLoading: true на активный таб (на случай, если addTab обновил существующий)
+    if (tabId) {
+      updateTab(tabId, { isLoading: true })
+    } else {
+      console.error('Failed to get tab ID after creation')
+      return
+    }
+
     try {
       const fileContent = await getWorkspaceFileContent(file.id)
       
-      // Check if it's a Google Sheets spreadsheet
+      // Обновляем таб с данными и убираем isLoading
       if (fileContent.is_spreadsheet && fileContent.spreadsheet_id) {
-        // Add as sheets tab
-        addTab({
+        updateTab(tabId, {
           type: 'sheets',
-          title: file.name,
-          closeable: true,
           url: fileContent.url,
           data: {
             spreadsheetId: fileContent.spreadsheet_id
-          }
+          },
+          isLoading: false
         })
       } else if (file.mimeType === 'application/vnd.google-apps.document') {
-        // Google Docs document - use DocsViewer
-        addTab({
+        updateTab(tabId, {
           type: 'docs',
-          title: file.name,
-          closeable: true,
           url: fileContent.url || `https://docs.google.com/document/d/${file.id}/preview`,
           data: {
             documentId: file.id
-          }
+          },
+          isLoading: false
         })
       } else if (fileContent.is_presentation && fileContent.presentation_id) {
-        // Google Slides presentation - use SlidesViewer
-        addTab({
+        updateTab(tabId, {
           type: 'slides',
-          title: file.name,
-          closeable: true,
           url: fileContent.url || `https://docs.google.com/presentation/d/${file.id}/edit`,
           data: {
             presentationId: fileContent.presentation_id
-          }
+          },
+          isLoading: false
         })
       } else {
         // Determine if it's a code file
@@ -117,38 +164,36 @@ export function WorkspacePanel() {
                          file.name.match(/\.(py|js|ts|tsx|jsx|html|css|json|md|java|cpp|c|go|rs|php|rb|swift|kt)$/i)
         
         if (isCodeFile && fileContent.content) {
-          // Add as code tab
-          addTab({
+          updateTab(tabId, {
             type: 'code',
-            title: file.name,
-            closeable: true,
             data: {
               language: fileContent.language || 'text',
               code: fileContent.content,
               filename: file.name
-            } as CodeData
+            } as CodeData,
+            isLoading: false
           })
         } else if (fileContent.content) {
-          // For other text files, add as code tab
-          addTab({
+          updateTab(tabId, {
             type: 'code',
-            title: file.name,
-            closeable: true,
             data: {
               language: fileContent.language || 'text',
               code: fileContent.content,
               filename: file.name
-            } as CodeData
+            } as CodeData,
+            isLoading: false
           })
         } else {
+          // Не удалось загрузить содержимое - закрываем таб
+          closeTab(tabId)
           alert('Не удалось загрузить содержимое файла')
         }
       }
     } catch (error: any) {
       console.error('Failed to load file:', error)
+      // Закрываем таб при ошибке
+      closeTab(tabId)
       alert(error.message || 'Не удалось загрузить файл')
-    } finally {
-      setIsLoadingFile(false)
     }
   }
 
@@ -195,7 +240,6 @@ export function WorkspacePanel() {
         {/* Add File Button */}
         <button
           onClick={openFileSelector}
-          disabled={isLoadingFile}
           style={{ 
             width: '24px',
             height: '24px',
@@ -206,28 +250,21 @@ export function WorkspacePanel() {
             borderRadius: '3px',
             backgroundColor: 'transparent',
             border: 'none',
-            cursor: isLoadingFile ? 'not-allowed' : 'pointer',
+            cursor: 'pointer',
             transition: 'all 0.15s ease',
             color: 'rgb(100 116 139)', // slate-500
-            opacity: isLoadingFile ? 0.5 : 1,
             marginLeft: '8px',
             alignSelf: 'center'
           }}
           onMouseEnter={(e) => {
-            if (!isLoadingFile) {
-              e.currentTarget.style.backgroundColor = 'rgb(226 232 240)' // slate-200
-            }
+            e.currentTarget.style.backgroundColor = 'rgb(226 232 240)' // slate-200
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.backgroundColor = 'transparent'
           }}
           title="Добавить файл из рабочей области"
         >
-          {isLoadingFile ? (
-            <Loader2 size={15} strokeWidth={2} />
-          ) : (
-            <Plus size={15} strokeWidth={2} />
-          )}
+          <Plus size={15} strokeWidth={2} />
         </button>
       </div>
 

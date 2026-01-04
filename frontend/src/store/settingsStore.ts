@@ -20,6 +20,7 @@ interface IntegrationsState {
     folderId?: string
   }
   onec: IntegrationInfo
+  projectlad: IntegrationInfo
 }
 
 interface SettingsState {
@@ -61,6 +62,10 @@ export const useSettingsStore = create<SettingsState>()(
           folderConfigured: false,
         },
         onec: {
+          enabled: false,
+          authenticated: false,
+        },
+        projectlad: {
           enabled: false,
           authenticated: false,
         },

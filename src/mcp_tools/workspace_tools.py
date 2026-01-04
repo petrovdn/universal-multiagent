@@ -912,209 +912,6 @@ class FindAndOpenFileTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
-# ========== DOCS TOOLS ==========
-
-class CreateDocumentInput(BaseModel):
-    """Input schema for create_document tool."""
-    
-    title: str = Field(description="Document title")
-    initial_text: Optional[str] = Field(default=None, description="Initial text content")
-
-
-class CreateDocumentTool(BaseTool):
-    """Tool for creating a Google Docs document."""
-    
-    name: str = "create_document"
-    description: str = """
-    Create a new Google Docs document in the workspace folder.
-    
-    Input:
-    - title: Title of the document
-    - initial_text: Optional initial text content
-    """
-    args_schema: type = CreateDocumentInput
-    
-    @retry_on_mcp_error()
-    async def _arun(self, title: str, initial_text: Optional[str] = None) -> str:
-        """Execute the tool asynchronously."""
-        try:
-            args = {"title": title}
-            if initial_text:
-                args["initialText"] = initial_text
-            
-            mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("docs_create", args, server_name="google_workspace")
-            
-            # MCP returns list of TextContent, extract first item
-            if isinstance(result, list) and len(result) > 0:
-                first_item = result[0]
-                if hasattr(first_item, 'text'):
-                    result = json.loads(first_item.text)
-                elif isinstance(first_item, dict) and 'text' in first_item:
-                    result = json.loads(first_item['text'])
-                else:
-                    result = first_item
-            elif isinstance(result, str):
-                result = json.loads(result)
-            
-            doc_id = result.get("documentId", "unknown")
-            doc_title = result.get("title", title)
-            url = result.get("url", "")
-            
-            return f"Document '{doc_title}' created successfully. ID: {doc_id}. URL: {url}"
-            
-        except Exception as e:
-            raise ToolExecutionError(
-                f"Failed to create document: {e}",
-                tool_name=self.name
-            ) from e
-    
-    def _run(self, *args, **kwargs) -> str:
-        raise NotImplementedError("Use async execution")
-
-
-class ReadDocumentInput(BaseModel):
-    """Input schema for read_document tool."""
-    
-    document_id: str = Field(description="Document ID or URL")
-
-
-class ReadDocumentTool(BaseTool):
-    """Tool for reading a Google Docs document."""
-    
-    name: str = "read_document"
-    description: str = """
-    Read the full content of a Google Docs document.
-    
-    Input:
-    - document_id: Document ID or URL
-    """
-    args_schema: type = ReadDocumentInput
-    
-    @retry_on_mcp_error()
-    async def _arun(self, document_id: str) -> str:
-        """Execute the tool asynchronously."""
-        try:
-            args = {"documentId": document_id}
-            
-            mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("docs_read", args, server_name="google_workspace")
-            
-            # MCP returns list of TextContent, extract first item
-            if isinstance(result, list) and len(result) > 0:
-                first_item = result[0]
-                if hasattr(first_item, 'text'):
-                    result = json.loads(first_item.text)
-                elif isinstance(first_item, dict) and 'text' in first_item:
-                    result = json.loads(first_item['text'])
-                else:
-                    result = first_item
-            elif isinstance(result, str):
-                result = json.loads(result)
-            
-            title = result.get("title", "Unknown")
-            content = result.get("content", "")
-            
-            return f"Document: {title}\n\nContent:\n{content}"
-            
-        except Exception as e:
-            raise ToolExecutionError(
-                f"Failed to read document: {e}",
-                tool_name=self.name
-            ) from e
-    
-    def _run(self, *args, **kwargs) -> str:
-        raise NotImplementedError("Use async execution")
-
-
-class UpdateDocumentInput(BaseModel):
-    """Input schema for update_document tool."""
-    
-    document_id: str = Field(description="Document ID or URL")
-    content: str = Field(description="New content to write")
-
-
-class UpdateDocumentTool(BaseTool):
-    """Tool for updating a Google Docs document."""
-    
-    name: str = "update_document"
-    description: str = """
-    Replace all content in a Google Docs document with new text.
-    
-    Input:
-    - document_id: Document ID or URL
-    - content: New content to write
-    """
-    args_schema: type = UpdateDocumentInput
-    
-    @retry_on_mcp_error()
-    async def _arun(self, document_id: str, content: str) -> str:
-        """Execute the tool asynchronously."""
-        try:
-            args = {
-                "documentId": document_id,
-                "content": content
-            }
-            
-            mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("docs_update", args, server_name="google_workspace")
-            
-            return f"Document updated successfully (ID: {document_id})"
-            
-        except Exception as e:
-            raise ToolExecutionError(
-                f"Failed to update document: {e}",
-                tool_name=self.name
-            ) from e
-    
-    def _run(self, *args, **kwargs) -> str:
-        raise NotImplementedError("Use async execution")
-
-
-class AppendToDocumentInput(BaseModel):
-    """Input schema for append_to_document tool."""
-    
-    document_id: str = Field(description="Document ID or URL")
-    content: str = Field(description="Text to append")
-
-
-class AppendToDocumentTool(BaseTool):
-    """Tool for appending text to a Google Docs document."""
-    
-    name: str = "append_to_document"
-    description: str = """
-    Append text to the end of a Google Docs document.
-    
-    Input:
-    - document_id: Document ID or URL
-    - content: Text to append
-    """
-    args_schema: type = AppendToDocumentInput
-    
-    @retry_on_mcp_error()
-    async def _arun(self, document_id: str, content: str) -> str:
-        """Execute the tool asynchronously."""
-        try:
-            args = {
-                "documentId": document_id,
-                "content": content
-            }
-            
-            mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("docs_append", args, server_name="google_workspace")
-            
-            return f"Text appended to document successfully (ID: {document_id})"
-            
-        except Exception as e:
-            raise ToolExecutionError(
-                f"Failed to append to document: {e}",
-                tool_name=self.name
-            ) from e
-    
-    def _run(self, *args, **kwargs) -> str:
-        raise NotImplementedError("Use async execution")
-
-
 # ========== SHEETS TOOLS ==========
 
 # Sheets tools removed - use sheets_tools.py instead
@@ -1125,13 +922,14 @@ def get_workspace_tools() -> List[BaseTool]:
     """
     Get Google Workspace tools for file navigation and management.
     
-    NOTE: Spreadsheet operations are handled by sheets_tools.py (uses sheets MCP server).
-    This module only provides file search, navigation, and document operations.
+    NOTE: 
+    - Spreadsheet operations are handled by sheets_tools.py (uses sheets MCP server).
+    - Document operations are handled by docs_tools.py (uses docs MCP server).
+    This module only provides Drive file search and navigation operations.
     
     Returns:
         List of BaseTool instances for workspace operations:
         - Drive: file search, navigation, folder management
-        - Docs: document creation and editing
     """
     return [
         # Drive tools - file navigation and management
@@ -1142,11 +940,7 @@ def get_workspace_tools() -> List[BaseTool]:
         SearchFilesTool(),
         OpenFileTool(),
         FindAndOpenFileTool(),
-        # Docs tools - document operations
-        CreateDocumentTool(),
-        ReadDocumentTool(),
-        UpdateDocumentTool(),
-        AppendToDocumentTool(),
         # NOTE: Sheets tools are in sheets_tools.py (uses sheets MCP server)
+        # NOTE: Docs tools are in docs_tools.py (uses docs MCP server)
     ]
 

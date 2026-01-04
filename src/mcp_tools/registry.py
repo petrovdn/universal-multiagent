@@ -51,6 +51,16 @@ class ToolRegistry:
         for tool in get_sheets_tools():
             self.register_tool(tool, ToolCategory.SHEETS, "sheets")
         
+        # Docs tools
+        from src.mcp_tools.docs_tools import get_docs_tools
+        for tool in get_docs_tools():
+            self.register_tool(tool, ToolCategory.WORKSPACE, "docs")
+        
+        # Slides tools
+        from src.mcp_tools.slides_tools import get_slides_tools
+        for tool in get_slides_tools():
+            self.register_tool(tool, ToolCategory.WORKSPACE, "slides")
+        
         # Workspace tools
         for tool in get_workspace_tools():
             self.register_tool(tool, ToolCategory.WORKSPACE, "google_workspace")
@@ -58,6 +68,11 @@ class ToolRegistry:
         # 1C tools
         for tool in get_onec_tools():
             self.register_tool(tool, ToolCategory.ONEC, "onec")
+        
+        # Project Lad tools
+        from src.mcp_tools.projectlad_tools import get_projectlad_tools
+        for tool in get_projectlad_tools():
+            self.register_tool(tool, ToolCategory.UTILITY, "projectlad")
     
     def register_tool(
         self,

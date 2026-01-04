@@ -49,14 +49,6 @@ export function DocsViewer({ tab }: DocsViewerProps) {
     <div className="h-full w-full flex flex-col bg-white dark:bg-slate-900" style={{ height: '100%', width: '100%', minHeight: 0 }}>
       {/* Content - iframe занимает всю область */}
       <div className="flex-1 relative bg-white dark:bg-slate-900" style={{ flex: '1 1 auto', minHeight: 0, width: '100%', height: '100%' }}>
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-900 z-10">
-            <div className="text-center">
-              <RefreshCw className="w-8 h-8 text-slate-400 animate-spin mx-auto mb-2" />
-              <p className="text-sm text-slate-600 dark:text-slate-400">Загрузка документа...</p>
-            </div>
-          </div>
-        )}
         {error && (
           <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-slate-900 z-10">
             <div className="text-center">

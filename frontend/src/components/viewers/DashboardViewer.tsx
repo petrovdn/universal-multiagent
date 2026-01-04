@@ -79,14 +79,6 @@ export function DashboardViewer({ tab }: DashboardViewerProps) {
 
       {/* Content */}
       <div className="flex-1 relative">
-        {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-50 dark:bg-slate-950 z-10">
-            <div className="text-center">
-              <RefreshCw className="w-8 h-8 text-slate-400 animate-spin mx-auto mb-2" />
-              <p className="text-sm text-slate-600 dark:text-slate-400">Загрузка дашборда...</p>
-            </div>
-          </div>
-        )}
         {error && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-50 dark:bg-slate-950 z-10">
             <div className="text-center">

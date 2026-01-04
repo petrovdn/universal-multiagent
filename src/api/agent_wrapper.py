@@ -63,7 +63,8 @@ Initialize agent wrapper."""
         user_message: str,
         context: ConversationContext,
         session_id: str,
-        file_ids: Optional[List[str]] = None
+        file_ids: Optional[List[str]] = None,
+        open_files: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Process user message through agent and emit events.
@@ -77,7 +78,13 @@ Initialize agent wrapper."""
         Returns:
             Final execution result
         """
-        file_ids = file_ids or []# Wait for WebSocket connection BEFORE sending any events
+        file_ids = file_ids or []
+        open_files = open_files or []
+        
+        # Store open files in context
+        context.set_open_files(open_files)
+        
+        # Wait for WebSocket connection BEFORE sending any events
         # This ensures events can be sent to the frontend
         import logging
         logger = logging.getLogger(__name__)
@@ -1390,6 +1397,117 @@ Callback to handle streaming events and send to WebSocket."""
                     }
                 )
                 logger.info(f"[AgentWrapper] Sent docs_action event for document {document_id}")
+        
+        # Handle slides_create
+        elif tool_name == "slides_create" or tool_name == "create_presentation":
+            # #region agent log
+            try:
+                import json
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "agent_wrapper.py:_handle_workspace_events:slides_create:entry",
+                        "message": "Processing slides_create/create_presentation",
+                        "data": {
+                            "tool_name": tool_name,
+                            "result_length": len(result),
+                            "result_preview": result[:300] if result else "",
+                            "tool_args": tool_args
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": session_id,
+                        "runId": "run1",
+                        "hypothesisId": "A"
+                    }) + "\n")
+            except: pass
+            # #endregion
+            
+            # Extract presentation ID and URL from result
+            # Result format: "Presentation 'title' created successfully (ID: {id}) URL: {url}" or JSON
+            try:
+                # Try to parse as JSON first
+                import json
+                result_json = json.loads(result) if isinstance(result, str) else result
+                if isinstance(result_json, dict) and "presentationId" in result_json:
+                    presentation_id = result_json.get("presentationId")
+                    url = result_json.get("url", f"https://docs.google.com/presentation/d/{presentation_id}/edit")
+                    title = result_json.get("title", tool_args.get("title", "Google Slides"))
+                else:
+                    # Fallback to regex parsing
+                    presentation_id_match = re.search(r'ID:\s*([a-zA-Z0-9_-]+)', result)
+                    url_match = re.search(r'URL:\s*(https?://[^\s]+)', result)
+                    title_match = re.search(r"Presentation\s+'([^']+)'", result)
+                    
+                    if presentation_id_match:
+                        presentation_id = presentation_id_match.group(1)
+                        url = url_match.group(1) if url_match else f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+                        title = title_match.group(1) if title_match else tool_args.get("title", "Google Slides")
+                    else:
+                        logger.warning(f"[AgentWrapper] Failed to extract presentation_id from result: {result[:500]}")
+                        return
+            except json.JSONDecodeError:
+                # Not JSON, try regex
+                presentation_id_match = re.search(r'ID:\s*([a-zA-Z0-9_-]+)', result)
+                url_match = re.search(r'URL:\s*(https?://[^\s]+)', result)
+                title_match = re.search(r"Presentation\s+'([^']+)'", result)
+                
+                if presentation_id_match:
+                    presentation_id = presentation_id_match.group(1)
+                    url = url_match.group(1) if url_match else f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+                    title = title_match.group(1) if title_match else tool_args.get("title", "Google Slides")
+                else:
+                    logger.warning(f"[AgentWrapper] Failed to extract presentation_id from result: {result[:500]}")
+                    return
+            
+            # #region agent log
+            try:
+                import json
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "agent_wrapper.py:_handle_workspace_events:slides_create:before_send",
+                        "message": "About to send slides_action event",
+                        "data": {
+                            "presentation_id": presentation_id,
+                            "url": url,
+                            "title": title
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": session_id,
+                        "runId": "run1",
+                        "hypothesisId": "A"
+                    }) + "\n")
+            except: pass
+            # #endregion
+            
+            await self.ws_manager.send_event(
+                session_id,
+                "slides_action",
+                {
+                    "action": "create",
+                    "presentation_id": presentation_id,
+                    "presentation_url": url,
+                    "title": title,
+                    "description": f"Создана презентация '{title}'"
+                }
+            )
+            logger.info(f"[AgentWrapper] Sent slides_action event for presentation {presentation_id}")
+            
+            # #region agent log
+            try:
+                import json
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "agent_wrapper.py:_handle_workspace_events:slides_create:after_send",
+                        "message": "slides_action event sent",
+                        "data": {
+                            "presentation_id": presentation_id
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": session_id,
+                        "runId": "run1",
+                        "hypothesisId": "A"
+                    }) + "\n")
+            except: pass
+            # #endregion
         
         # Handle execute_python_code - show code in code viewer
         elif tool_name == "execute_python_code":
