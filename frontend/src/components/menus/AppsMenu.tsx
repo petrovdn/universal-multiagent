@@ -38,15 +38,9 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as Node
       const isInside = menuRef.current?.contains(target)
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleClickOutside',message:'Click outside handler',data:{targetTagName:(target as HTMLElement)?.tagName,targetClassName:(target as HTMLElement)?.className,isInside,willClose:!isInside},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-      // #endregion
       // Don't close if clicking on a button inside the menu
       const targetElement = target as HTMLElement
       if (targetElement?.closest('button')) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleClickOutside:button_click',message:'Click on button inside menu, not closing',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         return
       }
       if (menuRef.current && !isInside) {
@@ -64,9 +58,6 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
 
   useEffect(() => {
     const handleStatusChange = () => {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:integration_status_changed',message:'Integration status changed event received',data:{onecAuthenticated:integrations.onec.authenticated,projectladAuthenticated:integrations.projectlad.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
       loadIntegrationStatus()
     }
     window.addEventListener('integration-status-changed', handleStatusChange)
@@ -132,18 +123,12 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
       })
       
       const onecStatus = await getOneCStatus()
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:loadIntegrationStatus:onec',message:'1C status loaded',data:{onecConfigured:onecStatus.configured,onecEnabled:onecStatus.configured||false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
       setIntegrationStatus('onec', {
         enabled: onecStatus.configured || false,
         authenticated: onecStatus.configured || false,
       })
       
       const projectladStatus = await getProjectLadStatus()
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:loadIntegrationStatus:projectlad',message:'ProjectLad status loaded',data:{projectladConfigured:projectladStatus.configured,projectladEnabled:projectladStatus.configured||false},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-      // #endregion
       setIntegrationStatus('projectlad', {
         enabled: projectladStatus.configured || false,
         authenticated: projectladStatus.configured || false,

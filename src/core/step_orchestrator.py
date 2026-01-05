@@ -96,6 +96,7 @@ class StepOrchestrator:
         self._streaming_task: Optional[asyncio.Task] = None
         # Track sent workspace events to prevent duplicates (key: (session_id, tool_name, spreadsheet_id), value: timestamp)
         self._sent_workspace_events: Dict[str, float] = {}
+        self._current_step_index: Optional[int] = None  # Track current step index for file_preview events
         
         logger.info(f"[StepOrchestrator] Initialized for session {session_id} with model {model_name or 'default'}")
     
@@ -414,6 +415,8 @@ class StepOrchestrator:
                         "steps": plan_steps
                     }
                 
+                # Set current step index for file_preview events
+                self._current_step_index = 1
                 # Execute step directly
                 step_result = await self._execute_step(
                     1,
@@ -425,6 +428,8 @@ class StepOrchestrator:
                     context,
                     file_ids
                 )
+                # Clear current step index
+                self._current_step_index = None
                 
                 # Send final result directly (skip separate generation)
                 await self.ws_manager.send_event(
@@ -623,7 +628,10 @@ class StepOrchestrator:
                             "step": step_index,
                             "title": step_title
                         }
-                    )# Execute step with streaming
+                    )
+                    # Set current step index for file_preview events
+                    self._current_step_index = step_index
+                    # Execute step with streaming
                     step_result = await self._execute_step(
                         step_index,
                         step_title,
@@ -633,7 +641,8 @@ class StepOrchestrator:
                         step_results,
                         context,
                         file_ids
-                    )# Add step result
+                    )
+                    # Add step result
                     step_results.append({
                         "step": step_index,
                         "title": step_title,
@@ -1417,6 +1426,17 @@ Create HumanMessage with text and optional file attachments."""
                             tool = next((t for t in self.tools if t.name == tool_name), None)
                             if tool:
                                 try:
+                                    # Send intermediate message about tool execution
+                                    tool_display_name = self._get_tool_display_name(tool_name, tool_args)
+                                    intermediate_msg = f"{tool_display_name}..."
+                                    # Update step response with intermediate message
+                                    if self.session_id:
+                                        await self.ws_manager.send_event(
+                                            self.session_id,
+                                            "response_chunk",
+                                            {"content": intermediate_msg + "\n"}
+                                        )
+                                    
                                     result = await tool.ainvoke(tool_args)
                                     tool_messages.append(ToolMessage(content=str(result), tool_call_id=tool_id or tool_name))
                                     # Don't add raw tool results to user-facing response - LLM will generate user-friendly message
@@ -1491,6 +1511,16 @@ Create HumanMessage with text and optional file attachments."""
                                     tool = next((t for t in self.tools if t.name == tool_name), None)
                                     if tool:
                                         try:
+                                            # Send intermediate message about tool execution
+                                            tool_display_name = self._get_tool_display_name(tool_name, tool_args)
+                                            intermediate_msg = f"{tool_display_name}..."
+                                            if self.session_id:
+                                                await self.ws_manager.send_event(
+                                                    self.session_id,
+                                                    "response_chunk",
+                                                    {"content": intermediate_msg + "\n"}
+                                                )
+                                            
                                             result = await tool.ainvoke(tool_args)
                                             tool_messages.append(ToolMessage(content=str(result), tool_call_id=tool_id or tool_name))
                                             # Don't add raw tool results to user-facing response - LLM will generate user-friendly message
@@ -2304,6 +2334,42 @@ Get the confirmation ID for the current plan."""
             logger.error(f"[StepOrchestrator] Error waiting for user assistance: {e}")
             raise
     
+    def _get_tool_display_name(self, tool_name: str, tool_args: Dict[str, Any]) -> str:
+        """Get human-readable display name for tool execution message."""
+        # Map tool names to readable actions
+        tool_display_map = {
+            'workspace_search_files': 'Ищу файлы',
+            'workspace_find_and_open_file': 'Ищу и открываю файл',
+            'workspace_get_file_info': 'Получаю информацию о файле',
+            'sheets_read_range': 'Читаю данные из таблицы',
+            'sheets_write_range': 'Записываю данные в таблицу',
+            'sheets_append_rows': 'Добавляю строки в таблицу',
+            'docs_read': 'Читаю документ',
+            'docs_create': 'Создаю документ',
+            'docs_update': 'Обновляю документ',
+            'slides_create': 'Создаю презентацию',
+            'slides_create_slide': 'Добавляю слайд',
+            'gmail_search': 'Ищу письма',
+            'gmail_send_email': 'Отправляю письмо',
+        }
+        
+        # Get base action name
+        action = tool_display_map.get(tool_name, tool_name.replace('_', ' ').title())
+        
+        # Add context from tool args if available
+        if 'query' in tool_args:
+            query = tool_args['query']
+            if len(query) < 50:
+                return f"{action} '{query}'"
+        elif 'title' in tool_args:
+            title = tool_args['title']
+            if len(title) < 50:
+                return f"{action} '{title}'"
+        elif 'spreadsheet_id' in tool_args or 'document_id' in tool_args:
+            return f"{action}"
+        
+        return action
+    
     async def _handle_workspace_events(
         self,
         tool_name: str,
@@ -2363,6 +2429,21 @@ Get the confirmation ID for the current plan."""
                 # Mark as sent
                 self._sent_workspace_events[event_key] = current_time
                 logger.info(f"[StepOrchestrator] Sent sheets_action event for created spreadsheet {spreadsheet_id}")
+                
+                # Send file_preview event for step log
+                if self._current_step_index is not None:
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "file_preview",
+                        {
+                            "step": self._current_step_index,
+                            "type": "sheets",
+                            "title": title,
+                            "fileId": spreadsheet_id,
+                            "fileUrl": url
+                        }
+                    )
+                    logger.info(f"[StepOrchestrator] Sent file_preview event for spreadsheet {spreadsheet_id} at step {self._current_step_index}")
             else:
                 logger.warning(f"[StepOrchestrator] Failed to extract spreadsheet_id from result: {result[:500]}")
         
@@ -2465,6 +2546,21 @@ Get the confirmation ID for the current plan."""
                 }
             )
             logger.info(f"[StepOrchestrator] Sent slides_action event for presentation {presentation_id}")
+            
+            # Send file_preview event for step log
+            if self._current_step_index is not None:
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "file_preview",
+                    {
+                        "step": self._current_step_index,
+                        "type": "slides",
+                        "title": title,
+                        "fileId": presentation_id,
+                        "fileUrl": url
+                    }
+                )
+                logger.info(f"[StepOrchestrator] Sent file_preview event for presentation {presentation_id} at step {self._current_step_index}")
             
             # #region agent log
             try:

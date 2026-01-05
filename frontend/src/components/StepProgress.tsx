@@ -1,9 +1,11 @@
 import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Brain, Loader2 } from 'lucide-react'
+import { Brain } from 'lucide-react'
 import { useChatStore, WorkflowStep } from '../store/chatStore'
 import { CollapsibleBlock } from './CollapsibleBlock'
+import { FilePreviewCard } from './FilePreviewCard'
+import { useWorkspaceStore } from '../store/workspaceStore'
 
 interface StepProgressProps {
   workflowId: string
@@ -28,22 +30,195 @@ function parseStepResponse(text: string): { actionPreparation: string, result: s
     return { actionPreparation, result }
   }
   
-  // If no marker found, all text is result (no action preparation shown)
+  // Fallback: If no marker found, try to extract intermediate messages from the text
+  // Look for patterns like "Открываю...", "Читаю...", "Анализирую..." etc.
+  const intermediatePatterns = [
+    /^(Открываю|Ищу|Читаю|Анализирую|Создаю|Добавляю|Применяю|Перемещаю|Формулирую|Готовлю|Выполняю|Проверяю|Нашел|Нашла|Прочитал|Прочитала|Создал|Создала|Добавил|Добавила|Применил|Применила)[^.!?]*[.!?]?/im,
+    /^[○•\-\*]\s*(.+)$/m, // List items
+  ]
+  
+  // Try to split by sentences and find intermediate messages
+  const lines = text.split('\n').filter(line => line.trim())
+  const intermediateLines: string[] = []
+  let resultStartIndex = -1
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    // Check if line looks like an intermediate message
+    const isIntermediate = intermediatePatterns.some(pattern => pattern.test(line)) ||
+                          line.endsWith('...') ||
+                          /^(✓|○|•|-) /.test(line)
+    
+    if (isIntermediate && resultStartIndex === -1) {
+      intermediateLines.push(line)
+    } else if (resultStartIndex === -1 && line.length > 20) {
+      // Likely the start of result section
+      resultStartIndex = i
+      break
+    }
+  }
+  
+  if (intermediateLines.length > 0) {
+    const actionPreparation = intermediateLines.join('\n')
+    const result = resultStartIndex >= 0 ? lines.slice(resultStartIndex).join('\n') : text.trim()
+    return { actionPreparation, result }
+  }
+  
+  // If no intermediate messages found, all text is result
   return { actionPreparation: '', result: text.trim() }
 }
 
-// Extract action description from step title for block header
-function getActionDescription(stepTitle: string): string {
-  // Convert step title to action description
-  // "Найти файл 'Рабочая таблица'" -> "Сейчас выполняю поиск файла 'Рабочая таблица'"
-  // Simple approach: prepend "Сейчас выполняю " to the step title
-  return `Сейчас выполняю ${stepTitle.toLowerCase()}`
+// Map английских названий инструментов на русские
+const TOOL_NAMES_RU: Record<string, string> = {
+  'Search Workspace Files': 'Поиск файлов',
+  'search_workspace_files': 'Поиск файлов',
+  'workspace_search_files': 'Поиск файлов',
+  'Open File': 'Открытие файла',
+  'open_file': 'Открытие файла',
+  'Find And Open File': 'Открытие файла',
+  'workspace_find_and_open_file': 'Открытие файла',
+  'Read Document': 'Чтение документа',
+  'read_document': 'Чтение документа',
+  'docs_read': 'Чтение документа',
+  'Create Document': 'Создание документа',
+  'create_document': 'Создание документа',
+  'docs_create': 'Создание документа',
+  'Update Document': 'Обновление документа',
+  'update_document': 'Обновление документа',
+  'docs_update': 'Обновление документа',
+  'Create Spreadsheet': 'Создание таблицы',
+  'create_spreadsheet': 'Создание таблицы',
+  'Read Range': 'Чтение диапазона',
+  'read_range': 'Чтение диапазона',
+  'sheets_read_range': 'Чтение диапазона',
+  'Write Range': 'Запись диапазона',
+  'write_range': 'Запись диапазона',
+  'sheets_write_range': 'Запись диапазона',
+  'sheets_append_rows': 'Добавление строк',
+  'Create Presentation': 'Создание презентации',
+  'slides_create': 'Создание презентации',
+  'create_presentation': 'Создание презентации',
+  'Create Slide': 'Добавление слайда',
+  'slides_create_slide': 'Добавление слайда',
+  'gmail_search': 'Поиск писем',
+  'gmail_send_email': 'Отправка письма',
+}
+
+// Функция для замены английских названий инструментов на русские
+function translateToolNames(text: string): string {
+  let translated = text
+  for (const [en, ru] of Object.entries(TOOL_NAMES_RU)) {
+    // Заменяем как "Search Workspace Files", так и "search_workspace_files"
+    const regex = new RegExp(en.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+    translated = translated.replace(regex, ru)
+  }
+  return translated
+}
+
+// Parse action preparation text into individual log items
+function parseActionsFromText(text: string, isStreaming: boolean): Array<{ icon: string, text: string, status: 'done' | 'pending' }> {
+  if (!text || !text.trim()) {
+    return []
+  }
+
+  // Remove the "**Результат шага:**" marker and everything after it if present
+  const resultMarker = /(\*\*Результат\s+шага:\*\*|\*\*Результат:\*\*)/i
+  const markerMatch = text.match(resultMarker)
+  if (markerMatch && markerMatch.index !== undefined) {
+    text = text.substring(0, markerMatch.index).trim()
+  }
+
+  // Split by newlines and filter empty lines
+  const lines = text.split('\n').filter(line => line.trim()).map(line => line.trim())
+  
+  if (lines.length === 0) {
+    return []
+  }
+  
+  // Дедупликация: убираем повторяющиеся строки (нормализуем для сравнения)
+  // Сначала переводим все строки, потом фильтруем дубликаты по нормализованным версиям
+  const translatedLines = lines.map(line => translateToolNames(line))
+  const seenTexts = new Set<string>()
+  const uniqueLines = translatedLines.filter(line => {
+    // Нормализуем строку: убираем маркеры списков и лишние пробелы
+    const normalized = line.replace(/^[\s]*[•\-\*\d+\.\)]\s+/, '').trim().toLowerCase()
+    if (seenTexts.has(normalized)) {
+      return false
+    }
+    seenTexts.add(normalized)
+    return true
+  })
+  
+  // Check if it's a list format (bullet points, numbered, or dashes)
+  const listPattern = /^[\s]*[•\-\*\d+\.\)]\s+(.+)$/
+  const isListFormat = uniqueLines.some(line => listPattern.test(line))
+  
+  if (isListFormat) {
+    // Parse as list items
+    return uniqueLines.map((line, index) => {
+      const match = line.match(listPattern)
+      const actionText = match ? match[1] : line
+      
+      // Check if line indicates completion (contains checkmark or "готово", "выполнено", "готово")
+      const isDone = /✓|готово|выполнено|завершено|done|готово:/i.test(actionText)
+      
+      return {
+        icon: isDone ? '✓' : '○',
+        text: actionText,
+        status: isDone ? 'done' as const : (index === uniqueLines.length - 1 && isStreaming ? 'pending' as const : 'done' as const)
+      }
+    })
+  }
+  
+  // If not a list, split by sentences or lines
+  // First try splitting by sentences (ending with . ! ?)
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim())
+  
+  if (sentences.length > 1) {
+    return sentences.map((sentence, index) => {
+      const trimmed = sentence.trim()
+      // Check if sentence indicates completion
+      const isDone = /✓|готово|выполнено|завершено|done|готово:/i.test(trimmed) || 
+                     (index < sentences.length - 1) // Previous sentences are done
+      
+      return {
+        icon: isDone ? '✓' : '○',
+        text: trimmed,
+        status: isDone ? 'done' as const : (index === sentences.length - 1 && isStreaming ? 'pending' as const : 'done' as const)
+      }
+    })
+  }
+  
+  // If single line, try splitting by common separators (..., then, после чего)
+  const separators = /(\.\.\.|\.\.|, затем|, потом|, после чего|, далее)/i
+  if (separators.test(text)) {
+    const parts = text.split(separators).filter(p => p.trim() && !separators.test(p.trim()))
+    if (parts.length > 1) {
+      return parts.map((part, index) => ({
+        icon: index < parts.length - 1 ? '✓' : (isStreaming ? '○' : '✓'),
+        text: part.trim(),
+        status: index < parts.length - 1 ? 'done' as const : (isStreaming ? 'pending' as const : 'done' as const)
+      }))
+    }
+  }
+  
+  // Single action - check if it ends with "..." (in progress) or indicates completion
+  const trimmed = text.trim()
+  const isInProgress = trimmed.endsWith('...') || isStreaming
+  const isDone = /✓|готово|выполнено|завершено|done|готово:/i.test(trimmed) || !isInProgress
+  
+  return [{
+    icon: isDone ? '✓' : '○',
+    text: trimmed,
+    status: isDone ? 'done' as const : 'pending' as const
+  }]
 }
 
 export function StepProgress({ workflowId }: StepProgressProps) {
   // Get workflow by ID from store
   const workflow = useChatStore((state) => state.workflows[workflowId])
   const workflowPlan = workflow?.plan
+  const addTab = useWorkspaceStore((state) => state.addTab)
 
   // Only show component when there's a plan (workflow exists)
   if (!workflowPlan || !workflowPlan.steps || workflowPlan.steps.length === 0) {
@@ -84,24 +259,11 @@ export function StepProgress({ workflowId }: StepProgressProps) {
         // Parse response into action preparation and result
         const { actionPreparation, result } = parseStepResponse(response)
 
-        return (
-          <div key={stepNumber} style={{ marginBottom: '24px' }}>
-            {/* Заголовок шага - без границ, без фона, как обычный текст */}
-            <h3 style={{ 
-              fontWeight: 'normal', 
-              fontSize: '15px', 
-              marginBottom: '8px',
-              color: '#1A1A1A',
-              maxWidth: '900px',
-              width: '100%',
-              marginLeft: 'auto',
-              marginRight: 'auto',
-              paddingLeft: '14px',
-              paddingRight: '14px'
-            }}>
-              {stepTitle}{status === 'completed' ? ' (Готово)' : ''}
-            </h3>
+        // Parse actions for log
+        const actions = parseActionsFromText(actionPreparation, isStepStreaming)
 
+        return (
+          <div key={stepNumber} style={{ marginBottom: '12px' }}>
             {/* Блок ризонинга шага */}
             {thinking && thinking.trim() && (
               <CollapsibleBlock
@@ -115,18 +277,68 @@ export function StepProgress({ workflowId }: StepProgressProps) {
               </CollapsibleBlock>
             )}
 
-            {/* Блок подготовки результата (действия модели) */}
-            {(actionPreparation && actionPreparation.trim()) || (isStepStreaming && !result) ? (
-              <CollapsibleBlock
-                title={getActionDescription(stepTitle)}
-                icon={<Loader2 className="reasoning-block-icon" />}
-                isStreaming={isStepStreaming}
-                isCollapsed={false}
-                alwaysOpen={true}
-              >
-                {actionPreparation || (isStepStreaming ? 'Выполняю действия...' : '')}
-              </CollapsibleBlock>
-            ) : null}
+            {/* Компактный лог действий */}
+            {(actions.length > 0 || (isStepStreaming && !result && !thinking)) && (
+              <div className="execution-log" style={{ 
+                maxWidth: '900px',
+                width: '100%',
+                marginLeft: 'auto',
+                marginRight: 'auto',
+                paddingLeft: '14px',
+                paddingRight: '14px'
+              }}>
+                {actions.map((action, actionIndex) => (
+                  <div key={actionIndex} className="execution-log-item">
+                    <span className={`log-icon ${action.status}`}>{action.icon}</span>
+                    <span className="log-text">{action.text}</span>
+                  </div>
+                ))}
+                {isStepStreaming && !result && actions.length === 0 && (
+                  <div className="execution-log-item">
+                    <span className="log-icon pending">○</span>
+                    <span className="log-text">Выполняю действия...</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* File Preview Card */}
+            {stepData?.filePreview && (
+              <div style={{ 
+                maxWidth: '900px',
+                width: '100%',
+                marginTop: '12px',
+                marginLeft: 'auto',
+                marginRight: 'auto',
+                paddingLeft: '14px',
+                paddingRight: '14px'
+              }}>
+                <FilePreviewCard
+                  type={stepData.filePreview.type}
+                  title={stepData.filePreview.title}
+                  subtitle={stepData.filePreview.subtitle}
+                  previewData={stepData.filePreview.previewData}
+                  fileId={stepData.filePreview.fileId}
+                  fileUrl={stepData.filePreview.fileUrl}
+                  onOpenInPanel={() => {
+                    const preview = stepData.filePreview!
+                    addTab({
+                      type: preview.type,
+                      title: preview.title,
+                      url: preview.fileUrl,
+                      data: preview.type === 'sheets' ? { spreadsheetId: preview.fileId } :
+                            preview.type === 'docs' ? { documentId: preview.fileId } :
+                            preview.type === 'slides' ? { presentationId: preview.fileId } :
+                            preview.type === 'code' ? preview.previewData :
+                            preview.type === 'email' ? preview.previewData :
+                            preview.type === 'chart' ? preview.previewData :
+                            {},
+                      closeable: true
+                    })
+                  }}
+                />
+              </div>
+            )}
 
             {/* Результат шага - просто текст без рамок и фона, с маркдауном */}
             {result && result.trim() && (

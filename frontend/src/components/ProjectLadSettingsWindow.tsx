@@ -68,18 +68,12 @@ export function ProjectLadSettingsWindow() {
     try {
       // Если пароль не был изменен (остались звездочки), отправляем пустую строку
       const passwordToSave = hasExistingPassword && values.password === '********' ? '' : values.password
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProjectLadSettingsWindow.tsx:handleTest','message':'handleTest - password logic',data:{hasExistingPassword,passwordValue:values.password,passwordLength:values.password?.length,passwordToSave:passwordToSave?passwordToSave.substring(0,3)+'***':'empty',passwordToSaveLength:passwordToSave?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       const config: ProjectLadConfig = {
         base_url: values.base_url,
         email: values.email,
         password: passwordToSave,
       }
       await saveProjectLadConfig(config)
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProjectLadSettingsWindow.tsx:handleTest','message':'After saveProjectLadConfig - before test',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       const result = await testProjectLadConnection()
       setTestResult({
         success: result.connected || false,

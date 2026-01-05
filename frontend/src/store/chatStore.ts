@@ -65,6 +65,27 @@ export interface WorkflowPlan {
   planThinkingIsStreaming: boolean // Whether plan thinking is currently streaming
 }
 
+// File preview data structure
+export interface FilePreviewData {
+  type: 'sheets' | 'docs' | 'slides' | 'code' | 'email' | 'chart'
+  title: string
+  subtitle?: string
+  fileId: string
+  fileUrl?: string
+  previewData: {
+    rows?: string[][]
+    text?: string
+    thumbnailUrl?: string
+    presentationId?: string
+    code?: string
+    language?: string
+    subject?: string
+    body?: string
+    chartType?: string
+    series?: any[]
+  }
+}
+
 // Workflow step structure
 export interface WorkflowStep {
   stepNumber: number
@@ -72,6 +93,7 @@ export interface WorkflowStep {
   status: 'pending' | 'in_progress' | 'completed'
   thinking: string
   response: string
+  filePreview?: FilePreviewData
 }
 
 interface ChatState {
@@ -133,6 +155,7 @@ interface ChatState {
   startWorkflowStep: (stepNumber: number, title: string) => void // Works on active workflow
   updateStepThinking: (stepNumber: number, content: string) => void // Works on active workflow
   updateStepResponse: (stepNumber: number, content: string) => void // Works on active workflow
+  setStepFilePreview: (stepNumber: number, filePreview: FilePreviewData) => void // Works on active workflow
   completeWorkflowStep: (stepNumber: number) => void // Works on active workflow
   completeWorkflow: () => void // Works on active workflow
   setWorkflowFinalResult: (workflowId: string, finalResult: string) => void // Set final result for a workflow
@@ -798,6 +821,32 @@ export const useChatStore = create<ChatState>()(
                   [stepNumber]: {
                     ...step,
                     response: step.response + content,
+                  },
+                },
+              },
+            },
+          }
+        }),
+      
+      setStepFilePreview: (stepNumber: number, filePreview: FilePreviewData) =>
+        set((state) => {
+          const activeId = state.activeWorkflowId
+          if (!activeId) return state
+          const workflow = state.workflows[activeId]
+          if (!workflow) return state
+          const step = workflow.steps[stepNumber]
+          if (!step) return state
+          
+          return {
+            workflows: {
+              ...state.workflows,
+              [activeId]: {
+                ...workflow,
+                steps: {
+                  ...workflow.steps,
+                  [stepNumber]: {
+                    ...step,
+                    filePreview,
                   },
                 },
               },

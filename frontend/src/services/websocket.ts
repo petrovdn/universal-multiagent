@@ -117,9 +117,6 @@ export class WebSocketClient {
   }
 
   private handleEvent(event: WebSocketEvent): void {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:handleEvent-entry',message:'handleEvent called',data:{eventType:event.type,hasData:!!event.data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     const chatStore = useChatStore.getState()
     
     // Helper function to ensure active workflow exists for current user message
@@ -147,10 +144,7 @@ export class WebSocketClient {
     const debugMode = settingsStore.debugMode
     console.log('[WebSocket] Received event:', event.type, event.data)
     
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:handleEvent-before-switch',message:'Before switch statement',data:{eventType:event.type,eventDataKeys:event.data?Object.keys(event.data):[]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
-    
+  
     // Helper function to add debug chunk if debug mode is enabled
     const addDebugChunkIfEnabled = (messageId: string, chunkType: DebugChunkType, content: string, metadata?: Record<string, any>) => {
       if (debugMode) {
@@ -698,9 +692,6 @@ export class WebSocketClient {
       // Workspace panel events
       case 'sheets_action': {
         console.log('[WebSocket] sheets_action event received:', event.data)
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:entry',message:'sheets_action event received',data:{eventData:event.data,hasSpreadsheetId:!!event.data?.spreadsheet_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
           const workspaceStore = useWorkspaceStore.getState()
           const { 
@@ -711,11 +702,7 @@ export class WebSocketClient {
             range, 
             description 
           } = event.data
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:extracted',message:'Data extracted from event',data:{spreadsheet_id,spreadsheet_url,title,action,range,description},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-          
+
           if (!spreadsheet_id) {
             console.warn('[WebSocket] sheets_action event missing spreadsheet_id:', event.data)
             return
@@ -735,20 +722,12 @@ export class WebSocketClient {
           if (!workspaceStore.isPanelVisible) {
             workspaceStore.togglePanel()
           }
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:before_check',message:'Before checking existing tabs',data:{spreadsheet_id,tabsCount:workspaceStore.tabs.length,isPanelVisible:workspaceStore.isPanelVisible,wasVisible},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-          // #endregion
-          
+
           // Check if tab already exists to prevent duplicates
           const existingTab = workspaceStore.tabs.find(
             t => t.type === 'sheets' && t.data?.spreadsheetId === spreadsheet_id
           )
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:after_check',message:'After checking existing tabs',data:{spreadsheet_id,existingTabFound:!!existingTab,existingTabId:existingTab?.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-          // #endregion
-          
+
           if (existingTab) {
             console.log('[WebSocket] Tab already exists for spreadsheet_id:', spreadsheet_id, 'updating and activating')
             // Update existing tab with new action data (addTab will handle this via deduplication)
@@ -769,16 +748,8 @@ export class WebSocketClient {
             })
             // Ensure the tab is active
             workspaceStore.setActiveTab(existingTab.id)
-            
-            // #region agent log
-            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:existing_tab',message:'Updated existing tab',data:{spreadsheet_id,existingTabId:existingTab.id,activeTabId:workspaceStore.activeTabId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-            // #endregion
             return
           }
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:before_addTab',message:'About to call addTab for new tab',data:{spreadsheet_id,title,action},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-          // #endregion
           
           // Create new tab
           workspaceStore.addTab({
@@ -796,11 +767,7 @@ export class WebSocketClient {
             },
             closeable: true,
           })
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:after_addTab',message:'addTab called for new tab',data:{spreadsheet_id,action,range,tabsCount:workspaceStore.tabs.length,activeTabId:workspaceStore.activeTabId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-          // #endregion
-          
+
           console.log('[WebSocket] Tab added successfully:', {
             action,
             spreadsheet_id,
@@ -810,9 +777,6 @@ export class WebSocketClient {
           })
         }).catch((err) => {
           console.error('[WebSocket] Error handling sheets_action:', err)
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sheets_action:error',message:'Error handling sheets_action',data:{error:err?.message||String(err)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
         })
         break
       }
@@ -925,6 +889,28 @@ export class WebSocketClient {
             closeable: true,
           })
           console.log('[WebSocket] Calendar view:', mode, calendarId)
+        })
+        break
+      }
+
+      case 'file_preview': {
+        // Handle file preview event for workflow steps
+        ensureActiveWorkflow()
+        import('../store/chatStore').then(({ useChatStore }) => {
+          const chatStore = useChatStore.getState()
+          const { step, type, title, subtitle, fileId, fileUrl, previewData } = event.data
+          
+          if (step) {
+            chatStore.setStepFilePreview(step, {
+              type: type as 'sheets' | 'docs' | 'slides' | 'code' | 'email' | 'chart',
+              title: title || 'File',
+              subtitle,
+              fileId: fileId || '',
+              fileUrl,
+              previewData: previewData || {}
+            })
+            console.log('[WebSocket] File preview set for step:', step, type, title)
+          }
         })
         break
       }

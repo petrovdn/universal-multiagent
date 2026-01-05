@@ -103,7 +103,7 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
           {workflowPlan.plan && workflowPlan.plan.trim() && (
             <>
               <CollapsibleBlock
-                title={`План: ${workflowPlan.plan}`}
+                title="План"
                 icon={<FileText className="reasoning-block-icon" />}
                 isStreaming={false}
                 isCollapsed={false}
@@ -111,20 +111,17 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
                 className="plan-content-block"
               >
                 {workflowPlan.steps && workflowPlan.steps.length > 0 && (
-                  <ol style={{ paddingLeft: '24px', margin: 0, fontSize: '13px', fontWeight: 'normal', lineHeight: '1.6', color: '#111' }}>
+                  <ol className="plan-steps-list">
                     {workflowPlan.steps.map((step, index) => {
                       const stepNumber = index + 1
                       const stepData = workflow?.steps[stepNumber]
                       const isCompleted = stepData?.status === 'completed'
+                      const isInProgress = stepData?.status === 'in_progress'
                       
                       return (
                         <li 
-                          key={index} 
-                          style={{ 
-                            marginBottom: '8px',
-                            paddingLeft: '4px',
-                            textDecoration: isCompleted ? 'line-through' : 'none'
-                          }}
+                          key={index}
+                          className={`plan-step-item ${isCompleted ? 'completed' : ''} ${isInProgress ? 'active' : ''}`}
                         >
                           {step}
                         </li>
