@@ -637,7 +637,10 @@ class CreatePresentationFromDocInput(BaseModel):
     
     document_id: str = Field(description="Document ID or URL")
     presentation_title: Optional[str] = Field(default=None, description="Title for the new presentation (optional, defaults to document title)")
-    slides_per_paragraph: bool = Field(default=True, description="Create one slide per paragraph (default: true)")
+    theme: Optional[str] = Field(
+        default="professional",
+        description="Presentation theme. Choose based on content: professional (business), creative (marketing), minimal (academic), dark (tech)"
+    )
 
 
 class CreatePresentationFromDocTool(BaseTool):
@@ -645,14 +648,22 @@ class CreatePresentationFromDocTool(BaseTool):
     
     name: str = "create_presentation_from_doc"
     description: str = """
-    Create a presentation from a Google Docs document, splitting content into slides.
+    Create a professional presentation from a Google Docs document.
+    
+    The document structure is automatically analyzed:
+    - H1 headings create section divider slides
+    - H2 headings create content slides with titles
+    - Regular text becomes bullet points
+    - Images from the document are included
     
     Input:
     - document_id: Document ID or URL
     - presentation_title: Title for the new presentation (optional, defaults to document title)
-    - slides_per_paragraph: Create one slide per paragraph (default: true)
-    
-    This tool reads the document content and creates a presentation with slides based on the document structure.
+    - theme: Presentation theme - choose based on content:
+      * professional: Business presentations, reports, formal documents (blue accents, white background)
+      * creative: Marketing, startups, creative projects (bright colors, unique fonts)
+      * minimal: Academic, technical presentations (clean, lots of whitespace)
+      * dark: IT, technology presentations (dark background, light text)
     """
     args_schema: type = CreatePresentationFromDocInput
     
@@ -661,13 +672,13 @@ class CreatePresentationFromDocTool(BaseTool):
         self,
         document_id: str,
         presentation_title: Optional[str] = None,
-        slides_per_paragraph: bool = True
+        theme: Optional[str] = "professional"
     ) -> str:
         """Execute the tool asynchronously."""
         try:
             args = {
                 "documentId": document_id,
-                "slidesPerParagraph": slides_per_paragraph
+                "theme": theme or "professional"
             }
             if presentation_title:
                 args["presentationTitle"] = presentation_title
@@ -691,8 +702,16 @@ class CreatePresentationFromDocTool(BaseTool):
             title = result.get("title", "Untitled")
             url = result.get("url", "")
             slides_created = result.get("slidesCreated", 0)
+            theme_used = result.get("theme", "professional")
+            template_used = result.get("templateUsed", False)
             
-            return f"Presentation '{title}' created successfully from document (ID: {presentation_id}, {slides_created} slides)" + (f" URL: {url}" if url else "")
+            response = f"Presentation '{title}' created successfully from document (ID: {presentation_id}, {slides_created} slides, theme: {theme_used})"
+            if url:
+                response += f" URL: {url}"
+            if template_used:
+                response += " [template applied]"
+            
+            return response
             
         except Exception as e:
             raise ToolExecutionError(

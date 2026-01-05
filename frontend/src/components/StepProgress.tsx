@@ -98,20 +98,74 @@ const TOOL_NAMES_RU: Record<string, string> = {
   'Create Presentation': 'Создание презентации',
   'slides_create': 'Создание презентации',
   'create_presentation': 'Создание презентации',
+  'Get Presentation': 'Получение презентации',
+  'get_presentation': 'Получение презентации',
+  'slides_get': 'Получение презентации',
   'Create Slide': 'Добавление слайда',
   'slides_create_slide': 'Добавление слайда',
+  'create_slide': 'Добавление слайда',
+  'Insert Slide Text': 'Вставка текста в слайд',
+  'insert_slide_text': 'Вставка текста в слайд',
+  'slides_insert_text': 'Вставка текста в слайд',
+  'Update Slide': 'Обновление слайда',
+  'update_slide': 'Обновление слайда',
+  'slides_update': 'Обновление слайда',
   'gmail_search': 'Поиск писем',
   'gmail_send_email': 'Отправка письма',
+}
+
+// Нормализация текста действия: убираем многоточия, лишние пробелы, приводим к ключевым словам
+function normalizeActionText(text: string): string {
+  // Убираем многоточия и лишние пробелы
+  let normalized = text.replace(/\.{2,}/g, '').trim()
+  // Убираем пунктуацию в конце
+  normalized = normalized.replace(/[.,;:!?]+$/, '')
+  // Приводим к lowercase для сравнения
+  normalized = normalized.toLowerCase()
+  // Убираем лишние пробелы
+  normalized = normalized.replace(/\s+/g, ' ')
+  return normalized
+}
+
+// Извлечение ключевых слов действия (Get, Create, Insert и т.д.)
+function extractActionKey(text: string): string {
+  const normalized = normalizeActionText(text)
+  // Ищем ключевые слова действий
+  const actionKeywords = ['get', 'create', 'insert', 'update', 'read', 'write', 'search', 'open', 'find']
+  for (const keyword of actionKeywords) {
+    if (normalized.includes(keyword)) {
+      // Извлекаем ключевое слово + следующее слово (например, "get presentation", "create slide")
+      const match = normalized.match(new RegExp(`${keyword}\\s+(\\w+)`, 'i'))
+      if (match) {
+        return `${keyword} ${match[1]}`
+      }
+      return keyword
+    }
+  }
+  return normalized
 }
 
 // Функция для замены английских названий инструментов на русские
 function translateToolNames(text: string): string {
   let translated = text
+  // Сначала переводим полные совпадения
   for (const [en, ru] of Object.entries(TOOL_NAMES_RU)) {
     // Заменяем как "Search Workspace Files", так и "search_workspace_files"
     const regex = new RegExp(en.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
     translated = translated.replace(regex, ru)
   }
+  
+  // Затем обрабатываем варианты с многоточиями (например, "Get Presentation...")
+  // Ищем паттерны типа "Action..." и заменяем на переведённый вариант
+  for (const [en, ru] of Object.entries(TOOL_NAMES_RU)) {
+    // Паттерн для "Action..." или "Action ..."
+    const regexWithDots = new RegExp(`(${en.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})\\s*\\.{2,}`, 'gi')
+    translated = translated.replace(regexWithDots, (match, action) => {
+      // Заменяем на переведённый вариант с многоточием
+      return `${ru}...`
+    })
+  }
+  
   return translated
 }
 
@@ -128,26 +182,71 @@ function parseActionsFromText(text: string, isStreaming: boolean): Array<{ icon:
     text = text.substring(0, markerMatch.index).trim()
   }
 
+  // Сначала разбиваем комбинированные строки (Action1... Action2...)
+  // Ищем паттерны типа "Action1... Action2..." или "Action1, Action2..."
+  const combinedPattern = /([A-Z][a-zA-Z\s]+?)(\.{2,}|,)\s*([A-Z][a-zA-Z\s]+?)(\.{2,}|,|$)/g
+  let processedText = text
+  let match
+  const combinedActions: string[] = []
+  
+  // Извлекаем комбинированные действия
+  while ((match = combinedPattern.exec(text)) !== null) {
+    const action1 = match[1].trim()
+    const action2 = match[3].trim()
+    if (action1 && action2) {
+      combinedActions.push(action1)
+      combinedActions.push(action2)
+      // Заменяем комбинированную строку на разделитель
+      processedText = processedText.replace(match[0], `\n${action1}\n${action2}`)
+    }
+  }
+
   // Split by newlines and filter empty lines
-  const lines = text.split('\n').filter(line => line.trim()).map(line => line.trim())
+  let lines = processedText.split('\n').filter(line => line.trim()).map(line => line.trim())
+  
+  // Если не нашли комбинированные через regex, пробуем разбить по многоточиям
+  if (lines.length === 1 && text.includes('...')) {
+    // Разбиваем по паттерну "Action1... Action2..." (без запятых)
+    const dotSeparated = text.split(/(?<=\.{2,})\s+(?=[A-Z])/).filter(s => s.trim())
+    if (dotSeparated.length > 1) {
+      lines = dotSeparated.map(s => s.trim())
+    }
+  }
   
   if (lines.length === 0) {
     return []
   }
   
-  // Дедупликация: убираем повторяющиеся строки (нормализуем для сравнения)
-  // Сначала переводим все строки, потом фильтруем дубликаты по нормализованным версиям
+  // Переводим все строки
   const translatedLines = lines.map(line => translateToolNames(line))
-  const seenTexts = new Set<string>()
-  const uniqueLines = translatedLines.filter(line => {
-    // Нормализуем строку: убираем маркеры списков и лишние пробелы
-    const normalized = line.replace(/^[\s]*[•\-\*\d+\.\)]\s+/, '').trim().toLowerCase()
-    if (seenTexts.has(normalized)) {
-      return false
+  
+  // Улучшенная дедупликация: используем ключи действий для сравнения
+  const seenActionKeys = new Set<string>()
+  const uniqueLines: string[] = []
+  
+  for (const line of translatedLines) {
+    // Убираем маркеры списков
+    const cleanLine = line.replace(/^[\s]*[•\-\*\d+\.\)]\s+/, '').trim()
+    if (!cleanLine) continue
+    
+    // Извлекаем ключ действия для сравнения
+    const actionKey = extractActionKey(cleanLine)
+    
+    // Также нормализуем для дополнительной проверки
+    const normalized = normalizeActionText(cleanLine)
+    
+    // Проверяем по ключу действия (более строгое сравнение)
+    if (!seenActionKeys.has(actionKey) && !seenActionKeys.has(normalized)) {
+      seenActionKeys.add(actionKey)
+      seenActionKeys.add(normalized)
+      uniqueLines.push(cleanLine)
     }
-    seenTexts.add(normalized)
-    return true
-  })
+  }
+  
+  // Если нет уникальных строк после обработки, возвращаем пустой массив
+  if (uniqueLines.length === 0) {
+    return []
+  }
   
   // Check if it's a list format (bullet points, numbered, or dashes)
   const listPattern = /^[\s]*[•\-\*\d+\.\)]\s+(.+)$/
@@ -170,48 +269,29 @@ function parseActionsFromText(text: string, isStreaming: boolean): Array<{ icon:
     })
   }
   
-  // If not a list, split by sentences or lines
-  // First try splitting by sentences (ending with . ! ?)
-  const sentences = text.split(/(?<=[.!?])\s+/).filter(s => s.trim())
+  // Если не список, обрабатываем каждую строку отдельно
+  // Для каждой строки проверяем, является ли она комбинированной
+  const result: Array<{ icon: string, text: string, status: 'done' | 'pending' }> = []
   
-  if (sentences.length > 1) {
-    return sentences.map((sentence, index) => {
-      const trimmed = sentence.trim()
-      // Check if sentence indicates completion
-      const isDone = /✓|готово|выполнено|завершено|done|готово:/i.test(trimmed) || 
-                     (index < sentences.length - 1) // Previous sentences are done
-      
-      return {
-        icon: isDone ? '✓' : '○',
-        text: trimmed,
-        status: isDone ? 'done' as const : (index === sentences.length - 1 && isStreaming ? 'pending' as const : 'done' as const)
-      }
+  for (let i = 0; i < uniqueLines.length; i++) {
+    const line = uniqueLines[i]
+    const isLast = i === uniqueLines.length - 1
+    
+    // Проверяем, заканчивается ли строка на многоточие (в процессе)
+    const hasDots = line.endsWith('...')
+    const trimmed = hasDots ? line.slice(0, -3).trim() : line.trim()
+    
+    // Проверяем завершённость
+    const isDone = /✓|готово|выполнено|завершено|done|готово:/i.test(trimmed) || (!hasDots && !isStreaming)
+    
+    result.push({
+      icon: isDone ? '✓' : '○',
+      text: trimmed,
+      status: (isDone || (!isLast && !hasDots)) ? 'done' as const : (isStreaming ? 'pending' as const : 'done' as const)
     })
   }
   
-  // If single line, try splitting by common separators (..., then, после чего)
-  const separators = /(\.\.\.|\.\.|, затем|, потом|, после чего|, далее)/i
-  if (separators.test(text)) {
-    const parts = text.split(separators).filter(p => p.trim() && !separators.test(p.trim()))
-    if (parts.length > 1) {
-      return parts.map((part, index) => ({
-        icon: index < parts.length - 1 ? '✓' : (isStreaming ? '○' : '✓'),
-        text: part.trim(),
-        status: index < parts.length - 1 ? 'done' as const : (isStreaming ? 'pending' as const : 'done' as const)
-      }))
-    }
-  }
-  
-  // Single action - check if it ends with "..." (in progress) or indicates completion
-  const trimmed = text.trim()
-  const isInProgress = trimmed.endsWith('...') || isStreaming
-  const isDone = /✓|готово|выполнено|завершено|done|готово:/i.test(trimmed) || !isInProgress
-  
-  return [{
-    icon: isDone ? '✓' : '○',
-    text: trimmed,
-    status: isDone ? 'done' as const : 'pending' as const
-  }]
+  return result
 }
 
 export function StepProgress({ workflowId }: StepProgressProps) {
@@ -219,6 +299,9 @@ export function StepProgress({ workflowId }: StepProgressProps) {
   const workflow = useChatStore((state) => state.workflows[workflowId])
   const workflowPlan = workflow?.plan
   const addTab = useWorkspaceStore((state) => state.addTab)
+  
+  // Храним предыдущее состояние действий для каждого шага
+  const previousActionsRef = React.useRef<Record<number, Array<{ icon: string, text: string, status: 'done' | 'pending' }>>>({})
 
   // Only show component when there's a plan (workflow exists)
   if (!workflowPlan || !workflowPlan.steps || workflowPlan.steps.length === 0) {
@@ -236,6 +319,61 @@ export function StepProgress({ workflowId }: StepProgressProps) {
   if (!hasAnyStepData && !hasFinalResult) {
     return null
   }
+  
+  // Функция для обновления действий с учётом предыдущего состояния
+  const getUpdatedActions = React.useCallback((stepNumber: number, newActions: Array<{ icon: string, text: string, status: 'done' | 'pending' }>): Array<{ icon: string, text: string, status: 'done' | 'pending' }> => {
+    const previousActions = previousActionsRef.current[stepNumber] || []
+    
+    if (previousActions.length === 0) {
+      // Первый раз - просто сохраняем
+      previousActionsRef.current[stepNumber] = [...newActions]
+      return newActions
+    }
+    
+    // Создаём мапу предыдущих действий по ключу (нормализованный текст)
+    const previousMap = new Map<string, { icon: string, text: string, status: 'done' | 'pending', index: number }>()
+    previousActions.forEach((action, index) => {
+      const key = extractActionKey(action.text)
+      previousMap.set(key, { ...action, index })
+    })
+    
+    const result: Array<{ icon: string, text: string, status: 'done' | 'pending' }> = []
+    const processedKeys = new Set<string>()
+    
+    // Обрабатываем новые действия
+    for (const newAction of newActions) {
+      const key = extractActionKey(newAction.text)
+      
+      if (processedKeys.has(key)) {
+        continue // Пропускаем дубликаты
+      }
+      
+      processedKeys.add(key)
+      
+      const previousAction = previousMap.get(key)
+      
+      if (previousAction) {
+        // Обновляем существующее действие
+        // Если статус изменился с pending на done, обновляем
+        if (previousAction.status === 'pending' && newAction.status === 'done') {
+          result.push(newAction)
+        } else if (previousAction.status === 'pending' && newAction.status === 'pending') {
+          // Обновляем текст, но сохраняем pending
+          result.push({ ...newAction, text: newAction.text })
+        } else {
+          // Сохраняем предыдущее состояние, если оно done
+          result.push(previousAction)
+        }
+      } else {
+        // Новое действие - добавляем
+        result.push(newAction)
+      }
+    }
+    
+    // Сохраняем обновлённое состояние
+    previousActionsRef.current[stepNumber] = [...result]
+    return result
+  }, [])
 
   return (
     <div style={{ 
@@ -260,7 +398,10 @@ export function StepProgress({ workflowId }: StepProgressProps) {
         const { actionPreparation, result } = parseStepResponse(response)
 
         // Parse actions for log
-        const actions = parseActionsFromText(actionPreparation, isStepStreaming)
+        const rawActions = parseActionsFromText(actionPreparation, isStepStreaming)
+        
+        // Обновляем действия с учётом предыдущего состояния (обновление вместо добавления)
+        const actions = getUpdatedActions(stepNumber, rawActions)
 
         return (
           <div key={stepNumber} style={{ marginBottom: '12px' }}>

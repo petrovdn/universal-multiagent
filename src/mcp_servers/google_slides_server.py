@@ -180,6 +180,250 @@ class GoogleSlidesMCPServer:
         
         return ''.join(text_parts)
     
+    def _extract_structured_content(self, content: List[Dict], inline_objects: Dict = None) -> List[Dict]:
+        """
+        Extract structured content from Google Docs document.
+        Returns list of elements with type, level, text, and metadata.
+        
+        Args:
+            content: Document body content
+            inline_objects: Dictionary of inline objects (images) from document
+            
+        Returns:
+            List of structured elements:
+            - {'type': 'heading', 'level': 1-6, 'text': str}
+            - {'type': 'text', 'text': str, 'is_bullet': bool}
+            - {'type': 'image', 'object_id': str, 'uri': str}
+        """
+        result = []
+        inline_objects = inline_objects or {}
+        
+        for element in content:
+            if 'paragraph' in element:
+                paragraph = element['paragraph']
+                style = paragraph.get('paragraphStyle', {})
+                named_style = style.get('namedStyleType', 'NORMAL_TEXT')
+                
+                # Check if this is a list item
+                is_bullet = 'bullet' in paragraph
+                
+                # Extract text from paragraph elements
+                text_parts = []
+                for elem in paragraph.get('elements', []):
+                    if 'textRun' in elem:
+                        text_parts.append(elem['textRun'].get('content', ''))
+                    elif 'inlineObjectElement' in elem:
+                        # Found an image
+                        obj_id = elem['inlineObjectElement'].get('inlineObjectId')
+                        if obj_id and obj_id in inline_objects:
+                            obj_props = inline_objects[obj_id].get('inlineObjectProperties', {})
+                            embedded = obj_props.get('embeddedObject', {})
+                            image_uri = embedded.get('imageProperties', {}).get('contentUri', '')
+                            if image_uri:
+                                result.append({
+                                    'type': 'image',
+                                    'object_id': obj_id,
+                                    'uri': image_uri
+                                })
+                
+                text = ''.join(text_parts).strip()
+                if text:
+                    # Determine heading level
+                    if named_style.startswith('HEADING_'):
+                        try:
+                            level = int(named_style.split('_')[1])
+                        except (ValueError, IndexError):
+                            level = 1
+                        result.append({
+                            'type': 'heading',
+                            'level': level,
+                            'text': text
+                        })
+                    elif named_style == 'TITLE':
+                        result.append({
+                            'type': 'heading',
+                            'level': 0,  # Title is level 0
+                            'text': text
+                        })
+                    else:
+                        result.append({
+                            'type': 'text',
+                            'text': text,
+                            'is_bullet': is_bullet
+                        })
+                        
+            elif 'table' in element:
+                # Extract table as text
+                table = element['table']
+                table_text = []
+                for row in table.get('tableRows', []):
+                    row_text = []
+                    for cell in row.get('tableCells', []):
+                        cell_content = cell.get('content', [])
+                        cell_text = self._extract_text_from_docs_content(cell_content)
+                        row_text.append(cell_text.strip())
+                    if row_text:
+                        table_text.append(' | '.join(row_text))
+                if table_text:
+                    result.append({
+                        'type': 'table',
+                        'text': '\n'.join(table_text)
+                    })
+        
+        return result
+    
+    def _group_content_into_slides(self, structured_content: List[Dict], doc_title: str) -> List[Dict]:
+        """
+        Group structured content into slides.
+        
+        Args:
+            structured_content: List from _extract_structured_content
+            doc_title: Document title for the title slide
+            
+        Returns:
+            List of slide definitions:
+            - {'layout': str, 'title': str, 'subtitle': str, 'content': list, 'images': list}
+        """
+        slides = []
+        
+        # Create title slide
+        title_slide = {
+            'layout': 'TITLE',
+            'title': doc_title,
+            'subtitle': '',
+            'content': [],
+            'images': []
+        }
+        slides.append(title_slide)
+        
+        current_slide = None
+        
+        for item in structured_content:
+            if item['type'] == 'heading':
+                level = item['level']
+                
+                if level == 0:
+                    # Document title - update title slide subtitle or skip
+                    if item['text'] != doc_title:
+                        slides[0]['subtitle'] = item['text']
+                        
+                elif level == 1:
+                    # H1 - Section header slide
+                    if current_slide:
+                        slides.append(current_slide)
+                    current_slide = {
+                        'layout': 'SECTION_HEADER',
+                        'title': item['text'],
+                        'subtitle': '',
+                        'content': [],
+                        'images': []
+                    }
+                    
+                elif level == 2:
+                    # H2 - New content slide with title
+                    if current_slide:
+                        slides.append(current_slide)
+                    current_slide = {
+                        'layout': 'TITLE_AND_BODY',
+                        'title': item['text'],
+                        'subtitle': '',
+                        'content': [],
+                        'images': []
+                    }
+                    
+                else:
+                    # H3+ - Add as bold content to current slide
+                    if current_slide is None:
+                        current_slide = {
+                            'layout': 'TITLE_AND_BODY',
+                            'title': '',
+                            'subtitle': '',
+                            'content': [],
+                            'images': []
+                        }
+                    current_slide['content'].append({
+                        'type': 'subheading',
+                        'text': item['text']
+                    })
+                    
+            elif item['type'] == 'text':
+                if current_slide is None:
+                    current_slide = {
+                        'layout': 'TITLE_AND_BODY',
+                        'title': '',
+                        'subtitle': '',
+                        'content': [],
+                        'images': []
+                    }
+                current_slide['content'].append({
+                    'type': 'bullet' if item.get('is_bullet') else 'text',
+                    'text': item['text']
+                })
+                
+            elif item['type'] == 'image':
+                if current_slide is None:
+                    current_slide = {
+                        'layout': 'TITLE_AND_BODY',
+                        'title': '',
+                        'subtitle': '',
+                        'content': [],
+                        'images': []
+                    }
+                current_slide['images'].append({
+                    'uri': item['uri'],
+                    'object_id': item.get('object_id')
+                })
+                
+            elif item['type'] == 'table':
+                if current_slide is None:
+                    current_slide = {
+                        'layout': 'TITLE_AND_BODY',
+                        'title': '',
+                        'subtitle': '',
+                        'content': [],
+                        'images': []
+                    }
+                current_slide['content'].append({
+                    'type': 'table',
+                    'text': item['text']
+                })
+        
+        # Don't forget the last slide
+        if current_slide:
+            slides.append(current_slide)
+        
+        return slides
+    
+    def _get_template_id(self, theme: str) -> Optional[str]:
+        """
+        Get template presentation ID for the given theme.
+        
+        Args:
+            theme: Theme name (professional, creative, minimal, dark)
+            
+        Returns:
+            Template presentation ID or None if not configured
+        """
+        config = self._load_config()
+        templates = config.get('presentation_templates', {})
+        theme_config = templates.get(theme, {})
+        template_id = theme_config.get('id', '')
+        return template_id if template_id else None
+    
+    def _get_available_themes(self) -> Dict[str, str]:
+        """
+        Get available themes with their descriptions.
+        
+        Returns:
+            Dict of theme_name -> description
+        """
+        config = self._load_config()
+        templates = config.get('presentation_templates', {})
+        return {
+            name: data.get('description', '')
+            for name, data in templates.items()
+        }
+    
     def _setup_tools(self):
         """Register MCP tools."""
         
@@ -345,7 +589,19 @@ class GoogleSlidesMCPServer:
                 ),
                 Tool(
                     name="slides_create_presentation_from_doc",
-                    description="Create a presentation from a Google Docs document, splitting content into slides.",
+                    description="""Create a professional presentation from a Google Docs document.
+                    
+The document structure is automatically analyzed:
+- H1 headings create section divider slides
+- H2 headings create content slides with titles
+- Regular text becomes bullet points
+- Images from the document are included
+
+Choose an appropriate theme based on the document content:
+- professional: Business presentations, reports, formal documents (blue accents, white background)
+- creative: Marketing, startups, creative projects (bright colors, unique fonts)
+- minimal: Academic, technical presentations (clean, lots of whitespace)
+- dark: IT, technology presentations (dark background, light text)""",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -357,10 +613,11 @@ class GoogleSlidesMCPServer:
                                 "type": "string",
                                 "description": "Title for the new presentation (optional, defaults to document title)"
                             },
-                            "slidesPerParagraph": {
-                                "type": "boolean",
-                                "description": "Create one slide per paragraph (default: true)",
-                                "default": True
+                            "theme": {
+                                "type": "string",
+                                "description": "Presentation theme. Choose based on content: professional (business), creative (marketing), minimal (academic), dark (tech)",
+                                "enum": ["professional", "creative", "minimal", "dark"],
+                                "default": "professional"
                             }
                         },
                         "required": ["documentId"]
@@ -1437,6 +1694,21 @@ class GoogleSlidesMCPServer:
                     )]
                 
                 elif name == "slides_format_text":
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({
+                                "location": "google_slides_server.py:slides_format_text:entry",
+                                "message": "slides_format_text handler called",
+                                "data": {"arguments": arguments},
+                                "timestamp": int(__import__('time').time() * 1000),
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "H8"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
+                    
                     slides_service = self._get_slides_service()
                     presentation_id = self._extract_file_id(arguments.get("presentationId"))
                     page_id = arguments.get("pageId")
@@ -1508,23 +1780,100 @@ class GoogleSlidesMCPServer:
                         })
                     
                     if not requests:
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "location": "google_slides_server.py:slides_format_text:no_requests",
+                                    "message": "No formatting requests generated",
+                                    "data": {"text_style": text_style, "style_fields": style_fields},
+                                    "timestamp": int(__import__('time').time() * 1000),
+                                    "sessionId": "debug-session",
+                                    "runId": "run1",
+                                    "hypothesisId": "H8"
+                                }) + "\n")
+                        except: pass
+                        # #endregion
                         return [TextContent(
                             type="text",
                             text=json.dumps({"error": "No formatting options provided"}, indent=2)
                         )]
                     
-                    slides_service.presentations().batchUpdate(
-                        presentationId=presentation_id,
-                        body={"requests": requests}
-                    ).execute()
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({
+                                "location": "google_slides_server.py:slides_format_text:before_api",
+                                "message": "Before batchUpdate API call",
+                                "data": {
+                                    "presentation_id": presentation_id,
+                                    "element_id": element_id,
+                                    "start_index": start_index,
+                                    "end_index": end_index,
+                                    "text_style": text_style,
+                                    "style_fields": style_fields,
+                                    "requests": requests
+                                },
+                                "timestamp": int(__import__('time').time() * 1000),
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "H8"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
                     
-                    return [TextContent(
-                        type="text",
-                        text=json.dumps({
-                            "presentationId": presentation_id,
-                            "status": "formatted"
-                        }, indent=2)
-                    )]
+                    try:
+                        response = slides_service.presentations().batchUpdate(
+                            presentationId=presentation_id,
+                            body={"requests": requests}
+                        ).execute()
+                        
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "location": "google_slides_server.py:slides_format_text:after_api",
+                                    "message": "After batchUpdate API call",
+                                    "data": {
+                                        "response_keys": list(response.keys()) if isinstance(response, dict) else None,
+                                        "response_preview": str(response)[:200] if response else None
+                                    },
+                                    "timestamp": int(__import__('time').time() * 1000),
+                                    "sessionId": "debug-session",
+                                    "runId": "run1",
+                                    "hypothesisId": "H8"
+                                }) + "\n")
+                        except: pass
+                        # #endregion
+                        
+                        return [TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "presentationId": presentation_id,
+                                "status": "formatted"
+                            }, indent=2)
+                        )]
+                    except Exception as format_error:
+                        # #region agent log
+                        try:
+                            import traceback
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "location": "google_slides_server.py:slides_format_text:api_error",
+                                    "message": "API call failed",
+                                    "data": {
+                                        "error_type": type(format_error).__name__,
+                                        "error_message": str(format_error),
+                                        "error_traceback": traceback.format_exc()[:1000]
+                                    },
+                                    "timestamp": int(__import__('time').time() * 1000),
+                                    "sessionId": "debug-session",
+                                    "runId": "run1",
+                                    "hypothesisId": "H8"
+                                }) + "\n")
+                        except: pass
+                        # #endregion
+                        raise  # Re-raise to be handled by outer exception handler
                 
                 elif name == "slides_add_image":
                     slides_service = self._get_slides_service()
@@ -2223,150 +2572,267 @@ class GoogleSlidesMCPServer:
                     
                     document_id = self._extract_file_id(arguments.get("documentId"))
                     presentation_title = arguments.get("presentationTitle")
-                    slides_per_paragraph = arguments.get("slidesPerParagraph", True)
+                    theme = arguments.get("theme", "professional")
                     
-                    # Read document
+                    # Read document with full structure
                     document = docs_service.documents().get(documentId=document_id).execute()
                     doc_title = document.get('title', 'Untitled')
                     if not presentation_title:
-                        presentation_title = f"{doc_title} (Presentation)"
+                        presentation_title = doc_title
                     
                     content = document.get('body', {}).get('content', [])
-                    full_text = self._extract_text_from_docs_content(content)
+                    inline_objects = document.get('inlineObjects', {})
                     
-                    # Create presentation
-                    presentation = slides_service.presentations().create(
-                        body={"title": presentation_title}
-                    ).execute()
-                    presentation_id = presentation.get('presentationId')
+                    # Extract structured content (headings, text, images)
+                    structured_content = self._extract_structured_content(content, inline_objects)
                     
-                    # Move to workspace folder
-                    file_info = drive_service.files().get(
-                        fileId=presentation_id,
-                        fields="parents"
-                    ).execute()
-                    previous_parents = ",".join(file_info.get('parents', []))
-                    drive_service.files().update(
-                        fileId=presentation_id,
-                        addParents=folder_id,
-                        removeParents=previous_parents,
-                        fields="id, parents"
-                    ).execute()
+                    # Group into slides
+                    slide_definitions = self._group_content_into_slides(structured_content, doc_title)
                     
-                    # Get layout IDs
+                    # Try to copy template if available, otherwise create empty
+                    template_id = self._get_template_id(theme)
+                    
+                    if template_id:
+                        # Copy template presentation
+                        new_file = drive_service.files().copy(
+                            fileId=template_id,
+                            body={
+                                "name": presentation_title,
+                                "parents": [folder_id]
+                            }
+                        ).execute()
+                        presentation_id = new_file.get('id')
+                        
+                        # Get presentation and delete all slides except first
+                        presentation_obj = slides_service.presentations().get(
+                            presentationId=presentation_id
+                        ).execute()
+                        existing_slides = presentation_obj.get('slides', [])
+                        
+                        # Delete all slides except the first one (we'll use it for title)
+                        if len(existing_slides) > 1:
+                            delete_requests = []
+                            for slide in existing_slides[1:]:
+                                delete_requests.append({
+                                    "deleteObject": {"objectId": slide.get('objectId')}
+                                })
+                            if delete_requests:
+                                slides_service.presentations().batchUpdate(
+                                    presentationId=presentation_id,
+                                    body={"requests": delete_requests}
+                                ).execute()
+                    else:
+                        # Create new empty presentation
+                        presentation = slides_service.presentations().create(
+                            body={"title": presentation_title}
+                        ).execute()
+                        presentation_id = presentation.get('presentationId')
+                        
+                        # Move to workspace folder
+                        file_info = drive_service.files().get(
+                            fileId=presentation_id,
+                            fields="parents"
+                        ).execute()
+                        previous_parents = ",".join(file_info.get('parents', []))
+                        drive_service.files().update(
+                            fileId=presentation_id,
+                            addParents=folder_id,
+                            removeParents=previous_parents,
+                            fields="id, parents"
+                        ).execute()
+                    
+                    # Get current presentation state and layout IDs
                     presentation_obj = slides_service.presentations().get(
                         presentationId=presentation_id
                     ).execute()
-                    layouts = presentation_obj.get('layouts', [])
-                    title_layout_id = None
-                    body_layout_id = None
                     
+                    layouts = presentation_obj.get('layouts', [])
+                    layout_ids = {}
                     for layout in layouts:
                         layout_name = layout.get('layoutProperties', {}).get('name', '')
-                        if layout_name == 'TITLE':
-                            title_layout_id = layout.get('objectId')
-                        elif layout_name == 'TITLE_AND_BODY':
-                            body_layout_id = layout.get('objectId')
+                        layout_ids[layout_name] = layout.get('objectId')
                     
-                    if not body_layout_id and layouts:
-                        body_layout_id = layouts[0].get('objectId')
+                    # Get first slide ID (use it for title slide)
+                    existing_slides = presentation_obj.get('slides', [])
+                    first_slide_id = existing_slides[0].get('objectId') if existing_slides else None
                     
-                    # Split text into paragraphs
-                    paragraphs = [p.strip() for p in full_text.split('\n\n') if p.strip()]
-                    if not paragraphs:
-                        paragraphs = [full_text] if full_text.strip() else ["Empty document"]
+                    # Create slides based on definitions
+                    create_requests = []
+                    slide_id_map = {}  # Map definition index to slide ID
                     
-                    requests = []
+                    for i, slide_def in enumerate(slide_definitions):
+                        if i == 0 and first_slide_id:
+                            # Use the existing first slide for title
+                            slide_id_map[i] = first_slide_id
+                            # Apply title layout to first slide if needed
+                            if 'TITLE' in layout_ids:
+                                create_requests.append({
+                                    "updateSlideProperties": {
+                                        "objectId": first_slide_id,
+                                        "slideProperties": {
+                                            "layoutObjectId": layout_ids['TITLE']
+                                        },
+                                        "fields": "layoutObjectId"
+                                    }
+                                })
+                        else:
+                            # Create new slide
+                            slide_id = f"slide_{presentation_id}_{i}"
+                            slide_id_map[i] = slide_id
+                            
+                            # Choose layout based on slide type
+                            layout_name = slide_def.get('layout', 'TITLE_AND_BODY')
+                            layout_id = layout_ids.get(layout_name) or layout_ids.get('TITLE_AND_BODY') or layouts[0].get('objectId')
+                            
+                            create_requests.append({
+                                "createSlide": {
+                                    "objectId": slide_id,
+                                    "slideLayoutReference": {"layoutId": layout_id}
+                                }
+                            })
                     
-                    # Create title slide
-                    if title_layout_id:
-                        requests.append({
-                            "createSlide": {
-                                "objectId": f"slide_title_{presentation_id}",
-                                "slideLayoutReference": {"layoutId": title_layout_id}
-                            }
-                        })
-                    
-                    # Create slides for content
-                    for i, paragraph in enumerate(paragraphs):
-                        slide_id = f"slide_{presentation_id}_{i}"
-                        requests.append({
-                            "createSlide": {
-                                "objectId": slide_id,
-                                "slideLayoutReference": {"layoutId": body_layout_id}
-                            }
-                        })
-                    
-                    # Execute batch create slides
-                    if requests:
-                        batch_response = slides_service.presentations().batchUpdate(
+                    # Execute slide creation
+                    if create_requests:
+                        slides_service.presentations().batchUpdate(
                             presentationId=presentation_id,
-                            body={"requests": requests}
+                            body={"requests": create_requests}
                         ).execute()
+                    
+                    # Refresh presentation to get all elements
+                    presentation_obj = slides_service.presentations().get(
+                        presentationId=presentation_id
+                    ).execute()
+                    
+                    # Build a map of slide ID -> slide data
+                    slide_data_map = {}
+                    for slide in presentation_obj.get('slides', []):
+                        slide_data_map[slide.get('objectId')] = slide
+                    
+                    # Insert text and apply formatting
+                    text_requests = []
+                    format_requests = []
+                    
+                    for i, slide_def in enumerate(slide_definitions):
+                        slide_id = slide_id_map.get(i)
+                        if not slide_id or slide_id not in slide_data_map:
+                            continue
                         
-                        # Get created slide IDs
-                        slide_ids = []
-                        for reply in batch_response.get('replies', []):
-                            if 'createSlide' in reply:
-                                slide_ids.append(reply['createSlide'].get('objectId'))
+                        slide_data = slide_data_map[slide_id]
                         
-                        # Insert text into slides
-                        text_requests = []
-                        slide_index = 0
+                        # Find text boxes in this slide
+                        title_element_id = None
+                        body_element_id = None
+                        subtitle_element_id = None
                         
-                        # Insert title if we created title slide
-                        if title_layout_id and slide_ids:
-                            # Find title text box in first slide
-                            presentation_obj = slides_service.presentations().get(
-                                presentationId=presentation_id
-                            ).execute()
-                            title_slide_id = slide_ids[0]
-                            for slide in presentation_obj.get('slides', []):
-                                if slide.get('objectId') == title_slide_id:
-                                    for element in slide.get('pageElements', []):
-                                        if 'shape' in element:
-                                            shape_type = element['shape'].get('shapeType')
-                                            if shape_type == 'TEXT_BOX':
-                                                text_requests.append({
-                                                    "insertText": {
-                                                        "objectId": element.get('objectId'),
-                                                        "text": doc_title
-                                                    }
-                                                })
-                                                break
-                                    break
-                            slide_index = 1
+                        for element in slide_data.get('pageElements', []):
+                            if 'shape' in element:
+                                placeholder = element['shape'].get('placeholder', {})
+                                placeholder_type = placeholder.get('type', '')
+                                element_id = element.get('objectId')
+                                
+                                if placeholder_type in ['TITLE', 'CENTERED_TITLE']:
+                                    title_element_id = element_id
+                                elif placeholder_type == 'SUBTITLE':
+                                    subtitle_element_id = element_id
+                                elif placeholder_type == 'BODY':
+                                    body_element_id = element_id
+                                elif element['shape'].get('shapeType') == 'TEXT_BOX' and not title_element_id:
+                                    # Fallback: use first text box as title
+                                    title_element_id = element_id
                         
-                        # Insert paragraph text into body slides
-                        for para_idx, paragraph in enumerate(paragraphs):
-                            if slide_index < len(slide_ids):
-                                slide_id = slide_ids[slide_index]
-                                # Get slide and find text box
-                                presentation_obj = slides_service.presentations().get(
-                                    presentationId=presentation_id
-                                ).execute()
-                                for slide in presentation_obj.get('slides', []):
-                                    if slide.get('objectId') == slide_id:
-                                        for element in slide.get('pageElements', []):
-                                            if 'shape' in element:
-                                                shape_type = element['shape'].get('shapeType')
-                                                if shape_type == 'TEXT_BOX':
-                                                    text_requests.append({
-                                                        "insertText": {
-                                                            "objectId": element.get('objectId'),
-                                                            "text": paragraph
-                                                        }
-                                                    })
-                                                    break
-                                        break
-                                slide_index += 1
+                        # Insert title
+                        if slide_def.get('title') and title_element_id:
+                            title_text = slide_def['title']
+                            text_requests.append({
+                                "insertText": {
+                                    "objectId": title_element_id,
+                                    "text": title_text
+                                }
+                            })
+                            # Format title: bold, larger font
+                            format_requests.append({
+                                "updateTextStyle": {
+                                    "objectId": title_element_id,
+                                    "style": {
+                                        "bold": True,
+                                        "fontSize": {"magnitude": 32, "unit": "PT"}
+                                    },
+                                    "textRange": {"type": "ALL"},
+                                    "fields": "bold,fontSize"
+                                }
+                            })
                         
-                        # Execute text insertion
-                        if text_requests:
+                        # Insert subtitle if present
+                        if slide_def.get('subtitle') and subtitle_element_id:
+                            text_requests.append({
+                                "insertText": {
+                                    "objectId": subtitle_element_id,
+                                    "text": slide_def['subtitle']
+                                }
+                            })
+                        
+                        # Insert body content
+                        if slide_def.get('content') and body_element_id:
+                            body_text_parts = []
+                            bullet_ranges = []  # Track which ranges need bullets
+                            current_pos = 0
+                            
+                            for content_item in slide_def['content']:
+                                item_text = content_item.get('text', '')
+                                item_type = content_item.get('type', 'text')
+                                
+                                if item_type == 'subheading':
+                                    # Add as bold text with newline
+                                    body_text_parts.append(item_text + '\n')
+                                elif item_type in ['bullet', 'text']:
+                                    # Add text with newline
+                                    start_pos = sum(len(p) for p in body_text_parts)
+                                    body_text_parts.append(item_text + '\n')
+                                    end_pos = sum(len(p) for p in body_text_parts)
+                                    if item_type == 'bullet':
+                                        bullet_ranges.append((start_pos, end_pos))
+                                elif item_type == 'table':
+                                    body_text_parts.append(item_text + '\n\n')
+                            
+                            if body_text_parts:
+                                full_body_text = ''.join(body_text_parts).rstrip('\n')
+                                text_requests.append({
+                                    "insertText": {
+                                        "objectId": body_element_id,
+                                        "text": full_body_text
+                                    }
+                                })
+                                
+                                # Apply bullet formatting
+                                for start, end in bullet_ranges:
+                                    format_requests.append({
+                                        "createParagraphBullets": {
+                                            "objectId": body_element_id,
+                                            "textRange": {
+                                                "type": "FIXED_RANGE",
+                                                "startIndex": start,
+                                                "endIndex": min(end, len(full_body_text))
+                                            },
+                                            "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE"
+                                        }
+                                    })
+                    
+                    # Execute text insertion first
+                    if text_requests:
+                        slides_service.presentations().batchUpdate(
+                            presentationId=presentation_id,
+                            body={"requests": text_requests}
+                        ).execute()
+                    
+                    # Then apply formatting
+                    if format_requests:
+                        try:
                             slides_service.presentations().batchUpdate(
                                 presentationId=presentation_id,
-                                body={"requests": text_requests}
+                                body={"requests": format_requests}
                             ).execute()
+                        except Exception as format_error:
+                            logger.warning(f"Some formatting failed: {format_error}")
                     
                     # Get presentation URL
                     pres_file = drive_service.files().get(
@@ -2380,7 +2846,9 @@ class GoogleSlidesMCPServer:
                             "presentationId": presentation_id,
                             "title": presentation_title,
                             "url": pres_file.get('webViewLink'),
-                            "slidesCreated": len(paragraphs) + (1 if title_layout_id else 0)
+                            "slidesCreated": len(slide_definitions),
+                            "theme": theme,
+                            "templateUsed": template_id is not None
                         }, indent=2)
                     )]
                 
