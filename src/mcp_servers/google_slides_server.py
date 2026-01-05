@@ -2574,6 +2574,8 @@ Choose an appropriate theme based on the document content:
                     presentation_title = arguments.get("presentationTitle")
                     theme = arguments.get("theme", "professional")
                     
+                    logger.info(f"Creating presentation from doc: {document_id}, theme: {theme}")
+                    
                     # Read document with full structure
                     document = docs_service.documents().get(documentId=document_id).execute()
                     doc_title = document.get('title', 'Untitled')
@@ -2583,11 +2585,15 @@ Choose an appropriate theme based on the document content:
                     content = document.get('body', {}).get('content', [])
                     inline_objects = document.get('inlineObjects', {})
                     
+                    logger.info(f"Document '{doc_title}' has {len(content)} content elements")
+                    
                     # Extract structured content (headings, text, images)
                     structured_content = self._extract_structured_content(content, inline_objects)
+                    logger.info(f"Extracted {len(structured_content)} structured elements")
                     
                     # Group into slides
                     slide_definitions = self._group_content_into_slides(structured_content, doc_title)
+                    logger.info(f"Grouped into {len(slide_definitions)} slides")
                     
                     # Try to copy template if available, otherwise create empty
                     template_id = self._get_template_id(theme)
@@ -2692,16 +2698,23 @@ Choose an appropriate theme based on the document content:
                             })
                     
                     # Execute slide creation
+                    logger.info(f"Creating {len(create_requests)} slide requests")
                     if create_requests:
-                        slides_service.presentations().batchUpdate(
-                            presentationId=presentation_id,
-                            body={"requests": create_requests}
-                        ).execute()
+                        try:
+                            slides_service.presentations().batchUpdate(
+                                presentationId=presentation_id,
+                                body={"requests": create_requests}
+                            ).execute()
+                            logger.info("Slides created successfully")
+                        except Exception as e:
+                            logger.error(f"Error creating slides: {e}")
+                            raise
                     
                     # Refresh presentation to get all elements
                     presentation_obj = slides_service.presentations().get(
                         presentationId=presentation_id
                     ).execute()
+                    logger.info(f"Presentation now has {len(presentation_obj.get('slides', []))} slides")
                     
                     # Build a map of slide ID -> slide data
                     slide_data_map = {}
@@ -2715,9 +2728,11 @@ Choose an appropriate theme based on the document content:
                     for i, slide_def in enumerate(slide_definitions):
                         slide_id = slide_id_map.get(i)
                         if not slide_id or slide_id not in slide_data_map:
+                            logger.warning(f"Slide {i} not found in slide_data_map, skipping")
                             continue
                         
                         slide_data = slide_data_map[slide_id]
+                        logger.info(f"Processing slide {i}: layout={slide_def.get('layout')}, title='{slide_def.get('title', '')[:30]}...'")
                         
                         # Find text boxes in this slide
                         title_element_id = None
@@ -2739,6 +2754,8 @@ Choose an appropriate theme based on the document content:
                                 elif element['shape'].get('shapeType') == 'TEXT_BOX' and not title_element_id:
                                     # Fallback: use first text box as title
                                     title_element_id = element_id
+                        
+                        logger.info(f"Slide {i} elements: title={title_element_id}, body={body_element_id}, subtitle={subtitle_element_id}")
                         
                         # Insert title
                         if slide_def.get('title') and title_element_id:

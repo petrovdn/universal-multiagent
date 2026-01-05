@@ -593,28 +593,42 @@ Escape curly braces in text to safely use in f-strings."""
         message_started = False
         final_result_started = False
         accumulated_tokens = ""
+        accumulated_thinking = ""
         
         async def stream_event_callback(event_type: str, data: Dict[str, Any]):
             """
 Callback to handle streaming events and send to WebSocket."""
-            nonlocal message_started, accumulated_tokens, message_id, final_result_started
+            nonlocal message_started, accumulated_tokens, message_id, final_result_started, accumulated_thinking
             
             logger.debug(f"[AgentWrapper] Stream event: {event_type}, data keys: {list(data.keys())}")
             
-            # For stream_to_final_result mode, skip thinking events (don't show reasoning blocks)
+            # For Cursor-like behavior: always send thinking events to show full process
             if event_type == StreamEvent.THINKING:
-                if not stream_to_final_result:
-                    # Send thinking/reasoning step only if not streaming to final_result
-                    thinking_message = data.get("message", data.get("step", "Обрабатываю..."))
+                thinking_message = data.get("message", data.get("step", "Обрабатываю..."))
+                accumulated_thinking = thinking_message
+                
+                if stream_to_final_result:
+                    # In final_result mode, send thinking as a separate event for logging
+                    # Frontend can optionally display this in a collapsible section
                     await self.ws_manager.send_event(
                         session_id,
                         "thinking",
                         {
                             "step": data.get("step", "reasoning"),
-                            "message": thinking_message  # This is the accumulated thinking text
+                            "message": thinking_message,
+                            "mode": "simple_task"  # Mark as simple task thinking
                         }
                     )
-                # Skip thinking events when streaming to final_result
+                else:
+                    # Normal mode: send thinking/reasoning step
+                    await self.ws_manager.send_event(
+                        session_id,
+                        "thinking",
+                        {
+                            "step": data.get("step", "reasoning"),
+                            "message": thinking_message
+                        }
+                    )
             
             elif event_type == StreamEvent.TOKEN:
                 # Send streaming token
