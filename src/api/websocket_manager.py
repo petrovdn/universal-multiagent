@@ -33,6 +33,7 @@ class WebSocketManager:
             websocket: WebSocket connection
             session_id: Session identifier
         """
+        
         await websocket.accept()
         
         # Close any existing connections for this session to prevent duplicates
@@ -51,6 +52,7 @@ class WebSocketManager:
         
         self.active_connections[session_id].add(websocket)
         self.logger.info(f"WebSocket connected for session {session_id} (total: 1)")
+        
     
     def disconnect(self, websocket: WebSocket, session_id: str) -> None:
         """
@@ -104,7 +106,9 @@ class WebSocketManager:
         
         for websocket in self.active_connections[session_id]:
             try:
+                
                 await websocket.send_json(message)
+                
             except Exception as e:
                 self.logger.warning(f"Error broadcasting to session {session_id}: {e}")
                 disconnected.add(websocket)
@@ -137,10 +141,14 @@ class WebSocketManager:
         connection_count = self.get_connection_count(session_id)
         self.logger.info(f"Sending event '{event_type}' to session {session_id} (connections: {connection_count})")
         
+        
         if connection_count == 0:
             self.logger.warning(f"No active connections for session {session_id} when sending event '{event_type}'")
+            return
+        
         
         await self.broadcast_to_session(session_id, message)
+        
     
     def get_connection_count(self, session_id: str) -> int:
         """

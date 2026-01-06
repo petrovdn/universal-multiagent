@@ -927,11 +927,6 @@ async def enable_sheets_integration_get(request: Request):
         
         # Get authorization URL and redirect directly
         auth_url = oauth_auth.get_authorization_url(state)
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:GET_enable","message":"Sheets OAuth URL generated (GET)","data":{"auth_url":auth_url,"redirect_uri":sheets_redirect_uri},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         response = RedirectResponse(url=auth_url, status_code=302)
         response.set_cookie("session_id", session_id, httponly=True)
@@ -955,11 +950,6 @@ async def enable_sheets_integration(request: Request):
         - If authenticated: success status
         - If not authenticated: OAuth authorization URL
     """
-    # #region debug log
-    import json
-    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:872","message":"enable_sheets_integration called","data":{"token_exists":SHEETS_TOKEN_PATH.exists(),"token_path":str(SHEETS_TOKEN_PATH)},"timestamp":int(__import__('time').time()*1000)})+'\n')
-    # #endregion
     session_id = request.cookies.get("session_id")
     if not session_id:
         session_id = get_session_manager().create_session()
@@ -1020,11 +1010,6 @@ async def enable_sheets_integration(request: Request):
         
         # Get authorization URL
         auth_url = oauth_auth.get_authorization_url(state)
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:940","message":"Sheets OAuth URL generated","data":{"auth_url":auth_url,"redirect_uri":sheets_redirect_uri},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         response = JSONResponse({
             "status": "oauth_required",
@@ -1101,11 +1086,6 @@ async def sheets_oauth_callback(
         
         # Exchange code for token
         credentials = oauth_auth.exchange_code_for_token(code)
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:1016","message":"Sheets token created","data":{"token_path":str(SHEETS_TOKEN_PATH),"token_exists":SHEETS_TOKEN_PATH.exists()},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         # Clean up state
         if session_id in integration_oauth_states:
@@ -2010,17 +1990,7 @@ async def save_onec_config_endpoint(
     }
     """
     try:
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:save_onec_config_endpoint:entry","message":"save_onec_config called","data":{"odata_base_url":config.get("odata_base_url",""),"url_length":len(config.get("odata_base_url","")),"url_starts_with_http":config.get("odata_base_url","").startswith(("http://","https://"))},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         onec_config = OneCConfig(**config)
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"integration_routes.py:save_onec_config_endpoint:after_validation","message":"OneCConfig created","data":{"odata_base_url":onec_config.odata_base_url,"url_length":len(onec_config.odata_base_url)},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         save_onec_config(onec_config)
         
         # Log action
@@ -2080,11 +2050,6 @@ async def test_onec_connection(request: Request):
     """
     try:
         onec_config = get_onec_config()
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:config_loaded","message":"onec_config loaded","data":{"config_exists":onec_config is not None,"odata_base_url":onec_config.odata_base_url if onec_config else None,"url_length":len(onec_config.odata_base_url) if onec_config else 0},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         if not onec_config:
             raise HTTPException(
                 status_code=400,
@@ -2100,11 +2065,6 @@ async def test_onec_connection(request: Request):
         encoded_credentials = base64.b64encode(credentials.encode()).decode()
         
         metadata_url = f"{onec_config.odata_base_url}/$metadata"
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:before_request","message":"About to make HTTP request","data":{"metadata_url":metadata_url,"base_url":onec_config.odata_base_url,"url_constructed":f"{onec_config.odata_base_url}/$metadata"},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(
@@ -2114,11 +2074,6 @@ async def test_onec_connection(request: Request):
                     "Accept": "application/json"
                 }
             )
-            # #region debug log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:response_received","message":"HTTP response received","data":{"status_code":response.status_code,"url_requested":str(response.request.url) if hasattr(response,'request') else metadata_url,"response_text_preview":response.text[:200] if response.text else None},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             
             if response.status_code == 200:
                 # Log action
@@ -2141,31 +2096,16 @@ async def test_onec_connection(request: Request):
                 }
                 
     except httpx.TimeoutException as e:
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:timeout","message":"Connection timeout","data":{"error":str(e)},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         raise HTTPException(
             status_code=408,
             detail="Connection timeout. Please check the OData URL and network connectivity."
         )
     except httpx.RequestError as e:
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:request_error","message":"Request error","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         raise HTTPException(
             status_code=500,
             detail=f"Connection error: {str(e)}"
         )
     except Exception as e:
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"C","location":"integration_routes.py:test_onec_connection:exception","message":"Failed to test 1C connection","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         logger.error(f"Failed to test 1C connection: {e}")
         raise HTTPException(
             status_code=500,
@@ -2195,20 +2135,11 @@ async def disable_onec_integration(request: Request):
     """
     session_id = request.cookies.get("session_id")
     
-    # #region debug log
-    import json
-    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_onec_integration:entry","message":"disable_onec_integration called","data":{"session_id":session_id,"has_session":session_id is not None},"timestamp":int(__import__('time').time()*1000)})+'\n')
-    # #endregion
     
     try:
         config = get_config()
         config_path = config.config_dir / "onec_config.json"
         
-        # #region debug log
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_onec_integration:before_delete","message":"About to delete config file","data":{"config_path":str(config_path),"exists":config_path.exists()},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         # Remove config file
         if config_path.exists():
@@ -2222,10 +2153,6 @@ async def disable_onec_integration(request: Request):
             session_id=session_id
         )
         
-        # #region debug log
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_onec_integration:success","message":"1C integration disabled successfully","data":{},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         return {
             "status": "disabled",
@@ -2233,10 +2160,6 @@ async def disable_onec_integration(request: Request):
         }
         
     except Exception as e:
-        # #region debug log
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_onec_integration:error","message":"Error disabling 1C integration","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         logger.error(f"Failed to disable 1C integration: {e}")
         raise HTTPException(
             status_code=500,
@@ -2263,25 +2186,10 @@ async def save_projectlad_config_endpoint(
     """
     try:
         # If password is empty, load existing config and use its password
-        # #region agent log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"integration_routes.py:save_projectlad_config_endpoint:entry","message":"API endpoint called","data":{"password_received":config.get("password","")[:3]+"***" if config.get("password") and len(config.get("password","")) > 3 else (config.get("password","") or "empty"),"password_length":len(config.get("password","")) if config.get("password") else 0},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         if not config.get("password") or config.get("password", "").strip() == "":
             existing_config = get_projectlad_config()
-            # #region agent log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"integration_routes.py:save_projectlad_config_endpoint:empty_password","message":"Password is empty, loading existing config","data":{"existing_config_exists":existing_config is not None,"existing_password_exists":existing_config.password is not None if existing_config else False},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             if existing_config and existing_config.password:
                 config["password"] = existing_config.password
-                # #region agent log
-                import json
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"integration_routes.py:save_projectlad_config_endpoint:password_restored","message":"Password restored from existing config","data":{"restored_password_length":len(config["password"])},"timestamp":int(__import__('time').time()*1000)})+'\n')
-                # #endregion
         
         projectlad_config = ProjectLadConfig(**config)
         save_projectlad_config(projectlad_config)
@@ -2351,10 +2259,7 @@ async def test_projectlad_connection(request: Request):
         
         # Test connection by authenticating
         import httpx
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"integration_routes.py:test_projectlad_connection","message":"Testing connection with password from config","data":{"password_length":len(projectlad_config.password) if projectlad_config.password else 0,"password_preview":projectlad_config.password[:3]+"***" if projectlad_config.password and len(projectlad_config.password) > 3 else (projectlad_config.password or "empty"),"email":projectlad_config.email},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        
+        import json        
         login_url = f"{projectlad_config.base_url}/v1/auth/login"
         payload = {
             "email": projectlad_config.email,
@@ -2427,20 +2332,11 @@ async def disable_projectlad_integration(request: Request):
     """
     session_id = request.cookies.get("session_id")
     
-    # #region debug log
-    import json
-    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_projectlad_integration:entry","message":"disable_projectlad_integration called","data":{"session_id":session_id,"has_session":session_id is not None},"timestamp":int(__import__('time').time()*1000)})+'\n')
-    # #endregion
     
     try:
         config = get_config()
         config_path = config.config_dir / "projectlad_config.json"
         
-        # #region debug log
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_projectlad_integration:before_delete","message":"About to delete config file","data":{"config_path":str(config_path),"exists":config_path.exists()},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         # Remove config file
         if config_path.exists():
@@ -2454,10 +2350,6 @@ async def disable_projectlad_integration(request: Request):
             session_id=session_id
         )
         
-        # #region debug log
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_projectlad_integration:success","message":"Project Lad integration disabled successfully","data":{},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         return {
             "status": "disabled",
@@ -2465,10 +2357,6 @@ async def disable_projectlad_integration(request: Request):
         }
         
     except Exception as e:
-        # #region debug log
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"integration_routes.py:disable_projectlad_integration:error","message":"Error disabling Project Lad integration","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         logger.error(f"Failed to disable Project Lad integration: {e}")
         raise HTTPException(
             status_code=500,

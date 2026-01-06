@@ -593,7 +593,7 @@ export function ChatInterface() {
     setAgentTyping(false)
   }
   
-  const handleExecutionModeChange = async (mode: 'instant' | 'approval') => {
+  const handleExecutionModeChange = async (mode: 'instant' | 'approval' | 'react') => {
     setExecutionMode(mode)
     if (currentSession) {
       await updateSettings({
@@ -944,9 +944,17 @@ export function ChatInterface() {
                   type="button"
                   onClick={() => setIsModeDropdownOpen(!isModeDropdownOpen)}
                   className="mode-selector-dropdown-button"
-                  title={executionMode === 'instant' ? 'Мгновенное выполнение' : 'С подтверждением действий'}
+                  title={
+                    executionMode === 'instant' ? 'Мгновенное выполнение' :
+                    executionMode === 'approval' ? 'С подтверждением действий' :
+                    'ReAct адаптивный режим'
+                  }
                 >
-                  <span>{executionMode === 'instant' ? 'Агент' : 'План'}</span>
+                  <span>
+                    {executionMode === 'instant' ? 'Агент' :
+                     executionMode === 'approval' ? 'План' :
+                     'ReAct'}
+                  </span>
                   <ChevronDown className={`w-2.5 h-2.5 transition-transform ${isModeDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
 
@@ -971,6 +979,16 @@ export function ChatInterface() {
                       className={`mode-dropdown-item ${executionMode === 'approval' ? 'active' : ''}`}
                     >
                       План
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleExecutionModeChange('react')
+                        setIsModeDropdownOpen(false)
+                      }}
+                      className={`mode-dropdown-item ${executionMode === 'react' ? 'active' : ''}`}
+                    >
+                      ReAct
                     </button>
                   </div>
                 )}

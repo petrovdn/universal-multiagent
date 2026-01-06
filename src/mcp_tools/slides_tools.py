@@ -61,27 +61,6 @@ class CreatePresentationTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("slides_create", args, server_name="slides")
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:CreatePresentationTool._arun:after_mcp_call",
-                        "message": "MCP call completed, raw result",
-                        "data": {
-                            "result_type": type(result).__name__,
-                            "result_is_list": isinstance(result, list),
-                            "result_length": len(result) if isinstance(result, list) else None,
-                            "result_preview": str(result)[:500] if result else None
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             # Parse result
             if isinstance(result, list) and len(result) > 0:
@@ -91,52 +70,11 @@ class CreatePresentationTool(BaseTool):
                 elif isinstance(first_item, dict) and 'text' in first_item:
                     result = first_item['text']
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:CreatePresentationTool._arun:after_parse_list",
-                        "message": "After parsing list, before JSON parse",
-                        "data": {
-                            "result_type": type(result).__name__,
-                            "result_preview": str(result)[:500] if result else None
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             if isinstance(result, str):
                 import json
                 result = json.loads(result)
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:CreatePresentationTool._arun:after_json_parse",
-                        "message": "After JSON parse, before extracting fields",
-                        "data": {
-                            "result_type": type(result).__name__,
-                            "result_keys": list(result.keys()) if isinstance(result, dict) else None,
-                            "presentationId_raw": result.get("presentationId") if isinstance(result, dict) else None,
-                            "presentationId_type": type(result.get("presentationId")).__name__ if isinstance(result, dict) else None,
-                            "result_preview": str(result)[:500] if result else None
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             # Check for errors
             if isinstance(result, dict) and "error" in result:
@@ -156,27 +94,6 @@ class CreatePresentationTool(BaseTool):
                     tool_name=self.name
                 )
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:CreatePresentationTool._arun:before_return",
-                        "message": "Before returning result string",
-                        "data": {
-                            "presentation_id": presentation_id,
-                            "presentation_id_type": type(presentation_id).__name__ if presentation_id is not None else None,
-                            "url": url,
-                            "first_slide_id": first_slide_id
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H1"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             result_msg = f"Presentation '{title}' created successfully (ID: {presentation_id})"
             if first_slide_id:
@@ -303,27 +220,6 @@ class CreateSlideTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("slides_create_slide", args, server_name="slides")
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:CreateSlideTool._arun:after_mcp_call",
-                        "message": "After MCP call, before parsing",
-                        "data": {
-                            "result_type": type(result).__name__,
-                            "result_is_list": isinstance(result, list),
-                            "result_length": len(result) if isinstance(result, list) else None,
-                            "result_preview": str(result)[:500] if result else None
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "I"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             # Parse result
             if isinstance(result, list) and len(result) > 0:
@@ -337,50 +233,9 @@ class CreateSlideTool(BaseTool):
                 import json
                 result = json.loads(result)
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:CreateSlideTool._arun:after_parse",
-                        "message": "After parsing, before extracting slide_id",
-                        "data": {
-                            "result_type": type(result).__name__,
-                            "result_keys": list(result.keys()) if isinstance(result, dict) else None,
-                            "result_preview": str(result)[:500] if result else None
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "I"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             slide_id = result.get("slideId")
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:CreateSlideTool._arun:before_return",
-                        "message": "Before returning result string",
-                        "data": {
-                            "slide_id": slide_id,
-                            "slide_id_type": type(slide_id).__name__ if slide_id is not None else None,
-                            "result_keys": list(result.keys()) if isinstance(result, dict) else None,
-                            "result_preview": str(result)[:500] if result else None
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             if not slide_id:
                 raise ToolExecutionError(
@@ -448,28 +303,6 @@ class InsertSlideTextTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:InsertSlideTextTool._arun:entry",
-                        "message": "InsertSlideTextTool called",
-                        "data": {
-                            "presentation_id": presentation_id,
-                            "page_id": page_id,
-                            "text_preview": text[:50] if text else None,
-                            "element_id": element_id,
-                            "insert_index": insert_index
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H5"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             args = {
                 "presentationId": presentation_id,
@@ -482,45 +315,10 @@ class InsertSlideTextTool(BaseTool):
             if insert_index is not None and insert_index != -1:
                 args["insertIndex"] = insert_index
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:InsertSlideTextTool._arun:before_mcp_call",
-                        "message": "Before MCP call",
-                        "data": {"args": args},
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H5"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("slides_insert_text", args, server_name="slides")
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:InsertSlideTextTool._arun:after_mcp_call",
-                        "message": "After MCP call",
-                        "data": {
-                            "result_type": type(result).__name__,
-                            "result_preview": str(result)[:200] if result else None
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H5"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             return f"Text inserted into slide successfully (page ID: {page_id})"
             
@@ -729,27 +527,6 @@ class CreatePresentationFromDocTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("slides_create_presentation_from_doc", args, server_name="slides")
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:CreatePresentationFromDocTool._arun:after_mcp_call",
-                        "message": "MCP call returned, raw result",
-                        "data": {
-                            "result_type": type(result).__name__,
-                            "result_is_list": isinstance(result, list),
-                            "result_length": len(result) if isinstance(result, list) else None,
-                            "result_preview": str(result)[:500] if result else None
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H4"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             # Parse result
             if isinstance(result, list) and len(result) > 0:
@@ -763,27 +540,6 @@ class CreatePresentationFromDocTool(BaseTool):
                 import json
                 result = json.loads(result)
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:CreatePresentationFromDocTool._arun:after_parse",
-                        "message": "After parsing result",
-                        "data": {
-                            "result_type": type(result).__name__,
-                            "result_keys": list(result.keys()) if isinstance(result, dict) else None,
-                            "presentationId": result.get("presentationId") if isinstance(result, dict) else None,
-                            "has_error": "error" in result if isinstance(result, dict) else False
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H4"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             # Check for error in result first
             if isinstance(result, dict) and "error" in result:
@@ -806,25 +562,6 @@ class CreatePresentationFromDocTool(BaseTool):
             if template_used:
                 response += " [template applied]"
             
-            # #region agent log
-            try:
-                import json
-                import time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "slides_tools.py:CreatePresentationFromDocTool._arun:returning",
-                        "message": "Returning response to agent",
-                        "data": {
-                            "presentation_id": presentation_id,
-                            "response_preview": response[:200]
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "H4"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             return response
             

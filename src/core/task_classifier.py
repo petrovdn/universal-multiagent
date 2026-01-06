@@ -93,32 +93,12 @@ class TaskClassifier:
         
         # PRIORITY 0.5: Check for simple generative tasks BEFORE complex keywords
         # These use "напиши" but don't need planning - just generate text
-        # #region agent log
-        import json
-        import time
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"task_classifier.py:_heuristic_classify","message":"Checking simple generative patterns","data":{"request_preview":request_lower[:100],"patterns_count":len(self.simple_generative_patterns)},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         for pattern in self.simple_generative_patterns:
             try:
                 if re.search(pattern, request_lower):
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"task_classifier.py:_heuristic_classify","message":"Simple generative pattern matched","data":{"pattern":pattern},"timestamp":int(time.time()*1000)})+'\n')
-                    except: pass
-                    # #endregion
                     logger.info(f"[TaskClassifier] Simple generative pattern found: {pattern}")
                     return TaskType.SIMPLE
             except Exception as e:
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"task_classifier.py:_heuristic_classify","message":"Error in regex pattern","data":{"pattern":pattern,"error":str(e)},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
                 logger.warning(f"[TaskClassifier] Error matching pattern {pattern}: {e}")
                 continue
         

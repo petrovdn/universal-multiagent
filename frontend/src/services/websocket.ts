@@ -79,6 +79,39 @@ export class WebSocketClient {
           const data: WebSocketEvent = JSON.parse(event.data)
           console.log('[WebSocket] Event received:', data.type, data)
           
+          // Log react_* events specifically
+          if (data.type.startsWith('react_')) {
+            console.log('[WebSocket] ReAct event received:', data.type, {
+              hasData: !!data.data,
+              dataKeys: data.data ? Object.keys(data.data) : [],
+              sessionId: this.sessionId
+            })
+            
+            // Send to debug log server
+            try {
+              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  location: `websocket.ts:onmessage:react_event`,
+                  message: `ReAct event received on frontend`,
+                  data: {
+                    event_type: data.type,
+                    has_data: !!data.data,
+                    data_keys: data.data ? Object.keys(data.data) : [],
+                    session_id: this.sessionId
+                  },
+                  timestamp: Date.now(),
+                  sessionId: this.sessionId || 'unknown',
+                  runId: 'run1',
+                  hypothesisId: 'F'
+                })
+              }).catch(() => {})
+            } catch (e) {
+              // Ignore fetch errors
+            }
+          }
+          
           this.handleEvent(data)
         } catch (error) {
           console.error('[WebSocket] Error handling message:', error, event.data)
@@ -890,6 +923,180 @@ export class WebSocketClient {
           })
           console.log('[WebSocket] Calendar view:', mode, calendarId)
         })
+        break
+      }
+
+      case 'react_start': {
+        // ReAct cycle started
+        console.log('[WebSocket] ReAct cycle started:', event.data)
+        console.log('[WebSocket] Current message ID:', this.currentMessageId)
+        console.log('[WebSocket] Current reasoning block ID:', this.currentReasoningBlockId)
+        
+        const reactMsgId = this.currentMessageId || `msg-${Date.now()}`
+        this.currentMessageId = reactMsgId
+        chatStore.setAgentTyping(true)
+        
+        // Create reasoning block for ReAct trail
+        this.currentReasoningBlockId = `react-reasoning-${Date.now()}`
+        console.log('[WebSocket] Created reasoning block ID:', this.currentReasoningBlockId)
+        
+        chatStore.startReasoningBlock(reactMsgId, this.currentReasoningBlockId)
+        
+        const goal = event.data.goal || 'Выполнение задачи...'
+        const content = `🔄 **Запуск ReAct цикла...**\n\nЦель: ${goal}`
+        console.log('[WebSocket] Updating reasoning block with content length:', content.length)
+        
+        chatStore.updateReasoningBlock(reactMsgId, this.currentReasoningBlockId, content)
+        
+        // Verify the block was created
+        const state = useChatStore.getState()
+        const message = state.assistantMessages[reactMsgId]
+        console.log('[WebSocket] Message after update:', message ? {
+          id: message.id,
+          reasoningBlocksCount: message.reasoningBlocks.length,
+          firstBlockContent: message.reasoningBlocks[0]?.content?.substring(0, 50)
+        } : 'Message not found')
+        
+        addDebugChunkIfEnabled(reactMsgId, 'thinking', `ReAct started: ${goal}`, event.data)
+        break
+      }
+
+      case 'react_thinking': {
+        // ReAct thinking phase
+        console.log('[WebSocket] ReAct thinking:', event.data)
+        const thinkingMsgId = this.currentMessageId || `msg-${Date.now()}`
+        if (!this.currentMessageId) {
+          this.currentMessageId = thinkingMsgId
+        }
+        
+        // Ensure reasoning block exists
+        if (!this.currentReasoningBlockId) {
+          this.currentReasoningBlockId = `react-reasoning-${Date.now()}`
+          chatStore.startReasoningBlock(thinkingMsgId, this.currentReasoningBlockId)
+        }
+        
+        const thought = event.data.thought || 'Анализирую ситуацию...'
+        const iteration = event.data.iteration || 1
+        const thinkingContent = `**Итерация ${iteration} - Анализ:**\n\n${thought}`
+        chatStore.updateReasoningBlock(thinkingMsgId, this.currentReasoningBlockId, thinkingContent)
+        addDebugChunkIfEnabled(thinkingMsgId, 'thinking', thought, event.data)
+        break
+      }
+
+      case 'react_action': {
+        // ReAct action phase
+        console.log('[WebSocket] ReAct action:', event.data)
+        const actionMsgId = this.currentMessageId || `msg-${Date.now()}`
+        if (!this.currentMessageId) {
+          this.currentMessageId = actionMsgId
+        }
+        
+        // Ensure reasoning block exists
+        if (!this.currentReasoningBlockId) {
+          this.currentReasoningBlockId = `react-reasoning-${Date.now()}`
+          chatStore.startReasoningBlock(actionMsgId, this.currentReasoningBlockId)
+        }
+        
+        const action = event.data.action || 'Выполнение действия...'
+        const tool = event.data.tool || 'unknown'
+        const iteration = event.data.iteration || 1
+        const actionContent = `**Итерация ${iteration} - Действие:**\n\n🔧 **Инструмент:** \`${tool}\`\n📝 **Описание:** ${action}`
+        chatStore.updateReasoningBlock(actionMsgId, this.currentReasoningBlockId, actionContent)
+        addDebugChunkIfEnabled(actionMsgId, 'tool_call', `Tool: ${tool}`, event.data)
+        break
+      }
+
+      case 'react_observation': {
+        // ReAct observation phase
+        console.log('[WebSocket] ReAct observation:', event.data)
+        const obsMsgId = this.currentMessageId || `msg-${Date.now()}`
+        if (!this.currentMessageId) {
+          this.currentMessageId = obsMsgId
+        }
+        
+        // Ensure reasoning block exists
+        if (!this.currentReasoningBlockId) {
+          this.currentReasoningBlockId = `react-reasoning-${Date.now()}`
+          chatStore.startReasoningBlock(obsMsgId, this.currentReasoningBlockId)
+        }
+        
+        const result = event.data.result || 'Результат получен'
+        const iteration = event.data.iteration || 1
+        const obsContent = `**Итерация ${iteration} - Наблюдение:**\n\n📊 **Результат:** ${result.substring(0, 500)}${result.length > 500 ? '...' : ''}`
+        chatStore.updateReasoningBlock(obsMsgId, this.currentReasoningBlockId, obsContent)
+        addDebugChunkIfEnabled(obsMsgId, 'tool_result', result, event.data)
+        break
+      }
+
+      case 'react_adapting': {
+        // ReAct adaptation phase
+        console.log('[WebSocket] ReAct adapting:', event.data)
+        const adaptMsgId = this.currentMessageId || `msg-${Date.now()}`
+        if (!this.currentMessageId) {
+          this.currentMessageId = adaptMsgId
+        }
+        
+        // Ensure reasoning block exists
+        if (!this.currentReasoningBlockId) {
+          this.currentReasoningBlockId = `react-reasoning-${Date.now()}`
+          chatStore.startReasoningBlock(adaptMsgId, this.currentReasoningBlockId)
+        }
+        
+        const reason = event.data.reason || 'Адаптация стратегии...'
+        const newStrategy = event.data.new_strategy || 'Продолжение выполнения'
+        const iteration = event.data.iteration || 1
+        const adaptContent = `**Итерация ${iteration} - Адаптация:**\n\n🔄 **Причина:** ${reason}\n📋 **Новая стратегия:** ${newStrategy}`
+        chatStore.updateReasoningBlock(adaptMsgId, this.currentReasoningBlockId, adaptContent)
+        addDebugChunkIfEnabled(adaptMsgId, 'thinking', `Adapting: ${newStrategy}`, event.data)
+        break
+      }
+
+      case 'react_complete': {
+        // ReAct cycle completed successfully
+        console.log('[WebSocket] ReAct cycle completed:', event.data)
+        const completeMsgId = this.currentMessageId || `msg-${Date.now()}`
+        
+        // Complete reasoning block
+        if (this.currentReasoningBlockId) {
+          chatStore.completeReasoningBlock(completeMsgId, this.currentReasoningBlockId)
+        }
+        
+        // Add final result
+        const result = event.data.result || 'Задача выполнена успешно'
+        const trail = event.data.trail || []
+        
+        // Create answer block with result
+        this.currentAnswerBlockId = `answer-${Date.now()}`
+        chatStore.startAnswerBlock(completeMsgId, this.currentAnswerBlockId)
+        chatStore.updateAnswerBlock(completeMsgId, this.currentAnswerBlockId, `✅ **Задача выполнена!**\n\n${result}`)
+        chatStore.completeAnswerBlock(completeMsgId, this.currentAnswerBlockId)
+        
+        chatStore.setAgentTyping(false)
+        addDebugChunkIfEnabled(completeMsgId, 'message_complete', result, event.data)
+        break
+      }
+
+      case 'react_failed': {
+        // ReAct cycle failed
+        console.log('[WebSocket] ReAct cycle failed:', event.data)
+        const failedMsgId = this.currentMessageId || `msg-${Date.now()}`
+        
+        // Complete reasoning block
+        if (this.currentReasoningBlockId) {
+          chatStore.completeReasoningBlock(failedMsgId, this.currentReasoningBlockId)
+        }
+        
+        const reason = event.data.reason || 'Неизвестная ошибка'
+        const tried = event.data.tried || []
+        
+        // Create answer block with error
+        this.currentAnswerBlockId = `answer-${Date.now()}`
+        chatStore.startAnswerBlock(failedMsgId, this.currentAnswerBlockId)
+        chatStore.updateAnswerBlock(failedMsgId, this.currentAnswerBlockId, `❌ **Задача не выполнена**\n\n**Причина:** ${reason}\n\n**Попытки:** ${tried.join(', ') || 'нет'}`)
+        chatStore.completeAnswerBlock(failedMsgId, this.currentAnswerBlockId)
+        
+        chatStore.setAgentTyping(false)
+        addDebugChunkIfEnabled(failedMsgId, 'error', reason, event.data)
         break
       }
 

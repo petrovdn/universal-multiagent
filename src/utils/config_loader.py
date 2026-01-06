@@ -108,43 +108,18 @@ class OneCConfig(BaseModel):
     @field_validator("odata_base_url")
     @classmethod
     def validate_url(cls, v):
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"B","location":"config_loader.py:validate_url:entry","message":"validate_url called","data":{"input_value":v,"is_string":isinstance(v,str),"stripped":v.strip() if isinstance(v,str) else None,"starts_with_http":v.strip().startswith(('http://','https://')) if isinstance(v,str) else False},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         if not v or not isinstance(v, str) or not v.strip():
             raise ValueError("OData base URL is required")
         v = v.strip().rstrip('/')
         if not v.startswith(('http://', 'https://')):
-            # #region debug log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"B","location":"config_loader.py:validate_url:validation_failed","message":"URL validation failed - not starting with http/https","data":{"input_value":v},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             raise ValueError("OData base URL must start with http:// or https://")
         
         # Check if URL contains /odata/ - if not, it's likely incomplete
         original_url = v
         if '/odata/' not in v.lower():
-            # #region debug log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"E","location":"config_loader.py:validate_url:missing_odata","message":"URL missing /odata/ path - likely incomplete","data":{"input_value":original_url},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             # Auto-append /odata/standard.odata if it's missing
             v = v.rstrip('/') + '/odata/standard.odata'
-            # #region debug log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"E","location":"config_loader.py:validate_url:auto_appended","message":"Auto-appended /odata/standard.odata to URL","data":{"original":original_url,"final":v},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
         
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"B","location":"config_loader.py:validate_url:success","message":"URL validation passed","data":{"validated_url":v},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         return v
     
     @field_validator("username", "password")
@@ -578,31 +553,10 @@ def save_projectlad_config(projectlad_config: ProjectLadConfig) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     
     # If password is empty or "***", load existing config and use its password
-    # #region agent log
-    import json
-    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"config_loader.py:save_projectlad_config:before_check","message":"save_projectlad_config called","data":{"password_received":projectlad_config.password[:3]+"***" if projectlad_config.password and len(projectlad_config.password) > 3 else (projectlad_config.password or "empty"),"password_length":len(projectlad_config.password) if projectlad_config.password else 0},"timestamp":int(__import__('time').time()*1000)})+'\n')
-    # #endregion
     if not projectlad_config.password or projectlad_config.password == "***":
         existing_config = get_projectlad_config()
-        # #region agent log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"config_loader.py:save_projectlad_config:empty_password","message":"Password is empty or ***, loading existing config","data":{"existing_config_exists":existing_config is not None,"existing_password_exists":existing_config.password is not None if existing_config else False},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         if existing_config and existing_config.password:
             projectlad_config.password = existing_config.password
-            # #region agent log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"config_loader.py:save_projectlad_config:password_restored","message":"Restored password from existing config","data":{"restored_password_length":len(projectlad_config.password)},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
-    else:
-        # #region agent log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"D","location":"config_loader.py:save_projectlad_config:new_password","message":"Saving new password","data":{"new_password_length":len(projectlad_config.password)},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
     
     # Save config (password will be stored in plain text for demo purposes)
     with open(config_path, 'w', encoding='utf-8') as f:

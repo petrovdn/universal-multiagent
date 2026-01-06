@@ -1094,85 +1094,15 @@ Choose an appropriate theme based on the document content:
             """Handle tool calls."""
             try:
                 if name == "slides_create":
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "location": "google_slides_server.py:slides_create:entry",
-                                "message": "slides_create handler called",
-                                "data": {"arguments": arguments},
-                                "timestamp": int(__import__('time').time() * 1000),
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H7"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
                     
                     try:
                         drive_service = self._get_drive_service()
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_create:drive_service_obtained",
-                                    "message": "Drive service obtained",
-                                    "data": {},
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H7"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         
                         slides_service = self._get_slides_service()
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_create:slides_service_obtained",
-                                    "message": "Slides service obtained",
-                                    "data": {},
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H7"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         
                         folder_id = self._get_workspace_folder_id()
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_create:folder_id_obtained",
-                                    "message": "Folder ID obtained",
-                                    "data": {"folder_id": folder_id},
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H7"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         
                         if not folder_id:
-                            # #region agent log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    f.write(json.dumps({
-                                        "location": "google_slides_server.py:slides_create:no_folder_id",
-                                        "message": "No folder ID configured",
-                                        "data": {},
-                                        "timestamp": int(__import__('time').time() * 1000),
-                                        "sessionId": "debug-session",
-                                        "runId": "run1",
-                                        "hypothesisId": "H7"
-                                    }) + "\n")
-                            except: pass
-                            # #endregion
                             return [TextContent(
                                 type="text",
                                 text=json.dumps({
@@ -1183,58 +1113,16 @@ Choose an appropriate theme based on the document content:
                         title = arguments.get("title")
                         
                         # Create presentation
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_create:before_create",
-                                    "message": "Before creating presentation",
-                                    "data": {"title": title},
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H7"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         
                         presentation = slides_service.presentations().create(
                             body={"title": title}
                         ).execute()
                         
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_create:presentation_created",
-                                    "message": "Presentation created",
-                                    "data": {"presentation_id": presentation.get('presentationId')},
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H7"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         
                         presentation_id = presentation.get('presentationId')
                         
                         # Move to workspace folder
                         if folder_id:
-                            # #region agent log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    f.write(json.dumps({
-                                        "location": "google_slides_server.py:slides_create:before_move",
-                                        "message": "Before moving to folder",
-                                        "data": {"presentation_id": presentation_id, "folder_id": folder_id},
-                                        "timestamp": int(__import__('time').time() * 1000),
-                                        "sessionId": "debug-session",
-                                        "runId": "run1",
-                                        "hypothesisId": "H7"
-                                    }) + "\n")
-                            except: pass
-                            # #endregion
                             
                             file_info = drive_service.files().get(
                                 fileId=presentation_id,
@@ -1248,20 +1136,6 @@ Choose an appropriate theme based on the document content:
                                 fields="id, parents"
                             ).execute()
                             
-                            # #region agent log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    f.write(json.dumps({
-                                        "location": "google_slides_server.py:slides_create:after_move",
-                                        "message": "After moving to folder",
-                                        "data": {},
-                                        "timestamp": int(__import__('time').time() * 1000),
-                                        "sessionId": "debug-session",
-                                        "runId": "run1",
-                                        "hypothesisId": "H7"
-                                    }) + "\n")
-                            except: pass
-                            # #endregion
                         
                         # Get presentation URL
                         pres_file = drive_service.files().get(
@@ -1274,25 +1148,6 @@ Choose an appropriate theme based on the document content:
                         if presentation.get('slides') and len(presentation.get('slides', [])) > 0:
                             first_slide_id = presentation.get('slides')[0].get('objectId')
                         
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_create:success",
-                                    "message": "slides_create completed successfully",
-                                    "data": {
-                                        "presentation_id": presentation_id,
-                                        "url": pres_file.get('webViewLink'),
-                                        "first_slide_id": first_slide_id,
-                                        "slides_count": len(presentation.get('slides', []))
-                                    },
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H1"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         
                         response_data = {
                             "presentationId": presentation_id,
@@ -1309,25 +1164,6 @@ Choose an appropriate theme based on the document content:
                             text=json.dumps(response_data, indent=2)
                         )]
                     except Exception as create_error:
-                        # #region agent log
-                        try:
-                            import traceback
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_create:error",
-                                    "message": "Error in slides_create",
-                                    "data": {
-                                        "error_type": type(create_error).__name__,
-                                        "error_message": str(create_error),
-                                        "error_traceback": traceback.format_exc()[:1000]
-                                    },
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H7"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         raise  # Re-raise to be handled by outer exception handler
                 
                 elif name == "slides_get":
@@ -1423,25 +1259,6 @@ Choose an appropriate theme based on the document content:
                     )]
                 
                 elif name == "slides_insert_text":
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "location": "google_slides_server.py:slides_insert_text:entry",
-                                "message": "slides_insert_text handler called",
-                                "data": {
-                                    "arguments": arguments,
-                                    "presentation_id": arguments.get("presentationId"),
-                                    "page_id": arguments.get("pageId"),
-                                    "text_preview": str(arguments.get("text", ""))[:50]
-                                },
-                                "timestamp": int(__import__('time').time() * 1000),
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H5"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
                     
                     slides_service = self._get_slides_service()
                     presentation_id = self._extract_file_id(arguments.get("presentationId"))
@@ -1453,62 +1270,14 @@ Choose an appropriate theme based on the document content:
                     
                     # If element_id not provided, find first text box
                     if not element_id:
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_insert_text:before_find_textbox",
-                                    "message": "Before finding text box",
-                                    "data": {"page_id": page_id, "presentation_id": presentation_id},
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H6"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         
                         presentation = slides_service.presentations().get(
                             presentationId=presentation_id
                         ).execute()
                         
-                        # #region agent log
-                        try:
-                            slides_found = [s.get('objectId') for s in presentation.get('slides', [])]
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_insert_text:after_get_presentation",
-                                    "message": "After get presentation",
-                                    "data": {
-                                        "slides_count": len(presentation.get('slides', [])),
-                                        "slide_ids": slides_found,
-                                        "looking_for_page_id": page_id
-                                    },
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H6"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         
                         for slide in presentation.get('slides', []):
                             if slide.get('objectId') == page_id:
-                                # #region agent log
-                                try:
-                                    elements_count = len(slide.get('pageElements', []))
-                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                        f.write(json.dumps({
-                                            "location": "google_slides_server.py:slides_insert_text:slide_found",
-                                            "message": "Slide found, searching for text box",
-                                            "data": {"elements_count": elements_count},
-                                            "timestamp": int(__import__('time').time() * 1000),
-                                            "sessionId": "debug-session",
-                                            "runId": "run1",
-                                            "hypothesisId": "H6"
-                                        }) + "\n")
-                                except: pass
-                                # #endregion
                                 
                                 # Find the BODY placeholder (not TITLE) for inserting content
                                 # Priority: BODY placeholder > second TEXT_BOX > first TEXT_BOX
@@ -1545,42 +1314,9 @@ Choose an appropriate theme based on the document content:
                                 elif textbox_ids:
                                     element_id = textbox_ids[0]
                                 
-                                # #region agent log
-                                try:
-                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                        f.write(json.dumps({
-                                            "location": "google_slides_server.py:slides_insert_text:textbox_found",
-                                            "message": "Text box found",
-                                            "data": {
-                                                "element_id": element_id,
-                                                "body_element_id": body_element_id,
-                                                "title_element_id": title_element_id,
-                                                "textbox_ids": textbox_ids
-                                            },
-                                            "timestamp": int(__import__('time').time() * 1000),
-                                            "sessionId": "debug-session",
-                                            "runId": "run1",
-                                            "hypothesisId": "H6"
-                                        }) + "\n")
-                                except: pass
-                                # #endregion
                                 break
                         
                         if not element_id:
-                            # #region agent log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    f.write(json.dumps({
-                                        "location": "google_slides_server.py:slides_insert_text:no_textbox",
-                                        "message": "No text box found",
-                                        "data": {"page_id": page_id},
-                                        "timestamp": int(__import__('time').time() * 1000),
-                                        "sessionId": "debug-session",
-                                        "runId": "run1",
-                                        "hypothesisId": "H6"
-                                    }) + "\n")
-                            except: pass
-                            # #endregion
                             return [TextContent(
                                 type="text",
                                 text=json.dumps({"error": "No text box found in slide"}, indent=2)
@@ -1588,20 +1324,6 @@ Choose an appropriate theme based on the document content:
                     
                     # Get current text to determine insert index
                     if insert_index == -1:
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_insert_text:before_compute_index",
-                                    "message": "Before computing insert index",
-                                    "data": {"element_id": element_id, "page_id": page_id},
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H5"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         
                         try:
                             presentation = slides_service.presentations().get(
@@ -1609,20 +1331,6 @@ Choose an appropriate theme based on the document content:
                                 fields="slides(pageElements(objectId,shape(text(textElements))))"
                             ).execute()
                             
-                            # #region agent log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    f.write(json.dumps({
-                                        "location": "google_slides_server.py:slides_insert_text:got_presentation_for_index",
-                                        "message": "Got presentation for index computation",
-                                        "data": {"slides_count": len(presentation.get('slides', []))},
-                                        "timestamp": int(__import__('time').time() * 1000),
-                                        "sessionId": "debug-session",
-                                        "runId": "run1",
-                                        "hypothesisId": "H5"
-                                    }) + "\n")
-                            except: pass
-                            # #endregion
                             
                             for slide in presentation.get('slides', []):
                                 if slide.get('objectId') == page_id:
@@ -1636,46 +1344,9 @@ Choose an appropriate theme based on the document content:
                                                 len(elem.get('textRun', {}).get('content', ''))
                                                 for elem in text_elements
                                             )
-                                            # #region agent log
-                                            try:
-                                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                                    f.write(json.dumps({
-                                                        "location": "google_slides_server.py:slides_insert_text:index_computed",
-                                                        "message": "Insert index computed",
-                                                        "data": {
-                                                            "insert_index": insert_index,
-                                                            "text_elements_count": len(text_elements),
-                                                            "text_lengths": [len(elem.get('textRun', {}).get('content', '')) for elem in text_elements]
-                                                        },
-                                                        "timestamp": int(__import__('time').time() * 1000),
-                                                        "sessionId": "debug-session",
-                                                        "runId": "run1",
-                                                        "hypothesisId": "H5"
-                                                    }) + "\n")
-                                            except: pass
-                                            # #endregion
                                             break
                                     break
                         except Exception as index_error:
-                            # #region agent log
-                            try:
-                                import traceback
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    f.write(json.dumps({
-                                        "location": "google_slides_server.py:slides_insert_text:index_error",
-                                        "message": "Error computing insert index",
-                                        "data": {
-                                            "error_type": type(index_error).__name__,
-                                            "error_message": str(index_error),
-                                            "error_traceback": traceback.format_exc()[:500]
-                                        },
-                                        "timestamp": int(__import__('time').time() * 1000),
-                                        "sessionId": "debug-session",
-                                        "runId": "run1",
-                                        "hypothesisId": "H5"
-                                    }) + "\n")
-                            except: pass
-                            # #endregion
                             # If error computing index, default to 0
                             insert_index = 0
                     
@@ -1683,20 +1354,6 @@ Choose an appropriate theme based on the document content:
                     if insert_index < 0:
                         insert_index = 0
                     
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "location": "google_slides_server.py:slides_insert_text:after_index_check",
-                                "message": "After index validation",
-                                "data": {"final_insert_index": insert_index},
-                                "timestamp": int(__import__('time').time() * 1000),
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H5"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
                     
                     requests = [{
                         "insertText": {
@@ -1706,26 +1363,6 @@ Choose an appropriate theme based on the document content:
                         }
                     }]
                     
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "location": "google_slides_server.py:slides_insert_text:before_api_call",
-                                "message": "Before batchUpdate API call",
-                                "data": {
-                                    "presentation_id": presentation_id,
-                                    "page_id": page_id,
-                                    "element_id": element_id,
-                                    "insert_index": insert_index,
-                                    "requests": requests
-                                },
-                                "timestamp": int(__import__('time').time() * 1000),
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H5"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
                     
                     try:
                         response = slides_service.presentations().batchUpdate(
@@ -1733,43 +1370,7 @@ Choose an appropriate theme based on the document content:
                             body={"requests": requests}
                         ).execute()
                         
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_insert_text:after_api_call",
-                                    "message": "After batchUpdate API call",
-                                    "data": {
-                                        "response_keys": list(response.keys()) if isinstance(response, dict) else None,
-                                        "response_preview": str(response)[:200] if response else None
-                                    },
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H5"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                     except Exception as api_error:
-                        # #region agent log
-                        try:
-                            import traceback
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_insert_text:api_error",
-                                    "message": "API call failed",
-                                    "data": {
-                                        "error_type": type(api_error).__name__,
-                                        "error_message": str(api_error),
-                                        "error_traceback": traceback.format_exc()[:500]
-                                    },
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H5"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         raise
                     
                     # Apply bold formatting for title elements
@@ -1805,20 +1406,6 @@ Choose an appropriate theme based on the document content:
                     )]
                 
                 elif name == "slides_format_text":
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "location": "google_slides_server.py:slides_format_text:entry",
-                                "message": "slides_format_text handler called",
-                                "data": {"arguments": arguments},
-                                "timestamp": int(__import__('time').time() * 1000),
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H8"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
                     
                     slides_service = self._get_slides_service()
                     presentation_id = self._extract_file_id(arguments.get("presentationId"))
@@ -1891,47 +1478,11 @@ Choose an appropriate theme based on the document content:
                         })
                     
                     if not requests:
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_format_text:no_requests",
-                                    "message": "No formatting requests generated",
-                                    "data": {"text_style": text_style, "style_fields": style_fields},
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H8"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         return [TextContent(
                             type="text",
                             text=json.dumps({"error": "No formatting options provided"}, indent=2)
                         )]
                     
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "location": "google_slides_server.py:slides_format_text:before_api",
-                                "message": "Before batchUpdate API call",
-                                "data": {
-                                    "presentation_id": presentation_id,
-                                    "element_id": element_id,
-                                    "start_index": start_index,
-                                    "end_index": end_index,
-                                    "text_style": text_style,
-                                    "style_fields": style_fields,
-                                    "requests": requests
-                                },
-                                "timestamp": int(__import__('time').time() * 1000),
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H8"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
                     
                     try:
                         response = slides_service.presentations().batchUpdate(
@@ -1939,23 +1490,6 @@ Choose an appropriate theme based on the document content:
                             body={"requests": requests}
                         ).execute()
                         
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_format_text:after_api",
-                                    "message": "After batchUpdate API call",
-                                    "data": {
-                                        "response_keys": list(response.keys()) if isinstance(response, dict) else None,
-                                        "response_preview": str(response)[:200] if response else None
-                                    },
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H8"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         
                         return [TextContent(
                             type="text",
@@ -1965,25 +1499,6 @@ Choose an appropriate theme based on the document content:
                             }, indent=2)
                         )]
                     except Exception as format_error:
-                        # #region agent log
-                        try:
-                            import traceback
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_format_text:api_error",
-                                    "message": "API call failed",
-                                    "data": {
-                                        "error_type": type(format_error).__name__,
-                                        "error_message": str(format_error),
-                                        "error_traceback": traceback.format_exc()[:1000]
-                                    },
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H8"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         raise  # Re-raise to be handled by outer exception handler
                 
                 elif name == "slides_add_image":
@@ -2687,21 +2202,6 @@ Choose an appropriate theme based on the document content:
                     
                     logger.info(f"Creating presentation from doc: {document_id}, theme: {theme}")
                     
-                    # #region agent log
-                    try:
-                        import time
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "location": "google_slides_server.py:slides_create_presentation_from_doc:entry",
-                                "message": "slides_create_presentation_from_doc handler called",
-                                "data": {"document_id": document_id, "theme": theme, "presentation_title": presentation_title},
-                                "timestamp": int(time.time() * 1000),
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H1"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
                     
                     # Read document with full structure
                     document = docs_service.documents().get(documentId=document_id).execute()
@@ -2722,25 +2222,6 @@ Choose an appropriate theme based on the document content:
                     slide_definitions = self._group_content_into_slides(structured_content, doc_title)
                     logger.info(f"Grouped into {len(slide_definitions)} slides")
                     
-                    # #region agent log
-                    try:
-                        import time
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "location": "google_slides_server.py:slides_create_presentation_from_doc:after_grouping",
-                                "message": "Structured content extracted and grouped",
-                                "data": {
-                                    "structured_content_count": len(structured_content),
-                                    "slide_definitions_count": len(slide_definitions),
-                                    "first_slide": slide_definitions[0] if slide_definitions else None
-                                },
-                                "timestamp": int(time.time() * 1000),
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H2"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
                     
                     # Try to copy template if available, otherwise create empty
                     template_id = self._get_template_id(theme)
@@ -2919,28 +2400,6 @@ Choose an appropriate theme based on the document content:
                         
                         logger.info(f"Slide {i} elements: title={title_element_id}, body={body_element_id}, subtitle={subtitle_element_id}")
                         
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "google_slides_server.py:slides_create_presentation_from_doc:placeholders",
-                                    "message": "Found placeholders for slide",
-                                    "data": {
-                                        "slide_index": i,
-                                        "slide_id": slide_id,
-                                        "title_element_id": title_element_id,
-                                        "body_element_id": body_element_id,
-                                        "subtitle_element_id": subtitle_element_id,
-                                        "slide_title": slide_def.get('title', '')[:50],
-                                        "elements_count": len(slide_data.get('pageElements', []))
-                                    },
-                                    "timestamp": int(__import__('time').time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "H10"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         
                         # Insert title
                         if slide_def.get('title') and title_element_id:
@@ -3051,21 +2510,6 @@ Choose an appropriate theme based on the document content:
                         "templateUsed": template_id is not None
                     }
                     
-                    # #region agent log
-                    try:
-                        import time
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "location": "google_slides_server.py:slides_create_presentation_from_doc:success",
-                                "message": "Presentation created successfully, returning result",
-                                "data": result_data,
-                                "timestamp": int(time.time() * 1000),
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "H3"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
                     
                     return [TextContent(
                         type="text",

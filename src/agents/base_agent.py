@@ -174,29 +174,6 @@ class StreamingCallbackHandler(AsyncCallbackHandler):
         **kwargs
     ) -> None:
         """Called when a tool finishes executing."""
-        # #region agent log
-        import json
-        import time
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({
-                    "location": "base_agent.py:on_tool_end:entry",
-                    "message": "on_tool_end called",
-                    "data": {
-                        "run_id": str(run_id),
-                        "output_length": len(str(output)) if output else 0,
-                        "output_preview": str(output)[:200] if output else "",
-                        "has_event_callback": self.event_callback is not None,
-                        "tool_name_from_cache": self._tool_name_cache.get(str(run_id), "not_found")
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-        except Exception as e:
-            pass
-        # #endregion
         
         if self.logger:
             self.logger.info(f"[StreamingCallback] Tool end: {output[:100] if output else 'empty'}")
@@ -220,24 +197,6 @@ class StreamingCallbackHandler(AsyncCallbackHandler):
             # Get tool name from cache
             tool_name = self._tool_name_cache.pop(str(run_id), "unknown")
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "base_agent.py:on_tool_end:before_callback",
-                        "message": "About to call event_callback with TOOL_RESULT",
-                        "data": {
-                            "run_id": str(run_id),
-                            "tool_name": tool_name,
-                            "display_output_length": len(display_output)
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             await self.event_callback(StreamEvent.TOOL_RESULT, {
                 "result": display_output,
@@ -245,23 +204,6 @@ class StreamingCallbackHandler(AsyncCallbackHandler):
                 "tool_name": tool_name
             })
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "base_agent.py:on_tool_end:after_callback",
-                        "message": "event_callback called with TOOL_RESULT",
-                        "data": {
-                            "run_id": str(run_id),
-                            "tool_name": tool_name
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except: pass
-            # #endregion
     
     def get_accumulated_text(self) -> str:
         """Get all accumulated text."""
@@ -467,14 +409,6 @@ class BaseAgent:
             # Add open files context if available
             open_files_context = self._build_open_files_context(context)
             if open_files_context:
-                # #region agent log
-                import json
-                import time
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:execute:adding_open_files_context","message":"Adding open files context to messages","data":{"context_length":len(open_files_context)},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
                 langchain_messages.append(SystemMessage(content=open_files_context))
             
             # Add recent messages from context
@@ -593,31 +527,11 @@ class BaseAgent:
         Returns:
             Context string or None if no open files
         """
-        # #region agent log
-        import json
-        import time
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:_build_open_files_context:entry","message":"Building open files context","data":{"context_has_get_open_files":hasattr(context,'get_open_files')},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:_build_open_files_context:after_get","message":"Retrieved open_files from context","data":{"open_files_count":len(open_files) if open_files else 0,"open_files":open_files if open_files else []},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
         if not open_files:
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:_build_open_files_context:no_files","message":"No open files found, returning None","data":{},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             return None
         
         context_lines = ["## Открытые файлы в рабочей области:\n"]
@@ -653,12 +567,6 @@ class BaseAgent:
         
         result_context = "\n".join(context_lines)
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:_build_open_files_context:return","message":"Returning open files context","data":{"context_length":len(result_context),"context_preview":result_context[:200]},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
         return result_context
 
@@ -690,14 +598,6 @@ class BaseAgent:
             # Add open files context if available
             open_files_context = self._build_open_files_context(context)
             if open_files_context:
-                # #region agent log
-                import json
-                import time
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"C","location":"base_agent.py:execute_with_streaming:adding_open_files_context","message":"Adding open files context to messages","data":{"context_length":len(open_files_context)},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
                 langchain_messages.append(SystemMessage(content=open_files_context))
             
             recent_messages = context.get_recent_messages(10)

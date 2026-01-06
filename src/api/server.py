@@ -83,22 +83,7 @@ from starlette.requests import Request as StarletteRequest
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: StarletteRequest, call_next):
-        # Log ALL requests to /api/integrations (for debugging)
-        if '/api/integrations' in request.url.path:
-            import json
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"server.py:RequestLoggingMiddleware:request_received","message":"Request received for integrations endpoint","data":{"path":request.url.path,"method":request.method,"full_path":str(request.url)},"timestamp":int(time.time()*1000)})+'\n')
-            except Exception as e:
-                pass
         response = await call_next(request)
-        if '/api/integrations' in request.url.path:
-            import json
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"server.py:RequestLoggingMiddleware:response_sent","message":"Response sent for integrations endpoint","data":{"path":request.url.path,"status_code":response.status_code},"timestamp":int(time.time()*1000)})+'\n')
-            except Exception as e:
-                pass
         return response
 
 app.add_middleware(RequestLoggingMiddleware)
@@ -237,14 +222,6 @@ async def send_message(request: Dict[str, Any]):
     
     # Process message with file attachments
     try:
-        # #region agent log
-        import json
-        import time
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"server.py:send_message","message":"API request received","data":{"session_id":session_id,"user_message_length":len(user_message) if user_message else 0,"file_ids_count":len(file_ids) if file_ids else 0},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         logger.info(f"Processing message for session {session_id}, context session_id: {getattr(context, 'session_id', 'NOT SET')}, file_ids: {file_ids}, open_files: {len(open_files)}")
         result = await agent_wrapper.process_message(
             user_message,
@@ -254,12 +231,6 @@ async def send_message(request: Dict[str, Any]):
             open_files=open_files
         )
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"server.py:send_message","message":"API request processed successfully","data":{"result_status":result.get("status") if isinstance(result, dict) else "unknown"},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
         # Update session
         session_manager.update_session(session_id, context)
@@ -269,13 +240,6 @@ async def send_message(request: Dict[str, Any]):
             "result": result
         }
     except Exception as e:
-        # #region agent log
-        import traceback
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"E","location":"server.py:send_message","message":"Exception in API request","data":{"error":str(e),"error_type":type(e).__name__,"traceback":traceback.format_exc()[:500]},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         logger.error(f"Error processing message: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -435,67 +399,23 @@ async def resolve_user_assistance(request: Dict[str, Any]):
         "user_response": "1" or "первый" or "Тест2" etc.
     }
     """
-    # #region agent log
-    import time
-    import json
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:entry","message":"Endpoint called","data":{"request_keys":list(request.keys())},"timestamp":int(time.time()*1000)})+'\n')
-    except: pass
-    # #endregion
     
     session_id = request.get("session_id")
     assistance_id = request.get("assistance_id")
     user_response = request.get("user_response")
     
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:params_extracted","message":"Parameters extracted","data":{"session_id":session_id,"assistance_id":assistance_id,"user_response":user_response,"has_all_params":bool(session_id and assistance_id and user_response)},"timestamp":int(time.time()*1000)})+'\n')
-    except: pass
-    # #endregion
     
     if not session_id or not assistance_id or not user_response:
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:validation_error","message":"Validation error - missing params","data":{},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         raise HTTPException(status_code=400, detail="Session ID, assistance ID, and user response required")
     
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:before_get_session","message":"Before get_session","data":{},"timestamp":int(time.time()*1000)})+'\n')
-    except: pass
-    # #endregion
     
     context = session_manager.get_session(session_id)
     
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:after_get_session","message":"After get_session","data":{"context_found":context is not None},"timestamp":int(time.time()*1000)})+'\n')
-    except: pass
-    # #endregion
     
     if not context:
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:session_not_found","message":"Session not found","data":{},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         raise HTTPException(status_code=404, detail="Session not found")
     
     try:
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:before_agent_wrapper","message":"Before agent_wrapper.resolve_user_assistance","data":{},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
         result = await agent_wrapper.resolve_user_assistance(
             assistance_id,
@@ -504,37 +424,13 @@ async def resolve_user_assistance(request: Dict[str, Any]):
             session_id
         )
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:after_agent_wrapper","message":"After agent_wrapper.resolve_user_assistance","data":{"result":result},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:before_update_session","message":"Before update_session","data":{},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
         session_manager.update_session(session_id, context)
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:before_return","message":"Before return result","data":{"result":result},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         
         return result
     except Exception as e:
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"server.py:resolve_user_assistance:exception","message":"Exception in resolve_user_assistance","data":{"error":str(e),"error_type":type(e).__name__},"timestamp":int(time.time()*1000)})+'\n')
-        except: pass
-        # #endregion
         logger.error(f"Error resolving user assistance: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

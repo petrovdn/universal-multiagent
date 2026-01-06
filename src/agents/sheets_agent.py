@@ -102,11 +102,6 @@ class SheetsAgent(BaseAgent):
             # Always use Sheets MCP tools (they use sheets MCP server)
             # This provides more features than Workspace MCP for spreadsheet operations
             base_tools = get_sheets_tools()
-            # #region debug log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"A","location":"sheets_agent.py:104","message":"SheetsAgent initialized with Sheets MCP tools","data":{"tools_count":len(base_tools),"tool_names":[t.name for t in base_tools]},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             
             # Add code execution tools for dynamic data transformations
             code_tools = get_code_execution_tools()

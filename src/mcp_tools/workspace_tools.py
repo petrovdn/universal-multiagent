@@ -160,13 +160,6 @@ async def _try_case_variations_for_search_files(
     all_files = {}
     seen_file_ids = set()
     
-    # #region agent log
-    import time
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:start","message":"Starting search with variations","data":{"query":query,"query_variations_count":len(query_variations),"query_variations":query_variations[:5],"max_results":max_results},"timestamp":int(time.time()*1000)})+'\n')
-    except: pass
-    # #endregion
     
     for query_var in query_variations:
         try:
@@ -174,55 +167,11 @@ async def _try_case_variations_for_search_files(
             if mime_type:
                 args["mimeType"] = mime_type
             
-            # #region agent log
-            import time
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"workspace_tools.py:_try_case_variations_for_search_files","message":"Trying search query variation","data":{"query_variation":query_var,"mime_type":mime_type,"max_results":max_results},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
             result = await mcp_manager.call_tool("workspace_search_files", args, server_name="google_workspace")
             
-            # #region agent log
-            try:
-                result_for_log = result
-                result_raw_str = str(result)[:500]
-                if isinstance(result, list) and len(result) > 0:
-                    first_item = result[0]
-                    if hasattr(first_item, 'text'):
-                        result_for_log = first_item.text
-                        result_raw_str = str(first_item.text)[:500]
-                    elif isinstance(first_item, dict) and 'text' in first_item:
-                        result_for_log = first_item['text']
-                        result_raw_str = str(first_item['text'])[:500]
-                if isinstance(result_for_log, str):
-                    try:
-                        result_for_log = json.loads(result_for_log)
-                    except:
-                        pass
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    # Extract files count from result for logging
-                    files_count_in_result = 0
-                    file_names_in_result = []
-                    if isinstance(result_for_log, dict):
-                        files_count_in_result = len(result_for_log.get("files", []))
-                        file_names_in_result = [f.get('name') for f in result_for_log.get("files", [])[:5]]
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:result_received","message":"Search result received from MCP","data":{"query_variation":query_var,"result_type":type(result).__name__,"files_in_result":files_count_in_result,"file_names":file_names_in_result,"result_raw_preview":result_raw_str},"timestamp":int(time.time()*1000)})+'\n')
-            except Exception as log_err:
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:log_error","message":"Error logging result","data":{"error":str(log_err),"result_type":type(result).__name__},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-            # #endregion
             
             # Parse result - handle TextContent list
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:before_parse","message":"Before parsing result","data":{"result_type":type(result).__name__,"is_list":isinstance(result, list),"list_len":len(result) if isinstance(result, list) else 0},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
             if isinstance(result, list) and len(result) > 0:
                 first_item = result[0]
@@ -231,23 +180,11 @@ async def _try_case_variations_for_search_files(
                 elif isinstance(first_item, dict) and 'text' in first_item:
                     result = first_item['text']
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:after_text_extraction","message":"After text extraction","data":{"result_type":type(result).__name__,"result_preview":str(result)[:200] if isinstance(result, str) else "not_string"},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
             if isinstance(result, str):
                 try:
                     result = json.loads(result)
                 except json.JSONDecodeError as e:
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:json_decode_error","message":"JSON decode error","data":{"error":str(e),"result_preview":result[:500]},"timestamp":int(time.time()*1000)})+'\n')
-                    except: pass
-                    # #endregion
                     raise
             
             # Handle both dict and list results
@@ -258,12 +195,6 @@ async def _try_case_variations_for_search_files(
             else:
                 files = []
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:files_parsed","message":"Files parsed from result","data":{"query_variation":query_var,"files_count":len(files),"file_names":[f.get('name') for f in files[:5]],"file_ids":[f.get('id') for f in files[:5]]},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
             # Deduplicate by file ID and collect ALL files (don't stop after first match)
             for f in files:
@@ -273,39 +204,14 @@ async def _try_case_variations_for_search_files(
                         seen_file_ids.add(file_id)
                         all_files[file_id] = f
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"I","location":"workspace_tools.py:_try_case_variations_for_search_files:after_collection","message":"Files collected after variation","data":{"query_variation":query_var,"files_collected":len(all_files),"file_ids":list(all_files.keys()),"file_names":[all_files[fid].get('name') for fid in list(all_files.keys())[:10]]},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
         
         except Exception as e:
-            # #region agent log
-            try:
-                import traceback
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"F","location":"workspace_tools.py:_try_case_variations_for_search_files:exception","message":"Exception during search variation","data":{"query_variation":query_var,"error_type":type(e).__name__,"error_message":str(e),"traceback":traceback.format_exc()[:1000]},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             # Continue with next variation if one fails
             continue
     
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"workspace_tools.py:_try_case_variations_for_search_files:final","message":"Final files collection","data":{"total_files":len(all_files),"file_ids":list(all_files.keys()),"file_names":[all_files[fid].get('name') for fid in list(all_files.keys())[:10]]},"timestamp":int(time.time()*1000)})+'\n')
-    except: pass
-    # #endregion
     
     result_files = list(all_files.values())
     
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"H","location":"workspace_tools.py:_try_case_variations_for_search_files:return","message":"Returning files","data":{"return_count":len(result_files),"return_file_ids":[f.get('id') for f in result_files[:10]],"return_file_names":[f.get('name') for f in result_files[:10]]},"timestamp":int(time.time()*1000)})+'\n')
-    except: pass
-    # #endregion
     
     return result_files
 
@@ -583,23 +489,10 @@ class SearchFilesTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
-            # #region agent log
-            import time
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"workspace_tools.py:SearchFilesTool._arun:entry","message":"SearchFilesTool called","data":{"query":query,"mime_type":mime_type,"max_results":max_results},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             # Use case-insensitive search with variations
             files = await _try_case_variations_for_search_files(query, mime_type, max_results)
             count = len(files)
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"workspace_tools.py:SearchFilesTool._arun:after_search","message":"Search completed","data":{"query":query,"files_count":count,"file_ids":[f.get('id') for f in files[:5]],"file_names":[f.get('name') for f in files[:5]]},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
             if count == 0:
                 return f"No files found matching query: {query}"
@@ -668,12 +561,6 @@ class SearchFilesTool(BaseTool):
             file = files[0]
             file_name = file.get('name', 'Unknown')
             file_id = file.get('id', '')
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"A","location":"workspace_tools.py:SearchFilesTool._arun:single_file_found","message":"Single file found, returning result","data":{"query":query,"file_name":file_name,"file_id":file_id,"return_text":f"Found 1 file matching '{query}': {file_name} (ID: {file_id})"},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             return f"Found 1 file matching '{query}': {file_name} (ID: {file_id})"
             
         except Exception as e:
@@ -718,13 +605,6 @@ class OpenFileTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
-            # #region agent log
-            import time
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"workspace_tools.py:OpenFileTool._arun:entry","message":"OpenFileTool called","data":{"file_id":file_id,"max_rows":max_rows,"sheet_name":sheet_name,"file_id_length":len(file_id) if file_id else 0},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             args = {"fileId": file_id, "maxRows": max_rows}
             if sheet_name:
                 args["sheetName"] = sheet_name
@@ -732,13 +612,6 @@ class OpenFileTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("workspace_open_file", args, server_name="google_workspace")
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    result_preview = str(result)[:200] if result else "None"
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"workspace_tools.py:OpenFileTool._arun:after_mcp_call","message":"MCP call completed","data":{"file_id":file_id,"result_type":type(result).__name__,"result_preview":result_preview},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
             # Parse result
             if isinstance(result, list) and len(result) > 0:
@@ -751,23 +624,11 @@ class OpenFileTool(BaseTool):
             if isinstance(result, str):
                 result = json.loads(result)
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"workspace_tools.py:OpenFileTool._arun:result_parsed","message":"Result parsed from MCP","data":{"file_id":file_id,"result_keys":list(result.keys()) if isinstance(result,dict) else "not_dict","has_error":"error" in result if isinstance(result,dict) else "unknown"},"timestamp":int(time.time()*1000)})+'\n')
-            except: pass
-            # #endregion
             
             file_type = result.get("type", "unknown")
             file_name = result.get("fileName", "Unknown")
             
             if "error" in result:
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"sessionId":"debug-session","runId":"run1","hypothesisId":"B","location":"workspace_tools.py:OpenFileTool._arun:error_in_result","message":"Error found in result","data":{"file_id":file_id,"file_name":file_name,"error":result.get("error")},"timestamp":int(time.time()*1000)})+'\n')
-                except: pass
-                # #endregion
                 return f"Error opening file '{file_name}': {result['error']}"
             
             if file_type == "document":

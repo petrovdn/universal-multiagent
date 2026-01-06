@@ -2449,26 +2449,6 @@ Get the confirmation ID for the current plan."""
         
         # Handle create_presentation, slides_create, or create_presentation_from_doc (direct MCP call)
         elif tool_name in ("create_presentation", "slides_create", "create_presentation_from_doc"):
-            # #region agent log
-            try:
-                import json
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "step_orchestrator.py:_handle_workspace_events:create_presentation:entry",
-                        "message": "Processing create_presentation/slides_create",
-                        "data": {
-                            "tool_name": tool_name,
-                            "result_length": len(result),
-                            "result_preview": result[:300] if result else "",
-                            "tool_args": tool_args
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": self.session_id,
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             logger.info(f"[StepOrchestrator] Processing {tool_name}, result length: {len(result)}, result preview: {result[:200]}")
             
@@ -2514,25 +2494,6 @@ Get the confirmation ID for the current plan."""
                     logger.warning(f"[StepOrchestrator] Failed to extract presentation_id from result: {result[:500]}")
                     return
             
-            # #region agent log
-            try:
-                import json
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "step_orchestrator.py:_handle_workspace_events:create_presentation:before_send",
-                        "message": "About to send slides_action event",
-                        "data": {
-                            "presentation_id": presentation_id,
-                            "url": url,
-                            "title": title
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": self.session_id,
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             await self.ws_manager.send_event(
                 self.session_id,
@@ -2562,23 +2523,6 @@ Get the confirmation ID for the current plan."""
                 )
                 logger.info(f"[StepOrchestrator] Sent file_preview event for presentation {presentation_id} at step {self._current_step_index}")
             
-            # #region agent log
-            try:
-                import json
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "step_orchestrator.py:_handle_workspace_events:create_presentation:after_send",
-                        "message": "slides_action event sent",
-                        "data": {
-                            "presentation_id": presentation_id
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": self.session_id,
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except: pass
-            # #endregion
     
     @staticmethod
     def _parse_user_selection(user_response: str, options: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

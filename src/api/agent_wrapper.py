@@ -13,6 +13,7 @@ from src.agents.main_agent import MainAgent
 from src.agents.base_agent import StreamEvent
 from src.core.context_manager import ConversationContext
 from src.core.step_orchestrator import StepOrchestrator
+from src.core.react_orchestrator import ReActOrchestrator
 from src.core.task_classifier import TaskClassifier, TaskType
 from src.api.websocket_manager import get_websocket_manager
 from src.utils.audit import get_audit_logger
@@ -130,6 +131,7 @@ Initialize agent wrapper."""
             }
         )
         try:
+            
             # Classify task complexity
             task_type = await self.task_classifier.classify_task(user_message, context)
             
@@ -145,72 +147,100 @@ Initialize agent wrapper."""
                 )
                 return result
             
-            # Complex tasks use StepOrchestrator with planning
-            # Mode depends on execution_mode setting
-            logger.info(f"[AgentWrapper] Complex task detected, using StepOrchestrator")
+            # Complex tasks use orchestrator (StepOrchestrator or ReActOrchestrator)
+            # Check execution mode to determine which orchestrator to use
+            use_react = context.execution_mode == "react"
             
-            # Check if there's an existing orchestrator for this session
-            # If previous request is completed, we can reuse the orchestrator
-            # Otherwise, stop it to prevent mixing context
-            if session_id in self._active_orchestrators:
-                old_orchestrator = self._active_orchestrators[session_id]
-                # Check if previous orchestrator is still running
-                is_running = (
-                    hasattr(old_orchestrator, '_streaming_task') and 
-                    old_orchestrator._streaming_task and 
-                    not old_orchestrator._streaming_task.done()
-                ) or (
-                    hasattr(old_orchestrator, '_confirmation_event') and
-                    old_orchestrator._confirmation_event and
-                    not old_orchestrator._confirmation_event.is_set()
-                )
+            if use_react:
+                logger.info(f"[AgentWrapper] Complex task detected, using ReActOrchestrator")
                 
-                if is_running:
-                    # Previous request is still running - stop it
-                    logger.info(f"[AgentWrapper] Stopping active orchestrator for session {session_id}")
-                    old_orchestrator.stop()
-                    del self._active_orchestrators[session_id]
-                else:
-                    # Previous request is completed - reuse orchestrator
-                    logger.info(f"[AgentWrapper] Reusing orchestrator for session {session_id}")
-                    # Clean up state for new request
-                    old_orchestrator._confirmation_event = None
-                    old_orchestrator._confirmation_result = None
-                    old_orchestrator._stop_requested = False
-                    old_orchestrator._streaming_task = None
-                    # Use existing orchestrator instead of creating new one
-                    orchestrator = old_orchestrator
-            
-            if context.execution_mode == "approval":
-                orchestrator_mode = "plan_and_confirm"
-            else:
-                orchestrator_mode = "plan_and_execute"
-            
-            # Create StepOrchestrator for this session (only if not reusing existing)
-            if 'orchestrator' not in locals():
-                orchestrator = StepOrchestrator(
+                
+                # Create ReActOrchestrator
+                react_orchestrator = ReActOrchestrator(
                     ws_manager=self.ws_manager,
                     session_id=session_id,
                     model_name=context.model_name
                 )
-                # Store orchestrator for confirmation handling
-                self._active_orchestrators[session_id] = orchestrator
-            
-            # Execute orchestrator
-            # For plan_and_confirm: this will generate plan, wait for confirmation, then execute steps
-            # For plan_and_execute: this will generate plan and execute immediately
-            result = await orchestrator.execute(
-                user_request=user_message,
-                mode=orchestrator_mode,
-                context=context,
-                file_ids=file_ids
-            )
+                
+                
+                # Store orchestrator for stop handling
+                self._active_orchestrators[session_id] = react_orchestrator
+                
+                
+                # Execute ReAct orchestrator
+                result = await react_orchestrator.execute(
+                    user_request=user_message,
+                    context=context,
+                    file_ids=file_ids
+                )
+                
+            else:
+                logger.info(f"[AgentWrapper] Complex task detected, using StepOrchestrator")
+                
+                # Check if there's an existing orchestrator for this session
+                # If previous request is completed, we can reuse the orchestrator
+                # Otherwise, stop it to prevent mixing context
+                if session_id in self._active_orchestrators:
+                    old_orchestrator = self._active_orchestrators[session_id]
+                    # Check if previous orchestrator is still running
+                    is_running = (
+                        hasattr(old_orchestrator, '_streaming_task') and 
+                        old_orchestrator._streaming_task and 
+                        not old_orchestrator._streaming_task.done()
+                    ) or (
+                        hasattr(old_orchestrator, '_confirmation_event') and
+                        old_orchestrator._confirmation_event and
+                        not old_orchestrator._confirmation_event.is_set()
+                    )
+                    
+                    if is_running:
+                        # Previous request is still running - stop it
+                        logger.info(f"[AgentWrapper] Stopping active orchestrator for session {session_id}")
+                        old_orchestrator.stop()
+                        del self._active_orchestrators[session_id]
+                    else:
+                        # Previous request is completed - reuse orchestrator
+                        logger.info(f"[AgentWrapper] Reusing orchestrator for session {session_id}")
+                        # Clean up state for new request
+                        old_orchestrator._confirmation_event = None
+                        old_orchestrator._confirmation_result = None
+                        old_orchestrator._stop_requested = False
+                        old_orchestrator._streaming_task = None
+                        # Use existing orchestrator instead of creating new one
+                        orchestrator = old_orchestrator
+                
+                if context.execution_mode == "approval":
+                    orchestrator_mode = "plan_and_confirm"
+                else:
+                    orchestrator_mode = "plan_and_execute"
+                
+                # Create StepOrchestrator for this session (only if not reusing existing)
+                if 'orchestrator' not in locals():
+                    orchestrator = StepOrchestrator(
+                        ws_manager=self.ws_manager,
+                        session_id=session_id,
+                        model_name=context.model_name
+                    )
+                    # Store orchestrator for confirmation handling
+                    self._active_orchestrators[session_id] = orchestrator
+                
+                # Execute orchestrator
+                # For plan_and_confirm: this will generate plan, wait for confirmation, then execute steps
+                # For plan_and_execute: this will generate plan and execute immediately
+                result = await orchestrator.execute(
+                    user_request=user_message,
+                    mode=orchestrator_mode,
+                    context=context,
+                    file_ids=file_ids
+                )
             
             # Log the action
+            orchestrator_type = "ReActOrchestrator" if use_react else "StepOrchestrator"
+            execution_mode_str = "react" if use_react else (orchestrator_mode if 'orchestrator_mode' in locals() else "plan_and_execute")
             self.audit_logger.log_agent_action(
-                "StepOrchestrator",
+                orchestrator_type,
                 "execute",
-                {"message": user_message, "mode": orchestrator_mode, "result": result.get("status", "unknown")},
+                {"message": user_message, "mode": execution_mode_str, "result": result.get("status", "unknown")},
                 session_id=session_id
             )
             
@@ -222,6 +252,7 @@ Initialize agent wrapper."""
             return result
             
         except Exception as e:
+            
             # Extract detailed error message
             import traceback
             error_message = str(e)
@@ -755,27 +786,6 @@ Callback to handle streaming events and send to WebSocket."""
                 tool_name = cached_data.get("tool_name", "unknown")
                 tool_args = cached_data.get("arguments", {})
                 
-                # #region agent log
-                import json
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "location": "agent_wrapper.py:TOOL_RESULT",
-                            "message": "TOOL_RESULT event received",
-                            "data": {
-                                "run_id": run_id,
-                                "tool_name": tool_name,
-                                "result_length": len(result),
-                                "result_preview": result[:200] if result else "",
-                                "tool_args_keys": list(tool_args.keys()) if tool_args else []
-                            },
-                            "timestamp": int(time.time() * 1000),
-                            "sessionId": session_id,
-                            "runId": "run1",
-                            "hypothesisId": "A"
-                        }) + "\n")
-                except: pass
-                # #endregion
                 
                 # Make result more compact if it's too long
                 if len(result) > 2000:
@@ -792,46 +802,11 @@ Callback to handle streaming events and send to WebSocket."""
                 
                 # Send workspace panel events based on tool results
                 try:
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "location": "agent_wrapper.py:before_handle_workspace_events",
-                                "message": "About to call _handle_workspace_events",
-                                "data": {
-                                    "tool_name": tool_name,
-                                    "run_id": run_id,
-                                    "result_length": len(result)
-                                },
-                                "timestamp": int(time.time() * 1000),
-                                "sessionId": session_id,
-                                "runId": "run1",
-                                "hypothesisId": "A"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
                     
                     logger.info(f"[AgentWrapper] Calling _handle_workspace_events for tool: {tool_name}")
                     await self._handle_workspace_events(session_id, tool_name, result, tool_args)
                     logger.info(f"[AgentWrapper] _handle_workspace_events completed for tool: {tool_name}")
                     
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "location": "agent_wrapper.py:after_handle_workspace_events",
-                                "message": "_handle_workspace_events completed",
-                                "data": {
-                                    "tool_name": tool_name,
-                                    "run_id": run_id
-                                },
-                                "timestamp": int(time.time() * 1000),
-                                "sessionId": session_id,
-                                "runId": "run1",
-                                "hypothesisId": "A"
-                            }) + "\n")
-                    except: pass
-                    # #endregion
                 except Exception as e:
                     logger.error(f"[AgentWrapper] Failed to handle workspace events: {e}", exc_info=True)
             
@@ -1239,28 +1214,6 @@ Callback to handle streaming events and send to WebSocket."""
             tool_args: Tool arguments
         """
         import re
-        import json
-        
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({
-                    "location": "agent_wrapper.py:_handle_workspace_events:entry",
-                    "message": "_handle_workspace_events called",
-                    "data": {
-                        "tool_name": tool_name,
-                        "result_length": len(result),
-                        "result_preview": result[:200] if result else "",
-                        "tool_args_keys": list(tool_args.keys()) if tool_args else []
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": session_id,
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-        except: pass
-        # #endregion
-        
         # Handle create_spreadsheet
         if tool_name == "create_spreadsheet":
             logger.info(f"[AgentWrapper] Processing create_spreadsheet, result length: {len(result)}, result preview: {result[:200]}")
@@ -1279,48 +1232,11 @@ Callback to handle streaming events and send to WebSocket."""
                 event_key = f"{session_id}:create_spreadsheet:{spreadsheet_id}"
                 current_time = time.time()
                 
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "location": "agent_wrapper.py:create_spreadsheet:dedup_check",
-                            "message": "Checking deduplication",
-                            "data": {
-                                "spreadsheet_id": spreadsheet_id,
-                                "event_key": event_key,
-                                "event_key_in_cache": event_key in self._sent_workspace_events,
-                                "cache_size": len(self._sent_workspace_events),
-                                "current_time": current_time
-                            },
-                            "timestamp": int(time.time() * 1000),
-                            "sessionId": session_id,
-                            "runId": "run1",
-                            "hypothesisId": "B"
-                        }) + "\n")
-                except: pass
-                # #endregion
                 
                 if event_key in self._sent_workspace_events:
                     last_sent = self._sent_workspace_events[event_key]
                     # Only skip if sent within last 5 seconds (to allow retries after longer delays)
                     if current_time - last_sent < 5:
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "agent_wrapper.py:create_spreadsheet:dedup_skip",
-                                    "message": "Skipping duplicate event",
-                                    "data": {
-                                        "spreadsheet_id": spreadsheet_id,
-                                        "time_since_last": current_time - last_sent
-                                    },
-                                    "timestamp": int(time.time() * 1000),
-                                    "sessionId": session_id,
-                                    "runId": "run1",
-                                    "hypothesisId": "B"
-                                }) + "\n")
-                        except: pass
-                        # #endregion
                         logger.info(f"[AgentWrapper] Skipping duplicate sheets_action event for spreadsheet {spreadsheet_id} (sent {current_time - last_sent:.2f}s ago)")
                         return
                 
@@ -1338,24 +1254,6 @@ Callback to handle streaming events and send to WebSocket."""
                 
                 logger.info(f"[AgentWrapper] Sending sheets_action event: {event_data}")
                 
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "location": "agent_wrapper.py:create_spreadsheet:before_send",
-                            "message": "About to send sheets_action event",
-                            "data": {
-                                "spreadsheet_id": spreadsheet_id,
-                                "event_key": event_key,
-                                "event_data": event_data
-                            },
-                            "timestamp": int(time.time() * 1000),
-                            "sessionId": session_id,
-                            "runId": "run1",
-                            "hypothesisId": "B"
-                        }) + "\n")
-                except: pass
-                # #endregion
                 
                 await self.ws_manager.send_event(
                     session_id,
@@ -1365,24 +1263,6 @@ Callback to handle streaming events and send to WebSocket."""
                 # Mark as sent
                 self._sent_workspace_events[event_key] = current_time
                 
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "location": "agent_wrapper.py:create_spreadsheet:after_send",
-                            "message": "sheets_action event sent",
-                            "data": {
-                                "spreadsheet_id": spreadsheet_id,
-                                "event_key": event_key,
-                                "cache_size_after": len(self._sent_workspace_events)
-                            },
-                            "timestamp": int(time.time() * 1000),
-                            "sessionId": session_id,
-                            "runId": "run1",
-                            "hypothesisId": "B"
-                        }) + "\n")
-                except: pass
-                # #endregion
                 
                 logger.info(f"[AgentWrapper] Sent sheets_action event for created spreadsheet {spreadsheet_id}")
             else:
@@ -1414,26 +1294,6 @@ Callback to handle streaming events and send to WebSocket."""
         
         # Handle slides_create
         elif tool_name == "slides_create" or tool_name == "create_presentation":
-            # #region agent log
-            try:
-                import json
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "agent_wrapper.py:_handle_workspace_events:slides_create:entry",
-                        "message": "Processing slides_create/create_presentation",
-                        "data": {
-                            "tool_name": tool_name,
-                            "result_length": len(result),
-                            "result_preview": result[:300] if result else "",
-                            "tool_args": tool_args
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": session_id,
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             # Extract presentation ID and URL from result
             # Result format: "Presentation 'title' created successfully (ID: {id}) URL: {url}" or JSON
@@ -1472,25 +1332,6 @@ Callback to handle streaming events and send to WebSocket."""
                     logger.warning(f"[AgentWrapper] Failed to extract presentation_id from result: {result[:500]}")
                     return
             
-            # #region agent log
-            try:
-                import json
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "agent_wrapper.py:_handle_workspace_events:slides_create:before_send",
-                        "message": "About to send slides_action event",
-                        "data": {
-                            "presentation_id": presentation_id,
-                            "url": url,
-                            "title": title
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": session_id,
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except: pass
-            # #endregion
             
             await self.ws_manager.send_event(
                 session_id,
@@ -1505,23 +1346,6 @@ Callback to handle streaming events and send to WebSocket."""
             )
             logger.info(f"[AgentWrapper] Sent slides_action event for presentation {presentation_id}")
             
-            # #region agent log
-            try:
-                import json
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "agent_wrapper.py:_handle_workspace_events:slides_create:after_send",
-                        "message": "slides_action event sent",
-                        "data": {
-                            "presentation_id": presentation_id
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": session_id,
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except: pass
-            # #endregion
         
         # Handle execute_python_code - show code in code viewer
         elif tool_name == "execute_python_code":

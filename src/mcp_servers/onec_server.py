@@ -85,21 +85,11 @@ class OneCMCPServer:
         """
         config = self._get_config()
         url = f"{config.odata_base_url}/{path}"
-        # #region debug log
-        import json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"D","location":"onec_server.py:_odata_request:url_constructed","message":"OData URL constructed","data":{"base_url":config.odata_base_url,"path":path,"final_url":url,"url_starts_with_http":url.startswith(('http://','https://'))},"timestamp":int(__import__('time').time()*1000)})+'\n')
-        # #endregion
         
         headers = self._get_auth_headers()
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=headers, params=params)
-            # #region debug log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"D","location":"onec_server.py:_odata_request:response","message":"OData response received","data":{"status_code":response.status_code,"url_requested":str(response.request.url) if hasattr(response,'request') else url},"timestamp":int(__import__('time').time()*1000)})+'\n')
-            # #endregion
             response.raise_for_status()
             return response.json()
     
