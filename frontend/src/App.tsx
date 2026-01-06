@@ -315,7 +315,7 @@ function App() {
   return (
     <div className="h-screen w-full flex flex-col bg-slate-50 dark:bg-slate-900">
       <Header />
-      <div className="flex-1 overflow-hidden">
+      <div className="flex-1 overflow-hidden" style={{ marginTop: '50px' }}>
         <SplitLayout />
       </div>
       {/* Notification */}

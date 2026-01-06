@@ -957,7 +957,7 @@ body {
   overflow-x: hidden !important;
   padding: 0;
   padding-bottom: 0; /* Убрали padding-bottom - контент сам создает отступ */
-  padding-top: 50px; /* Место для Header (~50px) */
+  padding-top: 0; /* Отступ для Header теперь в App.tsx через marginTop */
   scroll-behavior: smooth;
   display: flex;
   flex-direction: column;

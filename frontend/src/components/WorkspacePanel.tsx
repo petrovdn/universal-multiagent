@@ -215,7 +215,7 @@ export function WorkspacePanel() {
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        paddingTop: '50px', /* Место для fixed Header */
+        paddingTop: '0', /* Отступ для Header теперь в App.tsx через marginTop */
         backgroundColor: document.documentElement.classList.contains('dark')
           ? 'rgb(30 41 59)'
           : 'rgb(255 255 255)'
