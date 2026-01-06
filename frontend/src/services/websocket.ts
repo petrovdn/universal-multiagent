@@ -1178,11 +1178,29 @@ export class WebSocketClient {
         
         const reason = event.data.reason || 'Неизвестная ошибка'
         const tried = event.data.tried || []
+        const result = event.data.result || '' // Check if there's any partial result
+        
+        // #region agent log
+        const state = useChatStore.getState()
+        const settingsState = useSettingsStore.getState()
+        const isQueryMode = settingsState.executionMode === 'query'
+        const activeWorkflowId = state.activeWorkflowId
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_failed',message:'ReAct failed event received',data:{messageId:failedMsgId,reason,hasResult:!!result,resultLength:result.length,isQueryMode,activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+        
+        // For Query mode, save error or partial result to workflow.finalResult
+        if (isQueryMode && activeWorkflowId) {
+          const errorMessage = `❌ **Ошибка выполнения запроса**\n\n**Причина:** ${reason}\n\n${result ? `**Полученные данные:**\n${result}\n\n` : ''}**Попытки:** ${tried.join(', ') || 'нет'}`
+          chatStore.setWorkflowFinalResult(activeWorkflowId, errorMessage)
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_failed:query',message:'Saved error result to workflow for Query mode',data:{workflowId:activeWorkflowId,errorMessageLength:errorMessage.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+          // #endregion
+        }
         
         // Create answer block with error
         this.currentAnswerBlockId = `answer-${Date.now()}`
         chatStore.startAnswerBlock(failedMsgId, this.currentAnswerBlockId)
-        chatStore.updateAnswerBlock(failedMsgId, this.currentAnswerBlockId, `❌ **Задача не выполнена**\n\n**Причина:** ${reason}\n\n**Попытки:** ${tried.join(', ') || 'нет'}`)
+        chatStore.updateAnswerBlock(failedMsgId, this.currentAnswerBlockId, `❌ **Задача не выполнена**\n\n**Причина:** ${reason}\n\n${result ? `**Полученные данные:**\n${result}\n\n` : ''}**Попытки:** ${tried.join(', ') || 'нет'}`)
         chatStore.completeAnswerBlock(failedMsgId, this.currentAnswerBlockId)
         
         chatStore.setAgentTyping(false)
