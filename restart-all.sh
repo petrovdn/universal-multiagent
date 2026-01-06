@@ -17,3 +17,6 @@ echo "✅ Все сервисы перезапущены!"
 echo "   Backend:  http://localhost:8000"
 echo "   Frontend: http://localhost:5173"
 
+
+
+

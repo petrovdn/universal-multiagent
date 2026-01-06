@@ -262,3 +262,6 @@ grep "Context prepared for LLM" .cursor/debug.log
 - Убедитесь, что контекст изолирован между сессиями
 
 
+
+
+

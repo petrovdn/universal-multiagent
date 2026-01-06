@@ -2447,8 +2447,8 @@ Get the confirmation ID for the current plan."""
             else:
                 logger.warning(f"[StepOrchestrator] Failed to extract spreadsheet_id from result: {result[:500]}")
         
-        # Handle create_presentation or slides_create (direct MCP call)
-        elif tool_name == "create_presentation" or tool_name == "slides_create":
+        # Handle create_presentation, slides_create, or create_presentation_from_doc (direct MCP call)
+        elif tool_name in ("create_presentation", "slides_create", "create_presentation_from_doc"):
             # #region agent log
             try:
                 import json

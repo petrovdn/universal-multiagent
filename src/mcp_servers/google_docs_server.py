@@ -56,10 +56,8 @@ class GoogleDocsMCPServer:
                     "Please complete OAuth flow first."
                 )
             
-            creds = Credentials.from_authorized_user_file(
-                str(self.token_path),
-                DOCS_SCOPES
-            )
+            # Load credentials without specifying scopes - use scopes from token file
+            creds = Credentials.from_authorized_user_file(str(self.token_path))
             
             # Refresh token if expired
             if creds.expired and creds.refresh_token:
@@ -81,10 +79,8 @@ class GoogleDocsMCPServer:
                     "Please complete OAuth flow first."
                 )
             
-            creds = Credentials.from_authorized_user_file(
-                str(self.token_path),
-                DOCS_SCOPES
-            )
+            # Load credentials without specifying scopes - use scopes from token file
+            creds = Credentials.from_authorized_user_file(str(self.token_path))
             
             # Refresh token if expired
             if creds.expired and creds.refresh_token:

@@ -37,14 +37,18 @@ class CreatePresentationTool(BaseTool):
     
     name: str = "create_presentation"
     description: str = """
-    Create a NEW EMPTY Google Slides presentation in the workspace folder.
+    Create a NEW Google Slides presentation in the workspace folder.
     
-    ⚠️ IMPORTANT: This creates a NEW presentation file. To add slides to an EXISTING presentation, use create_slide instead!
+    ⚠️ IMPORTANT: 
+    - This creates a NEW presentation file with ONE EMPTY SLIDE already included.
+    - The response includes the first slide ID - use insert_slide_text with this slide ID to add content to the first slide.
+    - To add MORE slides, use create_slide (but remember: the first slide already exists, so if user asks for N slides, you only need to create N-1 additional slides).
     
     Input:
     - title: Title of the presentation
     
     Use this ONLY when you need to create a brand new presentation file.
+    The result will include the presentation ID and the first slide ID - use the first slide ID to add content to the first slide without creating a new one.
     """
     args_schema: type = CreatePresentationInput
     
@@ -144,6 +148,7 @@ class CreatePresentationTool(BaseTool):
             
             presentation_id = result.get("presentationId")
             url = result.get("url", "")
+            first_slide_id = result.get("firstSlideId")
             
             if not presentation_id:
                 raise ToolExecutionError(
@@ -162,17 +167,24 @@ class CreatePresentationTool(BaseTool):
                         "data": {
                             "presentation_id": presentation_id,
                             "presentation_id_type": type(presentation_id).__name__ if presentation_id is not None else None,
-                            "url": url
+                            "url": url,
+                            "first_slide_id": first_slide_id
                         },
                         "timestamp": int(time.time() * 1000),
                         "sessionId": "debug-session",
                         "runId": "run1",
-                        "hypothesisId": "A"
+                        "hypothesisId": "H1"
                     }) + "\n")
             except: pass
             # #endregion
             
-            return f"Presentation '{title}' created successfully (ID: {presentation_id})" + (f" URL: {url}" if url else "")
+            result_msg = f"Presentation '{title}' created successfully (ID: {presentation_id})"
+            if first_slide_id:
+                result_msg += f" (First slide ID: {first_slide_id})"
+            if url:
+                result_msg += f" URL: {url}"
+            
+            return result_msg
             
         except Exception as e:
             raise ToolExecutionError(
@@ -262,7 +274,9 @@ class CreateSlideTool(BaseTool):
     description: str = """
     Add a NEW SLIDE to an EXISTING Google Slides presentation.
     
-    ⚠️ IMPORTANT: This adds a slide to an ALREADY CREATED presentation. Do NOT use create_presentation for this!
+    ⚠️ IMPORTANT: 
+    - This adds a slide to an ALREADY CREATED presentation. Do NOT use create_presentation for this!
+    - Remember: When create_presentation is called, it already creates a presentation with ONE slide. So if the user asks for N slides total, you only need to create N-1 additional slides using this tool.
     
     Input:
     - presentation_id: Presentation ID or URL (from a previously created presentation)
@@ -392,23 +406,33 @@ class InsertSlideTextInput(BaseModel):
     presentation_id: str = Field(description="Presentation ID or URL")
     page_id: str = Field(description="Page (slide) ID")
     text: str = Field(description="Text to insert")
-    element_id: Optional[str] = Field(default=None, description="Text box element ID (optional, will use first text box if not provided)")
+    target_element: Optional[str] = Field(default="body", description="Which element to insert into: 'title' for slide title (bold), 'body' for content")
+    element_id: Optional[str] = Field(default=None, description="Text box element ID (optional, auto-detected based on target_element)")
     insert_index: Optional[int] = Field(default=-1, description="Character index where to insert (default: append to end)")
 
 
 class InsertSlideTextTool(BaseTool):
-    """Tool for inserting text into a slide."""
+    """Tool for inserting text into a slide's title or body."""
     
     name: str = "insert_slide_text"
     description: str = """
-    Insert text into a slide's text box.
+    Insert text into a slide's title or body placeholder.
     
     Input:
     - presentation_id: Presentation ID or URL
     - page_id: Page (slide) ID
     - text: Text to insert
-    - element_id: Text box element ID (optional, will use first text box if not provided)
-    - insert_index: Character index where to insert (default: append to end, use -1)
+    - target_element: 'title' for slide title (bold), 'body' for content
+    - element_id: Text box element ID (optional, auto-detected)
+    - insert_index: Character index (default: append to end)
+    
+    CRITICAL USAGE PATTERN - call this tool TWICE for each slide:
+    1. First call with target_element='title' to insert the slide title
+    2. Second call with target_element='body' to insert the slide content/text
+    
+    Example for one slide:
+    - Call 1: insert_slide_text(page_id='slide_xyz', text='My Title', target_element='title')
+    - Call 2: insert_slide_text(page_id='slide_xyz', text='Body text content here', target_element='body')
     """
     args_schema: type = InsertSlideTextInput
     
@@ -418,6 +442,7 @@ class InsertSlideTextTool(BaseTool):
         presentation_id: str,
         page_id: str,
         text: str,
+        target_element: Optional[str] = "body",
         element_id: Optional[str] = None,
         insert_index: Optional[int] = -1
     ) -> str:
@@ -449,7 +474,8 @@ class InsertSlideTextTool(BaseTool):
             args = {
                 "presentationId": presentation_id,
                 "pageId": page_id,
-                "text": text
+                "text": text,
+                "targetElement": target_element or "body"
             }
             if element_id:
                 args["elementId"] = element_id
@@ -533,24 +559,41 @@ class FormatSlideTextTool(BaseTool):
     description: str = """
     Format text in a slide (bold, italic, colors, font size, font family, underline, strikethrough).
     
+    ⚠️ ВАЖНО: Этот инструмент НЕ создаёт списки! Для списков используй create_slide_bullets.
+    
+    Когда использовать:
+    - Пользователь просит "жирный текст" → используй bold=True
+    - Пользователь просит "курсив" → используй italic=True
+    - Пользователь просит "большой шрифт" → используй font_size=24 (или больше, например 32 для заголовков)
+    - Пользователь просит "красный текст" → используй foreground_color={"red": 1.0, "green": 0.0, "blue": 0.0, "alpha": 1.0}
+    - Пользователь просит "подчёркнутый текст" → используй underline=True
+    - Пользователь просит "зачёркнутый текст" → используй strikethrough=True
+    
+    ПРАВИЛЬНЫЙ ПОРЯДОК:
+    1. Сначала вставь текст через insert_slide_text
+    2. Затем примени форматирование через format_slide_text с правильными start_index и end_index
+    
     Input:
     - presentation_id: Presentation ID or URL
     - page_id: Page (slide) ID
     - element_id: Text box element ID
-    - start_index: Start character index (0-based)
-    - end_index: End character index (exclusive)
-    - bold: Optional boolean to make text bold
-    - italic: Optional boolean to make text italic
-    - foreground_color: Optional dict with 'red', 'green', 'blue', 'alpha' (0.0-1.0) for text color
-    - font_size: Optional font size in points (e.g., 12, 14, 18, 24)
-    - font_family: Optional font family name (e.g., 'Arial', 'Roboto', 'Times New Roman')
-    - underline: Optional boolean to make text underlined
-    - strikethrough: Optional boolean to make text strikethrough
-    - background_color: Optional dict with 'red', 'green', 'blue', 'alpha' (0.0-1.0) for text background
+    - start_index: Start character index (0-based) - начало текста для форматирования
+    - end_index: End character index (exclusive) - конец текста для форматирования
+    - bold: Optional boolean - сделать текст жирным
+    - italic: Optional boolean - сделать текст курсивом
+    - foreground_color: Optional dict - цвет текста {"red": 0-1, "green": 0-1, "blue": 0-1, "alpha": 0-1}
+    - font_size: Optional float - размер шрифта в пунктах (например, 12, 14, 18, 24, 32)
+    - font_family: Optional string - название шрифта (например, "Arial", "Roboto", "Times New Roman")
+    - underline: Optional boolean - подчеркнуть текст
+    - strikethrough: Optional boolean - зачеркнуть текст
+    - background_color: Optional dict - цвет фона текста {"red": 0-1, "green": 0-1, "blue": 0-1, "alpha": 0-1}
     
-    Example colors:
-    - Red text: {'red': 1.0, 'green': 0.0, 'blue': 0.0, 'alpha': 1.0}
-    - Blue text: {'red': 0.0, 'green': 0.0, 'blue': 1.0, 'alpha': 1.0}
+    Примеры цветов:
+    - Красный: {"red": 1.0, "green": 0.0, "blue": 0.0, "alpha": 1.0}
+    - Синий: {"red": 0.0, "green": 0.0, "blue": 1.0, "alpha": 1.0}
+    - Зелёный: {"red": 0.0, "green": 1.0, "blue": 0.0, "alpha": 1.0}
+    - Чёрный: {"red": 0.0, "green": 0.0, "blue": 0.0, "alpha": 1.0}
+    - Белый: {"red": 1.0, "green": 1.0, "blue": 1.0, "alpha": 1.0}
     """
     args_schema: type = FormatSlideTextInput
     
@@ -686,6 +729,28 @@ class CreatePresentationFromDocTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("slides_create_presentation_from_doc", args, server_name="slides")
             
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "slides_tools.py:CreatePresentationFromDocTool._arun:after_mcp_call",
+                        "message": "MCP call returned, raw result",
+                        "data": {
+                            "result_type": type(result).__name__,
+                            "result_is_list": isinstance(result, list),
+                            "result_length": len(result) if isinstance(result, list) else None,
+                            "result_preview": str(result)[:500] if result else None
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "H4"
+                    }) + "\n")
+            except: pass
+            # #endregion
+            
             # Parse result
             if isinstance(result, list) and len(result) > 0:
                 first_item = result[0]
@@ -698,6 +763,32 @@ class CreatePresentationFromDocTool(BaseTool):
                 import json
                 result = json.loads(result)
             
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "slides_tools.py:CreatePresentationFromDocTool._arun:after_parse",
+                        "message": "After parsing result",
+                        "data": {
+                            "result_type": type(result).__name__,
+                            "result_keys": list(result.keys()) if isinstance(result, dict) else None,
+                            "presentationId": result.get("presentationId") if isinstance(result, dict) else None,
+                            "has_error": "error" in result if isinstance(result, dict) else False
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "H4"
+                    }) + "\n")
+            except: pass
+            # #endregion
+            
+            # Check for error in result first
+            if isinstance(result, dict) and "error" in result:
+                return f"Error creating presentation from document: {result['error']}"
+            
             presentation_id = result.get("presentationId")
             title = result.get("title", "Untitled")
             url = result.get("url", "")
@@ -705,11 +796,35 @@ class CreatePresentationFromDocTool(BaseTool):
             theme_used = result.get("theme", "professional")
             template_used = result.get("templateUsed", False)
             
+            # Additional check - if presentation_id is None, something went wrong
+            if not presentation_id:
+                return f"Error creating presentation from document: No presentation ID returned"
+            
             response = f"Presentation '{title}' created successfully from document (ID: {presentation_id}, {slides_created} slides, theme: {theme_used})"
             if url:
                 response += f" URL: {url}"
             if template_used:
                 response += " [template applied]"
+            
+            # #region agent log
+            try:
+                import json
+                import time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "slides_tools.py:CreatePresentationFromDocTool._arun:returning",
+                        "message": "Returning response to agent",
+                        "data": {
+                            "presentation_id": presentation_id,
+                            "response_preview": response[:200]
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "H4"
+                    }) + "\n")
+            except: pass
+            # #endregion
             
             return response
             
@@ -1316,15 +1431,38 @@ class CreateSlideBulletsTool(BaseTool):
     
     name: str = "create_slide_bullets"
     description: str = """
-    Create bulleted or numbered list from text.
+    Create bulleted or numbered list from text in a slide.
+    
+    ⚠️ КРИТИЧЕСКИ ВАЖНО: Используй этот инструмент, когда пользователь просит:
+    - "нумерованный список" → используй bullet_preset="NUMBERED_DIGIT_ALPHA_ROMAN"
+    - "маркированный список" → используй bullet_preset="BULLET_DISC_CIRCLE_SQUARE"
+    - "список" (без уточнения) → используй bullet_preset="BULLET_DISC_CIRCLE_SQUARE" (по умолчанию)
+    
+    ПРАВИЛЬНЫЙ ПОРЯДОК ДЕЙСТВИЙ:
+    1. Сначала вставь текст в слайд через insert_slide_text (каждая строка списка на новой строке, разделены \n)
+    2. Затем примени форматирование списка через create_slide_bullets с правильными start_index и end_index
     
     Input:
     - presentation_id: Presentation ID or URL
     - page_id: Page (slide) ID
-    - element_id: Text box element ID
-    - start_index: Start character index (0-based)
-    - end_index: End character index (exclusive)
-    - bullet_preset: Bullet preset (BULLET_DISC_CIRCLE_SQUARE, NUMBERED_DIGIT_ALPHA_ROMAN, etc.)
+    - element_id: Text box element ID (где находится текст)
+    - start_index: Start character index (0-based) - начало текста для списка
+    - end_index: End character index (exclusive) - конец текста для списка
+    - bullet_preset: Bullet preset:
+      * "BULLET_DISC_CIRCLE_SQUARE" - маркированный список (точки, круги, квадраты) - по умолчанию
+      * "NUMBERED_DIGIT_ALPHA_ROMAN" - нумерованный список (1, 2, 3 или a, b, c или I, II, III)
+      * "BULLET_ARROW_DIAMOND_DISC" - стрелки и ромбы
+      * "BULLET_CHECKBOX" - чекбоксы
+    
+    Примеры использования:
+    - Пользователь: "сделай нумерованный список" → 
+      create_slide_bullets(..., bullet_preset="NUMBERED_DIGIT_ALPHA_ROMAN")
+    - Пользователь: "сделай маркированный список" → 
+      create_slide_bullets(..., bullet_preset="BULLET_DISC_CIRCLE_SQUARE")
+    - Пользователь: "список" → 
+      create_slide_bullets(..., bullet_preset="BULLET_DISC_CIRCLE_SQUARE")
+    
+    ВАЖНО: Этот инструмент НЕ вставляет текст! Сначала используй insert_slide_text, затем create_slide_bullets.
     """
     args_schema: type = CreateSlideBulletsInput
     

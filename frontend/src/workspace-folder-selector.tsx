@@ -15,3 +15,6 @@ if (rootElement) {
   console.error('[workspace-folder-selector.tsx] Root element not found!')
 }
 
+
+
+

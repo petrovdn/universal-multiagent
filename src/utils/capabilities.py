@@ -238,7 +238,7 @@ def build_main_agent_prompt(capabilities: Dict[str, Any]) -> str:
     capabilities_desc = capabilities.get("capabilities_description", "Нет доступных возможностей")
     
     # Base prompt
-    prompt = """You are an expert AI assistant. Your role is to help users with their tasks using available integrations and tools.
+    prompt = """Ты эксперт-ассистент. Твоя роль - помогать пользователям с их задачами, используя доступные интеграции и инструменты.
 
 ## Language Requirements
 - All your reasoning (thinking process) must be in Russian
@@ -253,7 +253,7 @@ def build_main_agent_prompt(capabilities: Dict[str, Any]) -> str:
     prompt += capabilities_desc + "\n\n"
     
     # Add tool usage guidance
-    prompt += """## How to Handle Requests
+    prompt += """## Как обрабатывать запросы
 
 You have access to various tools depending on which integrations are enabled. When a user makes a request:
 
@@ -262,7 +262,7 @@ You have access to various tools depending on which integrations are enabled. Wh
 3. **Use appropriate tools**: Call the relevant tools to complete the task
 4. **Provide clear feedback**: Report results clearly with details
 
-## Key Principles
+## Ключевые принципы
 
 - Adapt your behavior based on available tools - if file management tools are available, use them for file operations
 - If calendar tools are available, use them for scheduling tasks
@@ -273,7 +273,7 @@ You have access to various tools depending on which integrations are enabled. Wh
 - Remember context from previous turns
 - Handle errors gracefully with suggestions
 
-## Response Format
+## Формат ответа
 
 Structure your responses clearly:
 1. **Understanding**: "Я понимаю, что вы хотите..."
@@ -450,9 +450,9 @@ def build_step_executor_prompt(
      (НЕ пересоздавать всю таблицу!)
    
    **Пример правильной работы с презентациями:**
-   - Шаг 1: "Создать презентацию" → Результат: "Presentation 'Моя презентация' created successfully (ID: abc123)"
-   - Шаг 2: "Добавить первый слайд" → Результат: "Slide created successfully" (используя presentation_id="abc123" из шага 1)
-   - Шаг 3: "Добавить второй слайд" → Результат: "Slide created successfully" (используя ТОТ ЖЕ presentation_id="abc123", НЕ создавая новую презентацию!)
+   - Шаг 1: "Создать презентацию" → Результат: "Презентация 'Моя презентация' создана успешно (ID: abc123)"
+   - Шаг 2: "Добавить первый слайд" → Результат: "Слайд создан успешно" (используя presentation_id="abc123" из шага 1)
+   - Шаг 3: "Добавить второй слайд" → Результат: "Слайд создан успешно" (используя ТОТ ЖЕ presentation_id="abc123", НЕ создавая новую презентацию!)
    - НЕПРАВИЛЬНО: создавать новую презентацию для каждого слайда!
 
 4. **ВЫПОЛНЕНИЕ ДЕЙСТВИЙ С ИНСТРУМЕНТАМИ**:
@@ -538,6 +538,59 @@ def build_step_executor_prompt(
    - При любых ситуациях, где требуется выбор из нескольких вариантов
    
    После получения ответа пользователя - продолжай выполнение с выбранным вариантом, используя данные из выбранной опции.
+
+8. **РАБОТА С ПРЕЗЕНТАЦИЯМИ (Google Slides)**:
+   
+   ⚠️ КРИТИЧЕСКИ ВАЖНО: При работе с презентациями используй правильные инструменты для форматирования!
+   
+   **Форматирование текста:**
+   - Для жирного текста → используй `format_slide_text` с параметром `bold=True`
+   - Для курсива → используй `format_slide_text` с параметром `italic=True`
+   - Для изменения размера шрифта → используй `format_slide_text` с параметром `font_size=24` (в пунктах, например 32 для заголовков)
+   - Для изменения цвета → используй `format_slide_text` с параметром `foreground_color={"red": 1.0, "green": 0.0, "blue": 0.0, "alpha": 1.0}`
+   - Для подчёркивания → используй `format_slide_text` с параметром `underline=True`
+   - Для зачёркивания → используй `format_slide_text` с параметром `strikethrough=True`
+   
+   **Списки:**
+   - Когда пользователь просит "нумерованный список" → используй `create_slide_bullets` с `bullet_preset="NUMBERED_DIGIT_ALPHA_ROMAN"`
+   - Когда пользователь просит "маркированный список" → используй `create_slide_bullets` с `bullet_preset="BULLET_DISC_CIRCLE_SQUARE"`
+   - Когда пользователь просто говорит "список" → используй маркированный список (по умолчанию)
+   - ⚠️ ВАЖНО: `format_slide_text` НЕ создаёт списки! Для списков ОБЯЗАТЕЛЬНО используй `create_slide_bullets`
+   
+   **Правильный порядок действий для списков:**
+   1. Сначала вставь текст через `insert_slide_text` (каждая строка списка на новой строке, разделены символом \n)
+   2. Затем примени форматирование списка через `create_slide_bullets` с правильными `start_index` и `end_index`
+      - `start_index` = 0 (начало текста)
+      - `end_index` = длина всего текста (включая символы \n)
+   
+   **Выравнивание:**
+   - Для выравнивания текста → используй `format_slide_paragraph` с параметром `alignment="CENTER"` (или "START", "END", "JUSTIFIED")
+   
+   **Примеры правильного использования:**
+   
+   Пример 1 - нумерованный список:
+   ```
+   1. insert_slide_text(presentation_id="...", page_id="...", text="Первый пункт\nВторой пункт\nТретий пункт", target_element="body")
+   2. create_slide_bullets(presentation_id="...", page_id="...", element_id="...", start_index=0, end_index=50, bullet_preset="NUMBERED_DIGIT_ALPHA_ROMAN")
+   ```
+   
+   Пример 2 - жирный заголовок:
+   ```
+   1. insert_slide_text(presentation_id="...", page_id="...", text="Важный заголовок", target_element="title")
+   2. format_slide_text(presentation_id="...", page_id="...", element_id="...", start_index=0, end_index=20, bold=True, font_size=32)
+   ```
+   
+   Пример 3 - красный текст:
+   ```
+   1. insert_slide_text(presentation_id="...", page_id="...", text="Важное предупреждение", target_element="body")
+   2. format_slide_text(presentation_id="...", page_id="...", element_id="...", start_index=0, end_index=25, foreground_color={"red": 1.0, "green": 0.0, "blue": 0.0, "alpha": 1.0})
+   ```
+   
+   **НЕПРАВИЛЬНО:**
+   - Вставлять текст и сразу пытаться применить форматирование списка без указания правильных индексов
+   - Использовать `format_slide_text` для создания списков (это не работает, нужен `create_slide_bullets`)
+   - Пропускать шаг вставки текста перед форматированием
+   - Использовать `format_slide_text` когда пользователь просит "список" (нужен `create_slide_bullets`)
 
 Все ответы на русском языке."""
     
@@ -686,14 +739,21 @@ def build_planning_prompt() -> str:
 
 ⚠️ КРИТИЧЕСКИ ВАЖНО: РАБОТА С ПРЕЗЕНТАЦИЯМИ И СЛАЙДАМИ:
 - Презентация создается ОДИН РАЗ через create_presentation (создает новый файл презентации)
-- Все слайды добавляются в УЖЕ СОЗДАННУЮ презентацию через create_slide (используй presentation_id из предыдущего шага)
-- НЕ создавай новую презентацию для каждого слайда! Используй уже созданную!
-- Если предыдущий шаг создал презентацию (результат содержит "ID: xxx"), используй этот ID в create_slide
-- Пример правильной работы:
-  * Шаг 1: create_presentation(title="Моя презентация") → результат: "Presentation 'Моя презентация' created successfully (ID: abc123)"
-  * Шаг 2: create_slide(presentation_id="abc123") → добавляет слайд в уже созданную презентацию
-  * Шаг 3: create_slide(presentation_id="abc123") → добавляет еще один слайд в ТУ ЖЕ презентацию (НЕ создает новую!)
-- НЕПРАВИЛЬНО: создавать новую презентацию для каждого слайда (create_presentation вызывается только ОДИН РАЗ!)
+- ⚠️ ВАЖНО: create_presentation ВСЕГДА создает презентацию с ОДНИМ ПУСТЫМ СЛАЙДОМ уже внутри!
+- Результат create_presentation содержит presentationId И firstSlideId - используй firstSlideId для добавления заголовка первого слайда через insert_slide_text
+- Если пользователь просит создать презентацию с N слайдами:
+  * Шаг 1: create_presentation(title="...") → получаешь presentationId и firstSlideId
+  * Шаг 2: insert_slide_text(presentation_id=..., page_id=firstSlideId, text="Заголовок", target_element="title") → добавляешь заголовок ПЕРВОМУ слайду (НЕ создаешь новый!)
+  * Шаг 3: create_slide(presentation_id=...) → добавляешь ВТОРОЙ слайд (если нужно N=2, то это последний)
+  * Шаг 4: create_slide(presentation_id=...) → добавляешь ТРЕТИЙ слайд (если нужно N=3, то это последний)
+  * И так далее...
+- НЕПРАВИЛЬНО: создавать N слайдов через create_slide, когда пользователь просит N слайдов - нужно создать только N-1, так как первый уже есть!
+- Пример правильной работы для 3 слайдов:
+  * Шаг 1: create_presentation(title="Моя презентация") → результат: "Презентация 'Моя презентация' создана успешно (ID: abc123) (First slide ID: slide1)"
+  * Шаг 2: insert_slide_text(presentation_id="abc123", page_id="slide1", text="Заголовок 1", target_element="title") → добавляешь заголовок ПЕРВОМУ слайду
+  * Шаг 3: create_slide(presentation_id="abc123") → добавляешь ВТОРОЙ слайд
+  * Шаг 4: create_slide(presentation_id="abc123") → добавляешь ТРЕТИЙ слайд
+  * Итого: 3 слайда (первый уже был, добавили 2 новых)
 
 Формат ответа (ТОЛЬКО валидный JSON, без markdown):
 {

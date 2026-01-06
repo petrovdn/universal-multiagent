@@ -58,10 +58,8 @@ class GoogleSlidesMCPServer:
                     "Please complete OAuth flow first."
                 )
             
-            creds = Credentials.from_authorized_user_file(
-                str(self.token_path),
-                SLIDES_SCOPES
-            )
+            # Load credentials without specifying scopes - use scopes from token file
+            creds = Credentials.from_authorized_user_file(str(self.token_path))
             
             # Refresh token if expired
             if creds.expired and creds.refresh_token:
@@ -83,10 +81,8 @@ class GoogleSlidesMCPServer:
                     "Please complete OAuth flow first."
                 )
             
-            creds = Credentials.from_authorized_user_file(
-                str(self.token_path),
-                SLIDES_SCOPES
-            )
+            # Load credentials without specifying scopes - use scopes from token file
+            creds = Credentials.from_authorized_user_file(str(self.token_path))
             
             # Refresh token if expired
             if creds.expired and creds.refresh_token:
@@ -105,10 +101,8 @@ class GoogleSlidesMCPServer:
                     "Please complete OAuth flow first."
                 )
             
-            creds = Credentials.from_authorized_user_file(
-                str(self.token_path),
-                SLIDES_SCOPES
-            )
+            # Load credentials without specifying scopes - use scopes from token file
+            creds = Credentials.from_authorized_user_file(str(self.token_path))
             
             # Refresh token if expired
             if creds.expired and creds.refresh_token:
@@ -227,6 +221,14 @@ class GoogleSlidesMCPServer:
                                 })
                 
                 text = ''.join(text_parts).strip()
+                
+                # Remove markdown-style formatting (Google Slides doesn't support markdown)
+                import re
+                text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)  # **bold** -> bold
+                text = re.sub(r'\*(.+?)\*', r'\1', text)      # *italic* -> italic
+                text = re.sub(r'__(.+?)__', r'\1', text)      # __bold__ -> bold
+                text = re.sub(r'_(.+?)_', r'\1', text)        # _italic_ -> italic
+                
                 if text:
                     # Determine heading level
                     if named_style.startswith('HEADING_'):
@@ -334,27 +336,55 @@ class GoogleSlidesMCPServer:
                 else:
                     # H3+ - Add as bold content to current slide
                     if current_slide is None:
+                        # Use H3 text as slide title
                         current_slide = {
                             'layout': 'TITLE_AND_BODY',
-                            'title': '',
+                            'title': item['text'],
                             'subtitle': '',
                             'content': [],
                             'images': []
                         }
-                    current_slide['content'].append({
-                        'type': 'subheading',
-                        'text': item['text']
-                    })
+                    else:
+                        current_slide['content'].append({
+                            'type': 'subheading',
+                            'text': item['text']
+                        })
                     
             elif item['type'] == 'text':
                 if current_slide is None:
+                    # Create slide with auto-generated title from first text words
+                    text_preview = item['text'][:30].strip()
+                    if len(item['text']) > 30:
+                        text_preview = text_preview.rsplit(' ', 1)[0] + '...'
                     current_slide = {
                         'layout': 'TITLE_AND_BODY',
-                        'title': '',
+                        'title': text_preview if text_preview else 'Содержание',
                         'subtitle': '',
                         'content': [],
                         'images': []
                     }
+                
+                # Check if current slide has too much content - create new slide if needed
+                current_content_length = sum(len(c.get('text', '')) for c in current_slide['content'])
+                text_length = len(item['text'])
+                MAX_CHARS_PER_SLIDE = 400  # Limit chars per slide for readability
+                MAX_ITEMS_PER_SLIDE = 5    # Limit bullet points per slide
+                
+                if (current_content_length + text_length > MAX_CHARS_PER_SLIDE or 
+                    len(current_slide['content']) >= MAX_ITEMS_PER_SLIDE) and current_slide['content']:
+                    # Save current slide and start a new one with continuation title
+                    prev_title = current_slide.get('title', '')
+                    slides.append(current_slide)
+                    # Create continuation title
+                    continuation_title = f"{prev_title} (продолжение)" if prev_title else "Продолжение"
+                    current_slide = {
+                        'layout': 'TITLE_AND_BODY',
+                        'title': continuation_title,
+                        'subtitle': '',
+                        'content': [],
+                        'images': []
+                    }
+                
                 current_slide['content'].append({
                     'type': 'bullet' if item.get('is_bullet') else 'text',
                     'text': item['text']
@@ -364,7 +394,7 @@ class GoogleSlidesMCPServer:
                 if current_slide is None:
                     current_slide = {
                         'layout': 'TITLE_AND_BODY',
-                        'title': '',
+                        'title': 'Изображение',
                         'subtitle': '',
                         'content': [],
                         'images': []
@@ -378,7 +408,7 @@ class GoogleSlidesMCPServer:
                 if current_slide is None:
                     current_slide = {
                         'layout': 'TITLE_AND_BODY',
-                        'title': '',
+                        'title': 'Таблица',
                         'subtitle': '',
                         'content': [],
                         'images': []
@@ -484,7 +514,7 @@ class GoogleSlidesMCPServer:
                 ),
                 Tool(
                     name="slides_insert_text",
-                    description="Insert text into a slide's text box.",
+                    description="Insert text into a slide's title or body placeholder. IMPORTANT: Call twice per slide - once with targetElement='title' for the heading, once with targetElement='body' for content.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -496,9 +526,15 @@ class GoogleSlidesMCPServer:
                                 "type": "string",
                                 "description": "Page (slide) ID"
                             },
+                            "targetElement": {
+                                "type": "string",
+                                "description": "Which element to insert into: 'title' for slide title, 'body' for content (default: body)",
+                                "enum": ["title", "body"],
+                                "default": "body"
+                            },
                             "elementId": {
                                 "type": "string",
-                                "description": "Text box element ID (optional, will use first text box if not provided)"
+                                "description": "Text box element ID (optional, usually auto-detected based on targetElement)"
                             },
                             "text": {
                                 "type": "string",
@@ -1233,28 +1269,44 @@ Choose an appropriate theme based on the document content:
                             fields="webViewLink"
                         ).execute()
                         
+                        # Get first slide ID (new presentations always have one slide)
+                        first_slide_id = None
+                        if presentation.get('slides') and len(presentation.get('slides', [])) > 0:
+                            first_slide_id = presentation.get('slides')[0].get('objectId')
+                        
                         # #region agent log
                         try:
                             with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
                                 f.write(json.dumps({
                                     "location": "google_slides_server.py:slides_create:success",
                                     "message": "slides_create completed successfully",
-                                    "data": {"presentation_id": presentation_id, "url": pres_file.get('webViewLink')},
+                                    "data": {
+                                        "presentation_id": presentation_id,
+                                        "url": pres_file.get('webViewLink'),
+                                        "first_slide_id": first_slide_id,
+                                        "slides_count": len(presentation.get('slides', []))
+                                    },
                                     "timestamp": int(__import__('time').time() * 1000),
                                     "sessionId": "debug-session",
                                     "runId": "run1",
-                                    "hypothesisId": "H7"
+                                    "hypothesisId": "H1"
                                 }) + "\n")
                         except: pass
                         # #endregion
                         
+                        response_data = {
+                            "presentationId": presentation_id,
+                            "title": title,
+                            "url": pres_file.get('webViewLink')
+                        }
+                        
+                        # Include first slide ID if available
+                        if first_slide_id:
+                            response_data["firstSlideId"] = first_slide_id
+                        
                         return [TextContent(
                             type="text",
-                            text=json.dumps({
-                                "presentationId": presentation_id,
-                                "title": title,
-                                "url": pres_file.get('webViewLink')
-                            }, indent=2)
+                            text=json.dumps(response_data, indent=2)
                         )]
                     except Exception as create_error:
                         # #region agent log
@@ -1395,6 +1447,7 @@ Choose an appropriate theme based on the document content:
                     presentation_id = self._extract_file_id(arguments.get("presentationId"))
                     page_id = arguments.get("pageId")
                     element_id = arguments.get("elementId")
+                    target_element = arguments.get("targetElement", "body")  # 'title' or 'body'
                     text = arguments.get("text")
                     insert_index = arguments.get("insertIndex", -1)
                     
@@ -1457,24 +1510,60 @@ Choose an appropriate theme based on the document content:
                                 except: pass
                                 # #endregion
                                 
+                                # Find the BODY placeholder (not TITLE) for inserting content
+                                # Priority: BODY placeholder > second TEXT_BOX > first TEXT_BOX
+                                body_element_id = None
+                                title_element_id = None
+                                textbox_ids = []
+                                
                                 for element in slide.get('pageElements', []):
-                                    if 'shape' in element and element['shape'].get('shapeType') == 'TEXT_BOX':
-                                        element_id = element.get('objectId')
-                                        # #region agent log
-                                        try:
-                                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                                f.write(json.dumps({
-                                                    "location": "google_slides_server.py:slides_insert_text:textbox_found",
-                                                    "message": "Text box found",
-                                                    "data": {"element_id": element_id},
-                                                    "timestamp": int(__import__('time').time() * 1000),
-                                                    "sessionId": "debug-session",
-                                                    "runId": "run1",
-                                                    "hypothesisId": "H6"
-                                                }) + "\n")
-                                        except: pass
-                                        # #endregion
-                                        break
+                                    shape = element.get('shape', {})
+                                    placeholder = shape.get('placeholder', {})
+                                    placeholder_type = placeholder.get('type', '')
+                                    
+                                    # Check for placeholder elements (preferred)
+                                    if placeholder_type == 'BODY':
+                                        body_element_id = element.get('objectId')
+                                    elif placeholder_type == 'TITLE' or placeholder_type == 'CENTERED_TITLE':
+                                        title_element_id = element.get('objectId')
+                                    
+                                    # Also collect TEXT_BOX elements as fallback
+                                    if shape.get('shapeType') == 'TEXT_BOX':
+                                        textbox_ids.append(element.get('objectId'))
+                                
+                                # Choose element based on targetElement parameter
+                                if target_element == "title":
+                                    # Use TITLE placeholder if found
+                                    if title_element_id:
+                                        element_id = title_element_id
+                                    elif textbox_ids:
+                                        element_id = textbox_ids[0]  # First textbox is usually title
+                                elif body_element_id:
+                                    element_id = body_element_id
+                                elif len(textbox_ids) > 1:
+                                    element_id = textbox_ids[1]  # Second textbox is usually body
+                                elif textbox_ids:
+                                    element_id = textbox_ids[0]
+                                
+                                # #region agent log
+                                try:
+                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                        f.write(json.dumps({
+                                            "location": "google_slides_server.py:slides_insert_text:textbox_found",
+                                            "message": "Text box found",
+                                            "data": {
+                                                "element_id": element_id,
+                                                "body_element_id": body_element_id,
+                                                "title_element_id": title_element_id,
+                                                "textbox_ids": textbox_ids
+                                            },
+                                            "timestamp": int(__import__('time').time() * 1000),
+                                            "sessionId": "debug-session",
+                                            "runId": "run1",
+                                            "hypothesisId": "H6"
+                                        }) + "\n")
+                                except: pass
+                                # #endregion
                                 break
                         
                         if not element_id:
@@ -1683,12 +1772,34 @@ Choose an appropriate theme based on the document content:
                         # #endregion
                         raise
                     
+                    # Apply bold formatting for title elements
+                    if target_element == "title" and text:
+                        try:
+                            format_requests = [{
+                                "updateTextStyle": {
+                                    "objectId": element_id,
+                                    "style": {
+                                        "bold": True,
+                                        "fontSize": {"magnitude": 28, "unit": "PT"}
+                                    },
+                                    "textRange": {"type": "ALL"},
+                                    "fields": "bold,fontSize"
+                                }
+                            }]
+                            slides_service.presentations().batchUpdate(
+                                presentationId=presentation_id,
+                                body={"requests": format_requests}
+                            ).execute()
+                        except Exception as format_error:
+                            logger.warning(f"Failed to apply title formatting: {format_error}")
+                    
                     return [TextContent(
                         type="text",
                         text=json.dumps({
                             "presentationId": presentation_id,
                             "pageId": page_id,
                             "elementId": element_id,
+                            "targetElement": target_element,
                             "status": "inserted"
                         }, indent=2)
                     )]
@@ -2576,6 +2687,22 @@ Choose an appropriate theme based on the document content:
                     
                     logger.info(f"Creating presentation from doc: {document_id}, theme: {theme}")
                     
+                    # #region agent log
+                    try:
+                        import time
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({
+                                "location": "google_slides_server.py:slides_create_presentation_from_doc:entry",
+                                "message": "slides_create_presentation_from_doc handler called",
+                                "data": {"document_id": document_id, "theme": theme, "presentation_title": presentation_title},
+                                "timestamp": int(time.time() * 1000),
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "H1"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
+                    
                     # Read document with full structure
                     document = docs_service.documents().get(documentId=document_id).execute()
                     doc_title = document.get('title', 'Untitled')
@@ -2594,6 +2721,26 @@ Choose an appropriate theme based on the document content:
                     # Group into slides
                     slide_definitions = self._group_content_into_slides(structured_content, doc_title)
                     logger.info(f"Grouped into {len(slide_definitions)} slides")
+                    
+                    # #region agent log
+                    try:
+                        import time
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({
+                                "location": "google_slides_server.py:slides_create_presentation_from_doc:after_grouping",
+                                "message": "Structured content extracted and grouped",
+                                "data": {
+                                    "structured_content_count": len(structured_content),
+                                    "slide_definitions_count": len(slide_definitions),
+                                    "first_slide": slide_definitions[0] if slide_definitions else None
+                                },
+                                "timestamp": int(time.time() * 1000),
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "H2"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
                     
                     # Try to copy template if available, otherwise create empty
                     template_id = self._get_template_id(theme)
@@ -2654,9 +2801,30 @@ Choose an appropriate theme based on the document content:
                     
                     layouts = presentation_obj.get('layouts', [])
                     layout_ids = {}
+                    
+                    # Map our layout names to Google Slides layout names
+                    layout_name_mapping = {
+                        'TITLE': ['Title Slide', 'Title slide', 'title slide', 'TITLE'],
+                        'TITLE_AND_BODY': ['Title and Body', 'Title and body', 'title and body', 'TITLE_AND_BODY'],
+                        'SECTION_HEADER': ['Section Header', 'Section header', 'section header', 'SECTION_HEADER'],
+                        'BLANK': ['Blank', 'blank', 'BLANK'],
+                        'ONE_COLUMN_TEXT': ['One column text', 'ONE_COLUMN_TEXT'],
+                        'TITLE_ONLY': ['Title Only', 'Title only', 'TITLE_ONLY'],
+                    }
+                    
                     for layout in layouts:
                         layout_name = layout.get('layoutProperties', {}).get('name', '')
-                        layout_ids[layout_name] = layout.get('objectId')
+                        layout_id = layout.get('objectId')
+                        
+                        # Store by original name
+                        layout_ids[layout_name] = layout_id
+                        
+                        # Also store by our normalized names
+                        for our_name, google_names in layout_name_mapping.items():
+                            if layout_name in google_names:
+                                layout_ids[our_name] = layout_id
+                    
+                    logger.info(f"Available layouts: {list(layout_ids.keys())}")
                     
                     # Get first slide ID (use it for title slide)
                     existing_slides = presentation_obj.get('slides', [])
@@ -2668,22 +2836,16 @@ Choose an appropriate theme based on the document content:
                     
                     for i, slide_def in enumerate(slide_definitions):
                         if i == 0 and first_slide_id:
-                            # Use the existing first slide for title
+                            # Use the existing first slide for title (don't try to change layout - not supported by API)
                             slide_id_map[i] = first_slide_id
-                            # Apply title layout to first slide if needed
-                            if 'TITLE' in layout_ids:
-                                create_requests.append({
-                                    "updateSlideProperties": {
-                                        "objectId": first_slide_id,
-                                        "slideProperties": {
-                                            "layoutObjectId": layout_ids['TITLE']
-                                        },
-                                        "fields": "layoutObjectId"
-                                    }
-                                })
+                            # Note: updateSlideProperties with layoutObjectId is not supported
+                            # We just use the first slide as-is
                         else:
-                            # Create new slide
-                            slide_id = f"slide_{presentation_id}_{i}"
+                            # Create new slide with short ID (max 50 chars required by API)
+                            import random
+                            import string
+                            random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+                            slide_id = f"slide_{i}_{random_suffix}"  # e.g. "slide_1_abc12xyz" (max ~20 chars)
                             slide_id_map[i] = slide_id
                             
                             # Choose layout based on slide type
@@ -2756,6 +2918,29 @@ Choose an appropriate theme based on the document content:
                                     title_element_id = element_id
                         
                         logger.info(f"Slide {i} elements: title={title_element_id}, body={body_element_id}, subtitle={subtitle_element_id}")
+                        
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "location": "google_slides_server.py:slides_create_presentation_from_doc:placeholders",
+                                    "message": "Found placeholders for slide",
+                                    "data": {
+                                        "slide_index": i,
+                                        "slide_id": slide_id,
+                                        "title_element_id": title_element_id,
+                                        "body_element_id": body_element_id,
+                                        "subtitle_element_id": subtitle_element_id,
+                                        "slide_title": slide_def.get('title', '')[:50],
+                                        "elements_count": len(slide_data.get('pageElements', []))
+                                    },
+                                    "timestamp": int(__import__('time').time() * 1000),
+                                    "sessionId": "debug-session",
+                                    "runId": "run1",
+                                    "hypothesisId": "H10"
+                                }) + "\n")
+                        except: pass
+                        # #endregion
                         
                         # Insert title
                         if slide_def.get('title') and title_element_id:
@@ -2857,16 +3042,34 @@ Choose an appropriate theme based on the document content:
                         fields="webViewLink"
                     ).execute()
                     
+                    result_data = {
+                        "presentationId": presentation_id,
+                        "title": presentation_title,
+                        "url": pres_file.get('webViewLink'),
+                        "slidesCreated": len(slide_definitions),
+                        "theme": theme,
+                        "templateUsed": template_id is not None
+                    }
+                    
+                    # #region agent log
+                    try:
+                        import time
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({
+                                "location": "google_slides_server.py:slides_create_presentation_from_doc:success",
+                                "message": "Presentation created successfully, returning result",
+                                "data": result_data,
+                                "timestamp": int(time.time() * 1000),
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "H3"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
+                    
                     return [TextContent(
                         type="text",
-                        text=json.dumps({
-                            "presentationId": presentation_id,
-                            "title": presentation_title,
-                            "url": pres_file.get('webViewLink'),
-                            "slidesCreated": len(slide_definitions),
-                            "theme": theme,
-                            "templateUsed": template_id is not None
-                        }, indent=2)
+                        text=json.dumps(result_data, indent=2)
                     )]
                 
                 else:

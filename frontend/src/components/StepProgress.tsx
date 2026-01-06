@@ -32,8 +32,10 @@ function parseStepResponse(text: string): { actionPreparation: string, result: s
   
   // Fallback: If no marker found, try to extract intermediate messages from the text
   // Look for patterns like "Открываю...", "Читаю...", "Анализирую..." etc.
+  // Также распознаём английские заголовки действий
   const intermediatePatterns = [
     /^(Открываю|Ищу|Читаю|Анализирую|Создаю|Добавляю|Применяю|Перемещаю|Формулирую|Готовлю|Выполняю|Проверяю|Нашел|Нашла|Прочитал|Прочитала|Создал|Создала|Добавил|Добавила|Применил|Применила)[^.!?]*[.!?]?/im,
+    /^(Create|Get|Insert|Update|Read|Write|Search|Open|Find|Append)\s+[A-Z][^.!?]*[.!?]?/im, // English action headers
     /^[○•\-\*]\s*(.+)$/m, // List items
   ]
   
@@ -95,18 +97,20 @@ const TOOL_NAMES_RU: Record<string, string> = {
   'write_range': 'Запись диапазона',
   'sheets_write_range': 'Запись диапазона',
   'sheets_append_rows': 'Добавление строк',
-  'Create Presentation': 'Создание презентации',
-  'slides_create': 'Создание презентации',
-  'create_presentation': 'Создание презентации',
-  'Get Presentation': 'Получение презентации',
-  'get_presentation': 'Получение презентации',
-  'slides_get': 'Получение презентации',
-  'Create Slide': 'Добавление слайда',
-  'slides_create_slide': 'Добавление слайда',
-  'create_slide': 'Добавление слайда',
-  'Insert Slide Text': 'Вставка текста в слайд',
-  'insert_slide_text': 'Вставка текста в слайд',
-  'slides_insert_text': 'Вставка текста в слайд',
+  'Create Presentation': 'Создаю презентацию',
+  'slides_create': 'Создаю презентацию',
+  'create_presentation': 'Создаю презентацию',
+  'Create Presentation From Doc': 'Создаю презентацию из документа',
+  'create_presentation_from_doc': 'Создаю презентацию из документа',
+  'Get Presentation': 'Получаю презентацию',
+  'get_presentation': 'Получаю презентацию',
+  'slides_get': 'Получаю презентацию',
+  'Create Slide': 'Создаю слайд',
+  'slides_create_slide': 'Создаю слайд',
+  'create_slide': 'Создаю слайд',
+  'Insert Slide Text': 'Вставляю текст в слайд',
+  'insert_slide_text': 'Вставляю текст в слайд',
+  'slides_insert_text': 'Вставляю текст в слайд',
   'Update Slide': 'Обновление слайда',
   'update_slide': 'Обновление слайда',
   'slides_update': 'Обновление слайда',
@@ -145,10 +149,98 @@ function extractActionKey(text: string): string {
   return normalized
 }
 
+// Проверка, является ли текст английским (не переведённым)
+function isEnglishText(text: string): boolean {
+  const trimmed = text.trim()
+  
+  // Проверяем английские ключевые слова действий в начале строки (с заглавной буквы)
+  const startsWithEnglishAction = /^(Get|Create|Insert|Update|Read|Write|Search|Open|Find|Append)\s+[A-Z]/
+  if (startsWithEnglishAction.test(trimmed)) {
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:isEnglishText:starts-with-action',message:'Detected English text (starts with action)',data:{text:trimmed.substring(0,80)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+    return true
+  }
+  
+  // Проверяем паттерны типа "Create Presentation From Doc", "Create Presentation '...'"
+  const englishPatterns = [
+    /^Create\s+Presentation/i,
+    /^Create\s+Slide/i,
+    /^Get\s+Presentation/i,
+    /^Insert\s+Slide/i,
+    /^Update\s+Slide/i,
+    /^Read\s+Document/i,
+    /^Create\s+Document/i,
+    /^Update\s+Document/i,
+    /^Read\s+Range/i,
+    /^Write\s+Range/i,
+    /^Search\s+Workspace/i,
+    /^Open\s+File/i,
+    /^Find\s+File/i,
+  ]
+  
+  for (const pattern of englishPatterns) {
+    if (pattern.test(trimmed)) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:isEnglishText:pattern-match',message:'Detected English text (pattern match)',data:{text:trimmed.substring(0,80),pattern:pattern.toString()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      return true
+    }
+  }
+  
+  // Проверяем, содержит ли текст английские фразы действий (после нормализации)
+  const normalized = normalizeActionText(text)
+  const englishActionPhrases = [
+    'create presentation', 'create slide', 'get presentation', 'insert slide', 'update slide',
+    'read document', 'create document', 'update document', 'read range', 'write range',
+    'search workspace', 'open file', 'find file', 'create presentation from'
+  ]
+  
+  for (const phrase of englishActionPhrases) {
+    if (normalized.includes(phrase)) {
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:isEnglishText:phrase-match',message:'Detected English text (phrase match)',data:{text:trimmed.substring(0,80),phrase,normalized},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      return true
+    }
+  }
+  
+  return false
+}
+
 // Функция для замены английских названий инструментов на русские
 function translateToolNames(text: string): string {
   let translated = text
-  // Сначала переводим полные совпадения
+  const originalText = text
+  
+  // Сначала переводим сложные паттерны типа "Create Presentation '...'..." или "Create Slide... Insert Slide Text..."
+  // Паттерн для "Create Presentation 'название'..." -> "Создаю презентацию 'название'..."
+  translated = translated.replace(/Create\s+Presentation\s+From\s+Doc/gi, 'Создаю презентацию из документа')
+  translated = translated.replace(/Create\s+Presentation\s+['"]([^'"]+)['"]\s*\.{0,3}/gi, (match, name) => {
+    const result = `Создаю презентацию '${name}'`
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:translateToolNames:presentation-with-name',message:'Translated Create Presentation with name',data:{original:match,result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    return result
+  })
+  translated = translated.replace(/Create\s+Presentation/gi, 'Создаю презентацию')
+  translated = translated.replace(/Get\s+Presentation/gi, 'Получаю презентацию')
+  // "Create Slide 'название'..." -> "Создаю слайд 'название'"
+  translated = translated.replace(/Create\s+Slide\s+['"]([^'"]+)['"]\s*\.{0,3}/gi, (match, name) => {
+    const result = `Создаю слайд "${name}"`
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:translateToolNames:slide-with-name',message:'Translated Create Slide with name',data:{original:match,result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    return result
+  })
+  translated = translated.replace(/Create\s+Slide/gi, 'Создаю слайд')
+  translated = translated.replace(/Insert\s+Slide\s+Text/gi, 'Вставляю текст в слайд')
+  translated = translated.replace(/Update\s+Slide/gi, 'Обновляю слайд')
+  translated = translated.replace(/Read\s+Document/gi, 'Читаю документ')
+  translated = translated.replace(/Create\s+Document/gi, 'Создаю документ')
+  translated = translated.replace(/Update\s+Document/gi, 'Обновляю документ')
+  
+  // Затем переводим полные совпадения из словаря
   for (const [en, ru] of Object.entries(TOOL_NAMES_RU)) {
     // Заменяем как "Search Workspace Files", так и "search_workspace_files"
     const regex = new RegExp(en.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
@@ -166,11 +258,195 @@ function translateToolNames(text: string): string {
     })
   }
   
+  // #region agent log
+  if (originalText !== translated) {
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:translateToolNames:result',message:'Translation result',data:{original:originalText.substring(0,100),translated:translated.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+  }
+  // #endregion
+  
   return translated
 }
 
+// Извлечение деталей действия (название слайда, текст и т.д.)
+function extractActionDetails(actionText: string, fullText?: string): { title: string, details?: string, hasText?: boolean, textContent?: string } {
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:extractActionDetails:entry',message:'Extracting action details',data:{actionText:actionText.substring(0,100),hasFullText:!!fullText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+  // #endregion
+  
+  // Паттерны для извлечения деталей
+  // "Создаю слайд 'Введение'" -> title: "Создаю слайд", details: "Введение"
+  // "Создаю слайд "Завязка истории"" -> title: "Создаю слайд", details: "Завязка истории"
+  // Также поддерживаем варианты без кавычек, если название идет после действия
+  const slideTitlePatterns = [
+    /(?:Создаю|Добавляю)\s+слайд\s+["']([^"']+)["']/i,
+    /(?:Создаю|Добавляю)\s+слайд\s+["']([^"']+)["']\s*\.{0,3}/i,
+  ]
+  
+  for (const pattern of slideTitlePatterns) {
+    const match = actionText.match(pattern)
+    if (match && match[1]) {
+      const slideName = match[1]
+      // Убираем название слайда из текста действия
+      const title = actionText.replace(pattern, (m) => {
+        return m.replace(`"${slideName}"`, '').replace(`'${slideName}'`, '').replace(/\.{2,}/g, '').trim()
+      }).trim()
+      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:extractActionDetails:slide-name-found',message:'Found slide name in action text',data:{actionText:actionText.substring(0,80),slideName,title},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      
+      return {
+        title: title || 'Создаю слайд',
+        details: slideName
+      }
+    }
+  }
+  
+  // Если в actionText есть "Создаю слайд" без названия, но в fullText может быть название
+  // Ищем паттерны типа "Создаю слайд" и пытаемся найти название во всем response
+  if (/^(?:Создаю|Добавляю)\s+слайд/i.test(actionText)) {
+    // Сначала ищем в самом actionText (может быть "Создаю слайд 'название'")
+    const inlineMatch = actionText.match(/(?:Создаю|Добавляю)\s+слайд\s+["']([^"']{3,100})["']/i)
+    if (inlineMatch && inlineMatch[1]) {
+      const slideName = inlineMatch[1]
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:extractActionDetails:slide-name-inline',message:'Found slide name inline in action text',data:{actionText:actionText.substring(0,80),slideName},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      return {
+        title: actionText.replace(/["']([^"']+)["']/, '').replace(/\.{2,}/g, '').trim(),
+        details: slideName
+      }
+    }
+    
+    // Если fullText есть, ищем в нем
+    if (fullText) {
+      const lines = fullText.split('\n')
+      // Сначала ищем в секции результата (после маркера "**Результат шага:**")
+      const resultMarker = /(\*\*Результат\s+шага:\*\*|\*\*Результат:\*\*)/i
+      const markerMatch = fullText.match(resultMarker)
+      const searchStartIndex = markerMatch && markerMatch.index !== undefined ? markerMatch.index : 0
+      
+      // Ищем название слайда в кавычках во всем response, начиная с секции результата
+      // Паттерны для поиска: "Завязка истории", 'Завязка истории', "Основной сюжет и приключения"
+      const slideNamePatterns = [
+        /["']([^"']{3,50})["']/g, // Название в кавычках (от 3 до 50 символов)
+      ]
+      
+      for (const pattern of slideNamePatterns) {
+        let match
+        // Ищем все совпадения в response, начиная с секции результата
+        while ((match = pattern.exec(fullText.substring(searchStartIndex))) !== null) {
+          const slideName = match[1]
+          // Проверяем, что это не часть другого текста (не слишком длинное, не содержит специальных символов)
+          if (slideName.length >= 3 && slideName.length <= 100 && 
+              !slideName.match(/^(Create|Insert|Update|Get|Read|Write|Search|Open|Find|Append)/i) &&
+              !slideName.match(/^(Создаю|Добавляю|Вставляю|Готово|Выполнено)/i) &&
+              !slideName.match(/\.{2,}$/)) {
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:extractActionDetails:slide-name-found-in-result',message:'Found slide name in result section',data:{actionText:actionText.substring(0,80),slideName,searchStartIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
+            return {
+              title: actionText.replace(/\.{2,}/g, '').trim(),
+              details: slideName
+            }
+          }
+        }
+      }
+      
+      // Если не нашли в секции результата, ищем в следующих строках после действия
+      const actionIndex = lines.findIndex(l => l.includes(actionText) || actionText.includes(l.trim()))
+      if (actionIndex >= 0) {
+        // Ищем название слайда в следующих строках
+        for (let i = actionIndex + 1; i < Math.min(actionIndex + 10, lines.length); i++) {
+          const line = lines[i].trim()
+          // Ищем паттерн с названием в кавычках
+          const nameMatch = line.match(/["']([^"']{3,100})["']/)
+          if (nameMatch && nameMatch[1].length >= 3 && nameMatch[1].length < 100 &&
+              !nameMatch[1].match(/^(Create|Insert|Update|Get|Read|Write|Search|Open|Find|Append)/i) &&
+              !nameMatch[1].match(/^(Создаю|Добавляю|Вставляю|Готово|Выполнено)/i)) {
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:extractActionDetails:slide-name-found-after-action',message:'Found slide name after action',data:{actionText:actionText.substring(0,80),slideName:nameMatch[1]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
+            return {
+              title: actionText.replace(/\.{2,}/g, '').trim(),
+              details: nameMatch[1]
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  // "Вставляю текст в слайд..." или "Вставка текста в слайд..." -> может содержать текст
+  const textActionPattern = /(?:Вставляю|Добавляю)\s+(?:текст|текста)\s+(?:в\s+слайд|в\s+слайды)/i
+  if (textActionPattern.test(actionText)) {
+    // Если есть полный текст, пытаемся извлечь текст из него
+    let textContent: string | undefined
+    if (fullText) {
+      // Ищем текст после маркера результата
+      const resultMarker = /(\*\*Результат\s+шага:\*\*|\*\*Результат:\*\*)/i
+      const markerMatch = fullText.match(resultMarker)
+      if (markerMatch && markerMatch.index !== undefined) {
+        const resultText = fullText.substring(markerMatch.index + markerMatch[0].length).trim()
+        // Убираем маркеры действий и оставляем только текст
+        const cleanedText = resultText
+          .split('\n')
+          .filter(line => {
+            const trimmed = line.trim()
+            // Пропускаем пустые строки, маркеры действий и короткие строки
+            return trimmed.length > 10 && 
+                   !trimmed.match(/^(✓|○|•|-|\d+\.)/) && 
+                   !trimmed.match(/^(Создаю|Добавляю|Вставляю|Готово|Выполнено|Create|Add|Insert)/i) &&
+                   !trimmed.match(/\.{2,}$/) &&
+                   !trimmed.match(/^\*\*/)
+          })
+          .join('\n')
+          .trim()
+        
+        if (cleanedText.length > 20) {
+          textContent = cleanedText
+          // Не ограничиваем длину слишком сильно - пусть скроллится
+          if (textContent.length > 5000) {
+            textContent = textContent.substring(0, 5000) + '...'
+          }
+        }
+      } else {
+        // Берем последние строки как текст (если они достаточно длинные)
+        const lines = fullText.split('\n').filter(l => l.trim())
+        // Ищем блок текста в конце (обычно это содержимое, которое вставляется)
+        let foundText = ''
+        for (let i = lines.length - 1; i >= 0 && i >= lines.length - 15; i--) {
+          const line = lines[i].trim()
+          // Пропускаем маркеры, короткие строки и действия
+          if (line.length > 20 && 
+              !line.match(/^(✓|○|•|-|\d+\.)/) && 
+              !line.match(/^(Создаю|Добавляю|Вставляю|Готово|Выполнено|Create|Add|Insert)/i) &&
+              !line.match(/\.{2,}$/) &&
+              !line.match(/^\*\*/)) {
+            foundText = line + (foundText ? '\n' + foundText : '')
+          }
+        }
+        if (foundText.length > 30) {
+          textContent = foundText
+          if (textContent.length > 5000) {
+            textContent = textContent.substring(0, 5000) + '...'
+          }
+        }
+      }
+    }
+    
+    return {
+      title: actionText.replace(/\.{2,}/g, '').trim(),
+      hasText: true,
+      textContent
+    }
+  }
+  
+  return { title: actionText.replace(/\.{2,}/g, '').trim() }
+}
+
 // Parse action preparation text into individual log items
-function parseActionsFromText(text: string, isStreaming: boolean): Array<{ icon: string, text: string, status: 'done' | 'pending' }> {
+function parseActionsFromText(text: string, isStreaming: boolean, fullResponse?: string): Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean }> {
   if (!text || !text.trim()) {
     return []
   }
@@ -217,29 +493,38 @@ function parseActionsFromText(text: string, isStreaming: boolean): Array<{ icon:
     return []
   }
   
-  // Переводим все строки
-  const translatedLines = lines.map(line => translateToolNames(line))
+  // Переводим все строки и сохраняем соответствие оригинал -> перевод
+  const translatedLines = lines.map(line => {
+    const translated = translateToolNames(line)
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:parseActionsFromText:translate',message:'Translating line',data:{original:line.substring(0,100),translated:translated.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
+    return {
+      original: line,
+      translated: translated
+    }
+  })
   
   // Улучшенная дедупликация: используем ключи действий для сравнения
   const seenActionKeys = new Set<string>()
-  const uniqueLines: string[] = []
+  const uniqueLines: Array<{ original: string, translated: string }> = []
   
-  for (const line of translatedLines) {
+  for (const { original, translated } of translatedLines) {
     // Убираем маркеры списков
-    const cleanLine = line.replace(/^[\s]*[•\-\*\d+\.\)]\s+/, '').trim()
-    if (!cleanLine) continue
+    const cleanTranslated = translated.replace(/^[\s]*[•\-\*\d+\.\)]\s+/, '').trim()
+    if (!cleanTranslated) continue
     
-    // Извлекаем ключ действия для сравнения
-    const actionKey = extractActionKey(cleanLine)
+    // Извлекаем ключ действия для сравнения (из переведённой версии)
+    const actionKey = extractActionKey(cleanTranslated)
     
     // Также нормализуем для дополнительной проверки
-    const normalized = normalizeActionText(cleanLine)
+    const normalized = normalizeActionText(cleanTranslated)
     
     // Проверяем по ключу действия (более строгое сравнение)
     if (!seenActionKeys.has(actionKey) && !seenActionKeys.has(normalized)) {
       seenActionKeys.add(actionKey)
       seenActionKeys.add(normalized)
-      uniqueLines.push(cleanLine)
+      uniqueLines.push({ original, translated: cleanTranslated })
     }
   }
   
@@ -248,34 +533,69 @@ function parseActionsFromText(text: string, isStreaming: boolean): Array<{ icon:
     return []
   }
   
+  // Фильтруем: убираем строки на английском (не переведённые)
+  // Проверяем и оригинал, и перевод - если перевод всё ещё содержит английские паттерны, значит он не переведён
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:parseActionsFromText:before-filter',message:'Before filtering English lines',data:{uniqueLinesCount:uniqueLines.length,uniqueLines:uniqueLines.map(l=>({original:l.original.substring(0,50),translated:l.translated.substring(0,50)}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+  // #endregion
+  const translatedOnlyLines = uniqueLines
+    .filter(({ original, translated }) => {
+      // Если оригинал английский И перевод тоже английский (не изменился), фильтруем
+      const isOriginalEnglish = isEnglishText(original)
+      const isTranslatedEnglish = isEnglishText(translated)
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:parseActionsFromText:filter-check',message:'Checking if line is English',data:{original:original.substring(0,80),translated:translated.substring(0,80),isOriginalEnglish,isTranslatedEnglish,willFilter:isOriginalEnglish&&isTranslatedEnglish},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+      // #endregion
+      // Если оба английские, значит перевод не сработал - фильтруем
+      if (isOriginalEnglish && isTranslatedEnglish) {
+        return false
+      }
+      
+      // Если оригинал английский, но перевод русский - оставляем (перевод сработал)
+      // Если оригинал русский - оставляем
+      return true
+    })
+    .map(({ translated }) => translated)
+  // #region agent log
+  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:parseActionsFromText:after-filter',message:'After filtering English lines',data:{translatedOnlyLinesCount:translatedOnlyLines.length,translatedOnlyLines:translatedOnlyLines.map(l=>l.substring(0,50))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+  // #endregion
+  if (translatedOnlyLines.length === 0) {
+    return []
+  }
+  
   // Check if it's a list format (bullet points, numbered, or dashes)
   const listPattern = /^[\s]*[•\-\*\d+\.\)]\s+(.+)$/
-  const isListFormat = uniqueLines.some(line => listPattern.test(line))
+  const isListFormat = translatedOnlyLines.some(line => listPattern.test(line))
   
   if (isListFormat) {
     // Parse as list items
-    return uniqueLines.map((line, index) => {
+    return translatedOnlyLines.map((line, index) => {
       const match = line.match(listPattern)
       const actionText = match ? match[1] : line
       
       // Check if line indicates completion (contains checkmark or "готово", "выполнено", "готово")
       const isDone = /✓|готово|выполнено|завершено|done|готово:/i.test(actionText)
       
+      // Извлекаем детали действия
+      const details = extractActionDetails(actionText, fullResponse)
+      
       return {
         icon: isDone ? '✓' : '○',
-        text: actionText,
-        status: isDone ? 'done' as const : (index === uniqueLines.length - 1 && isStreaming ? 'pending' as const : 'done' as const)
+        text: details.title,
+        status: isDone ? 'done' as const : (index === translatedOnlyLines.length - 1 && isStreaming ? 'pending' as const : 'done' as const),
+        details: details.textContent || details.details, // textContent для текста, details для названия слайда
+        hasText: details.hasText
       }
     })
   }
   
   // Если не список, обрабатываем каждую строку отдельно
   // Для каждой строки проверяем, является ли она комбинированной
-  const result: Array<{ icon: string, text: string, status: 'done' | 'pending' }> = []
+  const result: Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean }> = []
   
-  for (let i = 0; i < uniqueLines.length; i++) {
-    const line = uniqueLines[i]
-    const isLast = i === uniqueLines.length - 1
+  for (let i = 0; i < translatedOnlyLines.length; i++) {
+    const line = translatedOnlyLines[i]
+    const isLast = i === translatedOnlyLines.length - 1
     
     // Проверяем, заканчивается ли строка на многоточие (в процессе)
     const hasDots = line.endsWith('...')
@@ -284,10 +604,18 @@ function parseActionsFromText(text: string, isStreaming: boolean): Array<{ icon:
     // Проверяем завершённость
     const isDone = /✓|готово|выполнено|завершено|done|готово:/i.test(trimmed) || (!hasDots && !isStreaming)
     
+    // Извлекаем детали действия
+    const actionDetails = extractActionDetails(trimmed, fullResponse)
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:parseActionsFromText:extract-details',message:'Extracting action details',data:{actionText:trimmed.substring(0,80),title:actionDetails.title.substring(0,80),details:actionDetails.details?.substring(0,80),hasText:actionDetails.hasText,textContentLength:actionDetails.textContent?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+    
     result.push({
       icon: isDone ? '✓' : '○',
-      text: trimmed,
-      status: (isDone || (!isLast && !hasDots)) ? 'done' as const : (isStreaming ? 'pending' as const : 'done' as const)
+      text: actionDetails.title,
+      status: (isDone || (!isLast && !hasDots)) ? 'done' as const : (isStreaming ? 'pending' as const : 'done' as const),
+      details: actionDetails.textContent || actionDetails.details, // textContent для текста, details для названия слайда
+      hasText: actionDetails.hasText
     })
   }
   
@@ -301,7 +629,7 @@ export function StepProgress({ workflowId }: StepProgressProps) {
   const addTab = useWorkspaceStore((state) => state.addTab)
   
   // Храним предыдущее состояние действий для каждого шага
-  const previousActionsRef = React.useRef<Record<number, Array<{ icon: string, text: string, status: 'done' | 'pending' }>>>({})
+  const previousActionsRef = React.useRef<Record<number, Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean }>>>({})
 
   // Only show component when there's a plan (workflow exists)
   if (!workflowPlan || !workflowPlan.steps || workflowPlan.steps.length === 0) {
@@ -321,29 +649,36 @@ export function StepProgress({ workflowId }: StepProgressProps) {
   }
   
   // Функция для обновления действий с учётом предыдущего состояния
-  const getUpdatedActions = React.useCallback((stepNumber: number, newActions: Array<{ icon: string, text: string, status: 'done' | 'pending' }>): Array<{ icon: string, text: string, status: 'done' | 'pending' }> => {
+  const getUpdatedActions = React.useCallback((stepNumber: number, newActions: Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean }>): Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean }> => {
     const previousActions = previousActionsRef.current[stepNumber] || []
-    
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:entry',message:'getUpdatedActions called',data:{stepNumber,previousActionsCount:previousActions.length,newActionsCount:newActions.length,previousActions:previousActions.map(a=>({text:a.text.substring(0,40),status:a.status})),newActions:newActions.map(a=>({text:a.text.substring(0,40),status:a.status}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     if (previousActions.length === 0) {
       // Первый раз - просто сохраняем
       previousActionsRef.current[stepNumber] = [...newActions]
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:first-time',message:'First time, returning newActions',data:{newActionsCount:newActions.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       return newActions
     }
     
     // Создаём мапу предыдущих действий по ключу (нормализованный текст)
-    const previousMap = new Map<string, { icon: string, text: string, status: 'done' | 'pending', index: number }>()
+    const previousMap = new Map<string, { icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean, textContent?: string, index: number }>()
     previousActions.forEach((action, index) => {
       const key = extractActionKey(action.text)
       previousMap.set(key, { ...action, index })
     })
     
-    const result: Array<{ icon: string, text: string, status: 'done' | 'pending' }> = []
+    const result: Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean, textContent?: string }> = []
     const processedKeys = new Set<string>()
     
     // Обрабатываем новые действия
     for (const newAction of newActions) {
       const key = extractActionKey(newAction.text)
-      
+      // #region agent log
+      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:processing',message:'Processing new action',data:{key,newActionText:newAction.text.substring(0,40),newActionStatus:newAction.status,hasPrevious:previousMap.has(key)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       if (processedKeys.has(key)) {
         continue // Пропускаем дубликаты
       }
@@ -356,22 +691,34 @@ export function StepProgress({ workflowId }: StepProgressProps) {
         // Обновляем существующее действие
         // Если статус изменился с pending на done, обновляем
         if (previousAction.status === 'pending' && newAction.status === 'done') {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:update-pending-to-done',message:'Updating pending to done',data:{key,text:newAction.text.substring(0,40)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
           result.push(newAction)
         } else if (previousAction.status === 'pending' && newAction.status === 'pending') {
           // Обновляем текст, но сохраняем pending
           result.push({ ...newAction, text: newAction.text })
         } else {
           // Сохраняем предыдущее состояние, если оно done
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:keep-previous',message:'Keeping previous done action',data:{key,text:previousAction.text.substring(0,40),status:previousAction.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
           result.push(previousAction)
         }
       } else {
         // Новое действие - добавляем
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:add-new',message:'Adding new action',data:{key,text:newAction.text.substring(0,40),status:newAction.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         result.push(newAction)
       }
     }
     
     // Сохраняем обновлённое состояние
     previousActionsRef.current[stepNumber] = [...result]
+    // #region agent log
+    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:exit',message:'getUpdatedActions returning result',data:{resultCount:result.length,result:result.map(a=>({text:a.text.substring(0,40),status:a.status,icon:a.icon}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     return result
   }, [])
 
@@ -396,15 +743,24 @@ export function StepProgress({ workflowId }: StepProgressProps) {
         
         // Parse response into action preparation and result
         const { actionPreparation, result } = parseStepResponse(response)
-
-        // Parse actions for log
-        const rawActions = parseActionsFromText(actionPreparation, isStepStreaming)
-        
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:render:before-parse',message:'Before parsing actions',data:{stepNumber,actionPreparation:actionPreparation.substring(0,200),result:result.substring(0,300),fullResponse:response.substring(0,500),isStepStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        // Parse actions for log (передаём полный response для извлечения текста и названий слайдов)
+        // Если response пустой, используем actionPreparation + result как fallback
+        const fullTextForExtraction = response || (actionPreparation + '\n' + result)
+        const rawActions = parseActionsFromText(actionPreparation, isStepStreaming, fullTextForExtraction)
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:render:after-parse',message:'After parsing actions',data:{stepNumber,rawActionsCount:rawActions.length,rawActions:rawActions.map(a=>({text:a.text.substring(0,50),status:a.status,icon:a.icon}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         // Обновляем действия с учётом предыдущего состояния (обновление вместо добавления)
         const actions = getUpdatedActions(stepNumber, rawActions)
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:render:after-update',message:'After updating actions',data:{stepNumber,actionsCount:actions.length,actions:actions.map(a=>({text:a.text.substring(0,50),status:a.status,icon:a.icon}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
 
         return (
-          <div key={stepNumber} style={{ marginBottom: '12px' }}>
+          <div key={stepNumber} style={{ marginBottom: '6px' }}>
             {/* Блок ризонинга шага */}
             {thinking && thinking.trim() && (
               <CollapsibleBlock
@@ -428,12 +784,33 @@ export function StepProgress({ workflowId }: StepProgressProps) {
                 paddingLeft: '14px',
                 paddingRight: '14px'
               }}>
-                {actions.map((action, actionIndex) => (
-                  <div key={actionIndex} className="execution-log-item">
-                    <span className={`log-icon ${action.status}`}>{action.icon}</span>
-                    <span className="log-text">{action.text}</span>
-                  </div>
-                ))}
+                {actions.map((action, actionIndex) => {
+                  // Если hasText=true, то details содержит текст для вставки
+                  // Если hasText=false, то details содержит название слайда
+                  const isSlideTitle = !action.hasText && action.details
+                  const isTextContent = action.hasText && action.details
+                  
+                  return (
+                    <div key={actionIndex} className="execution-log-item">
+                      <span className={`log-icon ${action.status}`}>{action.icon}</span>
+                      <div className="log-text-container">
+                        <span className="log-text-title">
+                          {action.text}
+                          {isSlideTitle && (
+                            <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                              {' '}"{action.details}"
+                            </span>
+                          )}
+                        </span>
+                        {isTextContent && (
+                          <div className="log-text-details">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{action.details}</ReactMarkdown>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
                 {isStepStreaming && !result && actions.length === 0 && (
                   <div className="execution-log-item">
                     <span className="log-icon pending">○</span>
