@@ -112,12 +112,6 @@ export function TabComponent({ tab, isActive, onClick, onClose, isLast = false }
       }}
       onClick={onClick}
       onMouseEnter={(e) => {
-        if (!isActive && tab.closeable) {
-          const closeBtn = e.currentTarget.querySelector('button[aria-label="Close tab"]') as HTMLElement
-          if (closeBtn) closeBtn.style.opacity = '1'
-        }
-      }}
-      onMouseEnter={(e) => {
         if (!isActive && tab.closeable && !isLoading) {
           const closeBtn = e.currentTarget.querySelector('button[aria-label="Close tab"]') as HTMLElement
           if (closeBtn) closeBtn.style.opacity = '1'

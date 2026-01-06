@@ -637,7 +637,7 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
               <button
                 onClick={(e) => {
                   // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:onec_toggle_button:click',message:'1C toggle button clicked',data:{isLoading,onecAuthenticated:integrations.onec.authenticated,targetTagName:e.target?.tagName,targetClassName:(e.target as HTMLElement)?.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:onec_toggle_button:click',message:'1C toggle button clicked',data:{isLoading,onecAuthenticated:integrations.onec.authenticated,targetTagName:(e.target as HTMLElement)?.tagName,targetClassName:(e.target as HTMLElement)?.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
                   // #endregion
                   e.preventDefault()
                   e.stopPropagation()
@@ -700,7 +700,7 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
               <button
                 onClick={(e) => {
                   // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:projectlad_toggle_button:click',message:'ProjectLad toggle button clicked',data:{isLoading,projectladAuthenticated:integrations.projectlad.authenticated,targetTagName:e.target?.tagName,targetClassName:(e.target as HTMLElement)?.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:projectlad_toggle_button:click',message:'ProjectLad toggle button clicked',data:{isLoading,projectladAuthenticated:integrations.projectlad.authenticated,targetTagName:(e.target as HTMLElement)?.tagName,targetClassName:(e.target as HTMLElement)?.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
                   // #endregion
                   e.preventDefault()
                   e.stopPropagation()
