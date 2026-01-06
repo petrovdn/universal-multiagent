@@ -473,7 +473,16 @@ export function ChatInterface() {
   }
   
   const handleSend = async () => {
-    if ((!input.trim() && attachedFiles.length === 0) || isSending) return
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend:entry',message:'handleSend called',data:{inputLength:input.length,inputTrimmed:input.trim().length,hasFiles:attachedFiles.length>0,isSending},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+    
+    if ((!input.trim() && attachedFiles.length === 0) || isSending) {
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend:early_return',message:'handleSend early return',data:{inputTrimmed:input.trim().length,hasFiles:attachedFiles.length>0,isSending},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
+      return
+    }
 
     const userMessage = input.trim()
     const fileIds = attachedFiles.map(f => f.id)
