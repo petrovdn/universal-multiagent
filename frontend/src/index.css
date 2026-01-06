@@ -1179,14 +1179,21 @@ body {
 
 /* CRITICAL FIX: Hide empty assistant-message-wrapper to prevent visual empty blocks */
 /* This handles cases where ChatMessage returns null but wrapper still renders */
-.assistant-message-wrapper:empty,
-.assistant-message-wrapper:has(:empty:only-child),
-.assistant-message-wrapper:not(:has(*)) {
+/* BUT: Don't hide ReAct wrapper - it uses CollapsibleBlock directly */
+.assistant-message-wrapper:not(.react-assistant-message-wrapper):empty,
+.assistant-message-wrapper:not(.react-assistant-message-wrapper):has(:empty:only-child),
+.assistant-message-wrapper:not(.react-assistant-message-wrapper):not(:has(*)) {
   display: none !important;
   padding: 0 !important;
   margin: 0 !important;
   height: 0 !important;
   min-height: 0 !important;
+}
+
+/* ReAct wrapper should always be visible if it has children */
+.react-assistant-message-wrapper {
+  display: flex !important;
+  flex-direction: column !important;
 }
 
 /* Убеждаемся, что содержимое сообщений заполняет всю доступную ширину */

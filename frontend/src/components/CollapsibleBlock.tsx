@@ -74,11 +74,14 @@ export const CollapsibleBlock = React.forwardRef<HTMLDivElement, Omit<Collapsibl
       setIsCollapsed(!isCollapsed)
     }
   }
-  
+
   return (
     <div
       ref={containerRef}
       className={`reasoning-block reasoning-block-visible ${isCollapsed ? 'reasoning-block-collapsed' : ''} ${isStreaming ? 'reasoning-block-streaming' : ''} ${className}`}
+      data-collapsible-block-title={title}
+      data-is-collapsed={isCollapsed}
+      data-is-streaming={isStreaming}
     >
       <div
         className="reasoning-block-header"

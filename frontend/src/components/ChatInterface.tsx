@@ -13,6 +13,7 @@ import { PlanBlock } from './PlanBlock'
 import { StepProgress } from './StepProgress'
 import { FinalResultBlock } from './FinalResultBlock'
 import { UserAssistanceDialog } from './UserAssistanceDialog'
+import { CollapsibleBlock } from './CollapsibleBlock'
 
 interface AttachedFile {
   id: string
@@ -801,6 +802,67 @@ export function ChatInterface() {
               executionMode
             })
             
+            // CRITICAL: For ReAct mode, render reasoning blocks directly using CollapsibleBlock (same as Plan mode)
+            // This check MUST come FIRST, before all other checks, to ensure ReAct blocks are rendered
+            if (executionMode === 'react' && assistantMsg.reasoningBlocks.length > 0) {
+              console.log('[ChatInterface] ReAct mode - rendering reasoning blocks directly', { 
+                messageId: assistantMsg.id, 
+                executionMode,
+                reasoningBlocksCount: assistantMsg.reasoningBlocks.length
+              })
+              
+              return (
+                <div 
+                  key={assistantMsg.id} 
+                  className="assistant-message-wrapper react-assistant-message-wrapper" 
+                  data-message-id={assistantMsg.id} 
+                  data-react-mode="true"
+                  style={{ maxWidth: '900px', width: '100%', margin: '0 auto', padding: '0 14px', display: 'flex', flexDirection: 'column' }}
+                >
+                  {assistantMsg.reasoningBlocks.map((block) => {
+                    const hasContent = block.content && block.content.trim().length > 0
+                    if (!hasContent && !block.isStreaming) {
+                      return null
+                    }
+                    
+                    return (
+                      <CollapsibleBlock
+                        key={block.id}
+                        title="думаю..."
+                        icon={<Brain className="reasoning-block-icon" />}
+                        isStreaming={block.isStreaming}
+                        isCollapsed={false} // ReAct blocks start expanded
+                        autoCollapse={false} // Don't auto-collapse ReAct blocks
+                        alwaysOpen={false}
+                        className="react-reasoning-block"
+                      >
+                        <div className="prose max-w-none prose-sm">
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                            {block.content || (block.isStreaming ? 'Анализирую запрос...' : '')}
+                          </ReactMarkdown>
+                        </div>
+                      </CollapsibleBlock>
+                    )
+                  })}
+                  {/* Render answer blocks if any */}
+                  {assistantMsg.answerBlocks.map((block) => {
+                    const hasContent = block.content && block.content.trim().length > 0
+                    if (!hasContent) {
+                      return null
+                    }
+                    
+                    return (
+                      <div key={block.id} className="prose max-w-none" style={{ marginTop: '16px' }}>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {block.content}
+                        </ReactMarkdown>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            }
+            
             // Check if workflow exists - multi-step tasks use workflow system exclusively
             const userMessages = messages.filter(m => m.role === 'user')
             if (userMessages.length > 0) {
@@ -841,6 +903,8 @@ export function ChatInterface() {
                 return null
               }
             }
+          
+          // For non-ReAct mode, check content and use ChatMessage (backward compatibility)
           // Проверяем, есть ли реальный контент в блоках (не только их наличие)
           const hasReasoningContent = assistantMsg.reasoningBlocks.some(block => 
             block.content && block.content.trim().length > 0
@@ -850,7 +914,7 @@ export function ChatInterface() {
           )
           const hasContent = hasReasoningContent || hasAnswerContent
           
-          console.log('[ChatInterface] Checking content for assistant message', {
+          console.log('[ChatInterface] Checking content for assistant message (non-ReAct)', {
             messageId: assistantMsg.id,
             reasoningBlocksCount: assistantMsg.reasoningBlocks.length,
             reasoningBlocksContent: assistantMsg.reasoningBlocks.map(b => ({ id: b.id, contentLength: b.content?.length || 0, contentPreview: b.content?.substring(0, 50) })),
@@ -908,14 +972,15 @@ export function ChatInterface() {
             return willRenderReasoning || willRenderAnswer
           })()
           
-          console.log('[ChatInterface] willChatMessageRender check', {
+          console.log('[ChatInterface] willChatMessageRender check (non-ReAct)', {
             messageId: assistantMsg.id,
             willChatMessageRender,
             hasContent,
             hasValidReasoning,
             hasValidAnswer,
             willRenderReasoning,
-            willRenderAnswer
+            willRenderAnswer,
+            executionMode
           })
           
           if (!willChatMessageRender) {
@@ -923,10 +988,10 @@ export function ChatInterface() {
             return null
           }
           
-          console.log('[ChatInterface] Rendering assistant message', { messageId: assistantMsg.id })
+          console.log('[ChatInterface] Rendering assistant message with ChatMessage', { messageId: assistantMsg.id })
           
           return (
-            <div key={assistantMsg.id} className="assistant-message-wrapper">
+            <div key={assistantMsg.id} className="assistant-message-wrapper" data-message-id={assistantMsg.id}>
               <ChatMessage message={assistantMsg} />
             </div>
           )

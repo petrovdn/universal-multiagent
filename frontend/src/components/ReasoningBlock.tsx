@@ -1,4 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { Brain, ChevronDown, ChevronUp } from 'lucide-react'
 import { ReasoningBlock as ReasoningBlockType, AnswerBlock as AnswerBlockType } from '../store/chatStore'
 
@@ -12,7 +14,17 @@ interface ReasoningBlockProps {
 export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, answerBlock = null }: ReasoningBlockProps) {
   const contentRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const [isCollapsed, setIsCollapsed] = useState(false)
+  
+  // CRITICAL: For ReAct blocks, always start expanded
+  const isReActBlock = block.content && (
+    block.content.includes('ReAct') || 
+    block.content.includes('Итерация') || 
+    block.content.includes('🔄') ||
+    block.content.includes('react-reasoning')
+  )
+  
+  // Start expanded for ReAct blocks, collapsed for others
+  const [isCollapsed, setIsCollapsed] = useState(!isReActBlock)
   const [wasStreaming, setWasStreaming] = useState(block.isStreaming)
   const [hasEverStreamed, setHasEverStreamed] = useState(block.isStreaming)// CRITICAL: Новый reasoning блок должен всегда начинаться развернутым
   // Если блок только что начал стримиться (переход с false на true), разворачиваем его
@@ -29,10 +41,23 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
   // Логика: сворачиваем когда reasoning завершен (isStreaming = false)
   // Если есть answer в паре (shouldAutoCollapse = true), сворачиваем сразу
   // Иначе сворачиваем всегда после завершения стриминга
+  // BUT: For ReAct mode, don't auto-collapse reasoning blocks (they contain the full reasoning trail)
   useEffect(() => {
     if (wasStreaming && !block.isStreaming) {
       // Стриминг завершен - сворачиваем блок
-      if (shouldAutoCollapse) {
+      // BUT: Don't auto-collapse if this is a ReAct reasoning block (contains "ReAct" or "Итерация" in content)
+      const isReActBlock = block.content && (
+        block.content.includes('ReAct') || 
+        block.content.includes('Итерация') || 
+        block.content.includes('🔄') ||
+        block.content.includes('react-reasoning')
+      )
+      
+      if (isReActBlock) {
+        // ReAct reasoning blocks should stay expanded to show the full reasoning trail
+        console.log('[ReasoningBlock] ReAct block detected, keeping expanded', { blockId: block.id })
+        setIsCollapsed(false)
+      } else if (shouldAutoCollapse) {
         // Если есть answer в паре, проверяем, что answer блок существует
         if (answerBlock !== null) {
           setIsCollapsed(true)
@@ -63,16 +88,60 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
     }
   }, [block.content, block.isStreaming, isCollapsed])
 
-  if (!isVisible) return null
+  if (!isVisible) {
+    console.log('[ReasoningBlock] Not visible, returning null', { blockId: block.id })
+    return null
+  }
+
+  console.log('[ReasoningBlock] Rendering', {
+    blockId: block.id,
+    contentLength: block.content?.length || 0,
+    isStreaming: block.isStreaming,
+    isCollapsed,
+    hasContent: !!(block.content && block.content.trim().length > 0),
+    isReActBlock,
+    contentPreview: block.content?.substring(0, 200)
+  })
 
   const toggleCollapse = () => {
     setIsCollapsed(!isCollapsed)
   }
-
+  
+  // Check if element is in DOM after render
+  useEffect(() => {
+    if (containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect()
+      const isVisible = rect.width > 0 && rect.height > 0
+      const parent = containerRef.current.parentElement
+      const parentRect = parent?.getBoundingClientRect()
+      const grandParent = parent?.parentElement
+      const grandParentRect = grandParent?.getBoundingClientRect()
+      
+      console.log('[ReasoningBlock] DOM check', {
+        blockId: block.id,
+        isInDOM: !!containerRef.current,
+        width: rect.width,
+        height: rect.height,
+        isVisible,
+        computedDisplay: window.getComputedStyle(containerRef.current).display,
+        computedVisibility: window.getComputedStyle(containerRef.current).visibility,
+        parentClassName: parent?.className,
+        parentWidth: parentRect?.width,
+        parentHeight: parentRect?.height,
+        grandParentClassName: grandParent?.className,
+        grandParentWidth: grandParentRect?.width,
+        grandParentHeight: grandParentRect?.height
+      })
+    }
+  }, [block.id, block.content, isCollapsed])
+  
   return (
     <div
       ref={containerRef}
       className={`reasoning-block reasoning-block-visible ${isCollapsed ? 'reasoning-block-collapsed' : ''} ${block.isStreaming ? 'reasoning-block-streaming' : ''}`}
+      data-block-id={block.id}
+      data-is-collapsed={isCollapsed}
+      data-is-streaming={block.isStreaming}
     >
       <div 
         className="reasoning-block-header"
@@ -98,7 +167,28 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
       </div>
       {/* Always render content to preserve all streaming text, CSS hides it when collapsed */}
       <div ref={contentRef} className="reasoning-block-content">
-        {block.content || (block.isStreaming ? 'Анализирую запрос...' : '')}
+        {block.content && block.content.trim().length > 0 ? (
+          <div className="prose max-w-none prose-sm">
+            {(() => {
+              try {
+                return (
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {block.content}
+                  </ReactMarkdown>
+                )
+              } catch (error) {
+                // #region agent log
+                fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReasoningBlock.tsx:156',message:'ReactMarkdown error',data:{blockId:block.id,error:String(error),contentPreview:block.content.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+                // #endregion
+                console.error('[ReasoningBlock] ReactMarkdown error:', error, { blockId: block.id, contentPreview: block.content.substring(0, 200) })
+                // Fallback to plain text if markdown fails
+                return <div style={{ whiteSpace: 'pre-wrap' }}>{block.content}</div>
+              }
+            })()}
+          </div>
+        ) : (
+          block.isStreaming ? 'Анализирую запрос...' : ''
+        )}
       </div>
     </div>
   )

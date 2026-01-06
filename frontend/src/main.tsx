@@ -3,21 +3,6 @@ import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
 
-// #region agent log
-// Check CSS loading
-if (typeof window !== 'undefined') {
-  setTimeout(() => {
-    const testEl = document.createElement('div')
-    testEl.className = 'input-area'
-    document.body.appendChild(testEl)
-    const style = window.getComputedStyle(testEl)
-    const position = style.position
-    document.body.removeChild(testEl)
-    console.log('[DEBUG main.tsx] CSS styles check - input-area position:', position, 'Expected: relative')
-  }, 500)
-}
-// #endregion
-
 console.log('[main.tsx] Starting app...')
 
 try {

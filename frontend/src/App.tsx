@@ -19,10 +19,7 @@ function App() {
   const checkAuthRef = useRef<Promise<void> | null>(null)
 
   useEffect(() => {
-    // #region agent log
     console.log('[App] useEffect called', { justLoggedIn })
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:useEffect',message:'useEffect called',data:{justLoggedIn},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     // Check authentication status only if not just logged in
     if (!justLoggedIn) {
       // Prevent multiple simultaneous auth checks
@@ -41,27 +38,15 @@ function App() {
   }, [])
 
   const checkAuth = async () => {
-    // #region agent log
     console.log('[App] checkAuth started')
-    fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:checkAuth-start',message:'checkAuth started',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     try {
       console.log('[App] Calling getCurrentUser...')
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:checkAuth-before-getCurrentUser',message:'About to call getCurrentUser',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       const user = await getCurrentUser()
       console.log('[App] getCurrentUser success:', user)
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:checkAuth-success',message:'getCurrentUser success',data:{username:user?.username},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       setIsAuthenticated(true)
       setCurrentUsername(user.username)
     } catch (err: any) {
       console.error('[App] checkAuth error:', err)
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:checkAuth-error',message:'checkAuth error',data:{error:String(err),status:err?.response?.status,message:err?.message,code:err?.code},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       // If it's a 404 (session not found) or 401 (unauthorized), show login
       if (err.response?.status === 404 || err.response?.status === 401) {
         setIsAuthenticated(false)

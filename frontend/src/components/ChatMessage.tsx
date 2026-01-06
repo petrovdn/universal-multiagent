@@ -1,6 +1,10 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { Brain } from 'lucide-react'
 import { AssistantMessage, DebugChunkType, useChatStore } from '../store/chatStore'
 import { ReasoningBlock } from './ReasoningBlock'
+import { CollapsibleBlock } from './CollapsibleBlock'
 import { AnswerBlock } from './AnswerBlock'
 import { PlanBlock } from './PlanBlock'
 import { StepProgress } from './StepProgress'
@@ -241,6 +245,13 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
   // Если нет пар, возвращаем null вместо пустого div
   if (reasoningAnswerPairs.length === 0) {
+    console.warn('[ChatMessage] No reasoning-answer pairs, returning null', {
+      messageId: message.id,
+      reasoningBlocksCount: message.reasoningBlocks.length,
+      answerBlocksCount: message.answerBlocks.length,
+      reasoningBlocks: message.reasoningBlocks.map(b => ({ id: b.id, contentLength: b.content?.length || 0, isStreaming: b.isStreaming })),
+      answerBlocks: message.answerBlocks.map(b => ({ id: b.id, contentLength: b.content?.length || 0, isStreaming: b.isStreaming }))
+    })
     return null
   }
 
@@ -255,9 +266,9 @@ export function ChatMessage({ message }: ChatMessageProps) {
   if (!allPairsHaveContent) {
     return null
   }
-
+  
   return (
-    <div className="chat-message">
+    <div className="chat-message" data-message-id={message.id}>
       {reasoningAnswerPairs.map((pair) => {
         const reasoningBlock = pair.reasoning ? message.reasoningBlocks[pair.reasoning.index] : null
         const answerBlock = pair.answer ? message.answerBlocks[pair.answer.index] : null
@@ -273,11 +284,53 @@ export function ChatMessage({ message }: ChatMessageProps) {
               const hasContent = reasoningBlock.content && reasoningBlock.content.trim().length > 0
               const shouldRender = hasContent || reasoningBlock.isStreaming
               
+              console.log('[ChatMessage] Rendering reasoning block', {
+                blockId: reasoningBlock.id,
+                hasContent,
+                isStreaming: reasoningBlock.isStreaming,
+                shouldRender,
+                contentLength: reasoningBlock.content?.length || 0,
+                contentPreview: reasoningBlock.content?.substring(0, 200)
+              })
+              
               // CRITICAL FIX: Don't render if no content AND not streaming (prevents empty blocks)
               if (!shouldRender) {
+                console.log('[ChatMessage] Skipping reasoning block - no content and not streaming', { blockId: reasoningBlock.id })
                 return null
               }
               
+              // Use CollapsibleBlock (same as Plan mode) instead of ReasoningBlock for better compatibility
+              // Check if this is a ReAct block (contains ReAct markers)
+              const isReActBlock = reasoningBlock.content && (
+                reasoningBlock.content.includes('ReAct') || 
+                reasoningBlock.content.includes('Итерация') || 
+                reasoningBlock.content.includes('🔄') ||
+                reasoningBlock.id.includes('react-reasoning')
+              )
+              
+              // For ReAct blocks, use CollapsibleBlock (same as Plan mode)
+              if (isReActBlock) {
+                return (
+                  <CollapsibleBlock
+                    key={`reasoning-${pair.reasoning.blockId}`}
+                    title="думаю..."
+                    icon={<Brain className="reasoning-block-icon" />}
+                    isStreaming={reasoningBlock.isStreaming}
+                    isCollapsed={false} // ReAct blocks start expanded
+                    autoCollapse={false} // Don't auto-collapse ReAct blocks
+                    alwaysOpen={false}
+                    className="react-reasoning-block"
+                  >
+                    <div className="prose max-w-none prose-sm">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {reasoningBlock.content || (reasoningBlock.isStreaming ? 'Анализирую запрос...' : '')}
+                      </ReactMarkdown>
+                    </div>
+                  </CollapsibleBlock>
+                )
+              }
+              
+              // For non-ReAct blocks, use ReasoningBlock (backward compatibility)
               return (
                 <ReasoningBlock
                   key={`reasoning-${pair.reasoning.blockId}`}
