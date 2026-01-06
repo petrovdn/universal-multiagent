@@ -79,6 +79,9 @@ RUN mkdir -p /app/data/tokens \
     /app/logs \
     /app/config
 
+# Копируем файл пользователей для авторизации
+COPY config/users.json ./config/users.json
+
 # Копируем entrypoint скрипт
 COPY scripts/docker-entrypoint.sh /app/scripts/docker-entrypoint.sh
 RUN chmod +x /app/scripts/docker-entrypoint.sh

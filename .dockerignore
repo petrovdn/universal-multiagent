@@ -35,6 +35,7 @@ config/.env
 
 # Credentials and tokens (не копируем в образ)
 config/*.json
+!config/users.json
 config/*.pem
 config/*.key
 gcp-oauth.keys.json
