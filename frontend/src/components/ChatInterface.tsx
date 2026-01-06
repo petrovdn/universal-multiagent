@@ -113,33 +113,18 @@ export function ChatInterface() {
         clearTimeout(thinkingIndicatorTimeoutRef.current)
       }
       
-      // Show indicator after 1 second, even if reasoning blocks exist but have minimal content
+      // Always show indicator after 1 second if agent is still typing
+      // It will be hidden by the second useEffect if substantial reasoning content appears
       thinkingIndicatorTimeoutRef.current = setTimeout(() => {
-        // Check if reasoning blocks have substantial content (more than just "Analyzing..." or similar)
-        const hasSubstantialReasoning = Object.values(assistantMessages).some(msg => 
-          msg.reasoningBlocks.some(block => {
-            const content = block.content?.trim() || ''
-            // Consider substantial if more than 100 characters
-            return content.length > 100
-          })
-        )
-        
         // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:timeout',message:'Thinking indicator timeout fired',data:{isAgentTyping,hasSubstantialReasoning,activeWorkflowId,willShow:!hasSubstantialReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:timeout',message:'Thinking indicator timeout fired - showing indicator',data:{isAgentTyping,activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
         // #endregion
         
-        // Show indicator if reasoning blocks don't have substantial content yet
-        // This allows indicator to show even if small reasoning blocks exist
-        if (!hasSubstantialReasoning) {
-          setShowThinkingIndicator(true)
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:shown',message:'Thinking indicator shown',data:{isAgentTyping,hasSubstantialReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
-        } else {
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:skipped',message:'Thinking indicator skipped - substantial reasoning content already visible',data:{isAgentTyping,hasSubstantialReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
-        }
+        // Always show indicator after 1 second - it will be hidden later if substantial reasoning appears
+        setShowThinkingIndicator(true)
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:shown',message:'Thinking indicator shown',data:{isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
       }, 1000) // 1 second
       
       return () => {
