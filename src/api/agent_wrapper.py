@@ -15,6 +15,10 @@ from src.core.context_manager import ConversationContext
 from src.core.step_orchestrator import StepOrchestrator
 from src.core.react_orchestrator import ReActOrchestrator
 from src.core.task_classifier import TaskClassifier, TaskType
+from src.core.capability_registry import CapabilityRegistry
+from src.core.providers.mcp_provider import MCPToolProvider
+from src.core.providers.a2a_provider import A2AAgentProvider
+from src.core.mode_adapters import QueryModeAdapter, AgentModeAdapter, PlanModeAdapter
 from src.api.websocket_manager import get_websocket_manager
 from src.utils.audit import get_audit_logger
 from src.utils.config_loader import get_config
@@ -34,14 +38,17 @@ Initialize agent wrapper."""
         self._main_agent_cache: Dict[str, MainAgent] = {}
         self.ws_manager = get_websocket_manager()
         self.audit_logger = get_audit_logger()
-        # Store active orchestrators for plan confirmation
-        self._active_orchestrators: Dict[str, StepOrchestrator] = {}
+        # Store active orchestrators for plan confirmation (legacy)
+        self._active_orchestrators: Dict[str, Any] = {}
         # Task classifier for determining task complexity
         self.task_classifier = TaskClassifier()
         # Store tool arguments for workspace events (key: run_id, value: {tool_name, arguments})
         self._tool_args_cache: Dict[str, Dict[str, Any]] = {}
         # Track sent workspace events to prevent duplicates (key: (session_id, tool_name, spreadsheet_id), value: timestamp)
         self._sent_workspace_events: Dict[str, float] = {}
+        
+        # Initialize capability registry with providers
+        self._capability_registry = None  # Lazy initialization
     
     def get_main_agent(self, model_name: Optional[str] = None) -> MainAgent:
         """
@@ -58,6 +65,28 @@ Initialize agent wrapper."""
         if cache_key not in self._main_agent_cache:
             self._main_agent_cache[cache_key] = MainAgent(model_name=model_name)
         return self._main_agent_cache[cache_key]
+    
+    def _get_capability_registry(self) -> CapabilityRegistry:
+        """
+        Get or create capability registry with all providers.
+        
+        Returns:
+            CapabilityRegistry instance
+        """
+        if self._capability_registry is None:
+            self._capability_registry = CapabilityRegistry()
+            
+            # Register MCP provider
+            mcp_provider = MCPToolProvider()
+            self._capability_registry.register_provider(mcp_provider)
+            
+            # Register A2A provider (placeholder for future)
+            a2a_provider = A2AAgentProvider()
+            self._capability_registry.register_provider(a2a_provider)
+            
+            logger.info("[AgentWrapper] Capability registry initialized")
+        
+        return self._capability_registry
     
     async def process_message(
         self,
@@ -102,6 +131,12 @@ Initialize agent wrapper."""
         else:
             logger.info(f"[AgentWrapper] WebSocket connected for session {session_id} (connections: {self.ws_manager.get_connection_count(session_id)})")
         
+        # #region agent log
+        import json as _json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+            _f.write(_json.dumps({"location":"agent_wrapper.py:process_message:start","message":"Process message started","data":{"session_id":session_id,"user_message_preview":user_message[:100],"execution_mode":context.execution_mode,"ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
+        # #endregion
+        
         # Send user message event
         await self.ws_manager.send_event(
             session_id,
@@ -139,108 +174,123 @@ Initialize agent wrapper."""
             # Simple tasks always use direct streaming (no plan shown), regardless of mode
             if task_type == TaskType.SIMPLE:
                 logger.info(f"[AgentWrapper] Simple task detected, executing directly without workflow")
+                # #region agent log
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+                    _f.write(_json.dumps({"location":"agent_wrapper.py:process_message:simple_task","message":"Simple task execution starting","data":{"session_id":session_id,"task_type":"SIMPLE","ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
+                # #endregion
                 result = await self._execute_simple_task(
                     user_message,
                     context,
                     session_id,
                     file_ids
                 )
+                # #region agent log
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+                    _f.write(_json.dumps({"location":"agent_wrapper.py:process_message:simple_task_done","message":"Simple task execution completed","data":{"session_id":session_id,"result_keys":list(result.keys()) if result else None,"ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
+                # #endregion
                 return result
             
-            # Complex tasks use orchestrator (StepOrchestrator or ReActOrchestrator)
-            # Check execution mode to determine which orchestrator to use
-            use_react = context.execution_mode == "react"
+            # Complex tasks use new unified mode adapters or legacy orchestrators
+            # Map execution mode to adapter type
+            execution_mode = context.execution_mode or "agent"
             
-            if use_react:
-                logger.info(f"[AgentWrapper] Complex task detected, using ReActOrchestrator")
+            # Map legacy modes to new modes
+            mode_mapping = {
+                "instant": "agent",  # Legacy instant -> new agent mode
+                "react": "agent",  # Legacy react -> new agent mode
+                "approval": "plan",  # Legacy approval -> new plan mode
+                "agent": "agent",
+                "plan": "plan",
+                "query": "query"
+            }
+            
+            mapped_mode = mode_mapping.get(execution_mode, "agent")
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+                _f.write(_json.dumps({"location":"agent_wrapper.py:process_message:complex_task","message":"Complex task - using mode adapter","data":{"session_id":session_id,"execution_mode":execution_mode,"mapped_mode":mapped_mode,"task_type":str(task_type),"ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
+            # #endregion
+            
+            # Use new unified adapters for new modes
+            if mapped_mode in ("query", "agent", "plan"):
+                logger.info(f"[AgentWrapper] Complex task detected, using {mapped_mode} mode adapter")
                 
+                registry = self._get_capability_registry()
                 
-                # Create ReActOrchestrator
-                react_orchestrator = ReActOrchestrator(
-                    ws_manager=self.ws_manager,
-                    session_id=session_id,
-                    model_name=context.model_name
-                )
+                # Get appropriate adapter
+                if mapped_mode == "query":
+                    adapter = QueryModeAdapter(
+                        capability_registry=registry,
+                        ws_manager=self.ws_manager,
+                        session_id=session_id,
+                        model_name=context.model_name
+                    )
+                elif mapped_mode == "plan":
+                    adapter = PlanModeAdapter(
+                        capability_registry=registry,
+                        ws_manager=self.ws_manager,
+                        session_id=session_id,
+                        model_name=context.model_name
+                    )
+                else:  # agent mode
+                    adapter = AgentModeAdapter(
+                        capability_registry=registry,
+                        ws_manager=self.ws_manager,
+                        session_id=session_id,
+                        model_name=context.model_name
+                    )
                 
+                # Store adapter for stop/confirmation handling
+                self._active_orchestrators[session_id] = adapter
                 
-                # Store orchestrator for stop handling
-                self._active_orchestrators[session_id] = react_orchestrator
-                
-                
-                # Execute ReAct orchestrator
-                result = await react_orchestrator.execute(
-                    user_request=user_message,
+                # Execute through adapter
+                result = await adapter.execute(
+                    goal=user_message,
                     context=context,
                     file_ids=file_ids
                 )
                 
+                orchestrator_type = f"{mapped_mode.capitalize()}ModeAdapter"
             else:
-                logger.info(f"[AgentWrapper] Complex task detected, using StepOrchestrator")
+                # Fallback to legacy orchestrators for unknown modes
+                logger.warning(f"[AgentWrapper] Unknown mode '{execution_mode}', falling back to legacy orchestrators")
+                use_react = execution_mode == "react"
                 
-                # Check if there's an existing orchestrator for this session
-                # If previous request is completed, we can reuse the orchestrator
-                # Otherwise, stop it to prevent mixing context
-                if session_id in self._active_orchestrators:
-                    old_orchestrator = self._active_orchestrators[session_id]
-                    # Check if previous orchestrator is still running
-                    is_running = (
-                        hasattr(old_orchestrator, '_streaming_task') and 
-                        old_orchestrator._streaming_task and 
-                        not old_orchestrator._streaming_task.done()
-                    ) or (
-                        hasattr(old_orchestrator, '_confirmation_event') and
-                        old_orchestrator._confirmation_event and
-                        not old_orchestrator._confirmation_event.is_set()
+                if use_react:
+                    logger.info(f"[AgentWrapper] Using legacy ReActOrchestrator")
+                    react_orchestrator = ReActOrchestrator(
+                        ws_manager=self.ws_manager,
+                        session_id=session_id,
+                        model_name=context.model_name
                     )
-                    
-                    if is_running:
-                        # Previous request is still running - stop it
-                        logger.info(f"[AgentWrapper] Stopping active orchestrator for session {session_id}")
-                        old_orchestrator.stop()
-                        del self._active_orchestrators[session_id]
-                    else:
-                        # Previous request is completed - reuse orchestrator
-                        logger.info(f"[AgentWrapper] Reusing orchestrator for session {session_id}")
-                        # Clean up state for new request
-                        old_orchestrator._confirmation_event = None
-                        old_orchestrator._confirmation_result = None
-                        old_orchestrator._stop_requested = False
-                        old_orchestrator._streaming_task = None
-                        # Use existing orchestrator instead of creating new one
-                        orchestrator = old_orchestrator
-                
-                if context.execution_mode == "approval":
-                    orchestrator_mode = "plan_and_confirm"
+                    self._active_orchestrators[session_id] = react_orchestrator
+                    result = await react_orchestrator.execute(
+                        user_request=user_message,
+                        context=context,
+                        file_ids=file_ids
+                    )
+                    orchestrator_type = "ReActOrchestrator"
                 else:
-                    orchestrator_mode = "plan_and_execute"
-                
-                # Create StepOrchestrator for this session (only if not reusing existing)
-                if 'orchestrator' not in locals():
+                    logger.info(f"[AgentWrapper] Using legacy StepOrchestrator")
+                    orchestrator_mode = "plan_and_confirm" if execution_mode == "approval" else "plan_and_execute"
                     orchestrator = StepOrchestrator(
                         ws_manager=self.ws_manager,
                         session_id=session_id,
                         model_name=context.model_name
                     )
-                    # Store orchestrator for confirmation handling
                     self._active_orchestrators[session_id] = orchestrator
-                
-                # Execute orchestrator
-                # For plan_and_confirm: this will generate plan, wait for confirmation, then execute steps
-                # For plan_and_execute: this will generate plan and execute immediately
-                result = await orchestrator.execute(
-                    user_request=user_message,
-                    mode=orchestrator_mode,
-                    context=context,
-                    file_ids=file_ids
-                )
+                    result = await orchestrator.execute(
+                        user_request=user_message,
+                        mode=orchestrator_mode,
+                        context=context,
+                        file_ids=file_ids
+                    )
+                    orchestrator_type = "StepOrchestrator"
             
             # Log the action
-            orchestrator_type = "ReActOrchestrator" if use_react else "StepOrchestrator"
-            execution_mode_str = "react" if use_react else (orchestrator_mode if 'orchestrator_mode' in locals() else "plan_and_execute")
             self.audit_logger.log_agent_action(
                 orchestrator_type,
                 "execute",
-                {"message": user_message, "mode": execution_mode_str, "result": result.get("status", "unknown")},
+                {"message": user_message, "mode": mapped_mode, "result": result.get("status", "unknown")},
                 session_id=session_id
             )
             
@@ -819,6 +869,10 @@ Callback to handle streaming events and send to WebSocket."""
                     # Stream to final_result mode: send final_result_complete
                     if final_result_started:
                         logger.info(f"[AgentWrapper] Sending final_result_complete event")
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+                            _f.write(_json.dumps({"location":"agent_wrapper.py:stream_event_callback:final_result_complete","message":"Sending final_result_complete","data":{"session_id":session_id,"response_length":len(response) if response else 0,"ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
+                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "final_result_complete",
@@ -829,6 +883,10 @@ Callback to handle streaming events and send to WebSocket."""
                     else:
                         # If no tokens were streamed, still send final_result with content
                         logger.info(f"[AgentWrapper] Sending final_result event (no streaming)")
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+                            _f.write(_json.dumps({"location":"agent_wrapper.py:stream_event_callback:final_result","message":"Sending final_result (no streaming)","data":{"session_id":session_id,"response_length":len(response) if response else 0,"ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
+                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "final_result",
@@ -997,73 +1055,83 @@ Callback to handle streaming events and send to WebSocket."""
         self,
         confirmation_id: str,
         context: ConversationContext,
-        session_id: str
+        session_id: str,
+        edited_plan: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Execute an approved plan using StepOrchestrator.
+        Execute an approved plan using PlanModeAdapter or legacy orchestrator.
         
         Args:
             confirmation_id: Confirmation ID
             context: Conversation context
             session_id: Session identifier
+            edited_plan: Optional edited plan (for PlanModeAdapter)
             
         Returns:
             Execution result
         """
-        # Get active orchestrator for this session
+        # Get active orchestrator/adapter for this session
         orchestrator = self._active_orchestrators.get(session_id)
         if orchestrator:
-            # Verify confirmation_id matches
-            if orchestrator.get_confirmation_id() != confirmation_id:
-                logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
-            
-            # Confirm the plan in orchestrator
-            # This will unblock the execute() method that is waiting for confirmation
-            orchestrator.confirm_plan()
-            # The orchestrator.execute() method is already running (was called from process_message)
-            # and is waiting for confirmation. Now that we've confirmed, it will continue execution.
-            # We return immediately - the execution continues in the background
-            return {
-                "status": "approved",
-                "message": "Plan approved, execution started"
+            # Check if it's a PlanModeAdapter
+            from src.core.mode_adapters import PlanModeAdapter
+            if isinstance(orchestrator, PlanModeAdapter):
+                # Verify confirmation_id matches
+                if orchestrator.get_confirmation_id() != confirmation_id:
+                    logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
+                
+                # Confirm the plan (with optional edits)
+                orchestrator.confirm_plan(edited_plan)
+                return {
+                    "status": "approved",
+                    "message": "Plan approved, execution started"
+                }
+            # Legacy StepOrchestrator
+            elif hasattr(orchestrator, 'confirm_plan'):
+                if orchestrator.get_confirmation_id() != confirmation_id:
+                    logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
+                orchestrator.confirm_plan()
+                return {
+                    "status": "approved",
+                    "message": "Plan approved, execution started"
+                }
+        
+        # Fallback to old logic if orchestrator not found
+        logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}, using fallback")
+        await self.ws_manager.send_event(
+            session_id,
+            "thinking",
+            {
+                "step": "executing_plan",
+                "message": "Executing approved plan..."
             }
-        else:
-            # Fallback to old logic if orchestrator not found
-            logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}, using fallback")
-            await self.ws_manager.send_event(
-                session_id,
-                "thinking",
-                {
-                    "step": "executing_plan",
-                    "message": "Executing approved plan..."
-                }
-            )
-            
-            # Get MainAgent instance with model from context
-            main_agent = self.get_main_agent(context.model_name)
-            
-            # Try to execute approved plan (if MainAgent supports it)
-            try:
-                if hasattr(main_agent, 'execute_approved_plan'):
-                    result = await main_agent.execute_approved_plan(
-                        confirmation_id,
-                        context
-                    )
-                else:
-                    result = {"status": "not_supported"}
-            except Exception as e:
-                logger.error(f"[AgentWrapper] Error executing approved plan: {e}")
-                result = {"status": "error", "message": str(e)}
-            
-            await self.ws_manager.send_event(
-                session_id,
-                "message",
-                {
-                    "role": "assistant",
-                    "content": "Plan executed successfully"
-                }
-            )
-            return result
+        )
+        
+        # Get MainAgent instance with model from context
+        main_agent = self.get_main_agent(context.model_name)
+        
+        # Try to execute approved plan (if MainAgent supports it)
+        try:
+            if hasattr(main_agent, 'execute_approved_plan'):
+                result = await main_agent.execute_approved_plan(
+                    confirmation_id,
+                    context
+                )
+            else:
+                result = {"status": "not_supported"}
+        except Exception as e:
+            logger.error(f"[AgentWrapper] Error executing approved plan: {e}")
+            result = {"status": "error", "message": str(e)}
+        
+        await self.ws_manager.send_event(
+            session_id,
+            "message",
+            {
+                "role": "assistant",
+                "content": "Plan executed successfully"
+            }
+        )
+        return result
     
     async def reject_plan(
         self,
@@ -1072,32 +1140,41 @@ Callback to handle streaming events and send to WebSocket."""
         session_id: str
     ) -> None:
         """
-        Reject a plan using StepOrchestrator.
+        Reject a plan using PlanModeAdapter or legacy orchestrator.
         
         Args:
             confirmation_id: Confirmation ID
             context: Conversation context
             session_id: Session identifier
         """
-        # Get active orchestrator for this session
+        # Get active orchestrator/adapter for this session
         orchestrator = self._active_orchestrators.get(session_id)
         if orchestrator:
-            # Verify confirmation_id matches
-            if orchestrator.get_confirmation_id() != confirmation_id:
-                logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
-            
-            # Reject the plan in orchestrator
-            # This will unblock the execute() method that is waiting for confirmation
-            orchestrator.reject_plan()
-            
-            # Clean up orchestrator after rejection
-            # The execute() method will return with status="rejected"
-            if session_id in self._active_orchestrators:
-                del self._active_orchestrators[session_id]
+            # Check if it's a PlanModeAdapter
+            from src.core.mode_adapters import PlanModeAdapter
+            if isinstance(orchestrator, PlanModeAdapter):
+                # Verify confirmation_id matches
+                if orchestrator.get_confirmation_id() != confirmation_id:
+                    logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
+                
+                # Reject the plan
+                orchestrator.reject_plan()
+                
+                # Clean up after rejection
+                if session_id in self._active_orchestrators:
+                    del self._active_orchestrators[session_id]
+            # Legacy StepOrchestrator
+            elif hasattr(orchestrator, 'reject_plan'):
+                if orchestrator.get_confirmation_id() != confirmation_id:
+                    logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
+                orchestrator.reject_plan()
+                if session_id in self._active_orchestrators:
+                    del self._active_orchestrators[session_id]
         else:
             # Fallback to old logic
             logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}, using fallback")
-            context.resolve_confirmation(confirmation_id, approved=False)
+            if hasattr(context, 'resolve_confirmation'):
+                context.resolve_confirmation(confirmation_id, approved=False)
             
             await self.ws_manager.send_event(
                 session_id,
@@ -1510,20 +1587,34 @@ Callback to handle streaming events and send to WebSocket."""
         Returns:
             Update result
         """
-        # Get active orchestrator for this session
+        # Get active orchestrator/adapter for this session
         orchestrator = self._active_orchestrators.get(session_id)
         if orchestrator:
-            # Verify confirmation_id matches
-            if orchestrator.get_confirmation_id() != confirmation_id:
-                logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
-            
-            # Update the plan in orchestrator
-            orchestrator.update_pending_plan(updated_plan)
-            return {
-                "status": "updated",
-                "message": "Plan updated successfully"
-            }
-        else:
-            logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}")
-            raise Exception("No active orchestrator found for this session")
+            # Check if it's a PlanModeAdapter (plan updates are handled via confirm_plan with edited_plan)
+            from src.core.mode_adapters import PlanModeAdapter
+            if isinstance(orchestrator, PlanModeAdapter):
+                # Verify confirmation_id matches
+                if orchestrator.get_confirmation_id() != confirmation_id:
+                    logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
+                
+                # Update plan in adapter (stored, will be used when confirming)
+                orchestrator._plan_text = updated_plan.get("plan", orchestrator._plan_text)
+                orchestrator._plan_steps = updated_plan.get("steps", orchestrator._plan_steps)
+                
+                return {
+                    "status": "updated",
+                    "message": "Plan updated successfully"
+                }
+            # Legacy StepOrchestrator
+            elif hasattr(orchestrator, 'update_pending_plan'):
+                if orchestrator.get_confirmation_id() != confirmation_id:
+                    logger.warning(f"[AgentWrapper] Confirmation ID mismatch: expected {orchestrator.get_confirmation_id()}, got {confirmation_id}")
+                orchestrator.update_pending_plan(updated_plan)
+                return {
+                    "status": "updated",
+                    "message": "Plan updated successfully"
+                }
+        
+        logger.warning(f"[AgentWrapper] No active orchestrator for session {session_id}")
+        raise Exception("No active orchestrator found for this session")
 

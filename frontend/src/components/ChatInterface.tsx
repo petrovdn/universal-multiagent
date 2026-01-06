@@ -594,7 +594,7 @@ export function ChatInterface() {
     setAgentTyping(false)
   }
   
-  const handleExecutionModeChange = async (mode: 'instant' | 'approval' | 'react') => {
+  const handleExecutionModeChange = async (mode: 'instant' | 'approval' | 'react' | 'query') => {
     setExecutionMode(mode)
     if (currentSession) {
       await updateSettings({
@@ -782,6 +782,10 @@ export function ChatInterface() {
         {(() => {
           const assistantMessagesArray = Object.values(assistantMessages)
           const isEmpty = assistantMessagesArray.length === 0
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render:assistantMessages',message:'Rendering assistant messages section',data:{isEmpty,assistantMessagesCount:assistantMessagesArray.length,messageIds:assistantMessagesArray.map(m=>m.id),executionMode,messagesCount:messages.length,workflowsCount:Object.keys(workflows).length,activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
           
           // CRITICAL: If no assistant messages, return null immediately to prevent empty wrapper
           if (isEmpty) {
@@ -1056,12 +1060,14 @@ export function ChatInterface() {
                   title={
                     executionMode === 'instant' ? 'Мгновенное выполнение' :
                     executionMode === 'approval' ? 'С подтверждением действий' :
+                    executionMode === 'query' ? 'Только чтение данных' :
                     'ReAct адаптивный режим'
                   }
                 >
                   <span>
                     {executionMode === 'instant' ? 'Агент' :
                      executionMode === 'approval' ? 'План' :
+                     executionMode === 'query' ? 'Вопрос' :
                      'ReAct'}
                   </span>
                   <ChevronDown className={`w-2.5 h-2.5 transition-transform ${isModeDropdownOpen ? 'rotate-180' : ''}`} />
@@ -1098,6 +1104,16 @@ export function ChatInterface() {
                       className={`mode-dropdown-item ${executionMode === 'react' ? 'active' : ''}`}
                     >
                       ReAct
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleExecutionModeChange('query')
+                        setIsModeDropdownOpen(false)
+                      }}
+                      className={`mode-dropdown-item ${executionMode === 'query' ? 'active' : ''}`}
+                    >
+                      Вопрос
                     </button>
                   </div>
                 )}

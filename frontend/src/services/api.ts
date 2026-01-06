@@ -65,7 +65,7 @@ export interface OpenFile {
 export interface SendMessageRequest {
   message: string
   session_id?: string
-  execution_mode?: 'instant' | 'approval' | 'react'
+  execution_mode?: 'instant' | 'approval' | 'react' | 'query'
   file_ids?: string[]
   open_files?: OpenFile[]
 }
@@ -99,7 +99,7 @@ export const getHistory = async (sessionId: string) => {
 
 export const updateSettings = async (settings: {
   session_id: string
-  execution_mode?: 'instant' | 'approval' | 'react'
+  execution_mode?: 'instant' | 'approval' | 'react' | 'query'
   model_name?: string
 }) => {
   const response = await api.post('/settings', settings)
@@ -165,7 +165,7 @@ export const healthCheck = async () => {
   return response.data
 }
 
-export const createSession = async (executionMode: 'instant' | 'approval' | 'react' = 'instant', modelName?: string) => {
+export const createSession = async (executionMode: 'instant' | 'approval' | 'react' | 'query' = 'instant', modelName?: string) => {
   const request: any = { execution_mode: executionMode }
   if (modelName) {
     request.model_name = modelName

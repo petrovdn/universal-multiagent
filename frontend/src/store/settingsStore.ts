@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-type ExecutionMode = 'instant' | 'approval' | 'react'
+type ExecutionMode = 'instant' | 'approval' | 'react' | 'query'
 type Theme = 'light' | 'dark'
 
 interface IntegrationInfo {

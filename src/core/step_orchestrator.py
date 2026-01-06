@@ -1,6 +1,10 @@
 """
 Step Orchestrator for multi-step execution with planning and confirmation.
 Implements plan_and_confirm and plan_and_execute modes with streaming.
+
+DEPRECATED: This module is deprecated in favor of UnifiedReActEngine with PlanModeAdapter.
+Use PlanModeAdapter instead for plan-based execution.
+This module is kept for backward compatibility and will be removed in a future version.
 """
 
 from typing import Dict, Any, List, Optional, AsyncGenerator
@@ -98,6 +102,10 @@ class StepOrchestrator:
         self._sent_workspace_events: Dict[str, float] = {}
         self._current_step_index: Optional[int] = None  # Track current step index for file_preview events
         
+        logger.warning(
+            f"[StepOrchestrator] DEPRECATED: StepOrchestrator is deprecated. "
+            f"Use UnifiedReActEngine with PlanModeAdapter instead."
+        )
         logger.info(f"[StepOrchestrator] Initialized for session {session_id} with model {model_name or 'default'}")
     
     def stop(self):

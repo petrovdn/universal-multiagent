@@ -1,17 +1,13 @@
 """
-ReAct Orchestrator for adaptive multi-step execution.
-Implements ReAct pattern: Think -> Act -> Observe -> Adapt cycle.
-
-DEPRECATED: This module is deprecated in favor of UnifiedReActEngine.
-Use UnifiedReActEngine with AgentModeAdapter instead.
-This module is kept for backward compatibility and will be removed in a future version.
+Unified ReAct Engine - parameterized ReAct core that works with any ActionProvider.
+Supports different modes (query, agent, plan) through configuration.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Literal
+from dataclasses import dataclass
 import asyncio
 import json
 import re
-from uuid import uuid4
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -20,57 +16,66 @@ from langchain_core.tools import BaseTool
 from src.core.context_manager import ConversationContext
 from src.core.react_state import ReActState, ActionRecord, Observation
 from src.core.result_analyzer import ResultAnalyzer, Analysis
+from src.core.capability_registry import CapabilityRegistry
+from src.core.action_provider import CapabilityCategory
 from src.api.websocket_manager import WebSocketManager
 from src.agents.model_factory import create_llm
 from src.utils.logging_config import get_logger
-from src.utils.capabilities import get_available_capabilities, build_step_executor_prompt
-from src.mcp_tools.workspace_tools import get_workspace_tools
-from src.mcp_tools.sheets_tools import get_sheets_tools
-from src.mcp_tools.gmail_tools import get_gmail_tools
-from src.mcp_tools.calendar_tools import get_calendar_tools
-from src.mcp_tools.slides_tools import get_slides_tools
-from src.mcp_tools.docs_tools import get_docs_tools
 
 logger = get_logger(__name__)
 
 
-def _escape_braces_for_fstring(text: str) -> str:
-    """Escape curly braces in text to safely use in f-strings."""
-    return text.replace("{", "{{").replace("}", "}}")
+@dataclass
+class ReActConfig:
+    """Configuration for UnifiedReActEngine execution mode."""
+    mode: Literal["query", "agent", "plan"]
+    allowed_categories: List[CapabilityCategory]
+    max_iterations: int = 10
+    show_plan_to_user: bool = False
+    require_plan_approval: bool = False
+    enable_alternatives: bool = True
 
 
-class ReActOrchestrator:
+class UnifiedReActEngine:
     """
-    ReAct-based orchestrator for adaptive task execution.
+    Unified ReAct engine that works with CapabilityRegistry.
+    Supports different modes through configuration.
     
-    Implements iterative cycle:
-    1. THINK - Analyze current situation
-    2. PLAN - Choose next action dynamically
-    3. ACT - Execute action via MCP tools
-    4. OBSERVE - Analyze result
-    5. ADAPT - Adjust strategy based on result
+    This engine is provider-agnostic - it doesn't know about MCP vs A2A,
+    it just works with capabilities from the registry.
     """
     
     def __init__(
         self,
+        config: ReActConfig,
+        capability_registry: CapabilityRegistry,
         ws_manager: WebSocketManager,
         session_id: str,
         model_name: Optional[str] = None
     ):
         """
-        Initialize ReActOrchestrator.
+        Initialize UnifiedReActEngine.
         
         Args:
-            ws_manager: WebSocket manager for sending events
+            config: ReAct configuration
+            capability_registry: Capability registry with all providers
+            ws_manager: WebSocket manager for events
             session_id: Session identifier
             model_name: Model name for LLM (optional)
         """
+        self.config = config
+        self.registry = capability_registry
         self.ws_manager = ws_manager
         self.session_id = session_id
         self.model_name = model_name
         
-        # Load tools
-        self.tools = self._load_tools()
+        # Get allowed capabilities based on config
+        self.capabilities = self.registry.get_capabilities(
+            categories=config.allowed_categories
+        )
+        
+        # Build LLM tools from capabilities for planning
+        self.tools = self._build_tools_from_capabilities()
         
         # Create LLM with thinking support
         self.llm = self._create_llm_with_thinking()
@@ -83,53 +88,38 @@ class ReActOrchestrator:
         
         # Stop flag
         self._stop_requested: bool = False
-        self._streaming_task: Optional[asyncio.Task] = None
         
-        logger.warning(
-            f"[ReActOrchestrator] DEPRECATED: ReActOrchestrator is deprecated. "
-            f"Use UnifiedReActEngine with AgentModeAdapter instead."
+        logger.info(
+            f"[UnifiedReActEngine] Initialized for session {session_id} "
+            f"with mode={config.mode}, {len(self.capabilities)} capabilities"
         )
-        logger.info(f"[ReActOrchestrator] Initialized for session {session_id} with model {model_name or 'default'}")
     
     def stop(self):
         """Request stop of execution."""
         self._stop_requested = True
-        if self._streaming_task and not self._streaming_task.done():
-            self._streaming_task.cancel()
-        logger.info(f"[ReActOrchestrator] Stop requested for session {self.session_id}")
+        logger.info(f"[UnifiedReActEngine] Stop requested for session {self.session_id}")
     
-    def _load_tools(self) -> List[BaseTool]:
-        """Load all available tools."""
+    def _build_tools_from_capabilities(self) -> List[BaseTool]:
+        """
+        Build LangChain tools from capabilities for LLM planning.
+        
+        Returns:
+            List of BaseTool objects for LLM
+        """
+        # For now, we need to get actual BaseTool instances from MCP provider
+        # This is a temporary bridge - in future, we might not need this
         tools = []
-        try:
-            tools.extend(get_workspace_tools())
-            tools.extend(get_sheets_tools())
-            tools.extend(get_gmail_tools())
-            tools.extend(get_calendar_tools())
-            tools.extend(get_slides_tools())
-            tools.extend(get_docs_tools())
-            
-            # Load 1C tools
-            from src.mcp_tools.onec_tools import get_onec_tools
-            tools.extend(get_onec_tools())
-            
-            # Load Project Lad tools
-            from src.mcp_tools.projectlad_tools import get_projectlad_tools
-            tools.extend(get_projectlad_tools())
-            
-            # Remove duplicates
-            seen_names = set()
-            unique_tools = []
-            for tool in tools:
-                if tool.name not in seen_names:
-                    seen_names.add(tool.name)
-                    unique_tools.append(tool)
-            
-            logger.info(f"[ReActOrchestrator] Loaded {len(unique_tools)} tools")
-            return unique_tools
-        except Exception as e:
-            logger.error(f"[ReActOrchestrator] Failed to load tools: {e}")
-            return []
+        
+        # Get MCP provider if available
+        for provider in self.registry.providers:
+            if provider.provider_type.value == "mcp_tool":
+                # MCP provider has direct access to BaseTool instances
+                if hasattr(provider, 'tools'):
+                    tools.extend(provider.tools.values())
+                break
+        
+        logger.info(f"[UnifiedReActEngine] Built {len(tools)} tools for LLM planning")
+        return tools
     
     def _create_llm_with_thinking(self, budget_tokens: int = 5000) -> BaseChatModel:
         """Create LLM instance with extended thinking support."""
@@ -164,22 +154,24 @@ class ReActOrchestrator:
             # Fallback
             return create_llm(config_model_name)
         except Exception as e:
-            logger.error(f"[ReActOrchestrator] Failed to create LLM: {e}")
+            logger.error(f"[UnifiedReActEngine] Failed to create LLM: {e}")
             return create_llm(config.default_model)
     
     async def execute(
         self,
-        user_request: str,
+        goal: str,
         context: ConversationContext,
-        file_ids: Optional[List[str]] = None
+        file_ids: Optional[List[str]] = None,
+        phase: Optional[str] = None  # For Plan Mode: "research", "plan", "execute"
     ) -> Dict[str, Any]:
         """
-        Execute ReAct cycle for user request.
+        Execute ReAct cycle for goal.
         
         Args:
-            user_request: User's request
+            goal: User's goal
             context: Conversation context
             file_ids: Optional list of file IDs
+            phase: Optional phase identifier (for Plan Mode)
             
         Returns:
             Execution result
@@ -187,31 +179,30 @@ class ReActOrchestrator:
         file_ids = file_ids or []
         
         # Initialize state
-        state = ReActState(goal=user_request)
+        state = ReActState(goal=goal)
         state.context = {
             "file_ids": file_ids,
-            "session_id": self.session_id
+            "session_id": self.session_id,
+            "phase": phase
         }
-        self._stop_requested = False # Reset stop flag for new execution
-        
+        self._stop_requested = False
         
         # Send start event
         await self.ws_manager.send_event(
             self.session_id,
             "react_start",
-            {"goal": user_request}
+            {"goal": goal, "mode": self.config.mode}
         )
         
         try:
             # Main ReAct loop
             while state.iteration < state.max_iterations:
                 if self._stop_requested:
-                    logger.info(f"[ReActOrchestrator] Stop requested at iteration {state.iteration}")
+                    logger.info(f"[UnifiedReActEngine] Stop requested at iteration {state.iteration}")
                     break
                 
                 state.iteration += 1
-                logger.info(f"[ReActOrchestrator] Starting iteration {state.iteration}")
-                
+                logger.info(f"[UnifiedReActEngine] Starting iteration {state.iteration}")
                 
                 # 1. THINK - Analyze current situation
                 state.status = "thinking"
@@ -233,8 +224,7 @@ class ReActOrchestrator:
                 # Check for special "FINISH" marker
                 tool_name = action_plan.get("tool_name", "")
                 if tool_name.upper() == "FINISH" or tool_name == "finish":
-                    # LLM indicates task is complete
-                    logger.info(f"[ReActOrchestrator] LLM indicated task completion with FINISH marker")
+                    logger.info(f"[UnifiedReActEngine] LLM indicated task completion")
                     state.add_reasoning_step("plan", action_plan.get("reasoning", "Задача выполнена"), {
                         "tool": "FINISH",
                         "marker": True
@@ -245,7 +235,6 @@ class ReActOrchestrator:
                         "params": {},
                         "iteration": state.iteration
                     })
-                    # Treat as successful completion
                     return await self._finalize_success(
                         state,
                         action_plan.get("description", "Задача успешно выполнена"),
@@ -266,7 +255,7 @@ class ReActOrchestrator:
                 if self._stop_requested:
                     break
                 
-                # 3. ACT - Execute action
+                # 3. ACT - Execute action through registry
                 action_record = state.add_action(
                     action_plan.get("tool_name", "unknown"),
                     action_plan.get("arguments", {})
@@ -275,7 +264,7 @@ class ReActOrchestrator:
                 try:
                     result = await self._execute_action(action_plan, context)
                 except Exception as e:
-                    logger.error(f"[ReActOrchestrator] Action execution failed: {e}")
+                    logger.error(f"[UnifiedReActEngine] Action execution failed: {e}")
                     result = f"Error: {str(e)}"
                 
                 # 4. OBSERVE - Analyze result
@@ -287,7 +276,7 @@ class ReActOrchestrator:
                 )
                 
                 await self._stream_reasoning("react_observation", {
-                    "result": str(result)[:500],  # Truncate for display
+                    "result": str(result)[:500],
                     "iteration": state.iteration
                 })
                 
@@ -296,7 +285,7 @@ class ReActOrchestrator:
                     action_record,
                     result,
                     state.goal,
-                    state.observations[:-1]  # Previous observations
+                    state.observations[:-1]
                 )
                 
                 # Update observation with analysis
@@ -314,42 +303,42 @@ class ReActOrchestrator:
                 state.status = "adapting"
                 
                 if analysis.is_goal_achieved:
-                    # Goal achieved!
-                    logger.info(f"[ReActOrchestrator] Goal achieved at iteration {state.iteration}")
+                    logger.info(f"[UnifiedReActEngine] Goal achieved at iteration {state.iteration}")
                     return await self._finalize_success(state, result, context)
                 
                 elif analysis.is_error:
-                    # Error occurred - try alternative
-                    alternative = await self._find_alternative(state, analysis, context, file_ids)
-                    if alternative:
-                        logger.info(f"[ReActOrchestrator] Trying alternative: {alternative.get('description', '')}")
-                        state.alternatives_tried.append(alternative.get("description", ""))
-                        state.add_reasoning_step("adapt", f"Trying alternative: {alternative.get('description', '')}", {
-                            "alternative": alternative
-                        })
-                        await self._stream_reasoning("react_adapting", {
-                            "reason": analysis.error_message or "Action failed",
-                            "new_strategy": alternative.get("description", ""),
-                            "iteration": state.iteration
-                        })
-                        # Continue loop with alternative
+                    if self.config.enable_alternatives:
+                        alternative = await self._find_alternative(state, analysis, context, file_ids)
+                        if alternative:
+                            logger.info(f"[UnifiedReActEngine] Trying alternative: {alternative.get('description', '')}")
+                            state.alternatives_tried.append(alternative.get("description", ""))
+                            state.add_reasoning_step("adapt", f"Trying alternative: {alternative.get('description', '')}", {
+                                "alternative": alternative
+                            })
+                            await self._stream_reasoning("react_adapting", {
+                                "reason": analysis.error_message or "Action failed",
+                                "new_strategy": alternative.get("description", ""),
+                                "iteration": state.iteration
+                            })
+                            # Continue loop with alternative
+                        else:
+                            logger.warning(f"[UnifiedReActEngine] No alternatives found, failing gracefully")
+                            return await self._finalize_failure(state, analysis, context)
                     else:
-                        # No alternatives - fail gracefully
-                        logger.warning(f"[ReActOrchestrator] No alternatives found, failing gracefully")
                         return await self._finalize_failure(state, analysis, context)
                 else:
                     # Progress made, continue
                     state.add_reasoning_step("adapt", "Continuing with progress", {
                         "progress": analysis.progress_toward_goal
                     })
-                    logger.info(f"[ReActOrchestrator] Progress: {analysis.progress_toward_goal:.0%}")
+                    logger.info(f"[UnifiedReActEngine] Progress: {analysis.progress_toward_goal:.0%}")
             
             # Max iterations reached
-            logger.warning(f"[ReActOrchestrator] Max iterations reached")
+            logger.warning(f"[UnifiedReActEngine] Max iterations reached")
             return await self._finalize_timeout(state, context)
             
         except Exception as e:
-            logger.error(f"[ReActOrchestrator] Error in execute: {e}", exc_info=True)
+            logger.error(f"[UnifiedReActEngine] Error in execute: {e}", exc_info=True)
             await self.ws_manager.send_event(
                 self.session_id,
                 "react_failed",
@@ -366,30 +355,19 @@ class ReActOrchestrator:
         context: ConversationContext,
         file_ids: List[str]
     ) -> str:
-        """
-        Generate thought about current situation.
-        
-        Args:
-            state: Current ReAct state
-            context: Conversation context
-            file_ids: File IDs
-            
-        Returns:
-            Thought text
-        """
-        # Build context for thinking
+        """Generate thought about current situation."""
         context_str = f"Цель: {state.goal}\n\n"
         
         if state.action_history:
             context_str += "Выполненные действия:\n"
-            for i, action in enumerate(state.action_history[-5:], 1):  # Last 5 actions
+            for i, action in enumerate(state.action_history[-5:], 1):
                 obs = next((o for o in state.observations if o.action == action), None)
                 status = "✓" if obs and obs.success else "✗"
                 context_str += f"{i}. {status} {action.tool_name}\n"
         
         if state.observations:
             context_str += "\nПоследние результаты:\n"
-            for obs in state.observations[-3:]:  # Last 3 observations
+            for obs in state.observations[-3:]:
                 result_preview = str(obs.raw_result)[:200]
                 context_str += f"- {obs.action.tool_name}: {result_preview}...\n"
         
@@ -412,9 +390,8 @@ class ReActOrchestrator:
             
             response = await self.llm.ainvoke(messages)
             
-            # Handle different response formats (string or list for Claude extended thinking)
+            # Handle different response formats
             if isinstance(response.content, list):
-                # Extract text from content blocks
                 text_parts = []
                 for block in response.content:
                     if hasattr(block, "text"):
@@ -431,7 +408,7 @@ class ReActOrchestrator:
             
             return thought
         except Exception as e:
-            logger.error(f"[ReActOrchestrator] Error in _think: {e}")
+            logger.error(f"[UnifiedReActEngine] Error in _think: {e}")
             return f"Анализирую ситуацию... (итерация {state.iteration})"
     
     async def _plan_action(
@@ -441,30 +418,13 @@ class ReActOrchestrator:
         context: ConversationContext,
         file_ids: List[str]
     ) -> Dict[str, Any]:
-        """
-        Plan next action based on thought.
+        """Plan next action based on thought."""
+        # Get capability descriptions (filtered by allowed categories)
+        capability_descriptions = []
+        for cap in self.capabilities[:50]:  # Limit to first 50
+            capability_descriptions.append(f"- {cap.name}: {cap.description}")
         
-        Args:
-            state: Current ReAct state
-            thought: Current thought
-            context: Conversation context
-            file_ids: File IDs
-            
-        Returns:
-            Action plan with tool_name, arguments, description
-        """
-        # Build system prompt with available tools
-        try:
-            capabilities = await get_available_capabilities()
-        except:
-            capabilities = {"enabled_servers": [], "tools_by_category": {}}
-        
-        # Get tool descriptions
-        tool_descriptions = []
-        for tool in self.tools[:50]:  # Limit to first 50 tools
-            tool_descriptions.append(f"- {tool.name}: {tool.description}")
-        
-        tools_str = "\n".join(tool_descriptions)
+        tools_str = "\n".join(capability_descriptions)
         
         # Build context
         context_str = f"Цель: {state.goal}\n\n"
@@ -520,7 +480,6 @@ class ReActOrchestrator:
             
             # Handle different response formats
             if isinstance(response.content, list):
-                # Extract text from content blocks
                 text_parts = []
                 for block in response.content:
                     if hasattr(block, "text"):
@@ -550,18 +509,17 @@ class ReActOrchestrator:
             return action_plan
             
         except Exception as e:
-            logger.error(f"[ReActOrchestrator] Error in _plan_action: {e}")
-            # Fallback: return a valid action (use first available tool)
-            fallback_tool = self.tools[0] if self.tools else None
-            if fallback_tool:
+            logger.error(f"[UnifiedReActEngine] Error in _plan_action: {e}")
+            # Fallback
+            if self.capabilities:
+                fallback_cap = self.capabilities[0]
                 return {
-                    "tool_name": fallback_tool.name,
+                    "tool_name": fallback_cap.name,
                     "arguments": {},
-                    "description": f"Fallback: использование {fallback_tool.name}",
+                    "description": f"Fallback: использование {fallback_cap.name}",
                     "reasoning": f"Ошибка планирования: {str(e)}. Используется fallback инструмент."
                 }
             else:
-                # No tools available - return error action
                 return {
                     "tool_name": "error",
                     "arguments": {},
@@ -574,36 +532,12 @@ class ReActOrchestrator:
         action_plan: Dict[str, Any],
         context: ConversationContext
     ) -> Any:
-        """
-        Execute planned action.
-        
-        Args:
-            action_plan: Action plan with tool_name and arguments
-            context: Conversation context
-            
-        Returns:
-            Action result
-        """
-        tool_name = action_plan.get("tool_name")
+        """Execute action through CapabilityRegistry (provider-agnostic)."""
+        capability_name = action_plan.get("tool_name")
         arguments = action_plan.get("arguments", {})
         
-        # Find tool
-        tool = None
-        for t in self.tools:
-            if t.name == tool_name:
-                tool = t
-                break
-        
-        if not tool:
-            raise ValueError(f"Tool not found: {tool_name}")
-        
-        # Execute tool
-        try:
-            result = await tool.ainvoke(arguments)
-            return result
-        except Exception as e:
-            logger.error(f"[ReActOrchestrator] Tool execution failed: {e}")
-            raise
+        # Registry routes to appropriate provider (MCP or A2A)
+        return await self.registry.execute(capability_name, arguments)
     
     async def _find_alternative(
         self,
@@ -612,19 +546,7 @@ class ReActOrchestrator:
         context: ConversationContext,
         file_ids: List[str]
     ) -> Optional[Dict[str, Any]]:
-        """
-        Find alternative action when current one failed.
-        
-        Args:
-            state: Current ReAct state
-            analysis: Analysis of failed action
-            context: Conversation context
-            file_ids: File IDs
-            
-        Returns:
-            Alternative action plan or None
-        """
-        # Build context
+        """Find alternative action when current one failed."""
         context_str = f"Цель: {state.goal}\n\n"
         context_str += f"Ошибка: {analysis.error_message}\n\n"
         context_str += "Неудачные попытки:\n"
@@ -633,12 +555,12 @@ class ReActOrchestrator:
         
         context_str += f"\nИспробованные альтернативы: {', '.join(state.alternatives_tried) if state.alternatives_tried else 'нет'}\n"
         
-        # Get tool descriptions
-        tool_descriptions = []
-        for tool in self.tools[:50]:
-            tool_descriptions.append(f"- {tool.name}: {tool.description}")
+        # Get capability descriptions
+        capability_descriptions = []
+        for cap in self.capabilities[:50]:
+            capability_descriptions.append(f"- {cap.name}: {cap.description}")
         
-        tools_str = "\n".join(tool_descriptions)
+        tools_str = "\n".join(capability_descriptions)
         
         prompt = f"""Предыдущее действие не удалось. Найди альтернативный способ достижения цели.
 
@@ -669,7 +591,6 @@ class ReActOrchestrator:
             
             # Handle different response formats
             if isinstance(response.content, list):
-                # Extract text from content blocks
                 text_parts = []
                 for block in response.content:
                     if hasattr(block, "text"):
@@ -702,7 +623,7 @@ class ReActOrchestrator:
             return alternative
             
         except Exception as e:
-            logger.error(f"[ReActOrchestrator] Error in _find_alternative: {e}")
+            logger.error(f"[UnifiedReActEngine] Error in _find_alternative: {e}")
             return None
     
     async def _finalize_success(
@@ -714,7 +635,6 @@ class ReActOrchestrator:
         """Finalize successful execution."""
         state.status = "done"
         
-        # Build result summary
         result_summary = {
             "status": "completed",
             "goal": state.goal,
@@ -732,21 +652,19 @@ class ReActOrchestrator:
             ]
         }
         
-        # Send completion event
         await self.ws_manager.send_event(
             self.session_id,
             "react_complete",
             {
-                "result": str(final_result)[:1000],  # Truncate
-                "trail": result_summary["reasoning_trail"][-10:]  # Last 10 steps
+                "result": str(final_result)[:1000],
+                "trail": result_summary["reasoning_trail"][-10:]
             }
         )
         
-        # Add to context
         if hasattr(context, 'add_message'):
             context.add_message("assistant", f"Задача выполнена: {state.goal}")
         
-        logger.info(f"[ReActOrchestrator] Successfully completed in {state.iteration} iterations")
+        logger.info(f"[UnifiedReActEngine] Successfully completed in {state.iteration} iterations")
         return result_summary
     
     async def _finalize_failure(
@@ -758,7 +676,6 @@ class ReActOrchestrator:
         """Finalize failed execution with report."""
         state.status = "failed"
         
-        # Build failure report
         failure_report = {
             "status": "failed",
             "goal": state.goal,
@@ -777,7 +694,6 @@ class ReActOrchestrator:
             ]
         }
         
-        # Send failure event
         await self.ws_manager.send_event(
             self.session_id,
             "react_failed",
@@ -787,7 +703,7 @@ class ReActOrchestrator:
             }
         )
         
-        logger.warning(f"[ReActOrchestrator] Failed after {state.iteration} iterations: {failure_report['error']}")
+        logger.warning(f"[UnifiedReActEngine] Failed after {state.iteration} iterations: {failure_report['error']}")
         return failure_report
     
     async def _finalize_timeout(
@@ -824,12 +740,11 @@ class ReActOrchestrator:
             }
         )
         
-        logger.warning(f"[ReActOrchestrator] Timeout after {state.iteration} iterations")
+        logger.warning(f"[UnifiedReActEngine] Timeout after {state.iteration} iterations")
         return timeout_report
     
     async def _stream_reasoning(self, event_type: str, data: Dict[str, Any]):
         """Stream reasoning event to WebSocket."""
-        # Only send if WebSocket is connected (for testing without frontend, this is optional)
         try:
             connection_count = self.ws_manager.get_connection_count(self.session_id)
             if connection_count > 0:
@@ -839,9 +754,7 @@ class ReActOrchestrator:
                     data
                 )
             else:
-                # Log for debugging when no connection (normal for test scripts)
-                logger.debug(f"[ReActOrchestrator] Skipping event {event_type} - no WebSocket connection")
+                logger.debug(f"[UnifiedReActEngine] Skipping event {event_type} - no WebSocket connection")
         except Exception as e:
-            # Don't fail if WebSocket fails (for testing)
-            logger.debug(f"[ReActOrchestrator] Failed to send event {event_type}: {e}")
+            logger.debug(f"[UnifiedReActEngine] Failed to send event {event_type}: {e}")
 
