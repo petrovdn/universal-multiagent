@@ -143,17 +143,22 @@ export function ChatInterface() {
     }
   }, [isAgentTyping, assistantMessages])
 
-  // Hide thinking indicator if reasoning blocks are visible
+  // Hide thinking indicator if reasoning blocks have substantial content
   useEffect(() => {
-    const hasVisibleReasoningBlocks = Object.values(assistantMessages).some(msg => 
-      msg.reasoningBlocks.some(block => 
-        block.isStreaming || (block.content && block.content.trim().length > 0)
-      )
+    if (!showThinkingIndicator) return
+    
+    // Check if reasoning blocks have substantial content (more than 150 characters)
+    const hasSubstantialReasoning = Object.values(assistantMessages).some(msg => 
+      msg.reasoningBlocks.some(block => {
+        const content = block.content?.trim() || ''
+        // Consider substantial if more than 150 characters
+        return content.length > 150
+      })
     )
     
-    if (hasVisibleReasoningBlocks && showThinkingIndicator) {
+    if (hasSubstantialReasoning) {
       // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:reasoningVisible',message:'Hiding thinking indicator - reasoning blocks visible',data:{hasVisibleReasoningBlocks},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:reasoningVisible',message:'Hiding thinking indicator - substantial reasoning content visible',data:{hasSubstantialReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
       // #endregion
       setShowThinkingIndicator(false)
     }
