@@ -1,5 +1,7 @@
 #!/bin/bash
-set -eecho "=== Starting Universal Multi-Agent System ==="
+set -e
+
+echo "=== Starting Universal Multi-Agent System ==="
 
 # Создаем необходимые директории если их нет
 mkdir -p /app/data/tokens
@@ -14,7 +16,9 @@ fi
 
 if [ -z "$GOOGLE_OAUTH_CLIENT_ID" ] || [ -z "$GOOGLE_OAUTH_CLIENT_SECRET" ]; then
     echo "WARNING: Google OAuth credentials not set"
-fi# Запускаем приложение
+fi
+
+# Запускаем приложение
 # Railway предоставляет переменную $PORT, используем её или 8000 по умолчанию
 PORT=${PORT:-8000}
 echo "[DEBUG][HYP-A] Starting FastAPI server on port $PORT..."
@@ -23,4 +27,3 @@ exec python -m uvicorn src.api.server:app \
     --port $PORT \
     --workers 1 \
     --log-level info
-
