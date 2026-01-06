@@ -113,30 +113,34 @@ export function ChatInterface() {
         clearTimeout(thinkingIndicatorTimeoutRef.current)
       }
       
-      // Show indicator after 2 seconds
+      // Show indicator after 1 second, even if reasoning blocks exist but have minimal content
       thinkingIndicatorTimeoutRef.current = setTimeout(() => {
-        const hasReasoningBlocks = Object.values(assistantMessages).some(msg => 
-          msg.reasoningBlocks.some(block => 
-            block.isStreaming || (block.content && block.content.trim().length > 0)
-          )
+        // Check if reasoning blocks have substantial content (more than just "Analyzing..." or similar)
+        const hasSubstantialReasoning = Object.values(assistantMessages).some(msg => 
+          msg.reasoningBlocks.some(block => {
+            const content = block.content?.trim() || ''
+            // Consider substantial if more than 100 characters
+            return content.length > 100
+          })
         )
         
         // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:timeout',message:'Thinking indicator timeout fired',data:{isAgentTyping,hasReasoningBlocks,activeWorkflowId,willShow:!hasReasoningBlocks},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:timeout',message:'Thinking indicator timeout fired',data:{isAgentTyping,hasSubstantialReasoning,activeWorkflowId,willShow:!hasSubstantialReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
         // #endregion
         
-        // Only show if no reasoning blocks are visible yet
-        if (!hasReasoningBlocks) {
+        // Show indicator if reasoning blocks don't have substantial content yet
+        // This allows indicator to show even if small reasoning blocks exist
+        if (!hasSubstantialReasoning) {
           setShowThinkingIndicator(true)
           // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:shown',message:'Thinking indicator shown',data:{isAgentTyping,hasReasoningBlocks},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:shown',message:'Thinking indicator shown',data:{isAgentTyping,hasSubstantialReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
           // #endregion
         } else {
           // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:skipped',message:'Thinking indicator skipped - reasoning blocks already visible',data:{isAgentTyping,hasReasoningBlocks},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:skipped',message:'Thinking indicator skipped - substantial reasoning content already visible',data:{isAgentTyping,hasSubstantialReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
           // #endregion
         }
-      }, 1000) // Changed from 2000ms to 1000ms (1 second)
+      }, 1000) // 1 second
       
       return () => {
         if (thinkingIndicatorTimeoutRef.current) {
