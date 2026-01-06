@@ -128,13 +128,29 @@ if config.is_production:
     if frontend_dist.exists():
         app.mount("/assets", StaticFiles(directory=str(frontend_dist / "assets")), name="assets")
         
+        # Serve favicon explicitly
+        @app.get("/favicon.svg")
+        async def serve_favicon():
+            favicon_path = frontend_dist / "favicon.svg"
+            if favicon_path.exists():
+                return FileResponse(favicon_path, media_type="image/svg+xml")
+            return JSONResponse({"error": "Favicon not found"}, status_code=404)
+        
         @app.get("/{full_path:path}")
         async def serve_frontend(full_path: str):
             """
 Serve frontend files, fallback to index.html for SPA routing."""
             file_path = frontend_dist / full_path
             if file_path.exists() and file_path.is_file():
-                return FileResponse(file_path)
+                # Set correct MIME type for common files
+                media_type = None
+                if full_path.endswith('.svg'):
+                    media_type = "image/svg+xml"
+                elif full_path.endswith('.js'):
+                    media_type = "application/javascript"
+                elif full_path.endswith('.css'):
+                    media_type = "text/css"
+                return FileResponse(file_path, media_type=media_type)
             # Fallback to index.html for client-side routing
             return FileResponse(frontend_dist / "index.html")
 
