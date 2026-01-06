@@ -278,7 +278,7 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
     
     setIsLoading(true)
     try {
-      if (integrations.onec.authenticated) {
+      if (integrations.onec?.authenticated) {
         // If configured, disable it using disable endpoint
         await disableOneC()
         setIntegrationStatus('onec', {
@@ -328,7 +328,7 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
     
     setIsLoading(true)
     try {
-      if (integrations.projectlad.authenticated) {
+      if (integrations.projectlad?.authenticated) {
         // If configured, disable it using disable endpoint
         await disableProjectLad()
         setIntegrationStatus('projectlad', {
@@ -364,14 +364,14 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
           {/* Gmail */}
           <div className="app-menu-item">
             <div className="app-menu-item-left">
-              <div className={`app-icon ${integrations.gmail.authenticated ? 'active' : ''}`}>
+              <div className={`app-icon ${integrations.gmail?.authenticated ? 'active' : ''}`}>
                 <Mail className="w-4 h-4" />
               </div>
               <div className="app-menu-item-info">
                 <div className="app-name">Gmail</div>
                 <div className="app-status">
-                  {integrations.gmail.authenticated 
-                    ? (integrations.gmail.email || 'Подключено')
+                  {integrations.gmail?.authenticated 
+                    ? (integrations.gmail?.email || 'Подключено')
                     : 'Не подключено'}
                 </div>
               </div>
@@ -385,13 +385,13 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
                 onClick={(e) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  handleGmailToggle(!integrations.gmail.authenticated)
+                  handleGmailToggle(!integrations.gmail?.authenticated)
                 }}
                 disabled={isLoading}
                 className="toggle-button"
                 type="button"
               >
-                <div className={`toggle-slider gmail-toggle ${integrations.gmail.authenticated ? 'active' : ''}`}></div>
+                <div className={`toggle-slider gmail-toggle ${integrations.gmail?.authenticated ? 'active' : ''}`}></div>
               </button>
             </div>
           </div>
@@ -399,13 +399,13 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
           {/* Calendar */}
           <div className="app-menu-item">
             <div className="app-menu-item-left">
-              <div className={`app-icon ${integrations.googleCalendar.authenticated ? 'active' : ''}`}>
+              <div className={`app-icon ${integrations.googleCalendar?.authenticated ? 'active' : ''}`}>
                 <Calendar className="w-4 h-4" />
               </div>
               <div className="app-menu-item-info">
                 <div className="app-name">Google Calendar</div>
                 <div className="app-status">
-                  {integrations.googleCalendar.authenticated ? 'Подключено' : 'Не подключено'}
+                  {integrations.googleCalendar?.authenticated ? 'Подключено' : 'Не подключено'}
                 </div>
               </div>
             </div>
@@ -418,13 +418,13 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
                 onClick={(e) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  handleCalendarToggle(!integrations.googleCalendar.authenticated)
+                  handleCalendarToggle(!integrations.googleCalendar?.authenticated)
                 }}
                 disabled={isLoading}
                 className="toggle-button"
                 type="button"
               >
-                <div className={`toggle-slider calendar-toggle ${integrations.googleCalendar.authenticated ? 'active' : ''}`}></div>
+                <div className={`toggle-slider calendar-toggle ${integrations.googleCalendar?.authenticated ? 'active' : ''}`}></div>
               </button>
             </div>
           </div>
@@ -432,13 +432,13 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
           {/* Sheets */}
           <div className="app-menu-item">
             <div className="app-menu-item-left">
-              <div className={`app-icon ${integrations.googleSheets.authenticated ? 'active' : ''}`} style={{ backgroundColor: integrations.googleSheets.authenticated ? '#0f9d58' : '#94a3b8', color: 'white' }}>
+              <div className={`app-icon ${integrations.googleSheets?.authenticated ? 'active' : ''}`} style={{ backgroundColor: integrations.googleSheets?.authenticated ? '#0f9d58' : '#94a3b8', color: 'white' }}>
                 <FileSpreadsheet className="w-4 h-4" />
               </div>
               <div className="app-menu-item-info">
                 <div className="app-name">Google Sheets</div>
                 <div className="app-status">
-                  {integrations.googleSheets.authenticated ? 'Подключено' : 'Не подключено'}
+                  {integrations.googleSheets?.authenticated ? 'Подключено' : 'Не подключено'}
                 </div>
               </div>
             </div>
@@ -451,13 +451,13 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
                 onClick={(e) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  handleSheetsToggle(!integrations.googleSheets.authenticated)
+                  handleSheetsToggle(!integrations.googleSheets?.authenticated)
                 }}
                 disabled={isLoading}
                 className="toggle-button"
                 type="button"
               >
-                <div className={`toggle-slider ${integrations.googleSheets.authenticated ? 'active' : ''}`} style={{ backgroundColor: integrations.googleSheets.authenticated ? '#0f9d58' : '#cbd5e1' }}></div>
+                <div className={`toggle-slider ${integrations.googleSheets?.authenticated ? 'active' : ''}`} style={{ backgroundColor: integrations.googleSheets?.authenticated ? '#0f9d58' : '#cbd5e1' }}></div>
               </button>
             </div>
           </div>
@@ -465,22 +465,22 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
           {/* Workspace */}
           <div className="app-menu-item">
             <div className="app-menu-item-left">
-              <div className={`app-icon ${integrations.googleWorkspace.enabled ? 'active' : ''}`}>
+              <div className={`app-icon ${integrations.googleWorkspace?.enabled ? 'active' : ''}`}>
                 <Folder className="w-4 h-4" />
               </div>
               <div className="app-menu-item-info">
                 <div className="app-name">Google Workspace</div>
                 <div className="app-status">
-                  {integrations.googleWorkspace.authenticated 
-                    ? (integrations.googleWorkspace.folderConfigured
-                        ? (integrations.googleWorkspace.folderName || 'Папка настроена')
+                  {integrations.googleWorkspace?.authenticated 
+                    ? (integrations.googleWorkspace?.folderConfigured
+                        ? (integrations.googleWorkspace?.folderName || 'Папка настроена')
                         : 'Требуется выбор папки')
                     : 'Не подключено'}
                 </div>
               </div>
             </div>
             <div className="app-menu-item-right">
-              {integrations.googleWorkspace.enabled && (
+              {integrations.googleWorkspace?.enabled && (
                 <button 
                   className="app-settings-btn" 
                   title="Настройки"
@@ -506,13 +506,13 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
                 onClick={(e) => {
                   e.preventDefault()
                   e.stopPropagation()
-                  handleWorkspaceToggle(!integrations.googleWorkspace.enabled)
+                  handleWorkspaceToggle(!integrations.googleWorkspace?.enabled)
                 }}
                 disabled={isLoading}
                 className="toggle-button"
                 type="button"
               >
-                <div className={`toggle-slider workspace-toggle ${integrations.googleWorkspace.enabled ? 'active' : ''}`}></div>
+                <div className={`toggle-slider workspace-toggle ${integrations.googleWorkspace?.enabled ? 'active' : ''}`}></div>
               </button>
             </div>
           </div>
@@ -520,18 +520,18 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
           {/* 1C */}
           <div className="app-menu-item">
             <div className="app-menu-item-left">
-              <div className={`app-icon ${integrations.onec.authenticated ? 'active' : ''}`} style={{ backgroundColor: integrations.onec.authenticated ? '#1c64f2' : '#94a3b8', color: 'white' }}>
+              <div className={`app-icon ${integrations.onec?.authenticated ? 'active' : ''}`} style={{ backgroundColor: integrations.onec?.authenticated ? '#1c64f2' : '#94a3b8', color: 'white' }}>
                 <Database className="w-4 h-4" />
               </div>
               <div className="app-menu-item-info">
                 <div className="app-name">1С:Бухгалтерия</div>
                 <div className="app-status">
-                  {integrations.onec.authenticated ? 'Настроено' : 'Не настроено'}
+                  {integrations.onec?.authenticated ? 'Настроено' : 'Не настроено'}
                 </div>
               </div>
             </div>
             <div className="app-menu-item-right">
-              {integrations.onec.authenticated && (
+              {integrations.onec?.authenticated && (
                 <button 
                   className="app-settings-btn" 
                   title="Настройки"
@@ -563,7 +563,7 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
                 className="toggle-button"
                 type="button"
               >
-                <div className={`toggle-slider onec-toggle ${integrations.onec.authenticated ? 'active' : ''}`}></div>
+                <div className={`toggle-slider onec-toggle ${integrations.onec?.authenticated ? 'active' : ''}`}></div>
               </button>
             </div>
           </div>
@@ -571,18 +571,18 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
           {/* Project Lad */}
           <div className="app-menu-item">
             <div className="app-menu-item-left">
-              <div className={`app-icon ${integrations.projectlad.authenticated ? 'active' : ''}`} style={{ backgroundColor: integrations.projectlad.authenticated ? '#8b5cf6' : '#94a3b8', color: 'white' }}>
+              <div className={`app-icon ${integrations.projectlad?.authenticated ? 'active' : ''}`} style={{ backgroundColor: integrations.projectlad?.authenticated ? '#8b5cf6' : '#94a3b8', color: 'white' }}>
                 <Folder className="w-4 h-4" />
               </div>
               <div className="app-menu-item-info">
                 <div className="app-name">Project Lad</div>
                 <div className="app-status">
-                  {integrations.projectlad.authenticated ? 'Настроено' : 'Не настроено'}
+                  {integrations.projectlad?.authenticated ? 'Настроено' : 'Не настроено'}
                 </div>
               </div>
             </div>
             <div className="app-menu-item-right">
-              {integrations.projectlad.authenticated && (
+              {integrations.projectlad?.authenticated && (
                 <button 
                   className="app-settings-btn" 
                   title="Настройки"
@@ -614,7 +614,7 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
                 className="toggle-button"
                 type="button"
               >
-                <div className={`toggle-slider projectlad-toggle ${integrations.projectlad.authenticated ? 'active' : ''}`}></div>
+                <div className={`toggle-slider projectlad-toggle ${integrations.projectlad?.authenticated ? 'active' : ''}`}></div>
               </button>
             </div>
           </div>
