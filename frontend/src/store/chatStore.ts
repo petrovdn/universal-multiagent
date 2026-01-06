@@ -278,6 +278,7 @@ export const useChatStore = create<ChatState>()(
           if (!message) {
             // Only create message if we have content (non-empty)
             if (content && content.trim().length > 0) {
+              console.log('[chatStore] updateReasoningBlock: Creating new assistant message', { messageId, blockId, contentLength: content.length, contentPreview: content.substring(0, 100) })
               const newBlock: ReasoningBlock = {
                 id: blockId,
                 content,
@@ -293,6 +294,7 @@ export const useChatStore = create<ChatState>()(
                 debugChunks: [],
                 isComplete: false,
               }
+              console.log('[chatStore] updateReasoningBlock: New message created', { messageId, reasoningBlocksCount: newMessage.reasoningBlocks.length })
               return {
                 assistantMessages: {
                   ...state.assistantMessages,
@@ -300,7 +302,9 @@ export const useChatStore = create<ChatState>()(
                 },
               }
             } else {
-              // No content yet, don't create message - wait for next updatereturn state
+              // No content yet, don't create message - wait for next update
+              console.log('[chatStore] updateReasoningBlock: No content, not creating message yet', { messageId, blockId, contentLength: content?.length })
+              return state
             }
           }
           
@@ -310,6 +314,7 @@ export const useChatStore = create<ChatState>()(
           
           if (blockExists) {
             // Block exists, update it
+            console.log('[chatStore] updateReasoningBlock: Updating existing block', { messageId, blockId, contentLength: content.length })
             updatedBlocks = message.reasoningBlocks.map((block) =>
               block.id === blockId
                 ? { ...block, content, isStreaming: true }
@@ -317,6 +322,7 @@ export const useChatStore = create<ChatState>()(
             )
           } else {
             // Block doesn't exist, create it (this can happen if startReasoningBlock was skipped)
+            console.log('[chatStore] updateReasoningBlock: Creating new block in existing message', { messageId, blockId, contentLength: content.length })
             const newBlock: ReasoningBlock = {
               id: blockId,
               content,
@@ -324,7 +330,11 @@ export const useChatStore = create<ChatState>()(
               timestamp: new Date().toISOString(),
             }
             updatedBlocks = [...message.reasoningBlocks, newBlock]
-          }return {
+          }
+          
+          console.log('[chatStore] updateReasoningBlock: Final state', { messageId, blocksCount: updatedBlocks.length, totalContentLength: updatedBlocks.reduce((sum, b) => sum + (b.content?.length || 0), 0) })
+          
+          return {
             assistantMessages: {
               ...state.assistantMessages,
               [messageId]: {
@@ -422,7 +432,9 @@ export const useChatStore = create<ChatState>()(
                 },
               }
             } else {
-              // No content yet, don't create message - wait for next updatereturn state
+              // No content yet, don't create message - wait for next update
+              console.log('[chatStore] updateAnswerBlock: No content, not creating message yet', { messageId, blockId, contentLength: content?.length })
+              return state
             }
           }
           

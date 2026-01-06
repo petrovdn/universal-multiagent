@@ -977,7 +977,17 @@ export class WebSocketClient {
         
         const thought = event.data.thought || 'Анализирую ситуацию...'
         const iteration = event.data.iteration || 1
-        const thinkingContent = `**Итерация ${iteration} - Анализ:**\n\n${thought}`
+        
+        // Append to existing content instead of replacing
+        const state = useChatStore.getState()
+        const message = state.assistantMessages[thinkingMsgId]
+        const existingContent = message?.reasoningBlocks.find(b => b.id === this.currentReasoningBlockId)?.content || ''
+        
+        const thinkingContent = existingContent 
+          ? `${existingContent}\n\n**Итерация ${iteration} - Анализ:**\n\n${thought}`
+          : `**Итерация ${iteration} - Анализ:**\n\n${thought}`
+        
+        console.log('[WebSocket] Updating reasoning block with thinking content, length:', thinkingContent.length)
         chatStore.updateReasoningBlock(thinkingMsgId, this.currentReasoningBlockId, thinkingContent)
         addDebugChunkIfEnabled(thinkingMsgId, 'thinking', thought, event.data)
         break
@@ -1000,7 +1010,17 @@ export class WebSocketClient {
         const action = event.data.action || 'Выполнение действия...'
         const tool = event.data.tool || 'unknown'
         const iteration = event.data.iteration || 1
-        const actionContent = `**Итерация ${iteration} - Действие:**\n\n🔧 **Инструмент:** \`${tool}\`\n📝 **Описание:** ${action}`
+        
+        // Append to existing content instead of replacing
+        const state = useChatStore.getState()
+        const message = state.assistantMessages[actionMsgId]
+        const existingContent = message?.reasoningBlocks.find(b => b.id === this.currentReasoningBlockId)?.content || ''
+        
+        const actionContent = existingContent
+          ? `${existingContent}\n\n**Итерация ${iteration} - Действие:**\n\n🔧 **Инструмент:** \`${tool}\`\n📝 **Описание:** ${action}`
+          : `**Итерация ${iteration} - Действие:**\n\n🔧 **Инструмент:** \`${tool}\`\n📝 **Описание:** ${action}`
+        
+        console.log('[WebSocket] Updating reasoning block with action content, length:', actionContent.length)
         chatStore.updateReasoningBlock(actionMsgId, this.currentReasoningBlockId, actionContent)
         addDebugChunkIfEnabled(actionMsgId, 'tool_call', `Tool: ${tool}`, event.data)
         break
@@ -1022,7 +1042,17 @@ export class WebSocketClient {
         
         const result = event.data.result || 'Результат получен'
         const iteration = event.data.iteration || 1
-        const obsContent = `**Итерация ${iteration} - Наблюдение:**\n\n📊 **Результат:** ${result.substring(0, 500)}${result.length > 500 ? '...' : ''}`
+        
+        // Append to existing content instead of replacing
+        const state = useChatStore.getState()
+        const message = state.assistantMessages[obsMsgId]
+        const existingContent = message?.reasoningBlocks.find(b => b.id === this.currentReasoningBlockId)?.content || ''
+        
+        const obsContent = existingContent
+          ? `${existingContent}\n\n**Итерация ${iteration} - Наблюдение:**\n\n📊 **Результат:** ${result.substring(0, 500)}${result.length > 500 ? '...' : ''}`
+          : `**Итерация ${iteration} - Наблюдение:**\n\n📊 **Результат:** ${result.substring(0, 500)}${result.length > 500 ? '...' : ''}`
+        
+        console.log('[WebSocket] Updating reasoning block with observation content, length:', obsContent.length)
         chatStore.updateReasoningBlock(obsMsgId, this.currentReasoningBlockId, obsContent)
         addDebugChunkIfEnabled(obsMsgId, 'tool_result', result, event.data)
         break

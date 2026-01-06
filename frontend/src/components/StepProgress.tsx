@@ -156,9 +156,6 @@ function isEnglishText(text: string): boolean {
   // Проверяем английские ключевые слова действий в начале строки (с заглавной буквы)
   const startsWithEnglishAction = /^(Get|Create|Insert|Update|Read|Write|Search|Open|Find|Append)\s+[A-Z]/
   if (startsWithEnglishAction.test(trimmed)) {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:isEnglishText:starts-with-action',message:'Detected English text (starts with action)',data:{text:trimmed.substring(0,80)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-    // #endregion
     return true
   }
   
@@ -181,9 +178,6 @@ function isEnglishText(text: string): boolean {
   
   for (const pattern of englishPatterns) {
     if (pattern.test(trimmed)) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:isEnglishText:pattern-match',message:'Detected English text (pattern match)',data:{text:trimmed.substring(0,80),pattern:pattern.toString()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       return true
     }
   }
@@ -198,9 +192,6 @@ function isEnglishText(text: string): boolean {
   
   for (const phrase of englishActionPhrases) {
     if (normalized.includes(phrase)) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:isEnglishText:phrase-match',message:'Detected English text (phrase match)',data:{text:trimmed.substring(0,80),phrase,normalized},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       return true
     }
   }
@@ -218,9 +209,6 @@ function translateToolNames(text: string): string {
   translated = translated.replace(/Create\s+Presentation\s+From\s+Doc/gi, 'Создаю презентацию из документа')
   translated = translated.replace(/Create\s+Presentation\s+['"]([^'"]+)['"]\s*\.{0,3}/gi, (match, name) => {
     const result = `Создаю презентацию '${name}'`
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:translateToolNames:presentation-with-name',message:'Translated Create Presentation with name',data:{original:match,result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     return result
   })
   translated = translated.replace(/Create\s+Presentation/gi, 'Создаю презентацию')
@@ -228,9 +216,6 @@ function translateToolNames(text: string): string {
   // "Create Slide 'название'..." -> "Создаю слайд 'название'"
   translated = translated.replace(/Create\s+Slide\s+['"]([^'"]+)['"]\s*\.{0,3}/gi, (match, name) => {
     const result = `Создаю слайд "${name}"`
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:translateToolNames:slide-with-name',message:'Translated Create Slide with name',data:{original:match,result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     return result
   })
   translated = translated.replace(/Create\s+Slide/gi, 'Создаю слайд')
@@ -258,20 +243,14 @@ function translateToolNames(text: string): string {
     })
   }
   
-  // #region agent log
   if (originalText !== translated) {
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:translateToolNames:result',message:'Translation result',data:{original:originalText.substring(0,100),translated:translated.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
   }
-  // #endregion
   
   return translated
 }
 
 // Извлечение деталей действия (название слайда, текст и т.д.)
 function extractActionDetails(actionText: string, fullText?: string): { title: string, details?: string, hasText?: boolean, textContent?: string } {
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:extractActionDetails:entry',message:'Extracting action details',data:{actionText:actionText.substring(0,100),hasFullText:!!fullText},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-  // #endregion
   
   // Паттерны для извлечения деталей
   // "Создаю слайд 'Введение'" -> title: "Создаю слайд", details: "Введение"
@@ -291,9 +270,6 @@ function extractActionDetails(actionText: string, fullText?: string): { title: s
         return m.replace(`"${slideName}"`, '').replace(`'${slideName}'`, '').replace(/\.{2,}/g, '').trim()
       }).trim()
       
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:extractActionDetails:slide-name-found',message:'Found slide name in action text',data:{actionText:actionText.substring(0,80),slideName,title},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       
       return {
         title: title || 'Создаю слайд',
@@ -309,9 +285,6 @@ function extractActionDetails(actionText: string, fullText?: string): { title: s
     const inlineMatch = actionText.match(/(?:Создаю|Добавляю)\s+слайд\s+["']([^"']{3,100})["']/i)
     if (inlineMatch && inlineMatch[1]) {
       const slideName = inlineMatch[1]
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:extractActionDetails:slide-name-inline',message:'Found slide name inline in action text',data:{actionText:actionText.substring(0,80),slideName},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       return {
         title: actionText.replace(/["']([^"']+)["']/, '').replace(/\.{2,}/g, '').trim(),
         details: slideName
@@ -342,9 +315,6 @@ function extractActionDetails(actionText: string, fullText?: string): { title: s
               !slideName.match(/^(Create|Insert|Update|Get|Read|Write|Search|Open|Find|Append)/i) &&
               !slideName.match(/^(Создаю|Добавляю|Вставляю|Готово|Выполнено)/i) &&
               !slideName.match(/\.{2,}$/)) {
-            // #region agent log
-            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:extractActionDetails:slide-name-found-in-result',message:'Found slide name in result section',data:{actionText:actionText.substring(0,80),slideName,searchStartIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-            // #endregion
             return {
               title: actionText.replace(/\.{2,}/g, '').trim(),
               details: slideName
@@ -364,9 +334,6 @@ function extractActionDetails(actionText: string, fullText?: string): { title: s
           if (nameMatch && nameMatch[1].length >= 3 && nameMatch[1].length < 100 &&
               !nameMatch[1].match(/^(Create|Insert|Update|Get|Read|Write|Search|Open|Find|Append)/i) &&
               !nameMatch[1].match(/^(Создаю|Добавляю|Вставляю|Готово|Выполнено)/i)) {
-            // #region agent log
-            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:extractActionDetails:slide-name-found-after-action',message:'Found slide name after action',data:{actionText:actionText.substring(0,80),slideName:nameMatch[1]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-            // #endregion
             return {
               title: actionText.replace(/\.{2,}/g, '').trim(),
               details: nameMatch[1]
@@ -496,9 +463,6 @@ function parseActionsFromText(text: string, isStreaming: boolean, fullResponse?:
   // Переводим все строки и сохраняем соответствие оригинал -> перевод
   const translatedLines = lines.map(line => {
     const translated = translateToolNames(line)
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:parseActionsFromText:translate',message:'Translating line',data:{original:line.substring(0,100),translated:translated.substring(0,100)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     return {
       original: line,
       translated: translated
@@ -535,17 +499,11 @@ function parseActionsFromText(text: string, isStreaming: boolean, fullResponse?:
   
   // Фильтруем: убираем строки на английском (не переведённые)
   // Проверяем и оригинал, и перевод - если перевод всё ещё содержит английские паттерны, значит он не переведён
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:parseActionsFromText:before-filter',message:'Before filtering English lines',data:{uniqueLinesCount:uniqueLines.length,uniqueLines:uniqueLines.map(l=>({original:l.original.substring(0,50),translated:l.translated.substring(0,50)}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
   const translatedOnlyLines = uniqueLines
     .filter(({ original, translated }) => {
       // Если оригинал английский И перевод тоже английский (не изменился), фильтруем
       const isOriginalEnglish = isEnglishText(original)
       const isTranslatedEnglish = isEnglishText(translated)
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:parseActionsFromText:filter-check',message:'Checking if line is English',data:{original:original.substring(0,80),translated:translated.substring(0,80),isOriginalEnglish,isTranslatedEnglish,willFilter:isOriginalEnglish&&isTranslatedEnglish},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       // Если оба английские, значит перевод не сработал - фильтруем
       if (isOriginalEnglish && isTranslatedEnglish) {
         return false
@@ -556,9 +514,6 @@ function parseActionsFromText(text: string, isStreaming: boolean, fullResponse?:
       return true
     })
     .map(({ translated }) => translated)
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:parseActionsFromText:after-filter',message:'After filtering English lines',data:{translatedOnlyLinesCount:translatedOnlyLines.length,translatedOnlyLines:translatedOnlyLines.map(l=>l.substring(0,50))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-  // #endregion
   if (translatedOnlyLines.length === 0) {
     return []
   }
@@ -606,9 +561,6 @@ function parseActionsFromText(text: string, isStreaming: boolean, fullResponse?:
     
     // Извлекаем детали действия
     const actionDetails = extractActionDetails(trimmed, fullResponse)
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:parseActionsFromText:extract-details',message:'Extracting action details',data:{actionText:trimmed.substring(0,80),title:actionDetails.title.substring(0,80),details:actionDetails.details?.substring(0,80),hasText:actionDetails.hasText,textContentLength:actionDetails.textContent?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-    // #endregion
     
     result.push({
       icon: isDone ? '✓' : '○',
@@ -651,15 +603,9 @@ export function StepProgress({ workflowId }: StepProgressProps) {
   // Функция для обновления действий с учётом предыдущего состояния
   const getUpdatedActions = React.useCallback((stepNumber: number, newActions: Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean }>): Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean }> => {
     const previousActions = previousActionsRef.current[stepNumber] || []
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:entry',message:'getUpdatedActions called',data:{stepNumber,previousActionsCount:previousActions.length,newActionsCount:newActions.length,previousActions:previousActions.map(a=>({text:a.text.substring(0,40),status:a.status})),newActions:newActions.map(a=>({text:a.text.substring(0,40),status:a.status}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     if (previousActions.length === 0) {
       // Первый раз - просто сохраняем
       previousActionsRef.current[stepNumber] = [...newActions]
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:first-time',message:'First time, returning newActions',data:{newActionsCount:newActions.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       return newActions
     }
     
@@ -676,9 +622,6 @@ export function StepProgress({ workflowId }: StepProgressProps) {
     // Обрабатываем новые действия
     for (const newAction of newActions) {
       const key = extractActionKey(newAction.text)
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:processing',message:'Processing new action',data:{key,newActionText:newAction.text.substring(0,40),newActionStatus:newAction.status,hasPrevious:previousMap.has(key)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       if (processedKeys.has(key)) {
         continue // Пропускаем дубликаты
       }
@@ -691,34 +634,22 @@ export function StepProgress({ workflowId }: StepProgressProps) {
         // Обновляем существующее действие
         // Если статус изменился с pending на done, обновляем
         if (previousAction.status === 'pending' && newAction.status === 'done') {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:update-pending-to-done',message:'Updating pending to done',data:{key,text:newAction.text.substring(0,40)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
           result.push(newAction)
         } else if (previousAction.status === 'pending' && newAction.status === 'pending') {
           // Обновляем текст, но сохраняем pending
           result.push({ ...newAction, text: newAction.text })
         } else {
           // Сохраняем предыдущее состояние, если оно done
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:keep-previous',message:'Keeping previous done action',data:{key,text:previousAction.text.substring(0,40),status:previousAction.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
           result.push(previousAction)
         }
       } else {
         // Новое действие - добавляем
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:add-new',message:'Adding new action',data:{key,text:newAction.text.substring(0,40),status:newAction.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         result.push(newAction)
       }
     }
     
     // Сохраняем обновлённое состояние
     previousActionsRef.current[stepNumber] = [...result]
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:getUpdatedActions:exit',message:'getUpdatedActions returning result',data:{resultCount:result.length,result:result.map(a=>({text:a.text.substring(0,40),status:a.status,icon:a.icon}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     return result
   }, [])
 
@@ -743,21 +674,12 @@ export function StepProgress({ workflowId }: StepProgressProps) {
         
         // Parse response into action preparation and result
         const { actionPreparation, result } = parseStepResponse(response)
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:render:before-parse',message:'Before parsing actions',data:{stepNumber,actionPreparation:actionPreparation.substring(0,200),result:result.substring(0,300),fullResponse:response.substring(0,500),isStepStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
         // Parse actions for log (передаём полный response для извлечения текста и названий слайдов)
         // Если response пустой, используем actionPreparation + result как fallback
         const fullTextForExtraction = response || (actionPreparation + '\n' + result)
         const rawActions = parseActionsFromText(actionPreparation, isStepStreaming, fullTextForExtraction)
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:render:after-parse',message:'After parsing actions',data:{stepNumber,rawActionsCount:rawActions.length,rawActions:rawActions.map(a=>({text:a.text.substring(0,50),status:a.status,icon:a.icon}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
         // Обновляем действия с учётом предыдущего состояния (обновление вместо добавления)
         const actions = getUpdatedActions(stepNumber, rawActions)
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'StepProgress.tsx:render:after-update',message:'After updating actions',data:{stepNumber,actionsCount:actions.length,actions:actions.map(a=>({text:a.text.substring(0,50),status:a.status,icon:a.icon}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
 
         return (
           <div key={stepNumber} style={{ marginBottom: '6px' }}>

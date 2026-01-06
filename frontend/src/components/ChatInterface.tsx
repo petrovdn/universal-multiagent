@@ -787,7 +787,20 @@ export function ChatInterface() {
             return null
           }
           
+          console.log('[ChatInterface] Rendering assistant messages', { 
+            count: assistantMessagesArray.length, 
+            messageIds: assistantMessagesArray.map(m => m.id),
+            executionMode 
+          })
+          
           return assistantMessagesArray.map((assistantMsg) => {
+            console.log('[ChatInterface] Processing assistant message', { 
+              id: assistantMsg.id, 
+              reasoningBlocksCount: assistantMsg.reasoningBlocks.length,
+              answerBlocksCount: assistantMsg.answerBlocks.length,
+              executionMode
+            })
+            
             // Check if workflow exists - multi-step tasks use workflow system exclusively
             const userMessages = messages.filter(m => m.role === 'user')
             if (userMessages.length > 0) {
@@ -797,18 +810,26 @@ export function ChatInterface() {
               
               // Don't render assistant-message-wrapper if workflow exists
               // Multi-step workflows display content through PlanBlock, StepProgress, FinalResultBlock
-              if (lastUserWorkflow) {
+              // BUT: For ReAct mode, always render assistant messages (no workflow system)
+              if (lastUserWorkflow && executionMode !== 'react') {
                 // Simple task: no plan or plan has no steps
                 const isSimpleTask = !lastUserWorkflow.plan || !lastUserWorkflow.plan.steps || lastUserWorkflow.plan.steps.length === 0
                 
                 // For simple tasks, don't render ChatMessage (reasoning/answer blocks)
                 // The result will be shown in FinalResultBlock instead
                 if (isSimpleTask) {
+                  console.log('[ChatInterface] Skipping assistant message - simple task with workflow', { messageId: assistantMsg.id })
                   return null
                 }
                 
                 // For multi-step workflows, also don't render ChatMessage
+                console.log('[ChatInterface] Skipping assistant message - multi-step workflow', { messageId: assistantMsg.id })
                 return null
+              }
+              
+              // For ReAct mode, always render assistant messages (even if workflow exists)
+              if (executionMode === 'react') {
+                console.log('[ChatInterface] Rendering assistant message for ReAct mode', { messageId: assistantMsg.id })
               }
               
               // No workflow - render normally
@@ -829,8 +850,18 @@ export function ChatInterface() {
           )
           const hasContent = hasReasoningContent || hasAnswerContent
           
+          console.log('[ChatInterface] Checking content for assistant message', {
+            messageId: assistantMsg.id,
+            reasoningBlocksCount: assistantMsg.reasoningBlocks.length,
+            reasoningBlocksContent: assistantMsg.reasoningBlocks.map(b => ({ id: b.id, contentLength: b.content?.length || 0, contentPreview: b.content?.substring(0, 50) })),
+            hasReasoningContent,
+            hasAnswerContent,
+            hasContent
+          })
+          
           // Если нет реального контента, не рендерим wrapper (ChatMessage вернет null)
           if (!hasContent) {
+            console.log('[ChatInterface] No content, skipping assistant message', { messageId: assistantMsg.id })
             return null
           }
           
@@ -842,6 +873,20 @@ export function ChatInterface() {
           // We need to check this BEFORE rendering the wrapper to avoid empty blocks
           
           // Simulate the reasoningAnswerPairs grouping logic from ChatMessage
+          // Extract variables outside IIFE for logging
+          const hasValidReasoning = assistantMsg.reasoningBlocks.some(block => 
+            block.content && block.content.trim().length > 0
+          )
+          const hasValidAnswer = assistantMsg.answerBlocks.some(block => 
+            block.content && block.content.trim().length > 0
+          )
+          const willRenderReasoning = assistantMsg.reasoningBlocks.some(block => 
+            block.content && block.content.trim().length > 0
+          )
+          const willRenderAnswer = assistantMsg.answerBlocks.some(block => 
+            block.content && block.content.trim().length > 0
+          )
+          
           const willChatMessageRender = (() => {
             // If no content blocks at all, ChatMessage will return null
             if (!hasContent) {
@@ -850,13 +895,6 @@ export function ChatInterface() {
             
             // Check if there will be any valid pairs (mimicking ChatMessage logic)
             // A pair is valid if it has at least one block with content
-            const hasValidReasoning = assistantMsg.reasoningBlocks.some(block => 
-              block.content && block.content.trim().length > 0
-            )
-            const hasValidAnswer = assistantMsg.answerBlocks.some(block => 
-              block.content && block.content.trim().length > 0
-            )
-            
             // If we have at least one valid block, there will be at least one pair
             // But we also need to check that the pair will actually render content
             // (ReasoningBlock and AnswerBlock can return null if content is empty)
@@ -867,19 +905,25 @@ export function ChatInterface() {
             // Additional check: verify that blocks will actually render
             // ReasoningBlock returns null if content is empty (even if isStreaming)
             // So we need to ensure content exists
-            const willRenderReasoning = assistantMsg.reasoningBlocks.some(block => 
-              block.content && block.content.trim().length > 0
-            )
-            const willRenderAnswer = assistantMsg.answerBlocks.some(block => 
-              block.content && block.content.trim().length > 0
-            )
-            
             return willRenderReasoning || willRenderAnswer
           })()
           
+          console.log('[ChatInterface] willChatMessageRender check', {
+            messageId: assistantMsg.id,
+            willChatMessageRender,
+            hasContent,
+            hasValidReasoning,
+            hasValidAnswer,
+            willRenderReasoning,
+            willRenderAnswer
+          })
+          
           if (!willChatMessageRender) {
+            console.log('[ChatInterface] ChatMessage will not render, skipping', { messageId: assistantMsg.id })
             return null
           }
+          
+          console.log('[ChatInterface] Rendering assistant message', { messageId: assistantMsg.id })
           
           return (
             <div key={assistantMsg.id} className="assistant-message-wrapper">

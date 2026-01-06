@@ -30,13 +30,7 @@ const useWorkspaceStore = create<WorkspaceStore>()(
           spreadsheetId: tabData.data?.spreadsheetId,
           action: tabData.data?.action
         })
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:entry',message:'addTab called',data:{type:tabData.type,title:tabData.title,spreadsheetId:tabData.data?.spreadsheetId,action:tabData.data?.action},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
         set((state) => {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:before_check',message:'Before checking existing tabs',data:{type:tabData.type,spreadsheetId:tabData.data?.spreadsheetId,currentTabsCount:state.tabs.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-          // #endregion
           
           // Check if tab with same spreadsheetId already exists (for sheets tabs)
           if (tabData.type === 'sheets' && tabData.data?.spreadsheetId) {
@@ -45,9 +39,6 @@ const useWorkspaceStore = create<WorkspaceStore>()(
               t => t.type === 'sheets' && t.data?.spreadsheetId === tabData.data?.spreadsheetId
             )
             
-            // #region agent log
-            fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:after_check',message:'After checking existing tabs',data:{spreadsheetId:tabData.data?.spreadsheetId,existingTabFound:!!existingTab,existingTabId:existingTab?.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-            // #endregion
             
             if (existingTab) {
               console.log('[WorkspaceStore] Found existing tab, updating:', existingTab.id)
@@ -73,9 +64,6 @@ const useWorkspaceStore = create<WorkspaceStore>()(
                   : t
               )
               
-              // #region agent log
-              fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:updating_existing',message:'Updating existing tab',data:{existingTabId:existingTab.id,spreadsheetId:tabData.data?.spreadsheetId,newActiveTabId:existingTab.id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-              // #endregion
               
               return {
                 tabs: updatedTabs,
@@ -117,9 +105,6 @@ const useWorkspaceStore = create<WorkspaceStore>()(
             isPanelVisible: true, // Ensure panel is visible
           }
           
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:creating_new',message:'Creating new tab',data:{newTabId:newTab.id,type:newTab.type,title:newTab.title,spreadsheetId:tabData.data?.spreadsheetId,newActiveTabId:newTab.id,tabsCount:finalState.tabs.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-          // #endregion
           
           console.log('[WorkspaceStore] Tab added, new state:', {
             tabsCount: finalState.tabs.length,
@@ -133,10 +118,7 @@ const useWorkspaceStore = create<WorkspaceStore>()(
 
         get().saveToLocalStorage()
         
-        // #region agent log
         const finalTabs = get().tabs
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'workspaceStore.ts:addTab:completed',message:'addTab completed',data:{finalTabsCount:finalTabs.length,activeTabId:get().activeTabId,isPanelVisible:get().isPanelVisible,tabs:finalTabs.map(t=>({id:t.id,type:t.type,title:t.title,spreadsheetId:t.data?.spreadsheetId}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-        // #endregion
         
         console.log('[WorkspaceStore] addTab completed, final tabs:', get().tabs.map(t => ({ id: t.id, type: t.type, title: t.title })))
       },

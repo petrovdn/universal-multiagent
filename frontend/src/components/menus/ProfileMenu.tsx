@@ -32,15 +32,9 @@ export function ProfileMenu({ isOpen, onClose }: ProfileMenuProps) {
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as Node
       const isInside = menuRef.current?.contains(target)
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProfileMenu.tsx:handleClickOutside',message:'Click outside handler',data:{targetTagName:(target as HTMLElement)?.tagName,targetClassName:(target as HTMLElement)?.className,isInside,willClose:!isInside},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-      // #endregion
       // Don't close if clicking on a button inside the menu
       const targetElement = target as HTMLElement
       if (targetElement?.closest('button')) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProfileMenu.tsx:handleClickOutside:button_click',message:'Click on button inside menu, not closing',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
         return
       }
       if (menuRef.current && !isInside) {
@@ -66,36 +60,18 @@ export function ProfileMenu({ isOpen, onClose }: ProfileMenuProps) {
   }
 
   const handleLogout = async () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProfileMenu.tsx:handleLogout:entry',message:'handleLogout called',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProfileMenu.tsx:handleLogout:before_logout',message:'About to call logout API',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       await logout()
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProfileMenu.tsx:handleLogout:after_logout',message:'Logout API call successful',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       setCurrentUser(null)
       onClose()
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProfileMenu.tsx:handleLogout:before_redirect',message:'About to redirect to /',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       window.location.href = '/'
     } catch (err) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProfileMenu.tsx:handleLogout:error',message:'Logout error',data:{error:String(err),errorType:err?.constructor?.name},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       console.error('Logout error:', err)
     }
   }
 
   if (!isOpen) return null
 
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProfileMenu.tsx:render',message:'ProfileMenu rendering',data:{isOpen,currentUser,hasCurrentUser:!!currentUser},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-  // #endregion
 
   return (
     <div className="profile-menu-dropdown" ref={menuRef}>
@@ -131,17 +107,11 @@ export function ProfileMenu({ isOpen, onClose }: ProfileMenuProps) {
           <button 
             className="profile-menu-item logout-item" 
             onMouseDown={(e) => {
-              // #region agent log
-              fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProfileMenu.tsx:logout_button:mousedown',message:'Logout button mousedown',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-              // #endregion
               e.preventDefault()
               e.stopPropagation()
             }}
             onClick={(e) => {
-              // #region agent log
               const target = e.target as HTMLElement
-              fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ProfileMenu.tsx:logout_button:click',message:'Logout button clicked',data:{targetTagName:target?.tagName,targetClassName:target?.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-              // #endregion
               e.preventDefault()
               e.stopPropagation()
               handleLogout()

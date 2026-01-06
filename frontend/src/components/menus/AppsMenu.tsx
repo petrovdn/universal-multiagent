@@ -139,9 +139,6 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
   }
 
   const handleCalendarToggle = async (enabled: boolean) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleCalendarToggle:entry',message:'handleCalendarToggle called',data:{enabled,currentAuthenticated:integrations.googleCalendar.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     setIsLoading(true)
     try {
       if (enabled) {
@@ -166,9 +163,6 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
   }
 
   const handleGmailToggle = async (enabled: boolean) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleGmailToggle:entry',message:'handleGmailToggle called',data:{enabled,currentAuthenticated:integrations.gmail.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     setIsLoading(true)
     try {
       if (enabled) {
@@ -193,9 +187,6 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
   }
 
   const handleWorkspaceToggle = async (enabled: boolean) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleWorkspaceToggle:entry',message:'handleWorkspaceToggle called',data:{enabled,currentEnabled:integrations.googleWorkspace.enabled},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     setIsLoading(true)
     try {
       if (enabled) {
@@ -238,9 +229,6 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
   }
 
   const handleSheetsToggle = async (enabled: boolean) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleSheetsToggle:entry',message:'handleSheetsToggle called',data:{enabled,currentAuthenticated:integrations.googleSheets.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     setIsLoading(true)
     try {
       if (enabled) {
@@ -278,9 +266,6 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
   }
 
   const handleOneCToggle = async (e?: React.MouseEvent) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleOneCToggle:entry',message:'handleOneCToggle called',data:{hasEvent:!!e,isLoading,onecAuthenticated:integrations.onec.authenticated,onecEnabled:integrations.onec.enabled},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     
     if (e) {
       e.preventDefault()
@@ -288,18 +273,12 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
     }
     
     if (isLoading) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleOneCToggle:early_return',message:'Early return due to isLoading',data:{isLoading},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       return
     }
     
     setIsLoading(true)
     try {
       if (integrations.onec.authenticated) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleOneCToggle:disable_path',message:'Disabling 1C (authenticated=true)',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         // If configured, disable it using disable endpoint
         await disableOneC()
         setIntegrationStatus('onec', {
@@ -307,20 +286,11 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
           authenticated: false,
         })
         await loadIntegrationStatus()
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleOneCToggle:disable_complete',message:'1C disabled successfully',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
       } else {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleOneCToggle:open_window_path',message:'Opening 1C settings window (authenticated=false)',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
         setIsLoading(false)
         openOneCSettingsWindow()
       }
     } catch (error: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleOneCToggle:error',message:'Error in handleOneCToggle',data:{error:error?.message,errorType:error?.constructor?.name},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       console.error('Failed to toggle 1C:', error)
       alert(error.message || 'Не удалось изменить настройки приложения')
       setIsLoading(false)
@@ -345,9 +315,6 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
   }
 
   const handleProjectLadToggle = async (e?: React.MouseEvent) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleProjectLadToggle:entry',message:'handleProjectLadToggle called',data:{hasEvent:!!e,isLoading,projectladAuthenticated:integrations.projectlad.authenticated,projectladEnabled:integrations.projectlad.enabled},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     
     if (e) {
       e.preventDefault()
@@ -355,18 +322,12 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
     }
     
     if (isLoading) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleProjectLadToggle:early_return',message:'Early return due to isLoading',data:{isLoading},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       return
     }
     
     setIsLoading(true)
     try {
       if (integrations.projectlad.authenticated) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleProjectLadToggle:disable_path',message:'Disabling ProjectLad (authenticated=true)',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         // If configured, disable it using disable endpoint
         await disableProjectLad()
         setIntegrationStatus('projectlad', {
@@ -374,20 +335,11 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
           authenticated: false,
         })
         await loadIntegrationStatus()
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleProjectLadToggle:disable_complete',message:'ProjectLad disabled successfully',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
       } else {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleProjectLadToggle:open_window_path',message:'Opening ProjectLad settings window (authenticated=false)',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
         setIsLoading(false)
         openProjectLadSettingsWindow()
       }
     } catch (error: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:handleProjectLadToggle:error',message:'Error in handleProjectLadToggle',data:{error:error?.message,errorType:error?.constructor?.name},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       console.error('Failed to toggle ProjectLad:', error)
       alert(error.message || 'Не удалось изменить настройки приложения')
       setIsLoading(false)
@@ -398,9 +350,6 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
 
   if (!isOpen) return null
 
-  // #region agent log
-  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:render',message:'AppsMenu rendering',data:{isOpen,onecAuthenticated:integrations.onec.authenticated,projectladAuthenticated:integrations.projectlad.authenticated,isLoading},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-  // #endregion
 
   return (
     <>
@@ -428,16 +377,10 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
             <div className="app-menu-item-right">
               <button
                 onMouseDown={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:gmail_toggle_button:mousedown',message:'Gmail toggle button mousedown',data:{isLoading,gmailAuthenticated:integrations.gmail.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                 }}
                 onClick={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:gmail_toggle_button:click',message:'Gmail toggle button clicked',data:{isLoading,gmailAuthenticated:integrations.gmail.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                   handleGmailToggle(!integrations.gmail.authenticated)
@@ -467,16 +410,10 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
             <div className="app-menu-item-right">
               <button
                 onMouseDown={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:calendar_toggle_button:mousedown',message:'Calendar toggle button mousedown',data:{isLoading,calendarAuthenticated:integrations.googleCalendar.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                 }}
                 onClick={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:calendar_toggle_button:click',message:'Calendar toggle button clicked',data:{isLoading,calendarAuthenticated:integrations.googleCalendar.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                   handleCalendarToggle(!integrations.googleCalendar.authenticated)
@@ -506,16 +443,10 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
             <div className="app-menu-item-right">
               <button
                 onMouseDown={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:sheets_toggle_button:mousedown',message:'Sheets toggle button mousedown',data:{isLoading,sheetsAuthenticated:integrations.googleSheets.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                 }}
                 onClick={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:sheets_toggle_button:click',message:'Sheets toggle button clicked',data:{isLoading,sheetsAuthenticated:integrations.googleSheets.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                   handleSheetsToggle(!integrations.googleSheets.authenticated)
@@ -552,16 +483,10 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
                   className="app-settings-btn" 
                   title="Настройки"
                   onMouseDown={(e) => {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:workspace_settings_button:mousedown',message:'Workspace settings button mousedown',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                    // #endregion
                     e.preventDefault()
                     e.stopPropagation()
                   }}
                   onClick={(e) => {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:workspace_settings_button:click',message:'Workspace settings button clicked',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                    // #endregion
                     e.preventDefault()
                     e.stopPropagation()
                     openWorkspaceFolderSelectorWindow()
@@ -573,16 +498,10 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
               )}
               <button
                 onMouseDown={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:workspace_toggle_button:mousedown',message:'Workspace toggle button mousedown',data:{isLoading,workspaceEnabled:integrations.googleWorkspace.enabled},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                 }}
                 onClick={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:workspace_toggle_button:click',message:'Workspace toggle button clicked',data:{isLoading,workspaceEnabled:integrations.googleWorkspace.enabled},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                   handleWorkspaceToggle(!integrations.googleWorkspace.enabled)
@@ -615,16 +534,10 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
                   className="app-settings-btn" 
                   title="Настройки"
                   onMouseDown={(e) => {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:onec_settings_button:mousedown',message:'1C settings button mousedown',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                    // #endregion
                     e.preventDefault()
                     e.stopPropagation()
                   }}
                   onClick={(e) => {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:onec_settings_button:click',message:'1C settings button clicked',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                    // #endregion
                     e.preventDefault()
                     e.stopPropagation()
                     openOneCSettingsWindow()
@@ -636,17 +549,11 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
               )}
               <button
                 onClick={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:onec_toggle_button:click',message:'1C toggle button clicked',data:{isLoading,onecAuthenticated:integrations.onec.authenticated,targetTagName:(e.target as HTMLElement)?.tagName,targetClassName:(e.target as HTMLElement)?.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                   handleOneCToggle(e)
                 }}
                 onMouseDown={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:onec_toggle_button:mousedown',message:'1C toggle button mousedown',data:{isLoading,onecAuthenticated:integrations.onec.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                 }}
@@ -678,16 +585,10 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
                   className="app-settings-btn" 
                   title="Настройки"
                   onMouseDown={(e) => {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:projectlad_settings_button:mousedown',message:'ProjectLad settings button mousedown',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                    // #endregion
                     e.preventDefault()
                     e.stopPropagation()
                   }}
                   onClick={(e) => {
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:projectlad_settings_button:click',message:'ProjectLad settings button clicked',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                    // #endregion
                     e.preventDefault()
                     e.stopPropagation()
                     openProjectLadSettingsWindow()
@@ -699,17 +600,11 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
               )}
               <button
                 onClick={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:projectlad_toggle_button:click',message:'ProjectLad toggle button clicked',data:{isLoading,projectladAuthenticated:integrations.projectlad.authenticated,targetTagName:(e.target as HTMLElement)?.tagName,targetClassName:(e.target as HTMLElement)?.className},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                   handleProjectLadToggle(e)
                 }}
                 onMouseDown={(e) => {
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/e3d3ec53-ef20-4f00-981c-41ed4e0b4a01',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AppsMenu.tsx:projectlad_toggle_button:mousedown',message:'ProjectLad toggle button mousedown',data:{isLoading,projectladAuthenticated:integrations.projectlad.authenticated},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-                  // #endregion
                   e.preventDefault()
                   e.stopPropagation()
                 }}
