@@ -15,6 +15,9 @@ RUN npm ci --legacy-peer-deps --no-audit --progress=false
 COPY frontend/tsconfig.json frontend/tsconfig.node.json frontend/vite.config.ts ./
 COPY frontend/*.html ./
 
+# Копируем public (favicon, etc.)
+COPY frontend/public ./public
+
 # Копируем исходники frontend
 COPY frontend/src ./src
 
