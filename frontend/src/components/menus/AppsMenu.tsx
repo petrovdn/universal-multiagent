@@ -286,6 +286,7 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
           authenticated: false,
         })
         await loadIntegrationStatus()
+        setIsLoading(false)
       } else {
         setIsLoading(false)
         openOneCSettingsWindow()
@@ -335,6 +336,7 @@ export function AppsMenu({ isOpen, onClose }: AppsMenuProps) {
           authenticated: false,
         })
         await loadIntegrationStatus()
+        setIsLoading(false)
       } else {
         setIsLoading(false)
         openProjectLadSettingsWindow()
