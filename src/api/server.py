@@ -135,24 +135,7 @@ app.include_router(auth_router)
 app.include_router(integration_router)
 
 # Log registered routes for debugging
-import json
-try:
-    all_routes = []
-    disable_routes = []
-    for r in integration_router.routes:
-        if hasattr(r, 'path'):
-            route_info = {"path": r.path, "methods": list(r.methods) if hasattr(r, 'methods') else []}
-            all_routes.append(route_info)
-            if 'disable' in r.path:
-                disable_routes.append(route_info)
-    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"server.py:router_registration","message":"Integration router registered","data":{"total_routes":len(all_routes),"disable_routes_count":len(disable_routes),"disable_routes":disable_routes,"all_routes_sample":all_routes[:10]},"timestamp":int(time.time()*1000)})+'\n')
-    print(f"[DEBUG] Integration router registered: {len(all_routes)} total routes, {len(disable_routes)} disable routes", flush=True)
-except Exception as e:
-    import traceback
-    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-        f.write(json.dumps({"sessionId":"debug-session","runId":"test","hypothesisId":"H","location":"server.py:router_registration:error","message":"Error logging router registration","data":{"error":str(e),"traceback":traceback.format_exc()},"timestamp":int(time.time()*1000)})+'\n')
-    print(f"[DEBUG] Error logging router registration: {e}", flush=True)
+print(f"[DEBUG] Integration router registered with {len(list(integration_router.routes))} routes", flush=True)
 
 # Serve static files in production
 if config.is_production:
