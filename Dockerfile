@@ -11,8 +11,9 @@ COPY frontend/package.json frontend/package-lock.json ./
 # Устанавливаем зависимости (включая dev для сборки)
 RUN npm ci --legacy-peer-deps --no-audit --progress=false
 
-# Копируем конфигурационные файлы
-COPY frontend/tsconfig.json frontend/tsconfig.node.json frontend/vite.config.ts frontend/index.html ./
+# Копируем конфигурационные файлы и HTML entry points
+COPY frontend/tsconfig.json frontend/tsconfig.node.json frontend/vite.config.ts ./
+COPY frontend/*.html ./
 
 # Копируем исходники frontend
 COPY frontend/src ./src
