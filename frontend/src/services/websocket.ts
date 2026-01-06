@@ -1138,7 +1138,24 @@ export class WebSocketClient {
         const result = event.data.result || 'Задача выполнена успешно'
         const trail = event.data.trail || []
         
-        // Create answer block with result
+        // #region agent log
+        const state = useChatStore.getState()
+        const settingsState = useSettingsStore.getState()
+        const isQueryMode = settingsState.executionMode === 'query'
+        const activeWorkflowId = state.activeWorkflowId
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_complete',message:'ReAct complete event received',data:{messageId:completeMsgId,resultLength:result.length,resultPreview:result.substring(0,100),isQueryMode,activeWorkflowId,hasActiveWorkflow:!!activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+        
+        // For Query mode, save to workflow.finalResult
+        if (isQueryMode && activeWorkflowId) {
+          // Save final result to workflow
+          chatStore.setWorkflowFinalResult(activeWorkflowId, result)
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_complete:query',message:'Saved final result to workflow for Query mode',data:{workflowId:activeWorkflowId,resultLength:result.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+          // #endregion
+        }
+        
+        // Create answer block with result (for non-Query modes or as fallback)
         this.currentAnswerBlockId = `answer-${Date.now()}`
         chatStore.startAnswerBlock(completeMsgId, this.currentAnswerBlockId)
         chatStore.updateAnswerBlock(completeMsgId, this.currentAnswerBlockId, `✅ **Задача выполнена!**\n\n${result}`)

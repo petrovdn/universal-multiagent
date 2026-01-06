@@ -660,6 +660,7 @@ class UnifiedReActEngine:
             ]
         }
         
+        # Send react_complete event
         await self.ws_manager.send_event(
             self.session_id,
             "react_complete",
@@ -668,6 +669,17 @@ class UnifiedReActEngine:
                 "trail": result_summary["reasoning_trail"][-10:]
             }
         )
+        
+        # Also send final_result event for Query mode to ensure it's saved to workflow
+        if self.config.mode == "query":
+            # Send final_result event (legacy format for compatibility)
+            await self.ws_manager.send_event(
+                self.session_id,
+                "final_result",
+                {
+                    "content": str(final_result)
+                }
+            )
         
         if hasattr(context, 'add_message'):
             context.add_message("assistant", f"Задача выполнена: {state.goal}")

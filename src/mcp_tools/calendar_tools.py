@@ -231,14 +231,16 @@ class GetCalendarEventsTool(BaseTool):
     - 'сегодня' (today) - events for today
     - 'завтра' (tomorrow) - events for tomorrow
     - 'на неделе' or 'на этой неделе' (this week) - events for current week (Monday to Sunday)
+    - 'за прошлые две недели' or 'за последние две недели' (past two weeks) - events for past 14 days
     - ISO 8601 format: '2024-01-15T14:30:00+03:00'
     - Simple format: '2024-01-15 14:30'
     
-    The system automatically handles timezone conversion. You don't need to worry about timezone - just use natural expressions like 'сегодня', 'завтра', 'на неделе'.
+    The system automatically handles timezone conversion. You don't need to worry about timezone - just use natural expressions like 'сегодня', 'завтра', 'на неделе', 'за прошлые две недели'.
     
     Examples:
     - start_time='сегодня', end_time='завтра' - events from today to tomorrow
     - start_time='на неделе' - events for this week (automatically calculates Monday-Sunday range)
+    - start_time='за прошлые две недели' - events for past 14 days (automatically calculates range)
     - start_time='2024-01-15 09:00', end_time='2024-01-15 18:00' - events for specific day
     """
     args_schema: type = GetCalendarEventsInput
@@ -258,8 +260,22 @@ class GetCalendarEventsTool(BaseTool):
             
             args = {"maxResults": max_results}
             
+            # Handle "за прошлые две недели" / "past two weeks" - automatically set range
+            if start_time and ("за прошлые две недели" in start_time.lower() or "за последние две недели" in start_time.lower() or "past two weeks" in start_time.lower() or "last two weeks" in start_time.lower()):
+                # Calculate start of two weeks ago
+                days_since_monday = now.weekday()  # 0 = Monday, 6 = Sunday
+                two_weeks_ago = now - timedelta(days=14)
+                two_weeks_ago_start = two_weeks_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+                args["timeMin"] = two_weeks_ago_start.isoformat()
+                
+                # If end_time not specified, set to now (end of range)
+                if not end_time:
+                    args["timeMax"] = now.isoformat()
+                else:
+                    end_dt = parse_datetime(end_time, timezone)
+                    args["timeMax"] = end_dt.isoformat()
             # Handle "на неделе" / "this week" - automatically set week range
-            if start_time and ("на неделе" in start_time.lower() or "на этой неделе" in start_time.lower() or "this week" in start_time.lower()):
+            elif start_time and ("на неделе" in start_time.lower() or "на этой неделе" in start_time.lower() or "this week" in start_time.lower()):
                 # Calculate start of current week (Monday)
                 days_since_monday = now.weekday()  # 0 = Monday, 6 = Sunday
                 week_start = now - timedelta(days=days_since_monday)

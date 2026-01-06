@@ -218,6 +218,20 @@ def parse_datetime(
             dt = day_after_tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
         return dt
     
+    # Russian: "за прошлые две недели" / "за последние две недели" / "past two weeks"
+    if "за прошлые две недели" in date_str_lower or "за последние две недели" in date_str_lower or "past two weeks" in date_str_lower or "last two weeks" in date_str_lower:
+        # Calculate start of two weeks ago
+        two_weeks_ago = now - timedelta(days=14)
+        two_weeks_ago = two_weeks_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Return start time (end will be calculated by caller)
+        hour, minute = extract_time(date_str_lower)
+        if hour is not None:
+            dt = two_weeks_ago.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        else:
+            dt = two_weeks_ago
+        return dt
+    
     # Russian: "на неделе" / "this week" / "на этой неделе"
     if "на неделе" in date_str_lower or "на этой неделе" in date_str_lower or "this week" in date_str_lower:
         # Calculate start of current week (Monday)
