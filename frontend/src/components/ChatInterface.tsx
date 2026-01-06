@@ -14,6 +14,9 @@ import { StepProgress } from './StepProgress'
 import { FinalResultBlock } from './FinalResultBlock'
 import { UserAssistanceDialog } from './UserAssistanceDialog'
 import { CollapsibleBlock } from './CollapsibleBlock'
+import { ActionItem } from './ActionItem'
+import { QuestionForm } from './QuestionForm'
+import { ResultSummary } from './ResultSummary'
 
 interface AttachedFile {
   id: string
@@ -704,6 +707,22 @@ export function ChatInterface() {
                       >
                         {/* Show workflow plan */}
                         <PlanBlock workflowId={workflowId} />
+                        
+                        {/* Show question forms (Plan mode) */}
+                        {(() => {
+                          const questionMessages = useChatStore((state) => state.questionMessages[workflowId] || [])
+                          return questionMessages.map((question) => (
+                            <div key={question.id} style={{ marginTop: '16px', padding: '0 14px' }}>
+                              <QuestionForm
+                                question={question}
+                                workflowId={workflowId}
+                                onAnswer={(questionId, answers) => {
+                                  useChatStore.getState().updateQuestionAnswer(workflowId, questionId, answers)
+                                }}
+                              />
+                            </div>
+                          ))
+                        })()}
                       </div>
                     )
                   })()}
@@ -733,6 +752,26 @@ export function ChatInterface() {
                       >
                         <div className="scrollable-content">
                           <StepProgress workflowId={workflowId} />
+                          
+                          {/* Show action messages (Cursor-style actions) */}
+                          {(() => {
+                            const actionMessages = useChatStore((state) => state.actionMessages[workflowId] || [])
+                            if (actionMessages.length === 0) return null
+                            
+                            return (
+                              <div style={{ padding: '0 14px', marginTop: '16px' }}>
+                                <div className="action-messages-list">
+                                  {actionMessages.map((action, index) => (
+                                    <ActionItem
+                                      key={action.id}
+                                      action={action}
+                                      isLast={index === actionMessages.length - 1}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })()}
                         </div>
                       </div>
                     )
@@ -749,6 +788,15 @@ export function ChatInterface() {
                       }}
                       className="sticky-result-section sticky-result-active"
                     >
+                      {/* Show result summary if available */}
+                      {(() => {
+                        const resultSummary = useChatStore((state) => state.resultSummaries[workflowId])
+                        if (resultSummary) {
+                          return <ResultSummary summary={resultSummary} />
+                        }
+                        return null
+                      })()}
+                      
                       <FinalResultBlock content={workflow.finalResult} />
                     </div>
                   )}

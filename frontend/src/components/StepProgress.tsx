@@ -653,6 +653,16 @@ export function StepProgress({ workflowId }: StepProgressProps) {
     return result
   }, [])
 
+  // Вычисляем прогресс выполнения
+  const totalSteps = planSteps.length
+  const completedSteps = Object.values(workflowSteps).filter(
+    step => step.status === 'completed'
+  ).length
+  const inProgressStep = Object.values(workflowSteps).find(
+    step => step.status === 'in_progress'
+  )
+  const progressPercentage = totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0
+
   return (
     <div style={{ 
       maxWidth: '900px', 
@@ -661,6 +671,26 @@ export function StepProgress({ workflowId }: StepProgressProps) {
       /* Добавляем padding-top чтобы шаги не прилипали к sticky-секции */
       paddingTop: '8px'
     }}>
+      {/* Progress Bar */}
+      {totalSteps > 0 && (completedSteps > 0 || inProgressStep) && (
+        <div className="step-progress-bar-container" style={{ marginBottom: '16px', padding: '0 14px' }}>
+          <div className="step-progress-bar-header">
+            <span className="step-progress-bar-text">
+              {inProgressStep 
+                ? `Шаг ${completedSteps + 1} из ${totalSteps}` 
+                : `${completedSteps} из ${totalSteps} шагов выполнено`}
+            </span>
+            <span className="step-progress-bar-percentage">{Math.round(progressPercentage)}%</span>
+          </div>
+          <div className="step-progress-bar">
+            <div 
+              className="step-progress-bar-fill"
+              style={{ width: `${progressPercentage}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Render each step */}
       {planSteps.map((stepTitle, index) => {
         const stepNumber = index + 1

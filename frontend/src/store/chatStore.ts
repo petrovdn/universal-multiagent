@@ -96,6 +96,43 @@ export interface WorkflowStep {
   filePreview?: FilePreviewData
 }
 
+// ActionMessage - для отображения действий агента (Cursor-style)
+export interface ActionMessageData {
+  id: string
+  icon: 'search' | 'file' | 'api' | 'email' | 'calendar' | 'process' | 'tool'
+  status: 'pending' | 'in_progress' | 'success' | 'error' | 'alternative'
+  title: string
+  description?: string
+  details?: string
+  error?: string
+  alternativeUsed?: string
+  timestamp: string
+}
+
+// QuestionMessage - для уточняющих вопросов (Plan mode)
+export interface QuestionMessageData {
+  id: string
+  text: string
+  items: Array<{
+    id: string
+    type: 'radio' | 'checkbox' | 'text'
+    label: string
+    options?: string[]
+    value?: string | string[]
+  }>
+  isAnswered: boolean
+  timestamp: string
+}
+
+// ResultSummary - итоговый результат с метриками
+export interface ResultSummary {
+  completedTasks: string[]
+  failedTasks: Array<{ task: string; error: string }>
+  alternativesUsed: string[]
+  duration?: number
+  tokensUsed?: number
+}
+
 interface ChatState {
   messages: Message[]
   assistantMessages: Record<string, AssistantMessage> // message_id -> AssistantMessage
@@ -119,6 +156,15 @@ interface ChatState {
     options: Array<{ id: string; label: string; description?: string; data?: any }>
     context?: any
   } | null
+  
+  // Action messages - действия агента (Cursor-style)
+  actionMessages: Record<string, ActionMessageData[]> // workflowId -> ActionMessageData[]
+  
+  // Question messages - уточняющие вопросы (Plan mode)
+  questionMessages: Record<string, QuestionMessageData[]> // workflowId -> QuestionMessageData[]
+  
+  // Result summaries - итоговые результаты
+  resultSummaries: Record<string, ResultSummary> // workflowId -> ResultSummary
   
   // Legacy support (will be removed)
   streamingMessages: Record<string, Message>
@@ -171,6 +217,21 @@ interface ChatState {
   } | null) => void
   clearUserAssistanceRequest: () => void
   
+  // Action message methods
+  addAction: (workflowId: string, action: ActionMessageData) => void
+  updateAction: (workflowId: string, actionId: string, updates: Partial<ActionMessageData>) => void
+  clearActions: (workflowId: string) => void
+  
+  // Question message methods
+  addQuestion: (workflowId: string, question: QuestionMessageData) => void
+  updateQuestionAnswer: (workflowId: string, questionId: string, answers: Record<string, string | string[]>) => void
+  clearQuestions: (workflowId: string) => void
+  
+  // Result summary methods
+  setResultSummary: (workflowId: string, summary: ResultSummary) => void
+  updateResultSummary: (workflowId: string, updates: Partial<ResultSummary>) => void
+  clearResultSummary: (workflowId: string) => void
+  
   // Legacy methods (for compatibility during transition)
   startStreamingMessage: (messageId: string, message: Message) => void
   updateStreamingMessage: (messageId: string, content: string) => void
@@ -193,6 +254,9 @@ export const useChatStore = create<ChatState>()(
       workflows: {},
       activeWorkflowId: null,
       userAssistanceRequest: null,
+      actionMessages: {},
+      questionMessages: {},
+      resultSummaries: {},
       streamingMessages: {},
       reasoningSteps: [],
       reasoningStartTime: null,
@@ -211,6 +275,9 @@ export const useChatStore = create<ChatState>()(
           reasoningStartTime: null,
           workflows: {},
           activeWorkflowId: null,
+          actionMessages: {},
+          questionMessages: {},
+          resultSummaries: {},
         }),
       
       startNewSession: () =>
@@ -224,6 +291,9 @@ export const useChatStore = create<ChatState>()(
           reasoningStartTime: null,
           workflows: {},
           activeWorkflowId: null,
+          actionMessages: {},
+          questionMessages: {},
+          resultSummaries: {},
         }),
       
       setCurrentSession: (sessionId) =>
@@ -960,6 +1030,131 @@ export const useChatStore = create<ChatState>()(
           activeWorkflowId: null,
         }),
       
+      // Action message methods
+      addAction: (workflowId: string, action: ActionMessageData) =>
+        set((state) => {
+          const existingActions = state.actionMessages[workflowId] || []
+          return {
+            actionMessages: {
+              ...state.actionMessages,
+              [workflowId]: [...existingActions, action],
+            },
+          }
+        }),
+      
+      updateAction: (workflowId: string, actionId: string, updates: Partial<ActionMessageData>) =>
+        set((state) => {
+          const existingActions = state.actionMessages[workflowId] || []
+          const updatedActions = existingActions.map(action =>
+            action.id === actionId ? { ...action, ...updates } : action
+          )
+          return {
+            actionMessages: {
+              ...state.actionMessages,
+              [workflowId]: updatedActions,
+            },
+          }
+        }),
+      
+      clearActions: (workflowId: string) =>
+        set((state) => {
+          const newActionMessages = { ...state.actionMessages }
+          delete newActionMessages[workflowId]
+          return {
+            actionMessages: newActionMessages,
+          }
+        }),
+      
+      // Question message methods
+      addQuestion: (workflowId: string, question: QuestionMessageData) =>
+        set((state) => {
+          const existingQuestions = state.questionMessages[workflowId] || []
+          return {
+            questionMessages: {
+              ...state.questionMessages,
+              [workflowId]: [...existingQuestions, question],
+            },
+          }
+        }),
+      
+      updateQuestionAnswer: (workflowId: string, questionId: string, answers: Record<string, string | string[]>) =>
+        set((state) => {
+          const existingQuestions = state.questionMessages[workflowId] || []
+          const updatedQuestions = existingQuestions.map(question => {
+            if (question.id === questionId) {
+              const updatedItems = question.items.map(item => {
+                const answerValue = answers[item.id]
+                if (answerValue !== undefined) {
+                  return {
+                    ...item,
+                    value: item.type === 'checkbox' 
+                      ? (Array.isArray(answerValue) ? answerValue : [answerValue as string])
+                      : answerValue as string,
+                  }
+                }
+                return item
+              })
+              return {
+                ...question,
+                items: updatedItems,
+                isAnswered: true,
+              }
+            }
+            return question
+          })
+          return {
+            questionMessages: {
+              ...state.questionMessages,
+              [workflowId]: updatedQuestions,
+            },
+          }
+        }),
+      
+      clearQuestions: (workflowId: string) =>
+        set((state) => {
+          const newQuestionMessages = { ...state.questionMessages }
+          delete newQuestionMessages[workflowId]
+          return {
+            questionMessages: newQuestionMessages,
+          }
+        }),
+      
+      // Result summary methods
+      setResultSummary: (workflowId: string, summary: ResultSummary) =>
+        set((state) => ({
+          resultSummaries: {
+            ...state.resultSummaries,
+            [workflowId]: summary,
+          },
+        })),
+      
+      updateResultSummary: (workflowId: string, updates: Partial<ResultSummary>) =>
+        set((state) => {
+          const existingSummary = state.resultSummaries[workflowId]
+          return {
+            resultSummaries: {
+              ...state.resultSummaries,
+              [workflowId]: existingSummary
+                ? { ...existingSummary, ...updates }
+                : {
+                    completedTasks: [],
+                    failedTasks: [],
+                    alternativesUsed: [],
+                    ...updates,
+                  },
+            },
+          }
+        }),
+      
+      clearResultSummary: (workflowId: string) =>
+        set((state) => {
+          const newResultSummaries = { ...state.resultSummaries }
+          delete newResultSummaries[workflowId]
+          return {
+            resultSummaries: newResultSummaries,
+          }
+        }),
+      
       setUserAssistanceRequest: (request) =>
         set({
           userAssistanceRequest: request,
@@ -972,9 +1167,9 @@ export const useChatStore = create<ChatState>()(
     }),
     {
       name: 'chat-storage',
-      version: 5, // Increment version for new structure
+      version: 6, // Increment version for new action/question/result message types
       migrate: (persistedState: any, version: number) => {
-        if (version < 5) {
+        if (version < 6) {
           return {
             messages: [],
             assistantMessages: {},
@@ -984,6 +1179,9 @@ export const useChatStore = create<ChatState>()(
             streamingMessages: {},
             reasoningSteps: [],
             reasoningStartTime: null,
+            actionMessages: {},
+            questionMessages: {},
+            resultSummaries: {},
           }
         }
         return persistedState
@@ -993,6 +1191,7 @@ export const useChatStore = create<ChatState>()(
         currentSession: state.currentSession,
         // Don't persist workflows - always start with clean state
         // Don't persist assistantMessages or streamingMessages - they're temporary
+        // Don't persist actionMessages, questionMessages, resultSummaries - they're temporary
       }),
     }
   )

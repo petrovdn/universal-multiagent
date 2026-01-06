@@ -1179,6 +1179,96 @@ export class WebSocketClient {
         })
         break
       }
+
+      case 'action_start': {
+        // Начало действия агента
+        const workflowId = ensureActiveWorkflow()
+        if (workflowId && event.data.action_id) {
+          chatStore.addAction(workflowId, {
+            id: event.data.action_id,
+            icon: event.data.icon || 'process',
+            status: 'in_progress',
+            title: event.data.title || 'Выполнение действия...',
+            description: event.data.description,
+            timestamp: new Date().toISOString(),
+          })
+          console.log('[WebSocket] Action started:', event.data.action_id, event.data.title)
+        }
+        break
+      }
+
+      case 'action_complete': {
+        // Завершение действия
+        const workflowId = ensureActiveWorkflow()
+        if (workflowId && event.data.action_id) {
+          chatStore.updateAction(workflowId, event.data.action_id, {
+            status: 'success',
+            details: event.data.details,
+          })
+          console.log('[WebSocket] Action completed:', event.data.action_id)
+        }
+        break
+      }
+
+      case 'action_error': {
+        // Ошибка действия
+        const workflowId = ensureActiveWorkflow()
+        if (workflowId && event.data.action_id) {
+          chatStore.updateAction(workflowId, event.data.action_id, {
+            status: 'error',
+            error: event.data.error || 'Произошла ошибка',
+            details: event.data.details,
+          })
+          console.log('[WebSocket] Action error:', event.data.action_id, event.data.error)
+        }
+        break
+      }
+
+      case 'action_alternative': {
+        // Использована альтернатива
+        const workflowId = ensureActiveWorkflow()
+        if (workflowId && event.data.action_id) {
+          chatStore.updateAction(workflowId, event.data.action_id, {
+            status: 'alternative',
+            alternativeUsed: event.data.alternative || 'Альтернативный метод',
+            details: event.data.details,
+          })
+          console.log('[WebSocket] Action alternative:', event.data.action_id, event.data.alternative)
+        }
+        break
+      }
+
+      case 'question_request': {
+        // Уточняющий вопрос (Plan mode)
+        const workflowId = ensureActiveWorkflow()
+        if (workflowId) {
+          chatStore.addQuestion(workflowId, {
+            id: event.data.question_id || `question-${Date.now()}`,
+            text: event.data.text || 'У меня есть вопросы:',
+            items: event.data.items || [],
+            isAnswered: false,
+            timestamp: new Date().toISOString(),
+          })
+          console.log('[WebSocket] Question requested:', event.data.question_id)
+        }
+        break
+      }
+
+      case 'result_summary': {
+        // Итоговый результат с метриками
+        const workflowId = ensureActiveWorkflow()
+        if (workflowId) {
+          chatStore.setResultSummary(workflowId, {
+            completedTasks: event.data.completed_tasks || [],
+            failedTasks: event.data.failed_tasks || [],
+            alternativesUsed: event.data.alternatives_used || [],
+            duration: event.data.duration,
+            tokensUsed: event.data.tokens_used,
+          })
+          console.log('[WebSocket] Result summary:', workflowId, event.data)
+        }
+        break
+      }
       }
     } catch (error) {
       console.error('[WebSocket] Error handling event:', event.type, error, event.data)
