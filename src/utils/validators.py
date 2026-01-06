@@ -218,6 +218,26 @@ def parse_datetime(
             dt = day_after_tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
         return dt
     
+    # Russian: "на неделе" / "this week" / "на этой неделе"
+    if "на неделе" in date_str_lower or "на этой неделе" in date_str_lower or "this week" in date_str_lower:
+        # Calculate start of current week (Monday)
+        days_since_monday = now.weekday()  # 0 = Monday, 6 = Sunday
+        week_start = now - timedelta(days=days_since_monday)
+        week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # Calculate end of current week (Sunday 23:59:59)
+        week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+        
+        # If only start_time is needed, return start of week
+        # If only end_time is needed, return end of week
+        # For simplicity, return start of week if no specific time mentioned
+        hour, minute = extract_time(date_str_lower)
+        if hour is not None:
+            dt = week_start.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        else:
+            dt = week_start
+        return dt
+    
     # Russian: "через неделю" / "next week" / "in a week"
     if "через неделю" in date_str_lower or "next week" in date_str_lower or "in a week" in date_str_lower:
         hour, minute = extract_time(date_str_lower)

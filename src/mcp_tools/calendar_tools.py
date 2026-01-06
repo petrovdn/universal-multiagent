@@ -4,6 +4,7 @@ Provides validated interfaces to calendar operations with timezone handling.
 """
 
 import json
+import pytz
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 from langchain_core.tools import BaseTool
@@ -208,8 +209,14 @@ class GetNextAvailabilityTool(BaseTool):
 class GetCalendarEventsInput(BaseModel):
     """Input schema for get_calendar_events tool."""
     
-    start_time: Optional[str] = Field(default=None, description="Start of time range")
-    end_time: Optional[str] = Field(default=None, description="End of time range")
+    start_time: Optional[str] = Field(
+        default=None, 
+        description="Start of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
+    )
+    end_time: Optional[str] = Field(
+        default=None, 
+        description="End of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
+    )
     max_results: int = Field(default=10, description="Maximum number of events")
 
 
@@ -217,7 +224,23 @@ class GetCalendarEventsTool(BaseTool):
     """Tool for retrieving calendar events."""
     
     name: str = "get_calendar_events"
-    description: str = "Get calendar events for a time range."
+    description: str = """
+    Get calendar events for a time range.
+    
+    IMPORTANT: You can use natural language for dates:
+    - 'сегодня' (today) - events for today
+    - 'завтра' (tomorrow) - events for tomorrow
+    - 'на неделе' or 'на этой неделе' (this week) - events for current week (Monday to Sunday)
+    - ISO 8601 format: '2024-01-15T14:30:00+03:00'
+    - Simple format: '2024-01-15 14:30'
+    
+    The system automatically handles timezone conversion. You don't need to worry about timezone - just use natural expressions like 'сегодня', 'завтра', 'на неделе'.
+    
+    Examples:
+    - start_time='сегодня', end_time='завтра' - events from today to tomorrow
+    - start_time='на неделе' - events for this week (automatically calculates Monday-Sunday range)
+    - start_time='2024-01-15 09:00', end_time='2024-01-15 18:00' - events for specific day
+    """
     args_schema: type = GetCalendarEventsInput
     
     @retry_on_mcp_error()
@@ -230,14 +253,41 @@ class GetCalendarEventsTool(BaseTool):
         """Execute the tool asynchronously."""
         try:
             timezone = get_config().timezone
+            tz = pytz.timezone(timezone)
+            now = datetime.now(tz)
             
             args = {"maxResults": max_results}
             
-            if start_time:
+            # Handle "на неделе" / "this week" - automatically set week range
+            if start_time and ("на неделе" in start_time.lower() or "на этой неделе" in start_time.lower() or "this week" in start_time.lower()):
+                # Calculate start of current week (Monday)
+                days_since_monday = now.weekday()  # 0 = Monday, 6 = Sunday
+                week_start = now - timedelta(days=days_since_monday)
+                week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+                args["timeMin"] = week_start.isoformat()
+                
+                # If end_time not specified, set to end of week
+                if not end_time:
+                    week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+                    args["timeMax"] = week_end.isoformat()
+                else:
+                    end_dt = parse_datetime(end_time, timezone)
+                    args["timeMax"] = end_dt.isoformat()
+            elif start_time:
                 start_dt = parse_datetime(start_time, timezone)
                 args["timeMin"] = start_dt.isoformat()
+                
+                # If end_time not specified and start_time is "сегодня" or "завтра", set end to end of that day
+                if not end_time:
+                    if "сегодня" in start_time.lower() or "today" in start_time.lower():
+                        end_dt = now.replace(hour=23, minute=59, second=59, microsecond=0)
+                        args["timeMax"] = end_dt.isoformat()
+                    elif "завтра" in start_time.lower() or "tomorrow" in start_time.lower():
+                        tomorrow = now + timedelta(days=1)
+                        end_dt = tomorrow.replace(hour=23, minute=59, second=59, microsecond=0)
+                        args["timeMax"] = end_dt.isoformat()
             
-            if end_time:
+            if end_time and not ("на неделе" in start_time.lower() if start_time else False):
                 end_dt = parse_datetime(end_time, timezone)
                 args["timeMax"] = end_dt.isoformat()
             

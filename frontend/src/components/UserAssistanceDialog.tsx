@@ -23,22 +23,12 @@ export function UserAssistanceDialog({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    // #region agent log
-    console.log('[DEBUG] UserAssistanceDialog handleSubmit called', { assistance_id, selectedOption, currentSession, optionsCount: options.length })
-    // #endregion
-    
     if (!selectedOption) {
-      // #region agent log
-      console.log('[DEBUG] No selectedOption')
-      // #endregion
       setError('Пожалуйста, выберите вариант')
       return
     }
 
     if (!currentSession) {
-      // #region agent log
-      console.log('[DEBUG] No currentSession')
-      // #endregion
       setError('Сессия не найдена')
       return
     }
@@ -53,30 +43,11 @@ export function UserAssistanceDialog({
       
       const userResponse = option?.id || selectedOption
       
-      // #region agent log
-      console.log('[DEBUG] Before resolveUserAssistance call', { userResponse, optionId: option?.id, optionLabel: option?.label })
-      // #endregion
-      
       const result = await resolveUserAssistance(currentSession, assistance_id, userResponse)
       
-      // #region agent log
-      console.log('[DEBUG] After resolveUserAssistance call', { result })
-      // #endregion
-      
       // Clear the assistance request from store
-      // #region agent log
-      console.log('[DEBUG] Before clearUserAssistanceRequest')
-      // #endregion
-      
       clearUserAssistanceRequest()
-      
-      // #region agent log
-      console.log('[DEBUG] After clearUserAssistanceRequest')
-      // #endregion
     } catch (err: any) {
-      // #region agent log
-      console.error('[DEBUG] Error in handleSubmit', { errorMessage: err?.message, errorStack: err?.stack, errorName: err?.name })
-      // #endregion
       console.error('Error resolving user assistance:', err)
       setError(err.message || 'Ошибка при отправке выбора')
     } finally {

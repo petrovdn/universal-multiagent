@@ -1210,6 +1210,42 @@ body {
 }
 
 /* ============================================
+   THINKING INDICATOR (Cursor-style animated text)
+   ============================================ */
+.thinking-indicator {
+  max-width: 900px;
+  width: 100%;
+  margin: 16px auto;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.thinking-indicator-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.3px;
+}
+
+.thinking-indicator-char {
+  display: inline-block;
+  animation: thinkingPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes thinkingPulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+/* ============================================
    THINKING BLOCK - ALWAYS VISIBLE (КАК В CURSOR/PERPLEXITY)
    ============================================ */
 .thinking-block-always-open {

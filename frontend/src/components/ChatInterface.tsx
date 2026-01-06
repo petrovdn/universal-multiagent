@@ -17,6 +17,7 @@ import { CollapsibleBlock } from './CollapsibleBlock'
 import { ActionItem } from './ActionItem'
 import { QuestionForm } from './QuestionForm'
 import { ResultSummary } from './ResultSummary'
+import { ThinkingIndicator } from './ThinkingIndicator'
 
 interface AttachedFile {
   id: string
@@ -32,6 +33,8 @@ export function ChatInterface() {
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
   const [shouldScrollToNew, setShouldScrollToNew] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
+  const [showThinkingIndicator, setShowThinkingIndicator] = useState(false)
+  const thinkingIndicatorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const currentInteractionRef = useRef<HTMLDivElement>(null)
   const lastUserMessageCountRef = useRef<number>(0)
   const isCollapsingRef = useRef<boolean>(false)
@@ -58,6 +61,9 @@ export function ChatInterface() {
     userAssistanceRequest,
     workflows,
     activeWorkflowId,
+    resultSummaries,
+    questionMessages,
+    actionMessages,
   } = useChatStore()
   
   const { executionMode, setExecutionMode } = useSettingsStore()
@@ -99,6 +105,54 @@ export function ChatInterface() {
     }
   }, [currentSession])
   
+  // Show thinking indicator after 2 seconds of typing
+  useEffect(() => {
+    if (isAgentTyping) {
+      // Clear any existing timeout
+      if (thinkingIndicatorTimeoutRef.current) {
+        clearTimeout(thinkingIndicatorTimeoutRef.current)
+      }
+      
+      // Show indicator after 2 seconds
+      thinkingIndicatorTimeoutRef.current = setTimeout(() => {
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator',message:'Showing thinking indicator',data:{isAgentTyping,hasReasoningBlocks:Object.values(assistantMessages).some(m => m.reasoningBlocks.length > 0),activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        setShowThinkingIndicator(true)
+      }, 2000)
+      
+      return () => {
+        if (thinkingIndicatorTimeoutRef.current) {
+          clearTimeout(thinkingIndicatorTimeoutRef.current)
+          thinkingIndicatorTimeoutRef.current = null
+        }
+      }
+    } else {
+      // Hide indicator when typing stops
+      setShowThinkingIndicator(false)
+      if (thinkingIndicatorTimeoutRef.current) {
+        clearTimeout(thinkingIndicatorTimeoutRef.current)
+        thinkingIndicatorTimeoutRef.current = null
+      }
+    }
+  }, [isAgentTyping, assistantMessages])
+
+  // Hide thinking indicator if reasoning blocks are visible
+  useEffect(() => {
+    const hasVisibleReasoningBlocks = Object.values(assistantMessages).some(msg => 
+      msg.reasoningBlocks.some(block => 
+        block.isStreaming || (block.content && block.content.trim().length > 0)
+      )
+    )
+    
+    if (hasVisibleReasoningBlocks && showThinkingIndicator) {
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:reasoningVisible',message:'Hiding thinking indicator - reasoning blocks visible',data:{hasVisibleReasoningBlocks},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+      // #endregion
+      setShowThinkingIndicator(false)
+    }
+  }, [assistantMessages, showThinkingIndicator])
+
   // Timeout to reset agent typing state if it gets stuck
   useEffect(() => {
     if (isAgentTyping) {
@@ -709,20 +763,17 @@ export function ChatInterface() {
                         <PlanBlock workflowId={workflowId} />
                         
                         {/* Show question forms (Plan mode) */}
-                        {(() => {
-                          const questionMessages = useChatStore((state) => state.questionMessages[workflowId] || [])
-                          return questionMessages.map((question) => (
-                            <div key={question.id} style={{ marginTop: '16px', padding: '0 14px' }}>
-                              <QuestionForm
-                                question={question}
-                                workflowId={workflowId}
-                                onAnswer={(questionId, answers) => {
-                                  useChatStore.getState().updateQuestionAnswer(workflowId, questionId, answers)
-                                }}
-                              />
-                            </div>
-                          ))
-                        })()}
+                        {(questionMessages[workflowId] || []).map((question) => (
+                          <div key={question.id} style={{ marginTop: '16px', padding: '0 14px' }}>
+                            <QuestionForm
+                              question={question}
+                              workflowId={workflowId}
+                              onAnswer={(questionId, answers) => {
+                                useChatStore.getState().updateQuestionAnswer(workflowId, questionId, answers)
+                              }}
+                            />
+                          </div>
+                        ))}
                       </div>
                     )
                   })()}
@@ -754,52 +805,56 @@ export function ChatInterface() {
                           <StepProgress workflowId={workflowId} />
                           
                           {/* Show action messages (Cursor-style actions) */}
-                          {(() => {
-                            const actionMessages = useChatStore((state) => state.actionMessages[workflowId] || [])
-                            if (actionMessages.length === 0) return null
-                            
-                            return (
-                              <div style={{ padding: '0 14px', marginTop: '16px' }}>
-                                <div className="action-messages-list">
-                                  {actionMessages.map((action, index) => (
-                                    <ActionItem
-                                      key={action.id}
-                                      action={action}
-                                      isLast={index === actionMessages.length - 1}
-                                    />
-                                  ))}
-                                </div>
+                          {(actionMessages[workflowId] || []).length > 0 && (
+                            <div style={{ padding: '0 14px', marginTop: '16px' }}>
+                              <div className="action-messages-list">
+                                {(actionMessages[workflowId] || []).map((action, index) => (
+                                  <ActionItem
+                                    key={action.id}
+                                    action={action}
+                                    isLast={index === (actionMessages[workflowId] || []).length - 1}
+                                  />
+                                ))}
                               </div>
-                            )
-                          })()}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )
                   })()}
                   {/* Результат - sticky, останавливается после шагов */}
-                  {workflow?.finalResult !== null && workflow?.finalResult !== undefined && (
-                    <div 
-                      ref={(el) => {
-                        if (el) {
-                          stickyResultSectionRefs.current.set(workflowId, el)
-                        } else {
-                          stickyResultSectionRefs.current.delete(workflowId)
-                        }
-                      }}
-                      className="sticky-result-section sticky-result-active"
-                    >
-                      {/* Show result summary if available */}
-                      {(() => {
-                        const resultSummary = useChatStore((state) => state.resultSummaries[workflowId])
-                        if (resultSummary) {
-                          return <ResultSummary summary={resultSummary} />
-                        }
-                        return null
-                      })()}
-                      
-                      <FinalResultBlock content={workflow.finalResult} />
-                    </div>
-                  )}
+                  {(() => {
+                    // #region agent log
+                    const hasFinalResult = workflow?.finalResult !== null && workflow?.finalResult !== undefined
+                    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:finalResultCheck',message:'Checking final result',data:{workflowId,hasFinalResult,finalResultLength:workflow?.finalResult?.length || 0,finalResultPreview:workflow?.finalResult?.substring(0,100) || '',executionMode},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+                    // #endregion
+                    
+                    if (!hasFinalResult || !workflow || !workflow.finalResult) {
+                      return null
+                    }
+                    
+                    const finalResultContent = workflow.finalResult
+                    
+                    return (
+                      <div 
+                        ref={(el) => {
+                          if (el) {
+                            stickyResultSectionRefs.current.set(workflowId, el)
+                          } else {
+                            stickyResultSectionRefs.current.delete(workflowId)
+                          }
+                        }}
+                        className="sticky-result-section sticky-result-active"
+                      >
+                        {/* Show result summary if available */}
+                        {resultSummaries[workflowId] && (
+                          <ResultSummary summary={resultSummaries[workflowId]} />
+                        )}
+                        
+                        <FinalResultBlock content={finalResultContent} />
+                      </div>
+                    )
+                  })()}
                 </div>
               </React.Fragment>
             )
@@ -831,10 +886,6 @@ export function ChatInterface() {
           const assistantMessagesArray = Object.values(assistantMessages)
           const isEmpty = assistantMessagesArray.length === 0
           
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render:assistantMessages',message:'Rendering assistant messages section',data:{isEmpty,assistantMessagesCount:assistantMessagesArray.length,messageIds:assistantMessagesArray.map(m=>m.id),executionMode,messagesCount:messages.length,workflowsCount:Object.keys(workflows).length,activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-          
           // CRITICAL: If no assistant messages, return null immediately to prevent empty wrapper
           if (isEmpty) {
             return null
@@ -856,7 +907,11 @@ export function ChatInterface() {
             
             // CRITICAL: For ReAct mode, render reasoning blocks directly using CollapsibleBlock (same as Plan mode)
             // This check MUST come FIRST, before all other checks, to ensure ReAct blocks are rendered
-            if (executionMode === 'react' && assistantMsg.reasoningBlocks.length > 0) {
+            // For Query mode, only show reasoning if showReasoning setting is enabled
+            const shouldShowReasoning = executionMode === 'react' || 
+              (executionMode === 'query' && useSettingsStore.getState().showReasoning)
+            
+            if (shouldShowReasoning && assistantMsg.reasoningBlocks.length > 0) {
               console.log('[ChatInterface] ReAct mode - rendering reasoning blocks directly', { 
                 messageId: assistantMsg.id, 
                 executionMode,
@@ -1050,6 +1105,16 @@ export function ChatInterface() {
         })
         })()}
         
+        {/* Thinking Indicator - показывается во время долгого thinking */}
+        {showThinkingIndicator && !Object.values(assistantMessages).some(msg => 
+          msg.reasoningBlocks.some(block => 
+            block.isStreaming || (block.content && block.content.trim().length > 0)
+          )
+        ) && (
+          <div style={{ maxWidth: '900px', width: '100%', margin: '0 auto', padding: '0 14px' }}>
+            <ThinkingIndicator />
+          </div>
+        )}
         
         {/* Scroll spacer */}
         <div className="scroll-spacer" />

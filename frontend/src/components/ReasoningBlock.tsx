@@ -177,9 +177,6 @@ export function ReasoningBlock({ block, isVisible, shouldAutoCollapse = false, a
                   </ReactMarkdown>
                 )
               } catch (error) {
-                // #region agent log
-                fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ReasoningBlock.tsx:156',message:'ReactMarkdown error',data:{blockId:block.id,error:String(error),contentPreview:block.content.substring(0,200)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-                // #endregion
                 console.error('[ReasoningBlock] ReactMarkdown error:', error, { blockId: block.id, contentPreview: block.content.substring(0, 200) })
                 // Fallback to plain text if markdown fails
                 return <div style={{ whiteSpace: 'pre-wrap' }}>{block.content}</div>

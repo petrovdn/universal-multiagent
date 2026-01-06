@@ -28,11 +28,13 @@ interface SettingsState {
   timezone: string
   theme: Theme
   debugMode: boolean
+  showReasoning: boolean // Show reasoning blocks in Query mode
   integrations: IntegrationsState
   setExecutionMode: (mode: ExecutionMode) => void
   setTimezone: (tz: string) => void
   setTheme: (theme: Theme) => void
   setDebugMode: (enabled: boolean) => void
+  setShowReasoning: (enabled: boolean) => void
   setIntegrationStatus: (integration: keyof IntegrationsState, status: Partial<IntegrationsState[keyof IntegrationsState]>) => void
 }
 
@@ -43,6 +45,7 @@ export const useSettingsStore = create<SettingsState>()(
       timezone: 'Europe/Moscow',
       theme: 'light',
       debugMode: false,
+      showReasoning: false, // Hide reasoning by default in Query mode
       integrations: {
         googleCalendar: {
           enabled: false,
@@ -82,6 +85,9 @@ export const useSettingsStore = create<SettingsState>()(
       
       setDebugMode: (enabled) =>
         set({ debugMode: enabled }),
+      
+      setShowReasoning: (enabled) =>
+        set({ showReasoning: enabled }),
       
       setIntegrationStatus: (integration, status) =>
         set((state) => ({

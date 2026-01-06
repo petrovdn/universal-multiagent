@@ -131,12 +131,6 @@ Initialize agent wrapper."""
         else:
             logger.info(f"[AgentWrapper] WebSocket connected for session {session_id} (connections: {self.ws_manager.get_connection_count(session_id)})")
         
-        # #region agent log
-        import json as _json
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-            _f.write(_json.dumps({"location":"agent_wrapper.py:process_message:start","message":"Process message started","data":{"session_id":session_id,"user_message_preview":user_message[:100],"execution_mode":context.execution_mode,"ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
-        # #endregion
-        
         # Send user message event
         await self.ws_manager.send_event(
             session_id,
@@ -174,20 +168,12 @@ Initialize agent wrapper."""
             # Simple tasks always use direct streaming (no plan shown), regardless of mode
             if task_type == TaskType.SIMPLE:
                 logger.info(f"[AgentWrapper] Simple task detected, executing directly without workflow")
-                # #region agent log
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-                    _f.write(_json.dumps({"location":"agent_wrapper.py:process_message:simple_task","message":"Simple task execution starting","data":{"session_id":session_id,"task_type":"SIMPLE","ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
-                # #endregion
                 result = await self._execute_simple_task(
                     user_message,
                     context,
                     session_id,
                     file_ids
                 )
-                # #region agent log
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-                    _f.write(_json.dumps({"location":"agent_wrapper.py:process_message:simple_task_done","message":"Simple task execution completed","data":{"session_id":session_id,"result_keys":list(result.keys()) if result else None,"ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
-                # #endregion
                 return result
             
             # Complex tasks use new unified mode adapters or legacy orchestrators
@@ -205,10 +191,6 @@ Initialize agent wrapper."""
             }
             
             mapped_mode = mode_mapping.get(execution_mode, "agent")
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-                _f.write(_json.dumps({"location":"agent_wrapper.py:process_message:complex_task","message":"Complex task - using mode adapter","data":{"session_id":session_id,"execution_mode":execution_mode,"mapped_mode":mapped_mode,"task_type":str(task_type),"ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
-            # #endregion
             
             # Use new unified adapters for new modes
             if mapped_mode in ("query", "agent", "plan"):
@@ -869,10 +851,6 @@ Callback to handle streaming events and send to WebSocket."""
                     # Stream to final_result mode: send final_result_complete
                     if final_result_started:
                         logger.info(f"[AgentWrapper] Sending final_result_complete event")
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-                            _f.write(_json.dumps({"location":"agent_wrapper.py:stream_event_callback:final_result_complete","message":"Sending final_result_complete","data":{"session_id":session_id,"response_length":len(response) if response else 0,"ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
-                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "final_result_complete",
@@ -883,10 +861,6 @@ Callback to handle streaming events and send to WebSocket."""
                     else:
                         # If no tokens were streamed, still send final_result with content
                         logger.info(f"[AgentWrapper] Sending final_result event (no streaming)")
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-                            _f.write(_json.dumps({"location":"agent_wrapper.py:stream_event_callback:final_result","message":"Sending final_result (no streaming)","data":{"session_id":session_id,"response_length":len(response) if response else 0,"ws_connections":self.ws_manager.get_connection_count(session_id)},"timestamp":int(time.time()*1000),"sessionId":"debug-session","runId":"run1","hypothesisId":"D"})+"\n")
-                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "final_result",

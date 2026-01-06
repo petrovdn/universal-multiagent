@@ -69,9 +69,6 @@ function App() {
       }
     } finally {
       console.log('[App] checkAuth finally - setting isCheckingAuth to false')
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/4160cfcc-021e-4a6f-8f55-d3d9e039c6e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'App.tsx:checkAuth-finally',message:'checkAuth finally block',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
       setIsCheckingAuth(false)
     }
   }

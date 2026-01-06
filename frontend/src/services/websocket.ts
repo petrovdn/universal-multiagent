@@ -21,9 +21,6 @@ export class WebSocketClient {
   private currentMessageId: string | null = null
 
   connect(sessionId: string): void {
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:connect',message:'WebSocket connect called',data:{sessionId,currentSessionId:this.sessionId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     this.sessionId = sessionId
     this._connect()
   }
@@ -73,9 +70,6 @@ export class WebSocketClient {
 
       this.ws.onopen = () => {
         console.log('[WebSocket] Successfully connected to:', wsUrl)
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:onopen',message:'WebSocket connected successfully',data:{wsUrl,sessionId:this.sessionId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
         useChatStore.getState().setConnectionStatus(true)
         this.reconnectAttempts = 0
       }
@@ -84,9 +78,6 @@ export class WebSocketClient {
         try {
           const data: WebSocketEvent = JSON.parse(event.data)
           console.log('[WebSocket] Event received:', data.type, data)
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:onmessage',message:'WebSocket event received',data:{eventType:data.type,hasData:!!data.data,sessionId:this.sessionId,currentMessageId:this.currentMessageId,currentReasoningBlockId:this.currentReasoningBlockId,currentAnswerBlockId:this.currentAnswerBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
           
           // Log react_* events specifically
           if (data.type.startsWith('react_')) {
@@ -122,10 +113,6 @@ export class WebSocketClient {
           }
           
           this.handleEvent(data)
-          // #region agent log
-          const stateAfter = useChatStore.getState();
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:onmessage:after',message:'After handleEvent - state check',data:{eventType:data.type,messagesCount:stateAfter.messages.length,assistantMessagesCount:Object.keys(stateAfter.assistantMessages).length,assistantMessageIds:Object.keys(stateAfter.assistantMessages),isAgentTyping:stateAfter.isAgentTyping,currentMessageId:this.currentMessageId,currentReasoningBlockId:this.currentReasoningBlockId,currentAnswerBlockId:this.currentAnswerBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
         } catch (error) {
           console.error('[WebSocket] Error handling message:', error, event.data)
         }
@@ -138,9 +125,6 @@ export class WebSocketClient {
 
       this.ws.onclose = (event) => {
         console.log('[WebSocket] Connection closed. Code:', event.code, 'Reason:', event.reason, 'WasClean:', event.wasClean)
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:onclose',message:'WebSocket connection closed',data:{code:event.code,reason:event.reason,wasClean:event.wasClean,sessionId:this.sessionId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
         useChatStore.getState().setConnectionStatus(false)
         
         if (event.wasClean || this.reconnectAttempts > 0) {
@@ -495,8 +479,39 @@ export class WebSocketClient {
             chatStore.completeAnswerBlock(completeMessageId, this.currentAnswerBlockId)
           }
           
-          // Complete the message (moves to regular messages)
-          chatStore.completeMessage(completeMessageId)
+          // Get final content from answer blocks
+          const state = useChatStore.getState()
+          const assistantMsg = state.assistantMessages[completeMessageId]
+          const finalContent = assistantMsg?.answerBlocks
+            .map(block => block.content)
+            .join('\n\n')
+            .trim() || event.data.content || ''
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_complete',message:'Message complete event',data:{messageId:completeMessageId,finalContentLength:finalContent.length,finalContentPreview:finalContent.substring(0,100),hasWorkflow:!!state.activeWorkflowId,activeWorkflowId:state.activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+          // #endregion
+          
+          // For Query mode with workflow, save to workflow.finalResult instead of regular messages
+          if (state.activeWorkflowId && finalContent) {
+            // Check execution mode
+            const settingsState = useSettingsStore.getState()
+            const isQueryMode = settingsState.executionMode === 'query'
+            
+            if (isQueryMode) {
+              // Save to workflow finalResult for Query mode
+              chatStore.setWorkflowFinalResult(state.activeWorkflowId, finalContent)
+              // #region agent log
+              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_complete:query',message:'Saving to workflow finalResult for Query mode',data:{workflowId:state.activeWorkflowId,contentLength:finalContent.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+              // #endregion
+            } else {
+              // Complete the message (moves to regular messages)
+              chatStore.completeMessage(completeMessageId)
+            }
+          } else {
+            // No workflow - complete normally
+            chatStore.completeMessage(completeMessageId)
+          }
+          
           addDebugChunkIfEnabled(completeMessageId, 'message_complete', event.data.content || 'Сообщение завершено', event.data)
           
           // Reset state for next message
@@ -692,7 +707,7 @@ export class WebSocketClient {
         // Initialize final result for the active workflow
         const finalResultStartWorkflowId = ensureActiveWorkflow()
         // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result_start',message:'Final result start received',data:{workflowId:finalResultStartWorkflowId,messagesCount:useChatStore.getState().messages.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result_start',message:'Final result streaming started',data:{workflowId:finalResultStartWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
         // #endregion
         if (finalResultStartWorkflowId) {
           chatStore.updateWorkflowFinalResult(finalResultStartWorkflowId, '')
@@ -704,7 +719,7 @@ export class WebSocketClient {
         // Update final result with accumulated content (streaming)
         const finalResultChunkWorkflowId = ensureActiveWorkflow()
         // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result_chunk',message:'Final result chunk received',data:{workflowId:finalResultChunkWorkflowId,contentLength:event.data.content?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result_chunk',message:'Final result chunk received',data:{workflowId:finalResultChunkWorkflowId,contentLength:event.data.content?.length || 0,contentPreview:event.data.content?.substring(0,100) || ''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
         // #endregion
         if (finalResultChunkWorkflowId) {
           chatStore.updateWorkflowFinalResult(finalResultChunkWorkflowId, event.data.content || '')
@@ -716,7 +731,7 @@ export class WebSocketClient {
         // Complete final result streaming
         const finalResultCompleteWorkflowId = ensureActiveWorkflow()
         // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result_complete',message:'Final result complete received',data:{workflowId:finalResultCompleteWorkflowId,contentLength:event.data.content?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result_complete',message:'Final result streaming completed',data:{workflowId:finalResultCompleteWorkflowId,contentLength:event.data.content?.length || 0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
         // #endregion
         if (finalResultCompleteWorkflowId) {
           chatStore.updateWorkflowFinalResult(finalResultCompleteWorkflowId, event.data.content || '')
@@ -729,7 +744,7 @@ export class WebSocketClient {
         // Legacy: Set final result for the active workflow (backward compatibility)
         const finalResultWorkflowId = ensureActiveWorkflow()
         // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result',message:'Final result (legacy) received',data:{workflowId:finalResultWorkflowId,contentLength:event.data.content?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result',message:'Final result received (legacy)',data:{workflowId:finalResultWorkflowId,contentLength:event.data.content?.length || 0,contentPreview:event.data.content?.substring(0,100) || ''},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
         // #endregion
         if (finalResultWorkflowId) {
           chatStore.setWorkflowFinalResult(finalResultWorkflowId, event.data.content)
