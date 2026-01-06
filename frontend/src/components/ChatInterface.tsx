@@ -34,8 +34,6 @@ export function ChatInterface() {
   const [shouldScrollToNew, setShouldScrollToNew] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
   const [showThinkingIndicator, setShowThinkingIndicator] = useState(false)
-  const thinkingIndicatorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const thinkingIndicatorStartTimeRef = useRef<number | null>(null) // Track when thinking started
   const currentInteractionRef = useRef<HTMLDivElement>(null)
   const lastUserMessageCountRef = useRef<number>(0)
   const isCollapsingRef = useRef<boolean>(false)
@@ -67,7 +65,7 @@ export function ChatInterface() {
     actionMessages,
   } = useChatStore()
   
-  const { executionMode, setExecutionMode } = useSettingsStore()
+  const { executionMode, setExecutionMode, showReasoning } = useSettingsStore()
   const { models, selectedModel, setSelectedModel, fetchModels, isLoading: isLoadingModels, error: modelsError } = useModelStore()
   const { tabs } = useWorkspaceStore()
   
@@ -106,83 +104,32 @@ export function ChatInterface() {
     }
   }, [currentSession])
   
-  // Show thinking indicator after 1 second of typing
+  // Show thinking indicator when reasoning is active but not visible to user
   useEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:effect',message:'Thinking indicator effect triggered',data:{isAgentTyping,showThinkingIndicator},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
-    
-    if (isAgentTyping) {
-      // Track when thinking started
-      if (!thinkingIndicatorStartTimeRef.current) {
-        thinkingIndicatorStartTimeRef.current = Date.now()
-      }
-      
-      // Clear any existing timeout
-      if (thinkingIndicatorTimeoutRef.current) {
-        clearTimeout(thinkingIndicatorTimeoutRef.current)
-      }
-      
-      // Always show indicator after 1 second if agent is still typing
-      // It will be hidden by the second useEffect if substantial reasoning content appears AND enough time has passed
-      thinkingIndicatorTimeoutRef.current = setTimeout(() => {
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:timeout',message:'Thinking indicator timeout fired - showing indicator',data:{isAgentTyping,activeWorkflowId,elapsedMs:thinkingIndicatorStartTimeRef.current ? Date.now() - thinkingIndicatorStartTimeRef.current : null},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
-        
-        // Always show indicator after 1 second - it will be hidden later if substantial reasoning appears AND enough time has passed
-        setShowThinkingIndicator(true)
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:shown',message:'Thinking indicator set to true',data:{isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
-      }, 1000) // 1 second
-      
-      return () => {
-        if (thinkingIndicatorTimeoutRef.current) {
-          clearTimeout(thinkingIndicatorTimeoutRef.current)
-          thinkingIndicatorTimeoutRef.current = null
-        }
-      }
-    } else {
-      // Hide indicator when typing stops
-      setShowThinkingIndicator(false)
-      thinkingIndicatorStartTimeRef.current = null
-      if (thinkingIndicatorTimeoutRef.current) {
-        clearTimeout(thinkingIndicatorTimeoutRef.current)
-        thinkingIndicatorTimeoutRef.current = null
-      }
-    }
-  }, [isAgentTyping, assistantMessages])
-
-  // Hide thinking indicator if reasoning blocks have substantial content AND enough time has passed (at least 2 seconds)
-  useEffect(() => {
-    if (!showThinkingIndicator) return
-    
-    // Don't hide if less than 2 seconds have passed since thinking started
-    const elapsedMs = thinkingIndicatorStartTimeRef.current ? Date.now() - thinkingIndicatorStartTimeRef.current : Infinity
-    if (elapsedMs < 2000) {
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:reasoningVisible:too_early',message:'Not hiding thinking indicator - less than 2 seconds passed',data:{elapsedMs},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
-      return
-    }
-    
-    // Check if reasoning blocks have substantial content (more than 150 characters)
-    const hasSubstantialReasoning = Object.values(assistantMessages).some(msg => 
-      msg.reasoningBlocks.some(block => {
-        const content = block.content?.trim() || ''
-        // Consider substantial if more than 150 characters
-        return content.length > 150
-      })
+    // Check if reasoning blocks are active (streaming or have content)
+    const hasActiveReasoning = Object.values(assistantMessages).some(msg => 
+      msg.reasoningBlocks.some(block => 
+        block.isStreaming || (block.content && block.content.trim().length > 0)
+      )
     )
     
-    if (hasSubstantialReasoning) {
+    // Check if reasoning should be visible to user
+    const isReasoningVisible = executionMode === 'react' || 
+      (executionMode === 'query' && showReasoning)
+    
+    // Show indicator if:
+    // 1. Agent is typing AND
+    // 2. Reasoning is active BUT not visible to user
+    if (isAgentTyping && hasActiveReasoning && !isReasoningVisible) {
       // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:reasoningVisible',message:'Hiding thinking indicator - substantial reasoning content visible',data:{hasSubstantialReasoning,elapsedMs},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:logic',message:'Showing thinking indicator - reasoning active but not visible',data:{isAgentTyping,hasActiveReasoning,isReasoningVisible,executionMode,showReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
       // #endregion
+      setShowThinkingIndicator(true)
+    } else if (!isAgentTyping || !hasActiveReasoning || isReasoningVisible) {
+      // Hide indicator when typing stops, reasoning stops, or reasoning becomes visible
       setShowThinkingIndicator(false)
     }
-  }, [assistantMessages, showThinkingIndicator])
+  }, [isAgentTyping, assistantMessages, executionMode, showReasoning])
 
   // Timeout to reset agent typing state if it gets stuck
   useEffect(() => {
@@ -257,7 +204,7 @@ export function ChatInterface() {
       const elementRect = interactionContainer.getBoundingClientRect()
       
       // Вычисляем позицию прокрутки: позиция элемента относительно контейнера + текущая прокрутка
-      const scrollTop = container.scrollTop + (elementRect.top - containerRect.top) - 52 // 52px для header
+      const scrollTop = container.scrollTop + (elementRect.top - containerRect.top) // Header больше не перекрывает - margin в App.tsx
       
       // Проверяем, что элемент имеет правильную позицию (не 0 или отрицательную)
       if ((elementRect.top - containerRect.top) <= 0 && attempt < 5) {        // Элемент еще не готов, пробуем еще раз
@@ -1151,37 +1098,12 @@ export function ChatInterface() {
         })
         })()}
         
-        {/* Thinking Indicator - показывается во время долгого thinking */}
-        {showThinkingIndicator && (() => {
-          // Don't hide if less than 2 seconds have passed since thinking started
-          const elapsedMs = thinkingIndicatorStartTimeRef.current ? Date.now() - thinkingIndicatorStartTimeRef.current : Infinity
-          const isTooEarly = elapsedMs < 2000
-          
-          // Check if reasoning blocks have substantial content (more than 150 characters)
-          const hasSubstantialReasoning = Object.values(assistantMessages).some(msg => 
-            msg.reasoningBlocks.some(block => {
-              const content = block.content?.trim() || ''
-              return content.length > 150
-            })
-          )
-          
-          // Show indicator if no substantial reasoning content exists OR if it's too early (less than 2 seconds)
-          if (hasSubstantialReasoning && !isTooEarly) {
-            // #region agent log
-            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render:thinkingIndicator:blocked',message:'Thinking indicator blocked in render - substantial reasoning exists',data:{hasSubstantialReasoning,elapsedMs},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-            // #endregion
-            return null
-          }
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render:thinkingIndicator:rendering',message:'Thinking indicator rendering in UI',data:{showThinkingIndicator,hasSubstantialReasoning,elapsedMs,isTooEarly},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
-          return (
-            <div style={{ maxWidth: '900px', width: '100%', margin: '0 auto', padding: '0 14px' }}>
-              <ThinkingIndicator />
-            </div>
-          )
-        })()}
+        {/* Thinking Indicator - показывается когда reasoning активен, но не виден пользователю */}
+        {showThinkingIndicator && (
+          <div style={{ maxWidth: '900px', width: '100%', margin: '0 auto', padding: '0 14px' }}>
+            <ThinkingIndicator />
+          </div>
+        )}
         
         {/* Scroll spacer */}
         <div className="scroll-spacer" />

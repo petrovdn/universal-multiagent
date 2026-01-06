@@ -989,7 +989,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  scroll-margin-top: 52px; /* Смещение для прокрутки (высота Header 40px + border 1px + отступ 11px) */
+  scroll-margin-top: 0; /* Header больше не перекрывает контент - margin в App.tsx */
 }
 
 /* Скрываем пустой user-query-flow-block */
@@ -1212,14 +1212,21 @@ body {
 /* ============================================
    THINKING INDICATOR (Cursor-style animated text)
    ============================================ */
-.thinking-indicator {
-  max-width: 900px;
-  width: 100%;
-  margin: 16px auto;
-  padding: 16px;
+.thinking-indicator-container {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 8px;
+  padding: 12px 16px;
+  margin: 16px 0;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-primary);
+}
+
+.thinking-indicator-icon {
+  color: var(--accent-primary);
+  animation: thinkingPulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
 }
 
 .thinking-indicator-text {
@@ -1229,19 +1236,54 @@ body {
   letter-spacing: 0.3px;
 }
 
-.thinking-indicator-char {
+.thinking-indicator-dots {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  height: 16px;
+  margin-left: 4px;
+}
+
+.thinking-indicator-dots .dot {
   display: inline-block;
-  animation: thinkingPulse 1.5s ease-in-out infinite;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  animation: thinkingDot 1.4s ease-in-out infinite;
+}
+
+.thinking-indicator-dots .dot-1 {
+  animation-delay: 0s;
+}
+
+.thinking-indicator-dots .dot-2 {
+  animation-delay: 0.2s;
+}
+
+.thinking-indicator-dots .dot-3 {
+  animation-delay: 0.4s;
 }
 
 @keyframes thinkingPulse {
   0%, 100% {
-    opacity: 0.4;
-    transform: translateY(0);
+    opacity: 0.6;
+    transform: scale(1);
   }
   50% {
     opacity: 1;
-    transform: translateY(-2px);
+    transform: scale(1.1);
+  }
+}
+
+@keyframes thinkingDot {
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px);
   }
 }
 
@@ -3197,7 +3239,7 @@ body {
   .messages-container {
     padding: 16px;
     padding-bottom: 140px;
-    padding-top: 12px;
+    padding-top: 0; /* Отступ для Header теперь в App.tsx */
   }
   
   .input-area {

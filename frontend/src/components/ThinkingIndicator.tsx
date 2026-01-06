@@ -1,4 +1,5 @@
 import React from 'react'
+import { Brain } from 'lucide-react'
 
 interface ThinkingIndicatorProps {
   text?: string
@@ -6,17 +7,13 @@ interface ThinkingIndicatorProps {
 
 export function ThinkingIndicator({ text = 'Планирую действия...' }: ThinkingIndicatorProps) {
   return (
-    <div className="thinking-indicator">
-      <div className="thinking-indicator-text">
-        {text.split('').map((char, index) => (
-          <span 
-            key={index} 
-            className="thinking-indicator-char"
-            style={{ animationDelay: `${index * 0.1}s` }}
-          >
-            {char === ' ' ? '\u00A0' : char}
-          </span>
-        ))}
+    <div className="thinking-indicator-container">
+      <Brain size={16} className="thinking-indicator-icon" />
+      <span className="thinking-indicator-text">{text}</span>
+      <div className="thinking-indicator-dots">
+        <span className="dot dot-1">.</span>
+        <span className="dot dot-2">.</span>
+        <span className="dot dot-3">.</span>
       </div>
     </div>
   )
