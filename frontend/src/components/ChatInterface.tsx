@@ -107,6 +107,10 @@ export function ChatInterface() {
   
   // Show thinking indicator after 1 second of typing
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:effect',message:'Thinking indicator effect triggered',data:{isAgentTyping,showThinkingIndicator},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+    
     if (isAgentTyping) {
       // Clear any existing timeout
       if (thinkingIndicatorTimeoutRef.current) {
@@ -123,7 +127,7 @@ export function ChatInterface() {
         // Always show indicator after 1 second - it will be hidden later if substantial reasoning appears
         setShowThinkingIndicator(true)
         // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:shown',message:'Thinking indicator shown',data:{isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:shown',message:'Thinking indicator set to true',data:{isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
         // #endregion
       }, 1000) // 1 second
       
