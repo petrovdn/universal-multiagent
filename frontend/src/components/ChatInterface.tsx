@@ -226,7 +226,7 @@ export function ChatInterface() {
       const elementRect = interactionContainer.getBoundingClientRect()
       
       // Вычисляем позицию прокрутки: позиция элемента относительно контейнера + текущая прокрутка
-      const scrollTop = container.scrollTop + (elementRect.top - containerRect.top) - 52 // 52px для header
+      const scrollTop = container.scrollTop + (elementRect.top - containerRect.top) // Header теперь часть flex layout, смещение не нужно
       
       // Проверяем, что элемент имеет правильную позицию (не 0 или отрицательную)
       if ((elementRect.top - containerRect.top) <= 0 && attempt < 5) {        // Элемент еще не готов, пробуем еще раз
@@ -516,6 +516,9 @@ export function ChatInterface() {
     // Activate scroll to new message    setShouldScrollToNew(true)
     
     // Mark agent as typing
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend',message:'Setting agent typing before send',data:{executionMode,userMessageLength:userMessage.length,hasSession:!!currentSession,wsConnected:wsClient.isConnected()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
     setAgentTyping(true)
 
     try {
@@ -524,6 +527,9 @@ export function ChatInterface() {
         // Use REST API when files are attached (WebSocket doesn't support files yet)
         if (fileIds.length > 0 || openFiles.length > 0) {
           console.log('[ChatInterface] Using REST API (files attached or open files)')
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage:rest',message:'Sending message via REST API',data:{executionMode,sessionId:currentSession,hasFiles:fileIds.length>0,hasOpenFiles:openFiles.length>0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+          // #endregion
           await sendMessage({
             message: userMessage,
             session_id: currentSession,

@@ -180,6 +180,28 @@ Initialize agent wrapper."""
             # Map execution mode to adapter type
             execution_mode = context.execution_mode or "agent"
             
+            # #region agent log
+            try:
+                import json
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "agent_wrapper.py:process_message:execution_mode",
+                        "message": "Execution mode determined",
+                        "data": {
+                            "context_execution_mode": context.execution_mode,
+                            "execution_mode": execution_mode,
+                            "session_id": session_id,
+                            "user_message_preview": user_message[:100]
+                        },
+                        "timestamp": time.time() * 1000,
+                        "sessionId": session_id,
+                        "runId": "run1",
+                        "hypothesisId": "H1"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
+            
             # Map legacy modes to new modes
             mode_mapping = {
                 "instant": "agent",  # Legacy instant -> new agent mode
@@ -191,6 +213,26 @@ Initialize agent wrapper."""
             }
             
             mapped_mode = mode_mapping.get(execution_mode, "agent")
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "agent_wrapper.py:process_message:mapped_mode",
+                        "message": "Mode mapped to adapter",
+                        "data": {
+                            "original_mode": execution_mode,
+                            "mapped_mode": mapped_mode,
+                            "session_id": session_id
+                        },
+                        "timestamp": time.time() * 1000,
+                        "sessionId": session_id,
+                        "runId": "run1",
+                        "hypothesisId": "H1"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
             
             # Use new unified adapters for new modes
             if mapped_mode in ("query", "agent", "plan"):

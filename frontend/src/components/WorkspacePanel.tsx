@@ -215,7 +215,7 @@ export function WorkspacePanel() {
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        paddingTop: '56px',
+        paddingTop: '0', /* Header теперь часть flex layout, padding не нужен */
         backgroundColor: document.documentElement.classList.contains('dark')
           ? 'rgb(30 41 59)'
           : 'rgb(255 255 255)'

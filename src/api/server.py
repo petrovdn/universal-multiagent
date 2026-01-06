@@ -726,6 +726,27 @@ WebSocket endpoint for real-time communication."""
                     context = ConversationContext(session_id)
                     session_manager.update_session(session_id, context)
                 
+                # #region agent log
+                try:
+                    import json
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "location": "server.py:websocket:message",
+                            "message": "WebSocket message received",
+                            "data": {
+                                "session_id": session_id,
+                                "execution_mode": context.execution_mode,
+                                "user_message_preview": user_message[:100] if user_message else ""
+                            },
+                            "timestamp": time.time() * 1000,
+                            "sessionId": session_id,
+                            "runId": "run1",
+                            "hypothesisId": "H1"
+                        }) + "\n")
+                except:
+                    pass
+                # #endregion
+                
                 # Run process_message in background task to avoid blocking the message loop
                 # This allows other messages (like approve_plan) to be received while processing
                 async def process_message_task():
