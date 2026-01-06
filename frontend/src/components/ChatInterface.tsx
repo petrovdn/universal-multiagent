@@ -1132,15 +1132,32 @@ export function ChatInterface() {
         })()}
         
         {/* Thinking Indicator - показывается во время долгого thinking */}
-        {showThinkingIndicator && !Object.values(assistantMessages).some(msg => 
-          msg.reasoningBlocks.some(block => 
-            block.isStreaming || (block.content && block.content.trim().length > 0)
+        {showThinkingIndicator && (() => {
+          // Check if reasoning blocks have substantial content (more than 150 characters)
+          const hasSubstantialReasoning = Object.values(assistantMessages).some(msg => 
+            msg.reasoningBlocks.some(block => {
+              const content = block.content?.trim() || ''
+              return content.length > 150
+            })
           )
-        ) && (
-          <div style={{ maxWidth: '900px', width: '100%', margin: '0 auto', padding: '0 14px' }}>
-            <ThinkingIndicator />
-          </div>
-        )}
+          
+          // Show indicator if no substantial reasoning content exists
+          if (hasSubstantialReasoning) {
+            // #region agent log
+            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render:thinkingIndicator:blocked',message:'Thinking indicator blocked in render - substantial reasoning exists',data:{hasSubstantialReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+            // #endregion
+            return null
+          }
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render:thinkingIndicator:rendering',message:'Thinking indicator rendering in UI',data:{showThinkingIndicator,hasSubstantialReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+          // #endregion
+          return (
+            <div style={{ maxWidth: '900px', width: '100%', margin: '0 auto', padding: '0 14px' }}>
+              <ThinkingIndicator />
+            </div>
+          )
+        })()}
         
         {/* Scroll spacer */}
         <div className="scroll-spacer" />
