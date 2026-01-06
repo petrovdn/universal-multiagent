@@ -316,7 +316,75 @@ class GetCalendarEventsTool(BaseTool):
             events = result.get("items", []) if isinstance(result, dict) else []
             count = result.get("count", len(events)) if isinstance(result, dict) else len(events) if isinstance(events, list) else 0
             
-            return f"Found {count} events"
+            # If no events, return simple message
+            if count == 0:
+                return "Found 0 events"
+            
+            # If we have events but no details in items, return count with suggestion
+            if isinstance(events, list) and len(events) == 0:
+                return f"Found {count} events (details not available in current response)"
+            
+            # Build detailed response with event information
+            response_parts = [f"Found {count} event(s):"]
+            
+            for i, event in enumerate(events[:max_results], 1):
+                if isinstance(event, dict):
+                    summary = event.get("summary", event.get("title", "No title"))
+                    start = event.get("start", {})
+                    end = event.get("end", {})
+                    
+                    # Parse datetime
+                    start_time = start.get("dateTime") or start.get("date", "Unknown")
+                    end_time = end.get("dateTime") or end.get("date", "Unknown")
+                    
+                    # Format time for display
+                    try:
+                        if "T" in start_time:
+                            dt = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                            formatted_start = dt.strftime("%Y-%m-%d %H:%M")
+                        else:
+                            formatted_start = start_time
+                    except:
+                        formatted_start = start_time
+                    
+                    try:
+                        if "T" in end_time:
+                            dt = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+                            formatted_end = dt.strftime("%Y-%m-%d %H:%M")
+                        else:
+                            formatted_end = end_time
+                    except:
+                        formatted_end = end_time
+                    
+                    location = event.get("location", "")
+                    attendees = event.get("attendees", [])
+                    description = event.get("description", "")
+                    
+                    event_info = f"\n{i}. {summary}"
+                    event_info += f"\n   Время: {formatted_start} - {formatted_end}"
+                    
+                    if location:
+                        event_info += f"\n   Место: {location}"
+                    
+                    if attendees:
+                        attendee_names = [a.get("displayName") or a.get("email", "") for a in attendees if isinstance(a, dict)]
+                        if attendee_names:
+                            event_info += f"\n   Участники: {', '.join(attendee_names[:5])}"
+                            if len(attendee_names) > 5:
+                                event_info += f" (и еще {len(attendee_names) - 5})"
+                    
+                    if description:
+                        desc_preview = description[:100] + "..." if len(description) > 100 else description
+                        event_info += f"\n   Описание: {desc_preview}"
+                    
+                    response_parts.append(event_info)
+                else:
+                    response_parts.append(f"\n{i}. {str(event)}")
+            
+            if count > max_results:
+                response_parts.append(f"\n... и еще {count - max_results} событие(ий)")
+            
+            return "\n".join(response_parts)
             
         except Exception as e:
             raise ToolExecutionError(
