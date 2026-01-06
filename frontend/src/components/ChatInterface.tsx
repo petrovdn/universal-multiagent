@@ -105,7 +105,7 @@ export function ChatInterface() {
     }
   }, [currentSession])
   
-  // Show thinking indicator after 2 seconds of typing
+  // Show thinking indicator after 1 second of typing
   useEffect(() => {
     if (isAgentTyping) {
       // Clear any existing timeout
@@ -115,11 +115,28 @@ export function ChatInterface() {
       
       // Show indicator after 2 seconds
       thinkingIndicatorTimeoutRef.current = setTimeout(() => {
+        const hasReasoningBlocks = Object.values(assistantMessages).some(msg => 
+          msg.reasoningBlocks.some(block => 
+            block.isStreaming || (block.content && block.content.trim().length > 0)
+          )
+        )
+        
         // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator',message:'Showing thinking indicator',data:{isAgentTyping,hasReasoningBlocks:Object.values(assistantMessages).some(m => m.reasoningBlocks.length > 0),activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:timeout',message:'Thinking indicator timeout fired',data:{isAgentTyping,hasReasoningBlocks,activeWorkflowId,willShow:!hasReasoningBlocks},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
         // #endregion
-        setShowThinkingIndicator(true)
-      }, 2000)
+        
+        // Only show if no reasoning blocks are visible yet
+        if (!hasReasoningBlocks) {
+          setShowThinkingIndicator(true)
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:shown',message:'Thinking indicator shown',data:{isAgentTyping,hasReasoningBlocks},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+          // #endregion
+        } else {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:skipped',message:'Thinking indicator skipped - reasoning blocks already visible',data:{isAgentTyping,hasReasoningBlocks},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+          // #endregion
+        }
+      }, 1000) // Changed from 2000ms to 1000ms (1 second)
       
       return () => {
         if (thinkingIndicatorTimeoutRef.current) {
@@ -226,7 +243,7 @@ export function ChatInterface() {
       const elementRect = interactionContainer.getBoundingClientRect()
       
       // Вычисляем позицию прокрутки: позиция элемента относительно контейнера + текущая прокрутка
-      const scrollTop = container.scrollTop + (elementRect.top - containerRect.top) // Header теперь часть flex layout, смещение не нужно
+      const scrollTop = container.scrollTop + (elementRect.top - containerRect.top) - 52 // 52px для header
       
       // Проверяем, что элемент имеет правильную позицию (не 0 или отрицательную)
       if ((elementRect.top - containerRect.top) <= 0 && attempt < 5) {        // Элемент еще не готов, пробуем еще раз

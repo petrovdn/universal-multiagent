@@ -157,15 +157,15 @@ body {
    COMPACT HEADER - ONE LINE
    ============================================ */
 .compact-header {
-  /* Убрали position: fixed - Header теперь часть flex layout */
-  /* Это позволяет scroll containers начинаться под Header и sticky работать корректно */
-  position: relative;
-  z-index: 95; /* Выше user-query-block (90), но ниже input area (100) */
+  position: fixed !important; /* Закрепляем сверху */
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 95 !important; /* Выше user-query-block (90), но ниже input area (100) */
   background: var(--bg-overlay);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border-primary);
   padding: 8px 20px;
-  flex-shrink: 0; /* Не сжимается */
 }
 
 .compact-header-content {
@@ -957,7 +957,7 @@ body {
   overflow-x: hidden !important;
   padding: 0;
   padding-bottom: 0; /* Убрали padding-bottom - контент сам создает отступ */
-  padding-top: 0; /* Header теперь часть flex layout, padding не нужен */
+  padding-top: 50px; /* Место для Header (~50px) */
   scroll-behavior: smooth;
   display: flex;
   flex-direction: column;
@@ -989,7 +989,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  scroll-margin-top: 0; /* Header теперь часть flex layout, scroll-margin не нужен */
+  scroll-margin-top: 52px; /* Смещение для прокрутки (высота Header 40px + border 1px + отступ 11px) */
 }
 
 /* Скрываем пустой user-query-flow-block */
@@ -1031,7 +1031,7 @@ body {
 /* Sticky для всех запросов */
 .sticky-query-section.sticky-active {
   position: sticky;
-  top: 0; /* Прилипает к верху messages-container (Header теперь часть flex layout, не перекрывает контент) */
+  top: 0; /* Доходит до самого верха страницы при прокрутке */
   z-index: 23; /* Самый высокий среди sticky-секций */
   background: var(--bg-primary);
   max-width: 900px;
@@ -3197,7 +3197,7 @@ body {
   .messages-container {
     padding: 16px;
     padding-bottom: 140px;
-    padding-top: 0; /* Header теперь часть flex layout */
+    padding-top: 12px;
   }
   
   .input-area {
