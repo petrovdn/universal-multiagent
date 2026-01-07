@@ -89,6 +89,13 @@ class QueryModeAdapter:
         self._active_engine = engine
         
         try:
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as _json
+                    f.write(_json.dumps({"location": "mode_adapters.py:QueryModeAdapter:execute", "message": "QueryMode executing engine", "data": {"file_ids": file_ids, "file_ids_count": len(file_ids) if file_ids else 0}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H1,H4"}) + "\n")
+            except: pass
+            # #endregion
             result = await engine.execute(goal, context, file_ids)
             # Format result for query mode - emphasize data and insights
             return self._format_query_response(result)

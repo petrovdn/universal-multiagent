@@ -640,6 +640,14 @@ class UnifiedReActEngine:
         file_ids: List[str]
     ) -> Dict[str, Any]:
         """Plan next action based on thought."""
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as _json
+                f.write(_json.dumps({"location": "unified_react_engine.py:_plan_action:entry", "message": "file_ids received", "data": {"file_ids": file_ids, "file_ids_count": len(file_ids)}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H1"}) + "\n")
+        except: pass
+        # #endregion
+        
         # Get capability descriptions (filtered by allowed categories)
         capability_descriptions = []
         for cap in self.capabilities[:50]:  # Limit to first 50
@@ -661,8 +669,23 @@ class UnifiedReActEngine:
             uploaded_files_found = []
             for file_id in file_ids:
                 file_data = context.get_file(file_id)
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json as _json
+                        f.write(_json.dumps({"location": "unified_react_engine.py:_plan_action:get_file", "message": "get_file result", "data": {"file_id": file_id, "file_data_exists": file_data is not None, "file_data_keys": list(file_data.keys()) if file_data else None, "has_text": "text" in file_data if file_data else False}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H2,H3"}) + "\n")
+                except: pass
+                # #endregion
                 if file_data:
                     uploaded_files_found.append(file_data)
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as _json
+                    f.write(_json.dumps({"location": "unified_react_engine.py:_plan_action:files_found", "message": "uploaded_files_found count", "data": {"count": len(uploaded_files_found), "filenames": [f.get('filename') for f in uploaded_files_found]}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H2"}) + "\n")
+            except: pass
+            # #endregion
             
             if uploaded_files_found:
                 context_str += "\n📎 ПРИКРЕПЛЕННЫЕ ФАЙЛЫ (ПРИОРИТЕТ #1 - используй их ПЕРВЫМ!):\n"
@@ -687,6 +710,14 @@ class UnifiedReActEngine:
                 elif file.get('type') == 'docs':
                     context_str += f"- Документ: {file.get('title')} (ID: {file.get('document_id')})\n"
             context_str += "⚠️ Используй document_id/spreadsheet_id напрямую, НЕ ищи через search!\n"
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as _json
+                f.write(_json.dumps({"location": "unified_react_engine.py:_plan_action:context_str", "message": "context_str before prompt", "data": {"context_str_preview": context_str[:500], "has_uploaded_files_mention": "ПРИКРЕПЛЕННЫЕ" in context_str, "has_open_files_mention": "Открытые файлы" in context_str}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H5"}) + "\n")
+        except: pass
+        # #endregion
         
         prompt = f"""Ты планируешь следующее действие для достижения цели.
 
@@ -877,6 +908,43 @@ class UnifiedReActEngine:
             logger.error(f"[UnifiedReActEngine] Error in _find_alternative: {e}")
             return None
     
+    async def _generate_final_answer(self, state: ReActState) -> str:
+        """Generate a human-friendly final answer based on all collected results."""
+        try:
+            # Collect all observations/results
+            observations_text = ""
+            for obs in state.observations:
+                if obs.raw_result:
+                    observations_text += f"- {obs.action.tool_name}: {str(obs.raw_result)[:500]}\n"
+            
+            if not observations_text:
+                observations_text = "Нет результатов от инструментов."
+            
+            prompt = f"""Вопрос пользователя: "{state.goal}"
+
+Результаты поиска:
+{observations_text}
+
+ВАЖНО: Внимательно проанализируй результаты выше. Если там есть данные (events, messages, files и т.д.) - значит они НАЙДЕНЫ.
+
+Сформулируй ответ на русском языке:
+- Если найдены данные - перечисли их кратко и понятно
+- Если данные пустые (пустой массив [], "Found 0") - скажи что ничего не найдено
+- НЕ говори что данных нет, если в результатах есть записи!
+
+Ответ:"""
+
+            response = await self.llm.ainvoke([HumanMessage(content=prompt)])
+            answer = response.content.strip() if hasattr(response, 'content') else str(response).strip()
+            return answer
+        except Exception as e:
+            logger.error(f"[UnifiedReActEngine] Error generating final answer: {e}")
+            # Fallback to last result
+            if state.observations:
+                last_result = str(state.observations[-1].raw_result)
+                return self._format_result_summary(last_result, state.observations[-1].action.tool_name)
+            return "Задача выполнена."
+
     async def _finalize_success(
         self,
         state: ReActState,
@@ -886,12 +954,15 @@ class UnifiedReActEngine:
         """Finalize successful execution."""
         state.status = "done"
         
+        # Generate human-friendly final answer instead of raw result
+        human_answer = await self._generate_final_answer(state)
+        
         result_summary = {
             "status": "completed",
             "goal": state.goal,
             "iterations": state.iteration,
             "actions_taken": len(state.action_history),
-            "final_result": str(final_result),
+            "final_result": human_answer,
             "reasoning_trail": [
                 {
                     "iteration": step.iteration,
@@ -908,7 +979,7 @@ class UnifiedReActEngine:
             self.session_id,
             "react_complete",
             {
-                "result": str(final_result)[:1000],
+                "result": human_answer[:1000],
                 "trail": result_summary["reasoning_trail"][-10:]
             }
         )
@@ -920,7 +991,7 @@ class UnifiedReActEngine:
                 self.session_id,
                 "final_result",
                 {
-                    "content": str(final_result)
+                    "content": human_answer
                 }
             )
         else:
@@ -932,7 +1003,7 @@ class UnifiedReActEngine:
                 {
                     "role": "assistant",
                     "message_id": message_id,
-                    "content": str(final_result)
+                    "content": human_answer
                 }
             )
         
@@ -1146,41 +1217,136 @@ class UnifiedReActEngine:
         else:
             return 'execute'
     
-    def _extract_short_intent(self, thought: str) -> str:
-        """Extract a short intent from the full thought for Cursor-style display."""
-        DEFAULT_INTENT = "Думаю..."
+    def _extract_result_details(self, result: str) -> List[str]:
+        """Extract meaningful details from result for display in intent block."""
+        details = []
+        try:
+            import json
+            logger.debug(f"[_extract_result_details] Parsing result: {result[:200]}...")
+            
+            # Try to parse as JSON
+            data = None
+            if result.strip().startswith('{') or result.strip().startswith('['):
+                try:
+                    data = json.loads(result)
+                except json.JSONDecodeError:
+                    pass
+            
+            if isinstance(data, list):
+                # List of items (events, messages, files)
+                logger.debug(f"[_extract_result_details] Found list with {len(data)} items")
+                for item in data[:5]:  # Max 5 items
+                    if isinstance(item, dict):
+                        # Try common fields
+                        name = item.get('summary') or item.get('title') or item.get('subject') or item.get('name') or item.get('filename')
+                        if name:
+                            details.append(f"• {name}")
+                            logger.debug(f"[_extract_result_details] Extracted: {name}")
+            elif isinstance(data, dict):
+                logger.debug(f"[_extract_result_details] Found dict with keys: {list(data.keys())[:10]}")
+                # Single item or structured response
+                if 'events' in data:
+                    for event in data['events'][:5]:
+                        name = event.get('summary') or event.get('title')
+                        if name:
+                            details.append(f"📅 {name}")
+                elif 'messages' in data:
+                    for msg in data['messages'][:5]:
+                        subject = msg.get('subject') or msg.get('snippet', '')[:50]
+                        if subject:
+                            details.append(f"📧 {subject}")
+                elif 'files' in data:
+                    for f in data['files'][:5]:
+                        name = f.get('name') or f.get('title')
+                        if name:
+                            details.append(f"📄 {name}")
+                else:
+                    # Try direct fields for single event/item
+                    name = data.get('summary') or data.get('title') or data.get('subject')
+                    if name:
+                        details.append(f"• {name}")
+            
+            # If no structured data found, check for "Found N" pattern and extract lines
+            if not details and 'Found' in result:
+                lines = result.split('\n')
+                for line in lines[1:6]:  # Skip first "Found N" line
+                    line = line.strip()
+                    if line and len(line) > 3 and not line.startswith('{') and not line.startswith('Found'):
+                        details.append(f"• {line[:100]}")
+                        
+        except Exception as e:
+            logger.error(f"[_extract_result_details] Error: {e}")
+            # If parsing fails, try to extract from text
+            lines = result.split('\n')
+            for line in lines[:5]:
+                line = line.strip()
+                if line and len(line) > 3 and not line.startswith('{'):
+                    details.append(f"• {line[:100]}")
         
-        if not thought or not thought.strip():
-            return DEFAULT_INTENT
-        
-        # Remove numbered list prefixes like "1. ", "2. " etc.
+        logger.debug(f"[_extract_result_details] Extracted {len(details)} details")
+        return details
+
+    def _format_result_summary(self, result: str, tool: str) -> str:
+        """Format raw tool result into human-readable Russian summary."""
         import re
-        cleaned = re.sub(r'^\d+\.\s*', '', thought.strip())
+        result_lower = result.lower()
+        tool_lower = tool.lower() if tool else ""
         
-        # If after cleaning we have nothing meaningful, use default
-        if not cleaned or len(cleaned) < 3:
-            return DEFAULT_INTENT
+        # Extract count from common patterns like "Found 5 events", "Found 0 messages"
+        count_match = re.search(r'found\s+(\d+)\s+(\w+)', result_lower)
+        if count_match:
+            count = int(count_match.group(1))
+            item_type = count_match.group(2)
+            
+            # Map item types to Russian with proper pluralization
+            def pluralize_ru(n: int, one: str, few: str, many: str) -> str:
+                mod10 = n % 10
+                mod100 = n % 100
+                if mod100 >= 11 and mod100 <= 14:
+                    return many
+                if mod10 == 1:
+                    return one
+                if mod10 >= 2 and mod10 <= 4:
+                    return few
+                return many
+            
+            if 'event' in item_type or 'calendar' in item_type or 'встреч' in tool_lower:
+                word = pluralize_ru(count, 'встреча', 'встречи', 'встреч')
+                return f"Найдено {count} {word}" if count > 0 else "Встреч не найдено"
+            elif 'message' in item_type or 'mail' in item_type or 'email' in item_type or 'письм' in tool_lower:
+                word = pluralize_ru(count, 'письмо', 'письма', 'писем')
+                return f"Найдено {count} {word}" if count > 0 else "Писем не найдено"
+            elif 'file' in item_type or 'document' in item_type or 'doc' in item_type or 'файл' in tool_lower:
+                word = pluralize_ru(count, 'файл', 'файла', 'файлов')
+                return f"Найдено {count} {word}" if count > 0 else "Файлов не найдено"
+            elif 'contact' in item_type or 'контакт' in tool_lower:
+                word = pluralize_ru(count, 'контакт', 'контакта', 'контактов')
+                return f"Найдено {count} {word}" if count > 0 else "Контактов не найдено"
+            elif 'task' in item_type or 'задач' in tool_lower:
+                word = pluralize_ru(count, 'задача', 'задачи', 'задач')
+                return f"Найдено {count} {word}" if count > 0 else "Задач не найдено"
+            else:
+                word = pluralize_ru(count, 'результат', 'результата', 'результатов')
+                return f"Найдено {count} {word}" if count > 0 else "Ничего не найдено"
         
-        # Try to find first meaningful sentence (ends with ". " or ".\n" or at end)
-        match = re.search(r'^(.+?)\.\s', cleaned)
-        if match:
-            first_sentence = match.group(1).strip()
-            # Check if it's meaningful (not just a number or very short)
-            if len(first_sentence) < 3 or first_sentence.isdigit():
-                return DEFAULT_INTENT
-            if len(first_sentence) > 100:
-                return first_sentence[:97] + "..."
-            return first_sentence + "."
+        # Handle success/error patterns
+        if 'success' in result_lower or 'successfully' in result_lower:
+            return "✓ Выполнено успешно"
+        if 'error' in result_lower or 'failed' in result_lower:
+            return "✗ Ошибка выполнения"
+        if 'created' in result_lower:
+            return "✓ Создано"
+        if 'sent' in result_lower:
+            return "✓ Отправлено"
+        if 'updated' in result_lower:
+            return "✓ Обновлено"
+        if 'deleted' in result_lower:
+            return "✓ Удалено"
         
-        # No sentence break found - take first line
-        first_line = cleaned.split('\n')[0].strip()
-        if first_line and len(first_line) >= 3 and not first_line.isdigit():
-            if len(first_line) > 100:
-                return first_line[:97] + "..."
-            return first_line
-        
-        # Fallback to default
-        return DEFAULT_INTENT
+        # Default: truncate result
+        if len(result) > 50:
+            return result[:47] + "..."
+        return result if result else "Выполнено"
 
     async def _stream_reasoning(self, event_type: str, data: Dict[str, Any]):
         """Stream reasoning event to WebSocket - Cursor-style intent blocks only."""
@@ -1196,7 +1362,9 @@ class UnifiedReActEngine:
                     # Start NEW intent with action description
                     tool = data.get("tool", "unknown")
                     action = data.get("action", "")
-                    detail_type = self._get_detail_type(tool)
+                    
+                    # Save tool for later use in observation
+                    self._last_tool = tool
                     
                     # Create human-readable description for the intent
                     description = self._transform_to_human_readable(action, tool)
@@ -1213,27 +1381,34 @@ class UnifiedReActEngine:
                     )
                 
                 elif event_type == "react_observation":
-                    # Add result and complete the intent
+                    # Add result details and complete the intent
                     if hasattr(self, '_current_intent_id') and self._current_intent_id:
-                        result = str(data.get("result", ""))[:100]
+                        result = str(data.get("result", ""))
+                        tool = getattr(self, '_last_tool', 'unknown')
                         
-                        # Add result as detail
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "intent_detail",
-                            {
-                                "intent_id": self._current_intent_id,
-                                "type": "analyze",
-                                "description": f"✓ {result}" if result else "✓ Done"
-                            }
-                        )
+                        # Format result into human-readable Russian summary
+                        summary = self._format_result_summary(result, tool)
                         
-                        # Complete current intent
+                        # Extract and send result details (e.g., meeting names, file names)
+                        details = self._extract_result_details(result)
+                        for detail in details:
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "intent_detail",
+                                {
+                                    "intent_id": self._current_intent_id,
+                                    "type": "analyze",
+                                    "description": detail
+                                }
+                            )
+                        
+                        # Complete intent with summary (for collapsed header)
                         await self.ws_manager.send_event(
                             self.session_id,
                             "intent_complete",
                             {
                                 "intent_id": self._current_intent_id,
+                                "summary": summary,
                                 "auto_collapse": True
                             }
                         )

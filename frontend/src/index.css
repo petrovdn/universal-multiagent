@@ -1518,6 +1518,40 @@ div[style*="padding: '10px'"] .prose li {
 }
 
 /* ============================================
+   THINKING INDICATOR (before first intent)
+   ============================================ */
+.thinking-indicator {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  margin-bottom: 16px;
+  padding: 0 14px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.thinking-indicator-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.thinking-indicator-dots::after {
+  content: '...';
+  animation: thinkingDots 1.2s steps(3) infinite;
+}
+
+@keyframes thinkingDots {
+  0%, 20% { content: '.'; }
+  40% { content: '..'; }
+  60%, 100% { content: '...'; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================
    INTENT MESSAGE (Cursor-style Intent Block)
    ============================================ */
 .intent-message {
@@ -1529,10 +1563,10 @@ div[style*="padding: '10px'"] .prose li {
 }
 
 .intent-text {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-primary);
-  line-height: 1.6;
-  margin-bottom: 8px;
+  line-height: 1.5;
+  margin-bottom: 6px;
 }
 
 .intent-text-dots::after {
@@ -1550,6 +1584,30 @@ div[style*="padding: '10px'"] .prose li {
   color: var(--text-primary);
 }
 
+.intent-message-completed .intent-text {
+  color: var(--text-secondary);
+}
+
+/* Intent result - показывается под намерением */
+.intent-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--text-success, #22c55e);
+}
+
+.intent-result-icon {
+  flex-shrink: 0;
+  color: var(--text-success, #22c55e);
+}
+
+.intent-result-text {
+  color: var(--text-secondary);
+}
+
+/* Legacy details - keeping for backward compatibility */
 .intent-details {
   background: transparent;
   border-radius: 6px;
@@ -1560,10 +1618,10 @@ div[style*="padding: '10px'"] .prose li {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px;
+  padding: 4px 8px;
   cursor: pointer;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;
   border-radius: 6px;
   transition: background 0.15s ease;
 }

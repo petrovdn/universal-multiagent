@@ -164,6 +164,7 @@ export interface IntentBlock {
   intent: string                    // "Изучаю текущую реализацию блока thinking..."
   status: 'started' | 'streaming' | 'completed'
   details: IntentDetail[]           // Список деталей выполнения
+  summary?: string                  // "Найдено 5 встреч" - показывается в свёрнутом виде
   isCollapsed: boolean
   startedAt: number
   completedAt?: number
@@ -175,6 +176,7 @@ interface ChatState {
   currentSession: string | null
   isConnected: boolean
   isAgentTyping: boolean
+  showThinkingIndicator: boolean // Показывать "Думаю..." перед первым intent
   
   // Workflow state - stored per user message (keyed by message timestamp)
   workflows: Record<string, {
@@ -224,6 +226,7 @@ interface ChatState {
   setCurrentSession: (sessionId: string) => void
   setConnectionStatus: (connected: boolean) => void
   setAgentTyping: (typing: boolean) => void
+  setShowThinkingIndicator: (show: boolean) => void
   
   // New methods for reasoning/answer blocks
   startReasoningBlock: (messageId: string, blockId: string) => void
@@ -294,7 +297,7 @@ interface ChatState {
   // Intent block methods (Cursor-style)
   startIntent: (workflowId: string, intentId: string, intentText: string) => void
   addIntentDetail: (workflowId: string, intentId: string, detail: IntentDetail) => void
-  completeIntent: (workflowId: string, intentId: string, autoCollapse: boolean) => void
+  completeIntent: (workflowId: string, intentId: string, autoCollapse: boolean, summary?: string) => void
   toggleIntentCollapse: (workflowId: string, intentId: string) => void
   clearIntents: (workflowId: string) => void
   setActiveIntent: (intentId: string | null) => void
@@ -318,6 +321,7 @@ export const useChatStore = create<ChatState>()(
       currentSession: null,
       isConnected: false,
       isAgentTyping: false,
+      showThinkingIndicator: false,
       workflows: {},
       activeWorkflowId: null,
       userAssistanceRequest: null,
@@ -355,6 +359,7 @@ export const useChatStore = create<ChatState>()(
           activeThinkingId: null,
           intentBlocks: {},
           activeIntentId: null,
+          showThinkingIndicator: false,
         }),
       
       startNewSession: () =>
@@ -364,6 +369,7 @@ export const useChatStore = create<ChatState>()(
           streamingMessages: {},
           currentSession: null,
           isAgentTyping: false,
+          showThinkingIndicator: false,
           reasoningSteps: [],
           reasoningStartTime: null,
           workflows: {},
@@ -389,11 +395,20 @@ export const useChatStore = create<ChatState>()(
         const prevTyping = get().isAgentTyping
         fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setAgentTyping:before',message:'Setting isAgentTyping',data:{prevTyping,newTyping:typing,changed:prevTyping!==typing,stackTrace:new Error().stack?.split('\n').slice(0,5)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
         // #endregion
-        set({ isAgentTyping: typing })
+        // При завершении (typing=false) также скрываем индикатор "Думаю..."
+        if (!typing) {
+          set({ isAgentTyping: typing, showThinkingIndicator: false })
+        } else {
+          set({ isAgentTyping: typing })
+        }
         // #region agent log
         const afterTyping = get().isAgentTyping
         fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setAgentTyping:after',message:'After set isAgentTyping',data:{prevTyping,newTyping:typing,afterTyping,actuallyChanged:prevTyping!==afterTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
         // #endregion
+      },
+      
+      setShowThinkingIndicator: (show) => {
+        set({ showThinkingIndicator: show })
       },
       
       // Start a new reasoning block
@@ -1456,7 +1471,7 @@ export const useChatStore = create<ChatState>()(
           }
         }),
       
-      completeIntent: (workflowId: string, intentId: string, autoCollapse: boolean) =>
+      completeIntent: (workflowId: string, intentId: string, autoCollapse: boolean, summary?: string) =>
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []
           const updatedIntents = existingIntents.map(intent => {
@@ -1466,6 +1481,7 @@ export const useChatStore = create<ChatState>()(
                 status: 'completed' as const,
                 completedAt: Date.now(),
                 isCollapsed: autoCollapse,
+                summary: summary || intent.summary,
               }
             }
             return intent

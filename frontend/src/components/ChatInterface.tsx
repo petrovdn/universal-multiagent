@@ -67,6 +67,8 @@ export function ChatInterface() {
     clearCurrentAction,
     intentBlocks,
     toggleIntentCollapse,
+    showThinkingIndicator,
+    setShowThinkingIndicator,
   } = useChatStore()
   
   const { executionMode, setExecutionMode, showReasoning } = useSettingsStore()
@@ -484,6 +486,15 @@ export function ChatInterface() {
     fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend',message:'Setting agent typing before send',data:{executionMode,userMessageLength:userMessage.length,hasSession:!!currentSession,wsConnected:wsClient.isConnected()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
     // #endregion
     setAgentTyping(true)
+    
+    // Показываем "Думаю..." через 0.5 секунды (если intent не появится раньше)
+    setTimeout(() => {
+      // Проверяем что всё ещё в процессе отправки и нет intent'ов
+      const state = useChatStore.getState()
+      if (state.isAgentTyping && !state.activeIntentId) {
+        setShowThinkingIndicator(true)
+      }
+    }, 500)
 
     try {
       // Try WebSocket first if session exists and connection is open
@@ -763,9 +774,24 @@ export function ChatInterface() {
                   {/* Intent blocks section (Cursor-style) - renders independently of plan */}
                   {(() => {
                     const workflowIntentBlocks = intentBlocks[workflowId] || []
+                    // isLastUserMessage уже вычислен выше
+                    const shouldShowThinking = isLastUserMessage && showThinkingIndicator && workflowIntentBlocks.length === 0
                     // #region agent log
-                    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:intentBlocks_render',message:'Rendering intent blocks section',data:{workflowId,intentBlocksCount:workflowIntentBlocks.length,allIntentBlocksKeys:Object.keys(intentBlocks)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
+                    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:intentBlocks_render',message:'Rendering intent blocks section',data:{workflowId,intentBlocksCount:workflowIntentBlocks.length,allIntentBlocksKeys:Object.keys(intentBlocks),isLastUserMessage,shouldShowThinking,showThinkingIndicator},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
                     // #endregion
+                    
+                    // Показываем либо "Думаю...", либо intent блоки
+                    if (shouldShowThinking) {
+                      return (
+                        <div className="intent-blocks-section">
+                          <div className="thinking-indicator">
+                            <span className="thinking-indicator-text">Думаю</span>
+                            <span className="thinking-indicator-dots" />
+                          </div>
+                        </div>
+                      )
+                    }
+                    
                     if (workflowIntentBlocks.length === 0) return null
                     
                     return (

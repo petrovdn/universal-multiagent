@@ -317,11 +317,11 @@ Initialize agent wrapper."""
                         f.write(json.dumps({
                             "location": "agent_wrapper.py:process_message:before_adapter_execute",
                             "message": f"About to execute {mapped_mode} adapter",
-                            "data": {"session_id": session_id, "mapped_mode": mapped_mode, "goal_preview": user_message[:50]},
+                            "data": {"session_id": session_id, "mapped_mode": mapped_mode, "goal_preview": user_message[:50], "file_ids": file_ids, "file_ids_count": len(file_ids)},
                             "timestamp": time.time() * 1000,
                             "sessionId": session_id,
                             "runId": "run1",
-                            "hypothesisId": "H5"
+                            "hypothesisId": "H1,H4"
                         }) + "\n")
                 except:
                     pass

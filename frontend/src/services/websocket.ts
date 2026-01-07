@@ -23,6 +23,10 @@ export class WebSocketClient {
   // Thinking block delay (2 seconds)
   private thinkingDelayTimer: ReturnType<typeof setTimeout> | null = null
   private pendingThinkingId: string | null = null
+  
+  // Intent block minimum display time (1.5 seconds)
+  private intentStartTimes: Record<string, number> = {}
+  private pendingIntentCompletes: Record<string, { autoCollapse: boolean; summary?: string }> = {}
 
   connect(sessionId: string): void {
     this.sessionId = sessionId
@@ -1053,7 +1057,7 @@ export class WebSocketClient {
           clearTimeout(this.thinkingDelayTimer)
         }
         
-        // Set timer to show thinking block after 2 seconds
+        // Set timer to show thinking block after 1.5 seconds
         this.thinkingDelayTimer = setTimeout(() => {
           // #region agent log
           const stateBeforeCheck = useChatStore.getState()
@@ -1078,7 +1082,7 @@ export class WebSocketClient {
             // #endregion
           }
           this.thinkingDelayTimer = null
-        }, 2000)
+        }, 1500)
         
         break
       }
@@ -1136,20 +1140,18 @@ export class WebSocketClient {
       // Intent events (Cursor-style)
       case 'intent_start': {
         console.log('[WebSocket] Intent started:', event.data)
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_start',message:'Intent start event received',data:{eventData:event.data,activeWorkflowId:useChatStore.getState().activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
+        // Скрываем индикатор "Думаю..." при появлении первого intent
+        chatStore.setShowThinkingIndicator(false)
+        
         const workflowId = ensureActiveWorkflow()
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_start:after_ensure',message:'After ensureActiveWorkflow',data:{workflowId,intentId:event.data.intent_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
-        // #endregion
         if (workflowId) {
           const intentId = event.data.intent_id || `intent-${Date.now()}`
           const intentText = event.data.text || 'Выполняю действие...'
+          
+          // Save start time for minimum display duration
+          this.intentStartTimes[intentId] = Date.now()
+          
           chatStore.startIntent(workflowId, intentId, intentText)
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_start:after_store',message:'After startIntent call',data:{workflowId,intentId,intentBlocksCount:Object.keys(useChatStore.getState().intentBlocks).length,intentBlocksForWorkflow:useChatStore.getState().intentBlocks[workflowId]?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
-          // #endregion
           chatStore.setAgentTyping(true)
         }
         break
@@ -1179,7 +1181,26 @@ export class WebSocketClient {
         
         if (workflowId && intentId) {
           const autoCollapse = event.data.auto_collapse !== false // Default true
-          chatStore.completeIntent(workflowId, intentId, autoCollapse)
+          const summary = event.data.summary // "Найдено 5 встреч"
+          
+          // Minimum display time: 1.5 seconds
+          const MIN_DISPLAY_TIME = 1500
+          const startTime = this.intentStartTimes[intentId]
+          const elapsed = startTime ? Date.now() - startTime : MIN_DISPLAY_TIME
+          
+          if (elapsed < MIN_DISPLAY_TIME) {
+            // Delay completion to show animation
+            const delay = MIN_DISPLAY_TIME - elapsed
+            console.log(`[WebSocket] Delaying intent complete by ${delay}ms`)
+            setTimeout(() => {
+              chatStore.completeIntent(workflowId, intentId, autoCollapse, summary)
+              delete this.intentStartTimes[intentId]
+            }, delay)
+          } else {
+            // Already shown long enough, complete immediately
+            chatStore.completeIntent(workflowId, intentId, autoCollapse, summary)
+            delete this.intentStartTimes[intentId]
+          }
         }
         break
       }
@@ -1203,7 +1224,7 @@ export class WebSocketClient {
           clearTimeout(this.thinkingDelayTimer)
         }
         
-        // Set timer to show thinking block after 2 seconds
+        // Set timer to show thinking block after 1.5 seconds
         this.thinkingDelayTimer = setTimeout(() => {
           // Only show if response hasn't completed yet
           const state = useChatStore.getState()
@@ -1212,7 +1233,7 @@ export class WebSocketClient {
             console.log('[WebSocket] Showing thinking block after 2s delay (react_start)')
           }
           this.thinkingDelayTimer = null
-        }, 2000)
+        }, 1500)
         
         // Also handle legacy reasoning block
         console.log('[WebSocket] Current message ID:', this.currentMessageId)
