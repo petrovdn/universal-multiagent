@@ -771,7 +771,7 @@ export function ChatInterface() {
                       <span className="user-query-text">{message.content}</span>
                       {message.metadata?.attachedFiles?.length > 0 && (
                         <div className="user-attached-files">
-                          {message.metadata.attachedFiles.map((file: AttachedFile) => (
+                          {message.metadata?.attachedFiles?.map((file: AttachedFile) => (
                             <div 
                               key={file.id} 
                               className="user-attached-file"
