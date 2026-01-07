@@ -380,8 +380,28 @@ class ReActOrchestrator:
         # Build context for thinking
         context_str = f"Цель: {state.goal}\n\n"
         
+        # Add file context (uploaded files have PRIORITY #1)
+        if file_ids:
+            uploaded_files_found = []
+            for file_id in file_ids:
+                file_data = context.get_file(file_id)
+                if file_data:
+                    uploaded_files_found.append(file_data)
+            if uploaded_files_found:
+                context_str += "📎 Прикрепленные файлы (содержимое уже в сообщении):\n"
+                for file_data in uploaded_files_found:
+                    context_str += f"- {file_data.get('filename', 'unknown')}\n"
+        
+        # Add open files context (PRIORITY #2)
+        open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
+        if open_files:
+            context_str += "📂 Открытые файлы в рабочей области:\n"
+            for file in open_files:
+                title = file.get('title', 'Без названия')
+                context_str += f"- {title}\n"
+        
         if state.action_history:
-            context_str += "Выполненные действия:\n"
+            context_str += "\nВыполненные действия:\n"
             for i, action in enumerate(state.action_history[-5:], 1):  # Last 5 actions
                 obs = next((o for o in state.observations if o.action == action), None)
                 status = "✓" if obs and obs.success else "✗"
@@ -475,15 +495,37 @@ class ReActOrchestrator:
             for action in state.action_history[-3:]:
                 context_str += f"- {action.tool_name}\n"
         
-        # Add open files context
+        # Add uploaded files context (PRIORITY #1) - must come FIRST
+        if file_ids:
+            uploaded_files_found = []
+            for file_id in file_ids:
+                file_data = context.get_file(file_id)
+                if file_data:
+                    uploaded_files_found.append(file_data)
+            
+            if uploaded_files_found:
+                context_str += "\n📎 ПРИКРЕПЛЕННЫЕ ФАЙЛЫ (ПРИОРИТЕТ #1 - используй их ПЕРВЫМ!):\n"
+                for file_data in uploaded_files_found:
+                    filename = file_data.get('filename', 'unknown')
+                    file_type = file_data.get('type', '')
+                    if file_type.startswith('image/'):
+                        context_str += f"- Изображение: {filename} (содержимое уже в сообщении)\n"
+                    elif file_type == 'application/pdf' and 'text' in file_data:
+                        context_str += f"- PDF: {filename} (текст уже включен в сообщение)\n"
+                    else:
+                        context_str += f"- {filename} ({file_type})\n"
+                context_str += "⚠️ НЕ ищи эти файлы в Google Drive - их содержимое УЖЕ в сообщении!\n"
+        
+        # Add open files context (PRIORITY #2)
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
         if open_files:
-            context_str += "\nОткрытые файлы:\n"
+            context_str += "\n📂 Открытые файлы в рабочей области (ПРИОРИТЕТ #2):\n"
             for file in open_files:
                 if file.get('type') == 'sheets':
                     context_str += f"- Таблица: {file.get('title')} (ID: {file.get('spreadsheet_id')})\n"
                 elif file.get('type') == 'docs':
                     context_str += f"- Документ: {file.get('title')} (ID: {file.get('document_id')})\n"
+            context_str += "⚠️ Используй document_id/spreadsheet_id напрямую, НЕ ищи через search!\n"
         
         prompt = f"""Ты планируешь следующее действие для достижения цели.
 

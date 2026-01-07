@@ -1136,11 +1136,20 @@ export class WebSocketClient {
       // Intent events (Cursor-style)
       case 'intent_start': {
         console.log('[WebSocket] Intent started:', event.data)
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_start',message:'Intent start event received',data:{eventData:event.data,activeWorkflowId:useChatStore.getState().activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
         const workflowId = ensureActiveWorkflow()
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_start:after_ensure',message:'After ensureActiveWorkflow',data:{workflowId,intentId:event.data.intent_id},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
+        // #endregion
         if (workflowId) {
           const intentId = event.data.intent_id || `intent-${Date.now()}`
           const intentText = event.data.text || 'Выполняю действие...'
           chatStore.startIntent(workflowId, intentId, intentText)
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_start:after_store',message:'After startIntent call',data:{workflowId,intentId,intentBlocksCount:Object.keys(useChatStore.getState().intentBlocks).length,intentBlocksForWorkflow:useChatStore.getState().intentBlocks[workflowId]?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+          // #endregion
           chatStore.setAgentTyping(true)
         }
         break

@@ -1241,24 +1241,28 @@ div[style*="padding: '10px'"] .prose li {
   font-size: 13px !important;
 }
 
-/* Padding для списков в блоке результата - чтобы маркеры не выходили за границу */
+/* Списки в блоке результата - маркеры внутри, без padding, чтобы не вылезали */
 .answer-block .prose ul,
 .answer-block .prose ol,
 .answer-block-content .prose ul,
 .answer-block-content .prose ol,
 .assistant-message-wrapper .prose ul,
-.assistant-message-wrapper .prose ol {
-  padding-left: 24px !important;
+.assistant-message-wrapper .prose ol,
+.prose ul,
+.prose ol {
+  padding-left: 0 !important;
   margin-left: 0 !important;
+  list-style-position: inside !important;
 }
 
-/* Для FinalResultBlock и других блоков результата с padding 10px */
-div[style*="padding: '10px'"] .prose ul,
-div[style*="padding: '10px'"] .prose ol,
-div[style*='padding: "10px"'] .prose ul,
-div[style*='padding: "10px"'] .prose ol {
-  padding-left: 24px !important;
+/* Элементы списка - отступ для текста от маркера */
+.answer-block .prose li,
+.answer-block-content .prose li,
+.assistant-message-wrapper .prose li,
+.prose li {
+  padding-left: 0 !important;
   margin-left: 0 !important;
+  text-indent: 0 !important;
 }
 
 /* ============================================
@@ -1503,6 +1507,14 @@ div[style*='padding: "10px"'] .prose ol {
     opacity: 1;
     transform: scale(1.05);
   }
+}
+
+/* ============================================
+   INTENT BLOCKS SECTION
+   ============================================ */
+.intent-blocks-section {
+  margin-top: 8px;
+  padding: 4px 0;
 }
 
 /* ============================================

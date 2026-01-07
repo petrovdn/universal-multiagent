@@ -41,7 +41,7 @@ export function FinalResultBlock({ content }: FinalResultBlockProps) {
         prose-th:border prose-th:border-gray-300 prose-th:bg-gray-50 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
         prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2
         prose-tr:hover:bg-gray-50"
-        style={{ padding: '10px', fontSize: '13px' }}>
+        style={{ padding: '0', fontSize: '13px' }}>
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
       </div>
     </div>

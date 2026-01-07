@@ -211,11 +211,11 @@ class GetCalendarEventsInput(BaseModel):
     
     start_time: Optional[str] = Field(
         default=None, 
-        description="Start of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'за прошлую неделю' (past week), 'за прошлые две недели' (past two weeks), ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
+        description="Start of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'на прошлой неделе' (previous calendar week Mon-Sun), 'за прошлые две недели' (past two weeks), ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
     )
     end_time: Optional[str] = Field(
         default=None, 
-        description="End of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'за прошлую неделю' (past week), 'за прошлые две недели' (past two weeks), ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
+        description="End of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'на прошлой неделе' (previous calendar week Mon-Sun), 'за прошлые две недели' (past two weeks), ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
     )
     max_results: int = Field(default=10, description="Maximum number of events")
 
@@ -231,17 +231,17 @@ class GetCalendarEventsTool(BaseTool):
     - 'сегодня' (today) - events for today
     - 'завтра' (tomorrow) - events for tomorrow
     - 'на неделе' or 'на этой неделе' (this week) - events for current week (Monday to Sunday)
-    - 'за прошлую неделю' or 'за последнюю неделю' (past week) - events for past 7 days
+    - 'за прошлую неделю' or 'на прошлой неделе' (last week) - events for previous calendar week (Monday to Sunday)
     - 'за прошлые две недели' or 'за последние две недели' (past two weeks) - events for past 14 days
     - ISO 8601 format: '2024-01-15T14:30:00+03:00'
     - Simple format: '2024-01-15 14:30'
     
-    The system automatically handles timezone conversion. You don't need to worry about timezone - just use natural expressions like 'сегодня', 'завтра', 'на неделе', 'за прошлую неделю', 'за прошлые две недели'.
+    The system automatically handles timezone conversion. You don't need to worry about timezone - just use natural expressions like 'сегодня', 'завтра', 'на неделе', 'на прошлой неделе', 'за прошлые две недели'.
     
     Examples:
     - start_time='сегодня', end_time='завтра' - events from today to tomorrow
     - start_time='на неделе' - events for this week (automatically calculates Monday-Sunday range)
-    - start_time='за прошлую неделю' - events for past 7 days (automatically calculates range)
+    - start_time='на прошлой неделе' - events for previous calendar week (Monday-Sunday)
     - start_time='за прошлые две недели' - events for past 14 days (automatically calculates range)
     - start_time='2024-01-15 09:00', end_time='2024-01-15 18:00' - events for specific day
     """
@@ -256,36 +256,27 @@ class GetCalendarEventsTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
-            # #region agent log
-            import json
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"id": f"log_{int(__import__('time').time())}", "timestamp": int(__import__('time').time() * 1000), "location": "calendar_tools.py:256", "message": "GetCalendarEventsTool._arun called", "data": {"start_time": start_time, "end_time": end_time, "max_results": max_results}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-            except: pass
-            # #endregion
-            
             timezone = get_config().timezone
             tz = pytz.timezone(timezone)
             now = datetime.now(tz)
             
             args = {"maxResults": max_results}
             
-            # Handle "за прошлую неделю" / "за последнюю неделю" / "past week" / "last week" - automatically set range
-            if start_time and ("за прошлую неделю" in start_time.lower() or "за последнюю неделю" in start_time.lower() or "past week" in start_time.lower() or "last week" in start_time.lower()):
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"id": f"log_{int(__import__('time').time())}", "timestamp": int(__import__('time').time() * 1000), "location": "calendar_tools.py:268", "message": "Processing past week range", "data": {"start_time": start_time}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-                except: pass
-                # #endregion
-                # Calculate start of one week ago (7 days ago)
-                one_week_ago = now - timedelta(days=7)
-                one_week_ago_start = one_week_ago.replace(hour=0, minute=0, second=0, microsecond=0)
-                args["timeMin"] = one_week_ago_start.isoformat()
+            # Handle "за прошлую неделю" / "на прошлой неделе" / "past week" / "last week" - previous calendar week (Mon-Sun)
+            start_lower = start_time.lower() if start_time else ""
+            if start_time and ("за прошлую неделю" in start_lower or "за последнюю неделю" in start_lower or "на прошлой неделе" in start_lower or "past week" in start_lower or "last week" in start_lower):
+                # Calculate previous calendar week (Monday to Sunday)
+                days_since_monday = now.weekday()  # 0 = Monday, 6 = Sunday
+                current_week_monday = now - timedelta(days=days_since_monday)
+                last_week_monday = current_week_monday - timedelta(days=7)
+                last_week_monday = last_week_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+                last_week_sunday = last_week_monday + timedelta(days=6, hours=23, minutes=59, seconds=59)
                 
-                # If end_time not specified, set to now (end of range)
+                args["timeMin"] = last_week_monday.isoformat()
+                
+                # If end_time not specified, set to end of last week (Sunday)
                 if not end_time:
-                    args["timeMax"] = now.isoformat()
+                    args["timeMax"] = last_week_sunday.isoformat()
                 else:
                     end_dt = parse_datetime(end_time, timezone)
                     args["timeMax"] = end_dt.isoformat()
@@ -319,19 +310,7 @@ class GetCalendarEventsTool(BaseTool):
                     end_dt = parse_datetime(end_time, timezone)
                     args["timeMax"] = end_dt.isoformat()
             elif start_time:
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"id": f"log_{int(__import__('time').time())}", "timestamp": int(__import__('time').time() * 1000), "location": "calendar_tools.py:295", "message": "Calling parse_datetime for start_time", "data": {"start_time": start_time}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-                except: pass
-                # #endregion
                 start_dt = parse_datetime(start_time, timezone)
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({"id": f"log_{int(__import__('time').time())}", "timestamp": int(__import__('time').time() * 1000), "location": "calendar_tools.py:299", "message": "parse_datetime succeeded", "data": {"start_dt": start_dt.isoformat()}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-                except: pass
-                # #endregion
                 args["timeMin"] = start_dt.isoformat()
                 
                 # If end_time not specified and start_time is "сегодня" or "завтра", set end to end of that day
@@ -444,12 +423,6 @@ class GetCalendarEventsTool(BaseTool):
             return "\n".join(response_parts)
             
         except Exception as e:
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({"id": f"log_{int(__import__('time').time())}", "timestamp": int(__import__('time').time() * 1000), "location": "calendar_tools.py:407", "message": "Exception in GetCalendarEventsTool", "data": {"error": str(e), "error_type": type(e).__name__}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-            except: pass
-            # #endregion
             raise ToolExecutionError(
                 f"Failed to get events: {e}",
                 tool_name=self.name

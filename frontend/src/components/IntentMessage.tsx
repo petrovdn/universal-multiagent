@@ -8,6 +8,16 @@ interface IntentMessageProps {
 }
 
 export function IntentMessage({ block, onToggleCollapse }: IntentMessageProps) {
+  // Склонение слов на русском
+  const pluralize = (n: number, one: string, few: string, many: string) => {
+    const mod10 = n % 10
+    const mod100 = n % 100
+    if (mod100 >= 11 && mod100 <= 14) return many
+    if (mod10 === 1) return one
+    if (mod10 >= 2 && mod10 <= 4) return few
+    return many
+  }
+
   // Генерируем summary из details
   const summary = useMemo(() => {
     const counts: Record<IntentDetailType, number> = {
@@ -20,25 +30,13 @@ export function IntentMessage({ block, onToggleCollapse }: IntentMessageProps) {
     block.details.forEach(d => counts[d.type]++)
     
     const parts: string[] = []
-    if (counts.read > 0) parts.push(`${counts.read} file${counts.read > 1 ? 's' : ''}`)
-    if (counts.search > 0) parts.push(`${counts.search} search${counts.search > 1 ? 'es' : ''}`)
-    if (counts.execute > 0) parts.push(`${counts.execute} action${counts.execute > 1 ? 's' : ''}`)
-    if (counts.write > 0) parts.push(`${counts.write} write${counts.write > 1 ? 's' : ''}`)
-    if (counts.analyze > 0) parts.push(`${counts.analyze} result${counts.analyze > 1 ? 's' : ''}`)
+    if (counts.read > 0) parts.push(`${counts.read} ${pluralize(counts.read, 'файл', 'файла', 'файлов')}`)
+    if (counts.search > 0) parts.push(`${counts.search} ${pluralize(counts.search, 'поиск', 'поиска', 'поисков')}`)
+    if (counts.execute > 0) parts.push(`${counts.execute} ${pluralize(counts.execute, 'действие', 'действия', 'действий')}`)
+    if (counts.write > 0) parts.push(`${counts.write} ${pluralize(counts.write, 'запись', 'записи', 'записей')}`)
+    if (counts.analyze > 0) parts.push(`${counts.analyze} ${pluralize(counts.analyze, 'результат', 'результата', 'результатов')}`)
     
-    // Определяем главное действие
-    let actionWord = 'Explored'
-    if (counts.read > 0 && counts.search === 0) {
-      actionWord = 'Read'
-    } else if (counts.search > 0 && counts.read === 0) {
-      actionWord = 'Searched'
-    } else if (counts.execute > 0) {
-      actionWord = 'Executed'
-    } else if (counts.write > 0) {
-      actionWord = 'Wrote'
-    }
-    
-    return parts.length > 0 ? `${actionWord} ${parts.join(' ')}` : 'Processing...'
+    return parts.length > 0 ? parts.join(', ') : 'Обработка...'
   }, [block.details])
   
   const getIcon = (type: IntentDetailType) => {

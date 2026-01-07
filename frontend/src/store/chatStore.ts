@@ -1414,6 +1414,9 @@ export const useChatStore = create<ChatState>()(
       // Intent block methods (Cursor-style)
       startIntent: (workflowId: string, intentId: string, intentText: string) =>
         set((state) => {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startIntent',message:'startIntent called',data:{workflowId,intentId,intentText:intentText.substring(0,50),existingIntentsCount:state.intentBlocks[workflowId]?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+          // #endregion
           const existingIntents = state.intentBlocks[workflowId] || []
           const newIntent: IntentBlock = {
             id: intentId,

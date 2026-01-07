@@ -11,7 +11,7 @@ export function AnswerBlock({ block }: AnswerBlockProps) {
   // #region agent log
   React.useEffect(() => {
     if (block.content && (block.content.includes('-') || block.content.includes('*') || /^\d+\./.test(block.content))) {
-      setTimeout(() => {
+      const checkStyles = () => {
         const proseDiv = document.querySelector('.answer-block .prose');
         if (proseDiv) {
           const ul = proseDiv.querySelector('ul');
@@ -20,10 +20,14 @@ export function AnswerBlock({ block }: AnswerBlockProps) {
             const list = ul || ol;
             const computed = window.getComputedStyle(list!);
             const parentComputed = window.getComputedStyle(proseDiv);
-            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AnswerBlock.tsx:useEffect:post-fix',message:'List styles computed after fix',data:{listPaddingLeft:computed.paddingLeft,listMarginLeft:computed.marginLeft,parentPadding:parentComputed.padding,listStylePosition:computed.listStylePosition,listType:ul?'ul':'ol'},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'A'})}).catch(()=>{});
+            const listRect = list!.getBoundingClientRect();
+            const parentRect = proseDiv.getBoundingClientRect();
+            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AnswerBlock.tsx:useEffect:post-fix-v2',message:'List styles computed after fix v2',data:{listPaddingLeft:computed.paddingLeft,listMarginLeft:computed.marginLeft,parentPadding:parentComputed.padding,listStylePosition:computed.listStylePosition,listType:ul?'ul':'ol',listLeft:listRect.left,parentLeft:parentRect.left,offset:listRect.left-parentRect.left},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix-v2',hypothesisId:'A'})}).catch(()=>{});
           }
         }
-      }, 100);
+      };
+      setTimeout(checkStyles, 100);
+      setTimeout(checkStyles, 500);
     }
   }, [block.content]);
   // #endregion
@@ -49,7 +53,7 @@ export function AnswerBlock({ block }: AnswerBlockProps) {
             prose-th:border prose-th:border-gray-300 prose-th:bg-gray-50 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
             prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2
             prose-tr:hover:bg-gray-50"
-            style={{ padding: '10px', fontSize: '13px' }}>
+            style={{ padding: '0', fontSize: '13px' }}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
             {block.isStreaming && (
               <span className="answer-block-cursor">▊</span>

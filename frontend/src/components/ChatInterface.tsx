@@ -17,7 +17,7 @@ import { CollapsibleBlock } from './CollapsibleBlock'
 import { ActionItem } from './ActionItem'
 import { QuestionForm } from './QuestionForm'
 import { ResultSummary } from './ResultSummary'
-import { ThinkingMessage } from './ThinkingMessage'
+// ThinkingMessage removed - using IntentMessage instead
 import { IntentMessage } from './IntentMessage'
 
 interface AttachedFile {
@@ -65,10 +65,6 @@ export function ChatInterface() {
     actionMessages,
     currentAction,
     clearCurrentAction,
-    thinkingBlocks,
-    activeThinkingId,
-    toggleThinkingCollapse,
-    toggleThinkingPin,
     intentBlocks,
     toggleIntentCollapse,
   } = useChatStore()
@@ -112,43 +108,6 @@ export function ChatInterface() {
     }
   }, [currentSession])
   
-  // Определяем, нужно ли показывать ThinkingMessage в зависимости от режима
-  const shouldShowThinkingMessage = () => {
-    if (!activeThinkingId) return false
-    
-    const block = thinkingBlocks[activeThinkingId]
-    if (!block) return false
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:shouldShowThinkingMessage',message:'Checking if should show thinking message',data:{activeThinkingId,blockStatus:block.status,executionMode,showReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
-    // #endregion
-    
-    // Don't show if already completed (unless pinned)
-    if (block.status === 'completed' && !block.isPinned) {
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:shouldShowThinkingMessage:rejected_completed',message:'Rejecting completed thinking block',data:{activeThinkingId,blockStatus:block.status,isPinned:block.isPinned},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
-      // #endregion
-      return false
-    }
-    
-    // Query Mode: Thinking всегда виден
-    if (executionMode === 'query') {
-      return true
-    }
-    
-    // Agent Mode: Thinking только если showReasoning включен
-    if (executionMode === 'agent') {
-      return showReasoning
-    }
-    
-    // Plan Mode: Thinking во время research фазы
-    if (executionMode === 'plan') {
-      return true
-    }
-    
-    return false
-  }
-
   // Timeout to reset agent typing state if it gets stuck
   useEffect(() => {
     if (isAgentTyping) {
@@ -800,6 +759,28 @@ export function ChatInterface() {
                       <span className="user-query-text">{message.content}</span>
                     </div>
                   </div>
+                  
+                  {/* Intent blocks section (Cursor-style) - renders independently of plan */}
+                  {(() => {
+                    const workflowIntentBlocks = intentBlocks[workflowId] || []
+                    // #region agent log
+                    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:intentBlocks_render',message:'Rendering intent blocks section',data:{workflowId,intentBlocksCount:workflowIntentBlocks.length,allIntentBlocksKeys:Object.keys(intentBlocks)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
+                    // #endregion
+                    if (workflowIntentBlocks.length === 0) return null
+                    
+                    return (
+                      <div className="intent-blocks-section">
+                        {workflowIntentBlocks.map((intentBlock) => (
+                          <IntentMessage
+                            key={intentBlock.id}
+                            block={intentBlock}
+                            onToggleCollapse={() => toggleIntentCollapse(workflowId, intentBlock.id)}
+                          />
+                        ))}
+                      </div>
+                    )
+                  })()}
+                  
                   {/* Sticky section: plan */}
                   {(() => {
                     // Проверяем, нужно ли рендерить план
@@ -826,15 +807,6 @@ export function ChatInterface() {
                       >
                         {/* Show workflow plan */}
                         <PlanBlock workflowId={workflowId} />
-                        
-                        {/* Show intent blocks (Cursor-style) */}
-                        {(intentBlocks[workflowId] || []).map((intentBlock) => (
-                          <IntentMessage
-                            key={intentBlock.id}
-                            block={intentBlock}
-                            onToggleCollapse={() => toggleIntentCollapse(workflowId, intentBlock.id)}
-                          />
-                        ))}
                         
                         {/* Show question forms (Plan mode) */}
                         {(questionMessages[workflowId] || []).map((question) => (
@@ -1181,17 +1153,7 @@ export function ChatInterface() {
         })
         })()}
         
-        {/* Thinking Message - appears after last message in the flow */}
-        {shouldShowThinkingMessage() && activeThinkingId && thinkingBlocks[activeThinkingId] && (
-          <div style={{ maxWidth: '900px', width: '100%', margin: '0 auto', padding: '0 14px', marginTop: '0' }}>
-            <ThinkingMessage
-              thinkingId={activeThinkingId}
-              block={thinkingBlocks[activeThinkingId]}
-              onToggleCollapse={() => toggleThinkingCollapse(activeThinkingId)}
-              onTogglePin={() => toggleThinkingPin(activeThinkingId)}
-            />
-          </div>
-        )}
+        {/* ThinkingMessage removed - now using IntentMessage (Cursor-style) instead */}
         
         
         {/* Scroll spacer */}

@@ -128,14 +128,6 @@ def parse_datetime(
     Raises:
         ValidationError: If date cannot be parsed
     """
-    # #region agent log
-    import json
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"id": f"log_{int(__import__('time').time())}", "timestamp": int(__import__('time').time() * 1000), "location": "validators.py:109", "message": "parse_datetime called", "data": {"date_str": date_str, "timezone": timezone}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-    except: pass
-    # #endregion
-    
     if not date_str:
         raise ValidationError("Date/time is required", field="datetime")
     
@@ -226,13 +218,6 @@ def parse_datetime(
             dt = day_after_tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
         return dt
     
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"id": f"log_{int(__import__('time').time())}", "timestamp": int(__import__('time').time() * 1000), "location": "validators.py:221", "message": "Checking natural language patterns", "data": {"date_str_lower": date_str_lower, "has_past_two_weeks": "за прошлые две недели" in date_str_lower or "за последние две недели" in date_str_lower, "has_past_week": "за прошлую неделю" in date_str_lower or "за последнюю неделю" in date_str_lower}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-    except: pass
-    # #endregion
-    
     # Russian: "за прошлые две недели" / "за последние две недели" / "past two weeks"
     if "за прошлые две недели" in date_str_lower or "за последние две недели" in date_str_lower or "past two weeks" in date_str_lower or "last two weeks" in date_str_lower:
         # Calculate start of two weeks ago
@@ -247,30 +232,20 @@ def parse_datetime(
             dt = two_weeks_ago
         return dt
     
-    # Russian: "за прошлую неделю" / "за последнюю неделю" / "past week" / "last week"
-    if "за прошлую неделю" in date_str_lower or "за последнюю неделю" in date_str_lower or "past week" in date_str_lower or "last week" in date_str_lower:
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"id": f"log_{int(__import__('time').time())}", "timestamp": int(__import__('time').time() * 1000), "location": "validators.py:234", "message": "Processing past week pattern", "data": {"date_str_lower": date_str_lower}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-        except: pass
-        # #endregion
-        # Calculate start of one week ago (7 days ago)
-        one_week_ago = now - timedelta(days=7)
-        one_week_ago = one_week_ago.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Russian: "за прошлую неделю" / "на прошлой неделе" / "past week" / "last week" - previous calendar week (Mon-Sun)
+    if "за прошлую неделю" in date_str_lower or "за последнюю неделю" in date_str_lower or "на прошлой неделе" in date_str_lower or "past week" in date_str_lower or "last week" in date_str_lower:
+        # Calculate previous calendar week (Monday to Sunday)
+        days_since_monday = now.weekday()  # 0 = Monday, 6 = Sunday
+        current_week_monday = now - timedelta(days=days_since_monday)
+        last_week_monday = current_week_monday - timedelta(days=7)
+        last_week_monday = last_week_monday.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        # Return start time (end will be calculated by caller)
+        # Return start of last week (Monday)
         hour, minute = extract_time(date_str_lower)
         if hour is not None:
-            dt = one_week_ago.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            dt = last_week_monday.replace(hour=hour, minute=minute, second=0, microsecond=0)
         else:
-            dt = one_week_ago
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"id": f"log_{int(__import__('time').time())}", "timestamp": int(__import__('time').time() * 1000), "location": "validators.py:247", "message": "Past week parsed successfully", "data": {"dt": dt.isoformat()}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-        except: pass
-        # #endregion
+            dt = last_week_monday
         return dt
     
     # Russian: "на неделе" / "this week" / "на этой неделе"
@@ -327,13 +302,6 @@ def parse_datetime(
         else:
             dt = future_date.replace(hour=10, minute=0, second=0, microsecond=0)
         return dt
-    
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({"id": f"log_{int(__import__('time').time())}", "timestamp": int(__import__('time').time() * 1000), "location": "validators.py:290", "message": "All parsing attempts failed", "data": {"date_str": date_str, "date_str_lower": date_str_lower}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + "\n")
-    except: pass
-    # #endregion
     
     # If all parsing attempts fail, raise error
     raise ValidationError(

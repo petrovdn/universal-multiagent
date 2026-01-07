@@ -559,8 +559,28 @@ class UnifiedReActEngine:
         """Generate thought about current situation."""
         context_str = f"Цель: {state.goal}\n\n"
         
+        # Add file context (uploaded files have PRIORITY #1)
+        if file_ids:
+            uploaded_files_found = []
+            for file_id in file_ids:
+                file_data = context.get_file(file_id)
+                if file_data:
+                    uploaded_files_found.append(file_data)
+            if uploaded_files_found:
+                context_str += "📎 Прикрепленные файлы (содержимое уже в сообщении):\n"
+                for file_data in uploaded_files_found:
+                    context_str += f"- {file_data.get('filename', 'unknown')}\n"
+        
+        # Add open files context (PRIORITY #2)
+        open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
+        if open_files:
+            context_str += "📂 Открытые файлы в рабочей области:\n"
+            for file in open_files:
+                title = file.get('title', 'Без названия')
+                context_str += f"- {title}\n"
+        
         if state.action_history:
-            context_str += "Выполненные действия:\n"
+            context_str += "\nВыполненные действия:\n"
             for i, action in enumerate(state.action_history[-5:], 1):
                 obs = next((o for o in state.observations if o.action == action), None)
                 status = "✓" if obs and obs.success else "✗"
@@ -636,15 +656,37 @@ class UnifiedReActEngine:
             for action in state.action_history[-3:]:
                 context_str += f"- {action.tool_name}\n"
         
-        # Add open files context
+        # Add uploaded files context (PRIORITY #1) - must come FIRST
+        if file_ids:
+            uploaded_files_found = []
+            for file_id in file_ids:
+                file_data = context.get_file(file_id)
+                if file_data:
+                    uploaded_files_found.append(file_data)
+            
+            if uploaded_files_found:
+                context_str += "\n📎 ПРИКРЕПЛЕННЫЕ ФАЙЛЫ (ПРИОРИТЕТ #1 - используй их ПЕРВЫМ!):\n"
+                for file_data in uploaded_files_found:
+                    filename = file_data.get('filename', 'unknown')
+                    file_type = file_data.get('type', '')
+                    if file_type.startswith('image/'):
+                        context_str += f"- Изображение: {filename} (содержимое уже в сообщении)\n"
+                    elif file_type == 'application/pdf' and 'text' in file_data:
+                        context_str += f"- PDF: {filename} (текст уже включен в сообщение)\n"
+                    else:
+                        context_str += f"- {filename} ({file_type})\n"
+                context_str += "⚠️ НЕ ищи эти файлы в Google Drive - их содержимое УЖЕ в сообщении!\n"
+        
+        # Add open files context (PRIORITY #2)
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
         if open_files:
-            context_str += "\nОткрытые файлы:\n"
+            context_str += "\n📂 Открытые файлы в рабочей области (ПРИОРИТЕТ #2):\n"
             for file in open_files:
                 if file.get('type') == 'sheets':
                     context_str += f"- Таблица: {file.get('title')} (ID: {file.get('spreadsheet_id')})\n"
                 elif file.get('type') == 'docs':
                     context_str += f"- Документ: {file.get('title')} (ID: {file.get('document_id')})\n"
+            context_str += "⚠️ Используй document_id/spreadsheet_id напрямую, НЕ ищи через search!\n"
         
         prompt = f"""Ты планируешь следующее действие для достижения цели.
 
@@ -1104,94 +1146,78 @@ class UnifiedReActEngine:
         else:
             return 'execute'
     
+    def _extract_short_intent(self, thought: str) -> str:
+        """Extract a short intent from the full thought for Cursor-style display."""
+        DEFAULT_INTENT = "Думаю..."
+        
+        if not thought or not thought.strip():
+            return DEFAULT_INTENT
+        
+        # Remove numbered list prefixes like "1. ", "2. " etc.
+        import re
+        cleaned = re.sub(r'^\d+\.\s*', '', thought.strip())
+        
+        # If after cleaning we have nothing meaningful, use default
+        if not cleaned or len(cleaned) < 3:
+            return DEFAULT_INTENT
+        
+        # Try to find first meaningful sentence (ends with ". " or ".\n" or at end)
+        match = re.search(r'^(.+?)\.\s', cleaned)
+        if match:
+            first_sentence = match.group(1).strip()
+            # Check if it's meaningful (not just a number or very short)
+            if len(first_sentence) < 3 or first_sentence.isdigit():
+                return DEFAULT_INTENT
+            if len(first_sentence) > 100:
+                return first_sentence[:97] + "..."
+            return first_sentence + "."
+        
+        # No sentence break found - take first line
+        first_line = cleaned.split('\n')[0].strip()
+        if first_line and len(first_line) >= 3 and not first_line.isdigit():
+            if len(first_line) > 100:
+                return first_line[:97] + "..."
+            return first_line
+        
+        # Fallback to default
+        return DEFAULT_INTENT
+
     async def _stream_reasoning(self, event_type: str, data: Dict[str, Any]):
-        """Stream reasoning event to WebSocket."""
+        """Stream reasoning event to WebSocket - Cursor-style intent blocks only."""
         try:
             connection_count = self.ws_manager.get_connection_count(self.session_id)
             if connection_count > 0:
-                # Отправляем legacy событие
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    event_type,
-                    data
-                )
-                
-                # Также отправляем thinking_chunk если есть thinking_id
-                if self._current_thinking_id and self._thinking_start_time:
-                    thinking_data = {}
-                    elapsed_seconds = time.time() - self._thinking_start_time
-                    
-                    if event_type == "react_thinking":
-                        thought = data.get("thought", "Анализирую ситуацию...")
-                        thinking_data = {
-                            "thinking_id": self._current_thinking_id,
-                            "chunk": f"🧠 {thought}\n",
-                            "elapsed_seconds": elapsed_seconds,
-                            "step_type": "analyzing"
-                        }
-                    elif event_type == "react_action":
-                        action = data.get("action", "Выполняю действие...")
-                        tool = data.get("tool", "unknown")
-                        human_readable = self._transform_to_human_readable(action, tool)
-                        thinking_data = {
-                            "thinking_id": self._current_thinking_id,
-                            "chunk": f"{human_readable}\n",
-                            "elapsed_seconds": elapsed_seconds,
-                            "step_type": "executing"
-                        }
-                    elif event_type == "react_observation":
-                        result = str(data.get("result", "Результат получен"))[:100]
-                        thinking_data = {
-                            "thinking_id": self._current_thinking_id,
-                            "chunk": f"✓ {result}\n",
-                            "elapsed_seconds": elapsed_seconds,
-                            "step_type": "observing"
-                        }
-                    
-                    if thinking_data:
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "thinking_chunk",
-                            thinking_data
-                        )
-                
-                # Отправляем intent события (Cursor-style)
+                # Only send intent events (Cursor-style) - no legacy events
                 if event_type == "react_thinking":
-                    # Начинаем новое намерение
-                    thought = data.get("thought", "Анализирую запрос...")
+                    # Don't start intent on thinking - wait for action
+                    pass
+                
+                elif event_type == "react_action":
+                    # Start NEW intent with action description
+                    tool = data.get("tool", "unknown")
+                    action = data.get("action", "")
+                    detail_type = self._get_detail_type(tool)
+                    
+                    # Create human-readable description for the intent
+                    description = self._transform_to_human_readable(action, tool)
+                    
+                    # Start new intent for this action
                     self._current_intent_id = f"intent-{int(time.time() * 1000)}"
                     await self.ws_manager.send_event(
                         self.session_id,
                         "intent_start",
                         {
                             "intent_id": self._current_intent_id,
-                            "text": thought
+                            "text": description
                         }
                     )
                 
-                elif event_type == "react_action":
-                    # Добавляем деталь к текущему намерению
-                    if hasattr(self, '_current_intent_id') and self._current_intent_id:
-                        tool = data.get("tool", "unknown")
-                        action = data.get("action", "")
-                        detail_type = self._get_detail_type(tool)
-                        
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "intent_detail",
-                            {
-                                "intent_id": self._current_intent_id,
-                                "type": detail_type,
-                                "description": f"{tool}"
-                            }
-                        )
-                
                 elif event_type == "react_observation":
-                    # Добавляем результат как деталь и завершаем намерение
+                    # Add result and complete the intent
                     if hasattr(self, '_current_intent_id') and self._current_intent_id:
                         result = str(data.get("result", ""))[:100]
                         
-                        # Добавляем результат как деталь
+                        # Add result as detail
                         await self.ws_manager.send_event(
                             self.session_id,
                             "intent_detail",
@@ -1202,7 +1228,7 @@ class UnifiedReActEngine:
                             }
                         )
                         
-                        # Завершаем текущее намерение
+                        # Complete current intent
                         await self.ws_manager.send_event(
                             self.session_id,
                             "intent_complete",
