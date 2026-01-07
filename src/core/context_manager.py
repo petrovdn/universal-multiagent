@@ -285,7 +285,8 @@ class ConversationContext:
         Returns:
             File data dictionary or None
         """
-        return self.uploaded_files.get(file_id)
+        result = self.uploaded_files.get(file_id)
+        return result
     
     def set_open_files(self, open_files: List[Dict[str, Any]]) -> None:
         """
@@ -396,7 +397,8 @@ class PersistentStorage:
         try:
             with open(file_path, "r") as f:
                 data = json.load(f)
-            return ConversationContext.from_dict(data)
+            context = ConversationContext.from_dict(data)
+            return context
         except Exception:
             return None
     

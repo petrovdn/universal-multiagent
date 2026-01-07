@@ -24,6 +24,11 @@ try:
     from PIL import Image
 except ImportError:
     Image = None
+try:
+    from docx import Document
+    DOCX_AVAILABLE = True
+except ImportError:
+    DOCX_AVAILABLE = False
 
 from src.utils.config_loader import get_config, reload_config
 from src.utils.logging_config import setup_logging, get_logger
@@ -214,43 +219,12 @@ async def send_message(request: Dict[str, Any]):
     - file_ids: Optional list of file IDs to attach to the message
     - open_files: Optional list of currently open files in workspace panel
     """
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({
-                "location": "server.py:send_message:entry",
-                "message": "POST /api/chat endpoint called",
-                "data": {"request_keys": list(request.keys()), "has_message": "message" in request},
-                "timestamp": time.time() * 1000,
-                "sessionId": request.get("session_id", "new"),
-                "runId": "run1",
-                "hypothesisId": "H1"
-            }) + "\n")
-    except:
-        pass
-    # #endregion
     
     user_message = request.get("message", "")
     session_id = request.get("session_id")
     execution_mode = request.get("execution_mode", "agent")
     file_ids = request.get("file_ids", [])
     open_files = request.get("open_files", [])
-    
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({
-                "location": "server.py:send_message:parsed",
-                "message": "Request parsed",
-                "data": {"user_message_preview": user_message[:50], "session_id": session_id, "execution_mode": execution_mode},
-                "timestamp": time.time() * 1000,
-                "sessionId": session_id or "new",
-                "runId": "run1",
-                "hypothesisId": "H1"
-            }) + "\n")
-    except:
-        pass
-    # #endregion
     
     if not user_message and not file_ids:
         raise HTTPException(status_code=400, detail="Message or file is required")
@@ -264,22 +238,6 @@ async def send_message(request: Dict[str, Any]):
         session_id = session_manager.create_session(execution_mode)
         context = session_manager.get_session(session_id)
     
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({
-                "location": "server.py:send_message:session_ready",
-                "message": "Session ready",
-                "data": {"session_id": session_id, "context_exists": context is not None},
-                "timestamp": time.time() * 1000,
-                "sessionId": session_id,
-                "runId": "run1",
-                "hypothesisId": "H1"
-            }) + "\n")
-    except:
-        pass
-    # #endregion
-    
     # Update execution mode if provided
     if execution_mode:
         context.execution_mode = execution_mode
@@ -287,21 +245,6 @@ async def send_message(request: Dict[str, Any]):
     # Process message with file attachments
     try:
         logger.info(f"Processing message for session {session_id}, context session_id: {getattr(context, 'session_id', 'NOT SET')}, file_ids: {file_ids}, open_files: {len(open_files)}")
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({
-                    "location": "server.py:send_message:before_process",
-                    "message": "About to call agent_wrapper.process_message",
-                    "data": {"session_id": session_id, "message_length": len(user_message)},
-                    "timestamp": time.time() * 1000,
-                    "sessionId": session_id,
-                    "runId": "run1",
-                    "hypothesisId": "H2"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
         result = await agent_wrapper.process_message(
             user_message,
             context,
@@ -309,21 +252,6 @@ async def send_message(request: Dict[str, Any]):
             file_ids=file_ids,
             open_files=open_files
         )
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({
-                    "location": "server.py:send_message:after_process",
-                    "message": "agent_wrapper.process_message completed",
-                    "data": {"session_id": session_id, "result_status": result.get("status", "unknown")},
-                    "timestamp": time.time() * 1000,
-                    "sessionId": session_id,
-                    "runId": "run1",
-                    "hypothesisId": "H2"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
         
         # Update session
         session_manager.update_session(session_id, context)
@@ -335,21 +263,6 @@ async def send_message(request: Dict[str, Any]):
     except Exception as e:
         import traceback
         logger.error(f"Error processing message: {e}")
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({
-                    "location": "server.py:send_message:error",
-                    "message": "Error in send_message",
-                    "data": {"error": str(e), "traceback": traceback.format_exc()},
-                    "timestamp": time.time() * 1000,
-                    "sessionId": session_id or "unknown",
-                    "runId": "run1",
-                    "hypothesisId": "H2"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -641,6 +554,7 @@ async def upload_file(
     Supported file types:
     - Images: image/* (JPEG, PNG, GIF, WEBP, etc.)
     - PDF: application/pdf
+    - Word documents: application/vnd.openxmlformats-officedocument.wordprocessingml.document (.docx)
     
     Returns file_id that can be used when sending messages.
     """
@@ -736,10 +650,56 @@ async def upload_file(
                     detail=f"Error processing PDF: {str(e)}"
                 )
         
+        elif file_type in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
+                          "application/msword"):
+            # For .docx and .doc files
+            if not DOCX_AVAILABLE:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Word document processing not available. Please install python-docx."
+                )
+            
+            try:
+                # For .docx
+                if file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                    doc_file = io.BytesIO(content)
+                    doc = Document(doc_file)
+                    text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+                else:
+                    # For .doc (old format) - not directly supported by python-docx
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Old .doc format is not supported. Please convert to .docx"
+                    )
+                
+                if not text.strip():
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Could not extract text from Word document."
+                    )
+                
+                result["text"] = text.strip()
+                
+                # Store in context
+                context.add_file(file_id, {
+                    "filename": file.filename,
+                    "type": file_type,
+                    "text": result["text"],
+                    "size": len(content)
+                })
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Error processing Word document: {e}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Error processing Word document: {str(e)}"
+                )
+        
         else:
             raise HTTPException(
                 status_code=400, 
-                detail=f"Unsupported file type: {file_type}. Supported types: image/*, application/pdf"
+                detail=f"Unsupported file type: {file_type}. Supported types: image/*, application/pdf, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
         
         # Update session
@@ -798,39 +758,8 @@ async def set_session_model(request: Dict[str, Any]):
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     """
 WebSocket endpoint for real-time communication."""
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({
-                "location": "server.py:websocket_endpoint:entry",
-                "message": "WebSocket endpoint called",
-                "data": {"session_id": session_id},
-                "timestamp": time.time() * 1000,
-                "sessionId": session_id,
-                "runId": "run1",
-                "hypothesisId": "H3"
-            }) + "\n")
-    except:
-        pass
-    # #endregion
     
     await ws_manager.connect(websocket, session_id)
-    
-    # #region agent log
-    try:
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-            f.write(json.dumps({
-                "location": "server.py:websocket_endpoint:connected",
-                "message": "WebSocket connected",
-                "data": {"session_id": session_id, "connection_count": ws_manager.get_connection_count(session_id)},
-                "timestamp": time.time() * 1000,
-                "sessionId": session_id,
-                "runId": "run1",
-                "hypothesisId": "H3"
-            }) + "\n")
-    except:
-        pass
-    # #endregion
     
     try:
         while True:
@@ -846,32 +775,13 @@ WebSocket endpoint for real-time communication."""
             if message_type == "message":
                 # Process user message
                 user_message = data.get("content")
+                file_ids = data.get("file_ids", [])
+                open_files = data.get("open_files", [])
                 context = session_manager.get_session(session_id)
                 
                 if not context:
                     context = ConversationContext(session_id)
                     session_manager.update_session(session_id, context)
-                
-                # #region agent log
-                try:
-                    import json
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "location": "server.py:websocket:message",
-                            "message": "WebSocket message received",
-                            "data": {
-                                "session_id": session_id,
-                                "execution_mode": context.execution_mode,
-                                "user_message_preview": user_message[:100] if user_message else ""
-                            },
-                            "timestamp": time.time() * 1000,
-                            "sessionId": session_id,
-                            "runId": "run1",
-                            "hypothesisId": "H1"
-                        }) + "\n")
-                except:
-                    pass
-                # #endregion
                 
                 # Run process_message in background task to avoid blocking the message loop
                 # This allows other messages (like approve_plan) to be received while processing
@@ -880,7 +790,9 @@ WebSocket endpoint for real-time communication."""
                         await agent_wrapper.process_message(
                             user_message,
                             context,
-                            session_id
+                            session_id,
+                            file_ids=file_ids if file_ids else None,
+                            open_files=open_files if open_files else None
                         )
                         session_manager.update_session(session_id, context)
                     except Exception as e:

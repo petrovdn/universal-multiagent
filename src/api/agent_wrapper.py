@@ -105,21 +105,6 @@ Initialize agent wrapper."""
         Returns:
             Final execution result
         """
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({
-                    "location": "agent_wrapper.py:process_message:entry",
-                    "message": "process_message called",
-                    "data": {"session_id": session_id, "message_preview": user_message[:50], "file_ids_count": len(file_ids or [])},
-                    "timestamp": time.time() * 1000,
-                    "sessionId": session_id,
-                    "runId": "run1",
-                    "hypothesisId": "H2"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
         
         file_ids = file_ids or []
         open_files = open_files or []
@@ -136,62 +121,16 @@ Initialize agent wrapper."""
         waited = 0
         logger.info(f"[AgentWrapper] Waiting for WebSocket connection for session {session_id}...")
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({
-                    "location": "agent_wrapper.py:process_message:ws_check",
-                    "message": "Checking WebSocket connection",
-                    "data": {"session_id": session_id, "connection_count": self.ws_manager.get_connection_count(session_id)},
-                    "timestamp": time.time() * 1000,
-                    "sessionId": session_id,
-                    "runId": "run1",
-                    "hypothesisId": "H3"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
-        
         while self.ws_manager.get_connection_count(session_id) == 0 and waited < max_wait:
             await asyncio.sleep(wait_interval)
             waited += wait_interval
         
         if self.ws_manager.get_connection_count(session_id) == 0:
             logger.warning(f"[AgentWrapper] No WebSocket connection for session {session_id} after {max_wait}s, proceeding anyway")
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "agent_wrapper.py:process_message:ws_warning",
-                        "message": "No WebSocket connection, proceeding anyway",
-                        "data": {"session_id": session_id},
-                        "timestamp": time.time() * 1000,
-                        "sessionId": session_id,
-                        "runId": "run1",
-                        "hypothesisId": "H3"
-                    }) + "\n")
-            except:
-                pass
-            # #endregion
         else:
             logger.info(f"[AgentWrapper] WebSocket connected for session {session_id} (connections: {self.ws_manager.get_connection_count(session_id)})")
         
         # Send user message event
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({
-                    "location": "agent_wrapper.py:process_message:before_send_event",
-                    "message": "About to send user message event",
-                    "data": {"session_id": session_id},
-                    "timestamp": time.time() * 1000,
-                    "sessionId": session_id,
-                    "runId": "run1",
-                    "hypothesisId": "H3"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
         
         await self.ws_manager.send_event(
             session_id,
@@ -225,28 +164,6 @@ Initialize agent wrapper."""
             # Map execution mode to adapter type
             execution_mode = context.execution_mode or "agent"
             
-            # #region agent log
-            try:
-                import json
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "agent_wrapper.py:process_message:execution_mode",
-                        "message": "Execution mode determined",
-                        "data": {
-                            "context_execution_mode": context.execution_mode,
-                            "execution_mode": execution_mode,
-                            "session_id": session_id,
-                            "user_message_preview": user_message[:100]
-                        },
-                        "timestamp": time.time() * 1000,
-                        "sessionId": session_id,
-                        "runId": "run1",
-                        "hypothesisId": "H1"
-                    }) + "\n")
-            except:
-                pass
-            # #endregion
-            
             # Map legacy modes to new modes
             mode_mapping = {
                 "instant": "agent",  # Legacy instant -> new agent mode
@@ -258,26 +175,6 @@ Initialize agent wrapper."""
             }
             
             mapped_mode = mode_mapping.get(execution_mode, "agent")
-            
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "location": "agent_wrapper.py:process_message:mapped_mode",
-                        "message": "Mode mapped to adapter",
-                        "data": {
-                            "original_mode": execution_mode,
-                            "mapped_mode": mapped_mode,
-                            "session_id": session_id
-                        },
-                        "timestamp": time.time() * 1000,
-                        "sessionId": session_id,
-                        "runId": "run1",
-                        "hypothesisId": "H1"
-                    }) + "\n")
-            except:
-                pass
-            # #endregion
             
             # Use new unified adapters for new modes
             if mapped_mode in ("query", "agent", "plan"):
@@ -311,44 +208,12 @@ Initialize agent wrapper."""
                 # Store adapter for stop/confirmation handling
                 self._active_orchestrators[session_id] = adapter
                 
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "location": "agent_wrapper.py:process_message:before_adapter_execute",
-                            "message": f"About to execute {mapped_mode} adapter",
-                            "data": {"session_id": session_id, "mapped_mode": mapped_mode, "goal_preview": user_message[:50], "file_ids": file_ids, "file_ids_count": len(file_ids)},
-                            "timestamp": time.time() * 1000,
-                            "sessionId": session_id,
-                            "runId": "run1",
-                            "hypothesisId": "H1,H4"
-                        }) + "\n")
-                except:
-                    pass
-                # #endregion
-                
                 # Execute through adapter
                 result = await adapter.execute(
                     goal=user_message,
                     context=context,
                     file_ids=file_ids
                 )
-                
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "location": "agent_wrapper.py:process_message:after_adapter_execute",
-                            "message": f"{mapped_mode} adapter executed",
-                            "data": {"session_id": session_id, "result_status": result.get("status", "unknown"), "has_response": "response" in result},
-                            "timestamp": time.time() * 1000,
-                            "sessionId": session_id,
-                            "runId": "run1",
-                            "hypothesisId": "H5"
-                        }) + "\n")
-                except:
-                    pass
-                # #endregion
                 
                 orchestrator_type = f"{mapped_mode.capitalize()}ModeAdapter"
             else:
@@ -990,41 +855,10 @@ Callback to handle streaming events and send to WebSocket."""
                 response = data.get("response", accumulated_tokens)
                 logger.info(f"[AgentWrapper] DONE event received, response length: {len(response)}, message_started: {message_started}, final_result_started: {final_result_started}")
                 
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "location": "agent_wrapper.py:stream_event_callback:DONE",
-                            "message": "DONE event received",
-                            "data": {"response_length": len(response), "message_started": message_started, "final_result_started": final_result_started, "stream_to_final_result": stream_to_final_result},
-                            "timestamp": time.time() * 1000,
-                            "sessionId": session_id,
-                            "runId": "run1",
-                            "hypothesisId": "H4"
-                        }) + "\n")
-                except:
-                    pass
-                # #endregion
-                
                 if stream_to_final_result:
                     # Stream to final_result mode: send final_result_complete
                     if final_result_started:
                         logger.info(f"[AgentWrapper] Sending final_result_complete event")
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "agent_wrapper.py:stream_event_callback:final_result_complete",
-                                    "message": "Sending final_result_complete",
-                                    "data": {"content_length": len(response)},
-                                    "timestamp": time.time() * 1000,
-                                    "sessionId": session_id,
-                                    "runId": "run1",
-                                    "hypothesisId": "H4"
-                                }) + "\n")
-                        except:
-                            pass
-                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "final_result_complete",
@@ -1035,21 +869,6 @@ Callback to handle streaming events and send to WebSocket."""
                     else:
                         # If no tokens were streamed, still send final_result with content
                         logger.info(f"[AgentWrapper] Sending final_result event (no streaming)")
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "agent_wrapper.py:stream_event_callback:final_result",
-                                    "message": "Sending final_result (no streaming)",
-                                    "data": {"content_length": len(response)},
-                                    "timestamp": time.time() * 1000,
-                                    "sessionId": session_id,
-                                    "runId": "run1",
-                                    "hypothesisId": "H4"
-                                }) + "\n")
-                        except:
-                            pass
-                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "final_result",
@@ -1062,21 +881,6 @@ Callback to handle streaming events and send to WebSocket."""
                     # Always send response, even if empty or no tokens were streamed
                     if message_started:
                         logger.info(f"[AgentWrapper] Sending message_complete event")
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "agent_wrapper.py:stream_event_callback:message_complete",
-                                    "message": "Sending message_complete",
-                                    "data": {"message_id": message_id, "content_length": len(response)},
-                                    "timestamp": time.time() * 1000,
-                                    "sessionId": session_id,
-                                    "runId": "run1",
-                                    "hypothesisId": "H4"
-                                }) + "\n")
-                        except:
-                            pass
-                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "message_complete",
@@ -1089,21 +893,6 @@ Callback to handle streaming events and send to WebSocket."""
                     else:
                         # If no tokens were streamed, send as regular message
                         logger.info(f"[AgentWrapper] Sending regular message (no streaming)")
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "location": "agent_wrapper.py:stream_event_callback:message",
-                                    "message": "Sending regular message (no streaming)",
-                                    "data": {"content_length": len(response)},
-                                    "timestamp": time.time() * 1000,
-                                    "sessionId": session_id,
-                                    "runId": "run1",
-                                    "hypothesisId": "H4"
-                                }) + "\n")
-                        except:
-                            pass
-                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "message",

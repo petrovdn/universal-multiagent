@@ -20,7 +20,7 @@ from src.core.result_analyzer import ResultAnalyzer, Analysis
 from src.core.capability_registry import CapabilityRegistry
 from src.core.action_provider import CapabilityCategory
 from src.api.websocket_manager import WebSocketManager
-from src.agents.model_factory import create_llm
+from src.agents.model_factory import create_llm, supports_vision
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -229,9 +229,58 @@ class UnifiedReActEngine:
                 state.iteration += 1
                 logger.info(f"[UnifiedReActEngine] Starting iteration {state.iteration}")
                 
+                # === EARLY INTENT: Start of iteration ===
+                iteration_intent_id = f"intent-iter-{state.iteration}-{int(time.time() * 1000)}"
+                files_info = ""
+                if file_ids:
+                    file_count = len(file_ids)
+                    image_count = sum(1 for fid in file_ids if context.get_file(fid) and context.get_file(fid).get('type', '').startswith('image/'))
+                    pdf_count = sum(1 for fid in file_ids if context.get_file(fid) and context.get_file(fid).get('type', '') == 'application/pdf')
+                    doc_count = sum(1 for fid in file_ids if context.get_file(fid) and context.get_file(fid).get('type', '') in ('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword'))
+                    parts = []
+                    if pdf_count: parts.append(f"{pdf_count} PDF")
+                    if doc_count: parts.append(f"{doc_count} документ")
+                    if image_count: parts.append(f"{image_count} изображение")
+                    if parts:
+                        files_info = f" ({', '.join(parts)})"
+                
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "intent_start",
+                    {
+                        "intent_id": iteration_intent_id,
+                        "text": f"Итерация {state.iteration}: Анализирую запрос{files_info}..."
+                    }
+                )
+                
                 # 1. THINK - Analyze current situation
                 state.status = "thinking"
-                thought = await self._think(state, context, file_ids)
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "intent_detail",
+                    {"intent_id": iteration_intent_id, "type": "think", "description": "Формирую понимание задачи..."}
+                )
+                
+                # Start progress updates while LLM thinks
+                think_progress_messages = [
+                    "Изучаю контекст запроса...",
+                    "Анализирую структуру задачи...",
+                    "Извлекаю ключевую информацию...",
+                    "Определяю требуемые действия...",
+                ]
+                think_progress_task = asyncio.create_task(
+                    self._send_progress_updates(iteration_intent_id, think_progress_messages, interval=4.0)
+                )
+                
+                try:
+                    thought = await self._think(state, context, file_ids)
+                finally:
+                    think_progress_task.cancel()
+                    try:
+                        await think_progress_task
+                    except asyncio.CancelledError:
+                        pass
+                
                 state.current_thought = thought
                 state.add_reasoning_step("think", thought)
                 await self._stream_reasoning("react_thinking", {
@@ -244,26 +293,66 @@ class UnifiedReActEngine:
                 
                 # 2. PLAN - Choose next action
                 state.status = "acting"
-                action_plan = await self._plan_action(state, thought, context, file_ids)
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "intent_detail",
+                    {"intent_id": iteration_intent_id, "type": "plan", "description": "Выбираю следующее действие..."}
+                )
+                
+                # Start progress updates while LLM plans
+                plan_progress_messages = [
+                    "Оцениваю возможные подходы...",
+                    "Выбираю оптимальную стратегию...",
+                    "Подготавливаю параметры действия...",
+                ]
+                plan_progress_task = asyncio.create_task(
+                    self._send_progress_updates(iteration_intent_id, plan_progress_messages, interval=4.0)
+                )
+                
+                try:
+                    action_plan = await self._plan_action(state, thought, context, file_ids)
+                finally:
+                    plan_progress_task.cancel()
+                    try:
+                        await plan_progress_task
+                    except asyncio.CancelledError:
+                        pass
+                
+                # Complete iteration intent
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "intent_complete",
+                    {"intent_id": iteration_intent_id, "summary": f"Итерация {state.iteration} завершена"}
+                )
                 
                 # Check for special "FINISH" marker
                 tool_name = action_plan.get("tool_name", "")
                 if tool_name.upper() == "FINISH" or tool_name == "finish":
                     logger.info(f"[UnifiedReActEngine] LLM indicated task completion")
-                    state.add_reasoning_step("plan", action_plan.get("reasoning", "Задача выполнена"), {
+                    finish_reasoning = action_plan.get("reasoning", "Задача выполнена")
+                    finish_description = action_plan.get("description", "Задача выполнена")
+                    state.add_reasoning_step("plan", finish_reasoning, {
                         "tool": "FINISH",
                         "marker": True
                     })
                     await self._stream_reasoning("react_action", {
-                        "action": action_plan.get("description", "Задача выполнена"),
+                        "action": finish_description,
                         "tool": "FINISH",
                         "params": {},
                         "iteration": state.iteration
                     })
+                    # Add a synthetic observation with the reasoning for final answer generation
+                    finish_action = state.add_action("FINISH", {})
+                    state.add_observation(
+                        action=finish_action,
+                        raw_result=finish_reasoning,
+                        success=True
+                    )
                     return await self._finalize_success(
                         state,
-                        action_plan.get("description", "Задача успешно выполнена"),
-                        context
+                        finish_description,
+                        context,
+                        file_ids
                     )
                 
                 state.add_reasoning_step("plan", action_plan.get("reasoning", ""), {
@@ -301,7 +390,7 @@ class UnifiedReActEngine:
                 )
                 
                 await self._stream_reasoning("react_observation", {
-                    "result": str(result)[:500],
+                    "result": str(result),  # Full result - no truncation
                     "iteration": state.iteration
                 })
                 
@@ -329,7 +418,7 @@ class UnifiedReActEngine:
                 
                 if analysis.is_goal_achieved:
                     logger.info(f"[UnifiedReActEngine] Goal achieved at iteration {state.iteration}")
-                    return await self._finalize_success(state, result, context)
+                    return await self._finalize_success(state, result, context, file_ids)
                 
                 elif analysis.is_error:
                     if self.config.enable_alternatives:
@@ -550,6 +639,30 @@ class UnifiedReActEngine:
             # If direct answer fails, raise exception to fall back to normal ReAct loop
             raise
     
+    async def _send_progress_updates(
+        self,
+        intent_id: str,
+        messages: List[str],
+        interval: float = 4.0
+    ) -> None:
+        """
+        Send progress updates every interval seconds until cancelled.
+        
+        This runs as a background task to show user that work is happening
+        during long LLM operations.
+        """
+        try:
+            for msg in messages:
+                await asyncio.sleep(interval)
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "intent_detail",
+                    {"intent_id": intent_id, "type": "analyze", "description": msg}
+                )
+        except asyncio.CancelledError:
+            # Task was cancelled, this is expected
+            pass
+    
     async def _think(
         self,
         state: ReActState,
@@ -567,9 +680,25 @@ class UnifiedReActEngine:
                 if file_data:
                     uploaded_files_found.append(file_data)
             if uploaded_files_found:
-                context_str += "📎 Прикрепленные файлы (содержимое уже в сообщении):\n"
+                context_str += "📎 Прикрепленные файлы:\n"
                 for file_data in uploaded_files_found:
-                    context_str += f"- {file_data.get('filename', 'unknown')}\n"
+                    filename = file_data.get('filename', 'unknown')
+                    file_type = file_data.get('type', '')
+                    if file_type == 'application/pdf' and 'text' in file_data:
+                        pdf_text = file_data.get('text', '')
+                        max_len = 8000  # Increased for better analysis
+                        if len(pdf_text) > max_len:
+                            pdf_text = pdf_text[:max_len] + "\n... (обрезано, полный текст " + str(len(file_data.get('text', ''))) + " символов)"
+                        context_str += f"- PDF: {filename}\n{pdf_text}\n"
+                    elif file_type in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                      "application/msword") and 'text' in file_data:
+                        docx_text = file_data.get('text', '')
+                        max_len = 8000  # Increased for better analysis
+                        if len(docx_text) > max_len:
+                            docx_text = docx_text[:max_len] + "\n... (обрезано, полный текст " + str(len(file_data.get('text', ''))) + " символов)"
+                        context_str += f"- Word документ: {filename}\n{docx_text}\n"
+                    else:
+                        context_str += f"- {filename}\n"
         
         # Add open files context (PRIORITY #2)
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
@@ -609,25 +738,52 @@ class UnifiedReActEngine:
                 HumanMessage(content=prompt)
             ]
             
-            response = await self.llm.ainvoke(messages)
+            # Stream thinking process
+            thought = ""
+            thinking_id = f"thinking_{self.session_id}_{int(time.time() * 1000)}"
             
-            # Handle different response formats
-            if isinstance(response.content, list):
-                text_parts = []
-                for block in response.content:
-                    if hasattr(block, "text"):
-                        text_parts.append(block.text)
-                    elif isinstance(block, dict) and "text" in block:
-                        text_parts.append(block["text"])
-                    elif isinstance(block, str):
-                        text_parts.append(block)
-                thought = " ".join(text_parts).strip()
-            elif isinstance(response.content, str):
-                thought = response.content.strip()
-            else:
-                thought = str(response.content).strip()
+            # Send thinking start
+            await self.ws_manager.send_event(
+                self.session_id,
+                "thinking_started",
+                {"thinking_id": thinking_id}
+            )
             
-            return thought
+            async for chunk in self.llm.astream(messages):
+                chunk_text = ""
+                if hasattr(chunk, 'content') and chunk.content:
+                    if isinstance(chunk.content, list):
+                        for block in chunk.content:
+                            if hasattr(block, "text"):
+                                chunk_text += block.text
+                            elif isinstance(block, dict) and "text" in block:
+                                chunk_text += block["text"]
+                            elif isinstance(block, str):
+                                chunk_text += block
+                    elif isinstance(chunk.content, str):
+                        chunk_text = chunk.content
+                elif isinstance(chunk, str):
+                    chunk_text = chunk
+                
+                if chunk_text:
+                    thought += chunk_text
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "thinking_chunk",
+                        {
+                            "thinking_id": thinking_id,
+                            "chunk": chunk_text  # Frontend expects "chunk" not "content"
+                        }
+                    )
+            
+            # Complete thinking
+            await self.ws_manager.send_event(
+                self.session_id,
+                "thinking_completed",
+                {"thinking_id": thinking_id}
+            )
+            
+            return thought.strip()
         except Exception as e:
             logger.error(f"[UnifiedReActEngine] Error in _think: {e}")
             return f"Анализирую ситуацию... (итерация {state.iteration})"
@@ -640,14 +796,6 @@ class UnifiedReActEngine:
         file_ids: List[str]
     ) -> Dict[str, Any]:
         """Plan next action based on thought."""
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json as _json
-                f.write(_json.dumps({"location": "unified_react_engine.py:_plan_action:entry", "message": "file_ids received", "data": {"file_ids": file_ids, "file_ids_count": len(file_ids)}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H1"}) + "\n")
-        except: pass
-        # #endregion
-        
         # Get capability descriptions (filtered by allowed categories)
         capability_descriptions = []
         for cap in self.capabilities[:50]:  # Limit to first 50
@@ -669,36 +817,47 @@ class UnifiedReActEngine:
             uploaded_files_found = []
             for file_id in file_ids:
                 file_data = context.get_file(file_id)
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        import json as _json
-                        f.write(_json.dumps({"location": "unified_react_engine.py:_plan_action:get_file", "message": "get_file result", "data": {"file_id": file_id, "file_data_exists": file_data is not None, "file_data_keys": list(file_data.keys()) if file_data else None, "has_text": "text" in file_data if file_data else False}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H2,H3"}) + "\n")
-                except: pass
-                # #endregion
                 if file_data:
                     uploaded_files_found.append(file_data)
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    import json as _json
-                    f.write(_json.dumps({"location": "unified_react_engine.py:_plan_action:files_found", "message": "uploaded_files_found count", "data": {"count": len(uploaded_files_found), "filenames": [f.get('filename') for f in uploaded_files_found]}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H2"}) + "\n")
-            except: pass
-            # #endregion
-            
             if uploaded_files_found:
+                # Проверяем поддержку vision у модели
+                model_supports_vision = supports_vision(self.model_name) if self.model_name else False
+                
                 context_str += "\n📎 ПРИКРЕПЛЕННЫЕ ФАЙЛЫ (ПРИОРИТЕТ #1 - используй их ПЕРВЫМ!):\n"
+                has_images = False
                 for file_data in uploaded_files_found:
                     filename = file_data.get('filename', 'unknown')
                     file_type = file_data.get('type', '')
                     if file_type.startswith('image/'):
-                        context_str += f"- Изображение: {filename} (содержимое уже в сообщении)\n"
+                        has_images = True
+                        if model_supports_vision:
+                            context_str += f"- Изображение: {filename} (УЖЕ ПЕРЕДАНО В ЭТОМ СООБЩЕНИИ через Vision API - видишь его прямо сейчас!)\n"
+                        else:
+                            context_str += f"- Изображение: {filename} (модель не поддерживает vision, пропущено)\n"
+                            logger.warning(f"Model {self.model_name} doesn't support vision, skipping image {filename}")
                     elif file_type == 'application/pdf' and 'text' in file_data:
-                        context_str += f"- PDF: {filename} (текст уже включен в сообщение)\n"
+                        pdf_text = file_data.get('text', '')
+                        # Truncate if too long - increased limit for better analysis
+                        max_len = 10000
+                        if len(pdf_text) > max_len:
+                            pdf_text = pdf_text[:max_len] + "\n... (текст обрезан, полный размер " + str(len(file_data.get('text', ''))) + " символов)"
+                        context_str += f"- PDF: {filename}\n--- СОДЕРЖИМОЕ PDF ---\n{pdf_text}\n--- КОНЕЦ PDF ---\n"
+                    elif file_type in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                      "application/msword") and 'text' in file_data:
+                        docx_text = file_data.get('text', '')
+                        # Truncate if too long - increased limit for better analysis
+                        max_len = 10000
+                        if len(docx_text) > max_len:
+                            docx_text = docx_text[:max_len] + "\n... (текст обрезан, полный размер " + str(len(file_data.get('text', ''))) + " символов)"
+                        context_str += f"- Word документ: {filename}\n--- СОДЕРЖИМОЕ DOCX ---\n{docx_text}\n--- КОНЕЦ DOCX ---\n"
                     else:
                         context_str += f"- {filename} ({file_type})\n"
-                context_str += "⚠️ НЕ ищи эти файлы в Google Drive - их содержимое УЖЕ в сообщении!\n"
+                
+                if has_images and model_supports_vision:
+                    context_str += "\n⚠️ КРИТИЧНО: Изображения УЖЕ ПЕРЕДАНЫ в этом сообщении через Vision API! Ты видишь их прямо сейчас! НЕ используй инструменты для их анализа - просто опиши что видишь на изображениях!\n"
+                else:
+                    context_str += "⚠️ НЕ ищи эти файлы в Google Drive - их содержимое УЖЕ ВЫШЕ!\n"
         
         # Add open files context (PRIORITY #2)
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
@@ -710,14 +869,6 @@ class UnifiedReActEngine:
                 elif file.get('type') == 'docs':
                     context_str += f"- Документ: {file.get('title')} (ID: {file.get('document_id')})\n"
             context_str += "⚠️ Используй document_id/spreadsheet_id напрямую, НЕ ищи через search!\n"
-        
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json as _json
-                f.write(_json.dumps({"location": "unified_react_engine.py:_plan_action:context_str", "message": "context_str before prompt", "data": {"context_str_preview": context_str[:500], "has_uploaded_files_mention": "ПРИКРЕПЛЕННЫЕ" in context_str, "has_open_files_mention": "Открытые файлы" in context_str}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "H5"}) + "\n")
-        except: pass
-        # #endregion
         
         prompt = f"""Ты планируешь следующее действие для достижения цели.
 
@@ -733,6 +884,14 @@ class UnifiedReActEngine:
 - Для календаря: если получено только количество событий, нужно получить детали каждого события
 - Для файлов: если получен список файлов, но нужно содержимое - получи содержимое
 - Для писем: если получен список писем, но нужно содержимое - получи содержимое
+
+КРИТИЧНО ДЛЯ ПРИКРЕПЛЕННЫХ ФАЙЛОВ:
+- Если в прикрепленных файлах есть ИЗОБРАЖЕНИЯ - они УЖЕ ПЕРЕДАНЫ в этом сообщении через Vision API! 
+  Ты видишь их прямо сейчас! НЕ используй инструменты типа "vision-api" или "analyze_image" - просто опиши что видишь!
+- Если в прикрепленных файлах есть PDF или DOCX - их ТЕКСТ УЖЕ ПРЕДСТАВЛЕН ВЫШЕ в контексте!
+- Если пользователь спрашивает "что в файле" или "что в файлах" и содержимое файлов УЖЕ ВИДНО (текст PDF/DOCX в контексте выше, изображение через Vision API), 
+  то задача УЖЕ ВЫПОЛНЕНА - используй FINISH и опиши содержимое файлов в ответе!
+- НЕ ищи файлы в Google Drive или рабочей области, если они уже прикреплены и их содержимое уже видно!
 
 Выбери ОДИН инструмент и укажи параметры для его вызова. Ответь в формате JSON:
 {{
@@ -750,13 +909,46 @@ class UnifiedReActEngine:
     "reasoning": "почему задача считается выполненной (укажи, какие данные получены)"
 }}
 
+ОСОБЕННО: Если пользователь спрашивает о содержимом прикрепленных файлов, и содержимое УЖЕ ВИДНО (текст PDF/DOCX в контексте выше, изображение через Vision API), 
+используй FINISH немедленно - не ищи файлы в других местах!
+
 Отвечай ТОЛЬКО валидным JSON, без дополнительного текста."""
 
         try:
-            messages = [
-                SystemMessage(content="Ты эксперт по планированию действий. Отвечай только валидным JSON."),
-                HumanMessage(content=prompt)
-            ]
+            # Проверяем поддержку vision и собираем изображения
+            model_supports_vision = supports_vision(self.model_name) if self.model_name else False
+            image_contents = []
+            
+            if file_ids and model_supports_vision:
+                for file_id in file_ids:
+                    file_data = context.get_file(file_id)
+                    if file_data:
+                        file_type = file_data.get('type', '')
+                        if file_type.startswith('image/'):
+                            media_type = file_data.get('media_type', file_type)
+                            base64_data = file_data.get('data', '')
+                            if base64_data:
+                                image_contents.append({
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:{media_type};base64,{base64_data}"
+                                    }
+                                })
+            
+            # Формируем сообщение
+            if image_contents:
+                # Multimodal сообщение с изображениями
+                message_content = [{"type": "text", "text": prompt}] + image_contents
+                messages = [
+                    SystemMessage(content="Ты эксперт по планированию действий. Отвечай только валидным JSON."),
+                    HumanMessage(content=message_content)
+                ]
+            else:
+                # Обычное текстовое сообщение
+                messages = [
+                    SystemMessage(content="Ты эксперт по планированию действий. Отвечай только валидным JSON."),
+                    HumanMessage(content=prompt)
+                ]
             
             response = await self.llm.ainvoke(messages)
             
@@ -908,25 +1100,107 @@ class UnifiedReActEngine:
             logger.error(f"[UnifiedReActEngine] Error in _find_alternative: {e}")
             return None
     
-    async def _generate_final_answer(self, state: ReActState) -> str:
-        """Generate a human-friendly final answer based on all collected results."""
+    async def _generate_final_answer(self, state: ReActState, context: Optional[ConversationContext] = None, file_ids: Optional[List[str]] = None) -> str:
+        """Generate a human-friendly final answer based on all collected results with streaming."""
         try:
             # Collect all observations/results
             observations_text = ""
             for obs in state.observations:
                 if obs.raw_result:
-                    observations_text += f"- {obs.action.tool_name}: {str(obs.raw_result)[:500]}\n"
+                    observations_text += f"- {obs.action.tool_name}: {str(obs.raw_result)[:1500]}\n"
+            
+            # If no observations but we have FINISH reasoning, use it
+            if not observations_text:
+                # Check for FINISH marker in reasoning trail
+                for step in reversed(state.reasoning_trail):
+                    if step.metadata and step.metadata.get("tool") == "FINISH":
+                        # Use the reasoning from FINISH step
+                        observations_text = step.content
+                        break
             
             if not observations_text:
                 observations_text = "Нет результатов от инструментов."
             
-            prompt = f"""Вопрос пользователя: "{state.goal}"
+            # Build file contents for FINISH cases
+            file_contents_text = ""
+            if file_ids and context:
+                for file_id in file_ids:
+                    file_data = context.get_file(file_id)
+                    if file_data:
+                        filename = file_data.get('filename', 'unknown')
+                        file_type = file_data.get('type', '')
+                        full_text = file_data.get('text', '')
+                        # Use larger limit for final answer - user wants detailed description
+                        max_len = 15000
+                        if file_type == 'application/pdf' and 'text' in file_data:
+                            pdf_text = full_text[:max_len] if len(full_text) > max_len else full_text
+                            truncation_note = f"\n... (показано {max_len} из {len(full_text)} символов)" if len(full_text) > max_len else ""
+                            file_contents_text += f"\n📄 PDF '{filename}':\n{pdf_text}{truncation_note}\n"
+                        elif file_type in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                          "application/msword") and 'text' in file_data:
+                            docx_text = full_text[:max_len] if len(full_text) > max_len else full_text
+                            truncation_note = f"\n... (показано {max_len} из {len(full_text)} символов)" if len(full_text) > max_len else ""
+                            file_contents_text += f"\n📄 Word '{filename}':\n{docx_text}{truncation_note}\n"
+                        elif file_type.startswith('image/'):
+                            file_contents_text += f"\n🖼️ Изображение '{filename}': (передано через Vision API - опиши что видишь)\n"
+            
+            # Check if user asked for a table
+            goal_lower = state.goal.lower()
+            wants_table = any(word in goal_lower for word in ['табличк', 'таблиц', 'table'])
+            
+            if wants_table:
+                table_instruction = """
+ФОРМАТ ОТВЕТА:
+Выведи данные в виде MARKDOWN ТАБЛИЦЫ. Пример:
+| Название | Дата | Время |
+|----------|------|-------|
+| Встреча 1 | 2025-12-25 | 10:00 |
+
+После таблицы добавь примечание:
+"💡 Если нужно создать Google таблицу с этими данными, переключитесь в режим **Агент**."
+"""
+            else:
+                table_instruction = ""
+            
+            # Check if this is a FINISH case (reasoning contains file analysis)
+            is_finish_case = any(
+                step.metadata and step.metadata.get("tool") == "FINISH"
+                for step in state.reasoning_trail
+            )
+            
+            if is_finish_case and file_contents_text:
+                # For FINISH with file content, include actual file contents in prompt
+                prompt = f"""Пользователь спросил: "{state.goal}"
+
+Вот содержимое прикрепленных файлов:
+{file_contents_text}
+
+{table_instruction}
+ВАЖНО: Опиши КОНКРЕТНО что находится в файлах. Например:
+- Для PDF: "В файле находится чек на оплату налогов на сумму X руб. от даты Y..."
+- Для изображения: "На изображении показан человек, играющий в теннис..."
+НЕ говори абстрактно "файл содержит текстовую информацию". Будь КОНКРЕТНЫМ!
+
+Ответ:"""
+            elif is_finish_case:
+                # FINISH case without file contents - use reasoning
+                prompt = f"""Пользователь спросил: "{state.goal}"
+
+Анализ:
+{observations_text}
+
+{table_instruction}
+Сформулируй понятный ответ на русском языке, описывая что находится в файле/файлах. Будь конкретным и информативным.
+
+Ответ:"""
+            else:
+                prompt = f"""Вопрос пользователя: "{state.goal}"
 
 Результаты поиска:
 {observations_text}
 
 ВАЖНО: Внимательно проанализируй результаты выше. Если там есть данные (events, messages, files и т.д.) - значит они НАЙДЕНЫ.
-
+{table_instruction}
 Сформулируй ответ на русском языке:
 - Если найдены данные - перечисли их кратко и понятно
 - Если данные пустые (пустой массив [], "Found 0") - скажи что ничего не найдено
@@ -934,9 +1208,126 @@ class UnifiedReActEngine:
 
 Ответ:"""
 
-            response = await self.llm.ainvoke([HumanMessage(content=prompt)])
-            answer = response.content.strip() if hasattr(response, 'content') else str(response).strip()
-            return answer
+            # Build multimodal message with images if available
+            image_contents = []
+            model_supports_vision = supports_vision(self.model_name) if self.model_name else False
+            
+            if file_ids and context and model_supports_vision:
+                for file_id in file_ids:
+                    file_data = context.get_file(file_id)
+                    if file_data:
+                        file_type = file_data.get('type', '')
+                        if file_type.startswith('image/'):
+                            media_type = file_data.get('media_type', file_type)
+                            base64_data = file_data.get('data', '')
+                            if base64_data:
+                                image_contents.append({
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": f"data:{media_type};base64,{base64_data}"
+                                    }
+                                })
+            
+            # Create message (multimodal if images present)
+            if image_contents:
+                message_content = [{"type": "text", "text": prompt}] + image_contents
+                messages = [HumanMessage(content=message_content)]
+            else:
+                messages = [HumanMessage(content=prompt)]
+
+            # Stream the response
+            full_answer = ""
+            
+            # Send intent event to show user what's happening
+            intent_message = "Анализирую содержимое файлов" if file_contents_text else "Формирую ответ"
+            if len(image_contents) > 0:
+                intent_message += f" (включая {len(image_contents)} изображение(я))..."
+            else:
+                intent_message += "..."
+            
+            intent_id = f"intent-final-{int(time.time() * 1000)}"
+            await self.ws_manager.send_event(
+                self.session_id,
+                "intent_start",
+                {"intent_id": intent_id, "text": intent_message}  # Fixed: use 'text' not 'intent'
+            )
+            
+            # Send details about each file being analyzed
+            if file_ids and context:
+                for i, file_id in enumerate(file_ids):
+                    file_data = context.get_file(file_id)
+                    if file_data:
+                        filename = file_data.get('filename', 'unknown')
+                        file_type = file_data.get('type', '')
+                        detail_type = 'read'
+                        if file_type.startswith('image/'):
+                            detail_desc = f"Анализирую изображение: {filename}"
+                        elif 'pdf' in file_type:
+                            detail_desc = f"Читаю PDF: {filename}"
+                        elif 'word' in file_type or 'document' in file_type:
+                            detail_desc = f"Читаю документ: {filename}"
+                        else:
+                            detail_desc = f"Обрабатываю файл: {filename}"
+                        
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "intent_detail",
+                            {
+                                "intent_id": intent_id,
+                                "type": detail_type,
+                                "description": detail_desc
+                            }
+                        )
+            
+            # Send start event
+            await self.ws_manager.send_event(
+                self.session_id,
+                "final_result_start",
+                {}
+            )
+            
+            # Stream chunks
+            async for chunk in self.llm.astream(messages):
+                chunk_text = ""
+                if hasattr(chunk, 'content') and chunk.content:
+                    content = chunk.content
+                    # Handle multimodal response where content is a list
+                    if isinstance(content, list):
+                        for block in content:
+                            if hasattr(block, 'text'):
+                                chunk_text += block.text
+                            elif isinstance(block, dict) and 'text' in block:
+                                chunk_text += block['text']
+                            elif isinstance(block, str):
+                                chunk_text += block
+                    elif isinstance(content, str):
+                        chunk_text = content
+                elif isinstance(chunk, str):
+                    chunk_text = chunk
+                
+                if chunk_text:
+                    full_answer += chunk_text
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "final_result_chunk",
+                        {"content": full_answer}  # Send accumulated content
+                    )
+            
+            # Send intent completion
+            await self.ws_manager.send_event(
+                self.session_id,
+                "intent_complete",
+                {"intent_id": intent_id, "summary": "Анализ завершён"}
+            )
+            
+            # Send completion event
+            await self.ws_manager.send_event(
+                self.session_id,
+                "final_result_complete",
+                {"content": full_answer.strip()}
+            )
+            
+            return full_answer.strip()
         except Exception as e:
             logger.error(f"[UnifiedReActEngine] Error generating final answer: {e}")
             # Fallback to last result
@@ -949,13 +1340,14 @@ class UnifiedReActEngine:
         self,
         state: ReActState,
         final_result: Any,
-        context: ConversationContext
+        context: ConversationContext,
+        file_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
         """Finalize successful execution."""
         state.status = "done"
         
         # Generate human-friendly final answer instead of raw result
-        human_answer = await self._generate_final_answer(state)
+        human_answer = await self._generate_final_answer(state, context, file_ids)
         
         result_summary = {
             "status": "completed",
@@ -974,40 +1366,7 @@ class UnifiedReActEngine:
             ]
         }
         
-        # Send react_complete event
-        await self.ws_manager.send_event(
-            self.session_id,
-            "react_complete",
-            {
-                "result": human_answer[:1000],
-                "trail": result_summary["reasoning_trail"][-10:]
-            }
-        )
-        
-        # Send final_result or message_complete event based on mode
-        if self.config.mode == "query":
-            # Send final_result event for Query mode
-            await self.ws_manager.send_event(
-                self.session_id,
-                "final_result",
-                {
-                    "content": human_answer
-                }
-            )
-        else:
-            # For agent and plan modes, send message_complete to ensure response is displayed
-            message_id = f"react_{self.session_id}_{int(time.time() * 1000)}"
-            await self.ws_manager.send_event(
-                self.session_id,
-                "message_complete",
-                {
-                    "role": "assistant",
-                    "message_id": message_id,
-                    "content": human_answer
-                }
-            )
-        
-        # Send thinking_completed event
+        # Send thinking_completed event FIRST (before final_result to stop animations)
         if self._current_thinking_id and self._thinking_start_time:
             elapsed_seconds = time.time() - self._thinking_start_time
             # Собираем весь контент из reasoning trail
@@ -1024,6 +1383,41 @@ class UnifiedReActEngine:
             )
             self._current_thinking_id = None
             self._thinking_start_time = None
+        
+        # Send react_complete event
+        await self.ws_manager.send_event(
+            self.session_id,
+            "react_complete",
+            {
+                "result": human_answer[:1000],
+                "trail": result_summary["reasoning_trail"][-10:]
+            }
+        )
+        
+        # Send final_result or message_complete event based on mode
+        # NOTE: final_result_start, final_result_chunk, final_result_complete are already sent by _generate_final_answer
+        # So we only send final_result here as a final confirmation (or skip if already sent)
+        if self.config.mode == "query":
+            # For query mode, send workflow_stopped to indicate completion (stops animations)
+            await self.ws_manager.send_event(
+                self.session_id,
+                "workflow_stopped",
+                {
+                    "reason": "Задача выполнена"
+                }
+            )
+        else:
+            # For agent and plan modes, send message_complete to ensure response is displayed
+            message_id = f"react_{self.session_id}_{int(time.time() * 1000)}"
+            await self.ws_manager.send_event(
+                self.session_id,
+                "message_complete",
+                {
+                    "role": "assistant",
+                    "message_id": message_id,
+                    "content": human_answer
+                }
+            )
         
         if hasattr(context, 'add_message'):
             context.add_message("assistant", f"Задача выполнена: {state.goal}")
@@ -1222,6 +1616,7 @@ class UnifiedReActEngine:
         details = []
         try:
             import json
+            import re
             logger.debug(f"[_extract_result_details] Parsing result: {result[:200]}...")
             
             # Try to parse as JSON
@@ -1235,55 +1630,92 @@ class UnifiedReActEngine:
             if isinstance(data, list):
                 # List of items (events, messages, files)
                 logger.debug(f"[_extract_result_details] Found list with {len(data)} items")
-                for item in data[:5]:  # Max 5 items
+                for item in data[:10]:  # Max 10 items
                     if isinstance(item, dict):
-                        # Try common fields
                         name = item.get('summary') or item.get('title') or item.get('subject') or item.get('name') or item.get('filename')
+                        start = item.get('start', {})
+                        time_str = ""
+                        if isinstance(start, dict):
+                            time_str = start.get('dateTime', start.get('date', ''))[:16].replace('T', ' ')
+                        elif isinstance(start, str):
+                            time_str = start[:16].replace('T', ' ')
                         if name:
-                            details.append(f"• {name}")
-                            logger.debug(f"[_extract_result_details] Extracted: {name}")
+                            if time_str:
+                                details.append(f"📅 {name} - {time_str}")
+                            else:
+                                details.append(f"• {name}")
             elif isinstance(data, dict):
                 logger.debug(f"[_extract_result_details] Found dict with keys: {list(data.keys())[:10]}")
-                # Single item or structured response
                 if 'events' in data:
-                    for event in data['events'][:5]:
+                    for event in data['events'][:10]:
                         name = event.get('summary') or event.get('title')
+                        start = event.get('start', {})
+                        time_str = ""
+                        if isinstance(start, dict):
+                            time_str = start.get('dateTime', start.get('date', ''))[:16].replace('T', ' ')
                         if name:
-                            details.append(f"📅 {name}")
+                            details.append(f"📅 {name} - {time_str}" if time_str else f"📅 {name}")
                 elif 'messages' in data:
-                    for msg in data['messages'][:5]:
+                    for msg in data['messages'][:10]:
                         subject = msg.get('subject') or msg.get('snippet', '')[:50]
                         if subject:
                             details.append(f"📧 {subject}")
                 elif 'files' in data:
-                    for f in data['files'][:5]:
+                    for f in data['files'][:10]:
                         name = f.get('name') or f.get('title')
                         if name:
                             details.append(f"📄 {name}")
                 else:
-                    # Try direct fields for single event/item
                     name = data.get('summary') or data.get('title') or data.get('subject')
                     if name:
                         details.append(f"• {name}")
             
-            # If no structured data found, check for "Found N" pattern and extract lines
-            if not details and 'Found' in result:
+            # If no structured data found, check for "Found N event(s)" pattern - parse calendar format
+            if not details and 'Found' in result and 'event' in result.lower():
                 lines = result.split('\n')
-                for line in lines[1:6]:  # Skip first "Found N" line
+                current_event_name = None
+                current_event_time = None
+                
+                for line in lines:
                     line = line.strip()
-                    if line and len(line) > 3 and not line.startswith('{') and not line.startswith('Found'):
-                        details.append(f"• {line[:100]}")
+                    # Match event number and name: "1. проверка 1"
+                    event_match = re.match(r'^(\d+)\.\s*(.+)$', line)
+                    if event_match:
+                        # Save previous event if exists
+                        if current_event_name:
+                            if current_event_time:
+                                details.append(f"📅 {current_event_name} - {current_event_time}")
+                            else:
+                                details.append(f"📅 {current_event_name}")
+                        current_event_name = event_match.group(2).strip()
+                        current_event_time = None
+                    # Match time line: "Время: 2025-12-25 05:00 - 2025-12-25 06:00"
+                    elif line.startswith('Время:') or line.startswith('Time:'):
+                        time_part = line.split(':', 1)[1].strip()
+                        # Extract just date and start time
+                        time_match = re.match(r'(\d{4}-\d{2}-\d{2})\s*(\d{2}:\d{2})?', time_part)
+                        if time_match:
+                            current_event_time = f"{time_match.group(1)} {time_match.group(2) or ''}".strip()
+                    
+                    if len(details) >= 10:
+                        break
+                
+                # Don't forget the last event
+                if current_event_name and len(details) < 10:
+                    if current_event_time:
+                        details.append(f"📅 {current_event_name} - {current_event_time}")
+                    else:
+                        details.append(f"📅 {current_event_name}")
                         
         except Exception as e:
             logger.error(f"[_extract_result_details] Error: {e}")
-            # If parsing fails, try to extract from text
             lines = result.split('\n')
             for line in lines[:5]:
                 line = line.strip()
                 if line and len(line) > 3 and not line.startswith('{'):
                     details.append(f"• {line[:100]}")
         
-        logger.debug(f"[_extract_result_details] Extracted {len(details)} details")
+        logger.debug(f"[_extract_result_details] Extracted {len(details)} details: {details}")
         return details
 
     def _format_result_summary(self, result: str, tool: str) -> str:

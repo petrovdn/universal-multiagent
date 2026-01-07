@@ -19,9 +19,9 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         <div className="prose max-w-none 
           prose-p:text-gray-900 
           prose-p:leading-6 prose-p:my-3 prose-p:text-[15px]
-          prose-h1:text-gray-900 prose-h1:text-[20px] prose-h1:font-semibold prose-h1:mb-3 prose-h1:mt-6 prose-h1:first:mt-0 prose-h1:leading-tight
-          prose-h2:text-gray-900 prose-h2:text-[18px] prose-h2:font-semibold prose-h2:mb-2 prose-h2:mt-5 prose-h2:leading-tight
-          prose-h3:text-gray-900 prose-h3:text-[16px] prose-h3:font-semibold prose-h3:mb-2 prose-h3:mt-4 prose-h3:leading-tight
+          prose-h1:text-gray-900 prose-h1:text-[15px] prose-h1:font-medium prose-h1:mb-2 prose-h1:mt-4 prose-h1:first:mt-0 prose-h1:leading-tight
+          prose-h2:text-gray-900 prose-h2:text-[14px] prose-h2:font-medium prose-h2:mb-2 prose-h2:mt-3 prose-h2:leading-tight
+          prose-h3:text-gray-900 prose-h3:text-[13px] prose-h3:font-medium prose-h3:mb-1 prose-h3:mt-3 prose-h3:leading-tight
           prose-strong:text-gray-900 prose-strong:font-semibold
           prose-code:text-gray-900 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[13px] prose-code:border prose-code:border-gray-200
           prose-pre:bg-gray-100 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200 prose-pre:text-[13px] prose-pre:rounded-lg prose-pre:p-4

@@ -299,6 +299,8 @@ interface ChatState {
   addIntentDetail: (workflowId: string, intentId: string, detail: IntentDetail) => void
   completeIntent: (workflowId: string, intentId: string, autoCollapse: boolean, summary?: string) => void
   toggleIntentCollapse: (workflowId: string, intentId: string) => void
+  collapseIntent: (workflowId: string, intentId: string) => void
+  collapseAllIntents: (workflowId: string) => void
   clearIntents: (workflowId: string) => void
   setActiveIntent: (intentId: string | null) => void
   
@@ -1473,6 +1475,43 @@ export const useChatStore = create<ChatState>()(
             }
             return intent
           })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      collapseIntent: (workflowId: string, intentId: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              return {
+                ...intent,
+                isCollapsed: true,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      collapseAllIntents: (workflowId: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => ({
+            ...intent,
+            isCollapsed: true,
+            status: 'completed' as const,  // Also mark as completed to stop animations
+            completedAt: intent.completedAt || Date.now(),
+          }))
           return {
             intentBlocks: {
               ...state.intentBlocks,

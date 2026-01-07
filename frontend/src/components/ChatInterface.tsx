@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain, Square } from 'lucide-react'
+import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain, Square, X } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
 import { useSettingsStore, ExecutionMode } from '../store/settingsStore'
 import { useModelStore } from '../store/modelStore'
@@ -25,6 +25,7 @@ interface AttachedFile {
   name: string
   type: string
   preview?: string
+  content?: string // Для текстовых файлов и PDF
 }
 
 export function ChatInterface() {
@@ -34,6 +35,7 @@ export function ChatInterface() {
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
   const [shouldScrollToNew, setShouldScrollToNew] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
+  const [filePreviewModal, setFilePreviewModal] = useState<{name: string, content: string, type: string, preview?: string} | null>(null)
   const currentInteractionRef = useRef<HTMLDivElement>(null)
   const lastUserMessageCountRef = useRef<number>(0)
   const isCollapsingRef = useRef<boolean>(false)
@@ -380,8 +382,14 @@ export function ChatInterface() {
     // Process each file
     for (const file of Array.from(files)) {
       // Validate file type
-      if (!file.type.startsWith('image/') && file.type !== 'application/pdf') {
-        alert(`Файл "${file.name}" не поддерживается. Поддерживаются только изображения и PDF файлы.`)
+      const supportedTypes = [
+        'image/',
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/msword'
+      ]
+      if (!supportedTypes.some(type => file.type.startsWith(type) || file.type === type)) {
+        alert(`Файл "${file.name}" не поддерживается. Поддерживаются только изображения, PDF и Word документы (.docx).`)
         continue
       }
       
@@ -396,15 +404,29 @@ export function ChatInterface() {
         
         // Create preview for images
         let preview: string | undefined
+        let content: string | undefined
+        
         if (file.type.startsWith('image/')) {
           preview = URL.createObjectURL(file)
+        } else if (file.type === 'application/pdf') {
+          // Для PDF сохраняем как data URL для просмотра
+          const reader = new FileReader()
+          await new Promise<void>((resolve, reject) => {
+            reader.onload = (e) => {
+              content = e.target?.result as string
+              resolve()
+            }
+            reader.onerror = reject
+            reader.readAsDataURL(file)
+          })
         }
         
         setAttachedFiles(prev => [...prev, {
           id: fileData.file_id,
           name: file.name,
           type: file.type,
-          preview
+          preview,
+          content
         }])
       } catch (error: any) {
         console.error('[ChatInterface] File upload error:', error)
@@ -426,6 +448,15 @@ export function ChatInterface() {
         URL.revokeObjectURL(file.preview)
       }
       return prev.filter(f => f.id !== fileId)
+    })
+  }
+
+  const handleViewFile = (file: AttachedFile) => {
+    setFilePreviewModal({
+      name: file.name,
+      content: file.content || '',
+      type: file.type,
+      preview: file.preview
     })
   }
   
@@ -453,24 +484,30 @@ export function ChatInterface() {
     console.log('[ChatInterface] WebSocket connected:', wsClient.isConnected())
     
     setInput('')
-    // Clean up preview URLs
-    attachedFiles.forEach(file => {
-      if (file.preview) {
-        URL.revokeObjectURL(file.preview)
-      }
-    })
-    setAttachedFiles([])
     setIsSending(true)
 
     // Don't clear workflow - we want to preserve history and only work with the active (last) workflow
     // The workflow will be managed per user message through metadata
 
     // Add user message immediately to show it in UI
+    // Save files in metadata before clearing attachedFiles
     addMessage({
       role: 'user',
       content: userMessage,
       timestamp: new Date().toISOString(),
+      metadata: {
+        attachedFiles: attachedFiles.map(f => ({
+          id: f.id,
+          name: f.name,
+          type: f.type,
+          preview: f.preview,
+          content: f.content
+        }))
+      }
     })
+
+    // Clear attached files (but don't revoke preview URLs yet - they're needed for modal)
+    setAttachedFiles([])
 
     // Activate scroll to new message    setShouldScrollToNew(true)
     
@@ -488,10 +525,12 @@ export function ChatInterface() {
 
     try {
       // Try WebSocket first if session exists and connection is open
+      // WebSocket supports file_ids and open_files
       if (currentSession && wsClient.isConnected()) {
-        // Use REST API when files are attached (WebSocket doesn't support files yet)
-        if (fileIds.length > 0 || openFiles.length > 0) {
-          console.log('[ChatInterface] Using REST API (files attached or open files)')
+        console.log('[ChatInterface] Using WebSocket to send message', { fileIds: fileIds.length, openFiles: openFiles.length })
+        const sent = wsClient.sendMessage(userMessage, fileIds.length > 0 ? fileIds : undefined, openFiles.length > 0 ? openFiles : undefined)
+        if (!sent) {
+          console.warn('[ChatInterface] WebSocket send failed, falling back to REST API')
           await sendMessage({
             message: userMessage,
             session_id: currentSession,
@@ -499,17 +538,6 @@ export function ChatInterface() {
             file_ids: fileIds.length > 0 ? fileIds : undefined,
             open_files: openFiles.length > 0 ? openFiles : undefined,
           })
-        } else {
-          console.log('[ChatInterface] Using WebSocket to send message')
-          const sent = wsClient.sendMessage(userMessage)
-          if (!sent) {
-            console.warn('[ChatInterface] WebSocket send failed, falling back to REST API')
-            await sendMessage({
-              message: userMessage,
-              session_id: currentSession,
-              execution_mode: executionMode,
-            })
-          }
         }
       } else if (currentSession) {
         // Session exists but WebSocket not connected, try to reconnect and use REST API as fallback
@@ -571,35 +599,19 @@ export function ChatInterface() {
           console.warn('[ChatInterface] WebSocket did not connect within 6 seconds, proceeding anyway')
         }
         
-        // Now send message via WebSocket or REST API
-        // Note: WebSocket doesn't support file_ids/open_files yet, so we use REST API when files are attached
-        if (fileIds.length > 0 || openFiles.length > 0 || !wsClient.isConnected()) {
-          console.log('[ChatInterface] Using REST API (files attached, open files, or WebSocket not connected)')
-          const response = await sendMessage({
-            message: userMessage,
-            session_id: newSessionId,
-            execution_mode: executionMode,
-            file_ids: fileIds.length > 0 ? fileIds : undefined,
-            open_files: openFiles.length > 0 ? openFiles : undefined,
-          })
-          
-          // Handle REST API response when WebSocket is not connected
-          if (response?.result?.response) {
-            addMessage({
-              role: 'assistant',
-              content: response.result.response,
-              timestamp: new Date().toISOString(),
-            })
-          }
-        } else {
-          console.log('[ChatInterface] Sending message via WebSocket')
-          const sent = wsClient.sendMessage(userMessage)
+        // Now send message via WebSocket (preferred) or REST API (fallback)
+        // WebSocket supports file_ids and open_files
+        if (wsClient.isConnected()) {
+          console.log('[ChatInterface] Sending message via WebSocket', { fileIds: fileIds.length, openFiles: openFiles.length })
+          const sent = wsClient.sendMessage(userMessage, fileIds.length > 0 ? fileIds : undefined, openFiles.length > 0 ? openFiles : undefined)
           if (!sent) {
-            console.warn('[ChatInterface] WebSocket send failed, using REST API')
+            console.warn('[ChatInterface] WebSocket send failed, using REST API fallback')
             const response = await sendMessage({
               message: userMessage,
               session_id: newSessionId,
               execution_mode: executionMode,
+              file_ids: fileIds.length > 0 ? fileIds : undefined,
+              open_files: openFiles.length > 0 ? openFiles : undefined,
             })
             
             // Handle REST API response when WebSocket send failed
@@ -610,6 +622,24 @@ export function ChatInterface() {
                 timestamp: new Date().toISOString(),
               })
             }
+          }
+        } else {
+          console.log('[ChatInterface] Using REST API (WebSocket not connected)')
+          const response = await sendMessage({
+            message: userMessage,
+            session_id: newSessionId,
+            execution_mode: executionMode,
+            file_ids: fileIds.length > 0 ? fileIds : undefined,
+            open_files: openFiles.length > 0 ? openFiles : undefined,
+          })
+            
+          // Handle REST API response when WebSocket is not connected
+          if (response?.result?.response) {
+            addMessage({
+              role: 'assistant',
+              content: response.result.response,
+              timestamp: new Date().toISOString(),
+            })
           }
         }
       }
@@ -739,6 +769,24 @@ export function ChatInterface() {
                       className="user-query-flow-block"
                     >
                       <span className="user-query-text">{message.content}</span>
+                      {message.metadata?.attachedFiles?.length > 0 && (
+                        <div className="user-attached-files">
+                          {message.metadata.attachedFiles.map((file: AttachedFile) => (
+                            <div 
+                              key={file.id} 
+                              className="user-attached-file"
+                              onClick={() => handleViewFile(file)}
+                              title={file.name}
+                            >
+                              {file.preview ? (
+                                <img src={file.preview} alt={file.name} className="user-file-preview" />
+                              ) : (
+                                <span className="user-file-icon">📄</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   
@@ -1174,15 +1222,24 @@ export function ChatInterface() {
               <div className="attached-files">
                 {attachedFiles.map(file => (
                   <div key={file.id} className="attached-file">
-                    {file.preview ? (
-                      <img src={file.preview} alt={file.name} className="file-preview" />
-                    ) : (
-                      <div className="file-icon">📄</div>
-                    )}
-                    <span className="file-name" title={file.name}>{file.name}</span>
+                    <div 
+                      className="attached-file-content"
+                      onClick={() => handleViewFile(file)}
+                      title={`Просмотр: ${file.name}`}
+                    >
+                      {file.preview ? (
+                        <img src={file.preview} alt={file.name} className="file-preview" />
+                      ) : (
+                        <div className="file-icon">📄</div>
+                      )}
+                      <span className="file-name" title={file.name}>{file.name}</span>
+                    </div>
                     <button 
                       type="button"
-                      onClick={() => handleRemoveFile(file.id)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRemoveFile(file.id)
+                      }}
                       className="remove-file"
                       title="Удалить файл"
                     >
@@ -1323,7 +1380,7 @@ export function ChatInterface() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*,.pdf"
+                accept="image/*,.pdf,.doc,.docx"
                 multiple
                 onChange={handleFileSelect}
                 style={{ display: 'none' }}
@@ -1332,7 +1389,7 @@ export function ChatInterface() {
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="input-icon-button"
-                title="Прикрепить файл (изображение или PDF)"
+                title="Прикрепить файл (изображение, PDF или Word)"
               >
                 <Paperclip className="w-3 h-3" />
               </button>
@@ -1370,6 +1427,43 @@ export function ChatInterface() {
         </form>
       </div>
     </div>
+
+    {/* File Preview Modal */}
+    {filePreviewModal && (
+      <div className="file-preview-modal-overlay" onClick={() => setFilePreviewModal(null)}>
+        <div className="file-preview-modal" onClick={(e) => e.stopPropagation()}>
+          <div className="file-preview-modal-header">
+            <h3 className="file-preview-modal-title">{filePreviewModal.name}</h3>
+            <button
+              className="file-preview-modal-close"
+              onClick={() => setFilePreviewModal(null)}
+              title="Закрыть"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="file-preview-modal-content">
+            {filePreviewModal.type.startsWith('image/') && filePreviewModal.preview ? (
+              <img 
+                src={filePreviewModal.preview} 
+                alt={filePreviewModal.name}
+                className="file-preview-modal-image"
+              />
+            ) : filePreviewModal.type === 'application/pdf' && filePreviewModal.content ? (
+              <iframe
+                src={filePreviewModal.content}
+                className="file-preview-modal-pdf"
+                title={filePreviewModal.name}
+              />
+            ) : (
+              <div className="file-preview-modal-text">
+                {filePreviewModal.content || 'Содержимое файла недоступно'}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    )}
     </>
   )
 }

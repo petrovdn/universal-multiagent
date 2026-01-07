@@ -22,6 +22,7 @@ MODELS: Dict[str, Dict[str, Any]] = {
         "model_id": "claude-sonnet-4-5-20250929",
         "supports_reasoning": True,
         "reasoning_type": "extended_thinking",
+        "supports_vision": True,
         "display_name": "Claude Sonnet 4.5"
     },
     "claude-3-haiku": {
@@ -29,6 +30,7 @@ MODELS: Dict[str, Dict[str, Any]] = {
         "model_id": "claude-3-haiku-20240307",
         "supports_reasoning": False,
         "reasoning_type": None,
+        "supports_vision": True,
         "display_name": "Claude 3 Haiku"
     },
     
@@ -38,6 +40,7 @@ MODELS: Dict[str, Dict[str, Any]] = {
         "model_id": "gpt-4o",
         "supports_reasoning": False,
         "reasoning_type": None,
+        "supports_vision": True,
         "display_name": "GPT-4o"
     },
     "o1": {
@@ -45,6 +48,7 @@ MODELS: Dict[str, Dict[str, Any]] = {
         "model_id": "o1",
         "supports_reasoning": True,
         "reasoning_type": "native",
+        "supports_vision": False,
         "display_name": "OpenAI o1"
     }
 }
@@ -184,4 +188,20 @@ def is_model_available(model_name: str) -> bool:
         return bool(config.openai_api_key and config.openai_api_key.strip())
     
     return False
+
+
+def supports_vision(model_name: str) -> bool:
+    """
+    Check if model supports vision (images).
+    
+    Args:
+        model_name: Model identifier
+        
+    Returns:
+        True if model supports vision, False otherwise
+    """
+    model_config = MODELS.get(model_name)
+    if not model_config:
+        return False
+    return model_config.get("supports_vision", False)
 

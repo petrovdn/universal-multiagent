@@ -709,7 +709,11 @@ export class WebSocketClient {
         // Initialize final result for the active workflow
         const finalResultStartWorkflowId = ensureActiveWorkflow()
         if (finalResultStartWorkflowId) {
-          chatStore.updateWorkflowFinalResult(finalResultStartWorkflowId, '')
+          // Don't reset if we already have content (avoid race conditions)
+          const currentContent = useChatStore.getState().workflows[finalResultStartWorkflowId]?.finalResult
+          if (!currentContent) {
+            chatStore.updateWorkflowFinalResult(finalResultStartWorkflowId, '')
+          }
         }
         console.log('[WebSocket] Final result streaming started')
         break
@@ -719,8 +723,8 @@ export class WebSocketClient {
         const finalResultChunkWorkflowId = ensureActiveWorkflow()
         if (finalResultChunkWorkflowId) {
           chatStore.updateWorkflowFinalResult(finalResultChunkWorkflowId, event.data.content || '')
+          console.log('[WebSocket] Final result chunk received, length:', event.data.content?.length || 0)
         }
-        console.log('[WebSocket] Final result chunk received, length:', event.data.content?.length || 0)
         break
 
       case 'final_result_complete':
@@ -733,26 +737,49 @@ export class WebSocketClient {
         // Clear pending thinking ID
         this.pendingThinkingId = null
         
-        // Complete final result streaming
+        // Complete final result streaming - only update if content is longer than current
         const finalResultCompleteWorkflowId = ensureActiveWorkflow()
         const isAgentTypingBeforeFinal = useChatStore.getState().isAgentTyping
         if (finalResultCompleteWorkflowId) {
-          chatStore.updateWorkflowFinalResult(finalResultCompleteWorkflowId, event.data.content || '')
+          const currentFinalContent = useChatStore.getState().workflows[finalResultCompleteWorkflowId]?.finalResult || ''
+          const newContent = event.data.content || ''
+          // Only update if new content is not shorter (avoid overwriting with truncated content)
+          if (newContent.length >= currentFinalContent.length) {
+            chatStore.updateWorkflowFinalResult(finalResultCompleteWorkflowId, newContent)
+          }
+          console.log('[WebSocket] Final result complete, current:', currentFinalContent.length, 'new:', newContent.length)
         }
         chatStore.setAgentTyping(false)
         const isAgentTypingAfterFinal = useChatStore.getState().isAgentTyping
         console.log('[WebSocket] Final result streaming completed')
         break
 
-      case 'final_result':
-        // Legacy: Set final result for the active workflow (backward compatibility)
+      case 'final_result': {
+        // Legacy: Set final result for the active workflow
+        // This is used for:
+        // 1. Simple queries (_answer_directly) - no streaming
+        // 2. Timeout/error scenarios
+        // BUT: Don't overwrite if streaming already provided longer content
         const finalResultWorkflowId = ensureActiveWorkflow()
         if (finalResultWorkflowId) {
-          chatStore.setWorkflowFinalResult(finalResultWorkflowId, event.data.content)
+          const currentContent = useChatStore.getState().workflows[finalResultWorkflowId]?.finalResult || ''
+          const newContent = event.data.content || ''
+          
+          // Only update if:
+          // 1. No current content (simple query case)
+          // 2. New content is longer (streaming didn't happen or was shorter)
+          if (!currentContent || newContent.length >= currentContent.length) {
+            chatStore.setWorkflowFinalResult(finalResultWorkflowId, newContent)
+            console.log('[WebSocket] Final result set:', newContent.length, 'chars')
+          } else {
+            console.log('[WebSocket] Final result skipped (streaming provided longer content):', currentContent.length, '>', newContent.length)
+          }
+          // Collapse all intents when final result arrives
+          chatStore.collapseAllIntents(finalResultWorkflowId)
         }
         chatStore.setAgentTyping(false)
-        console.log('[WebSocket] Final result received (legacy)')
         break
+      }
 
       case 'error':
         const errorMsgId = this.currentMessageId || `msg-${Date.now()}`
@@ -1055,7 +1082,15 @@ export class WebSocketClient {
         const workflowId = ensureActiveWorkflow()
         if (workflowId) {
           const intentId = event.data.intent_id || `intent-${Date.now()}`
-          const intentText = event.data.text || 'Выполняю действие...'
+          // Support both 'text' (preferred) and 'intent' (legacy) fields
+          const intentText = event.data.text || event.data.intent || 'Выполняю действие...'
+          
+          // Collapse PREVIOUS intent when new one starts
+          const state = useChatStore.getState()
+          const previousIntentId = state.activeIntentId
+          if (previousIntentId && previousIntentId !== intentId) {
+            chatStore.collapseIntent(workflowId, previousIntentId)
+          }
           
           // Save start time for minimum display duration
           this.intentStartTimes[intentId] = Date.now()
@@ -1089,7 +1124,8 @@ export class WebSocketClient {
         const intentId = event.data.intent_id || state.activeIntentId
         
         if (workflowId && intentId) {
-          const autoCollapse = event.data.auto_collapse !== false // Default true
+          // DON'T auto-collapse here - collapse happens when NEXT intent starts or final result arrives
+          const autoCollapse = false  // Changed: don't collapse immediately
           const summary = event.data.summary // "Найдено 5 встреч"
           
           // Minimum display time: 1.5 seconds
@@ -1377,6 +1413,13 @@ export class WebSocketClient {
         // ReAct cycle completed successfully - FALLBACK: complete thinking block
         console.log('[WebSocket] ReAct cycle completed (fallback to thinking):', event.data)
         
+        // Collapse all intents when react cycle completes
+        const reactCompleteState = useChatStore.getState()
+        const reactCompleteWorkflowId = reactCompleteState.activeWorkflowId
+        if (reactCompleteWorkflowId) {
+          chatStore.collapseAllIntents(reactCompleteWorkflowId)
+        }
+        
         // Complete thinking block if exists
         const state = useChatStore.getState()
         const thinkingId = state.activeThinkingId
@@ -1406,9 +1449,15 @@ export class WebSocketClient {
         const activeWorkflowId = state.activeWorkflowId
         
         // For Query mode, save to workflow.finalResult
+        // BUT: Don't overwrite if streaming already provided longer content
         if (isQueryMode && activeWorkflowId) {
-          // Save final result to workflow
-          chatStore.setWorkflowFinalResult(activeWorkflowId, result)
+          const currentFinalResult = useChatStore.getState().workflows[activeWorkflowId]?.finalResult || ''
+          // Only set if we don't have longer content from streaming
+          if (result.length > currentFinalResult.length) {
+            chatStore.setWorkflowFinalResult(activeWorkflowId, result)
+          } else {
+            console.log('[WebSocket] react_complete: skipping setFinalResult, streaming provided longer content:', currentFinalResult.length, '>', result.length)
+          }
         }
         
         // Create answer block with result (for non-Query modes or as fallback)
@@ -1592,20 +1641,27 @@ export class WebSocketClient {
     }
   }
 
-  sendMessage(message: string): boolean {
+  sendMessage(message: string, fileIds?: string[], openFiles?: any[]): boolean {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
-        const payload = JSON.stringify({
+        const payload: any = {
           type: 'message',
           content: message,
-        })
-        this.ws.send(payload)
+        }
+        if (fileIds && fileIds.length > 0) {
+          payload.file_ids = fileIds
+        }
+        if (openFiles && openFiles.length > 0) {
+          payload.open_files = openFiles
+        }
+        this.ws.send(JSON.stringify(payload))
         return true
       } catch (error) {
         console.error('Error sending WebSocket message:', error)
         return false
       }
-    }return false
+    }
+    return false
   }
 
   isConnected(): boolean {
