@@ -391,20 +391,12 @@ export const useChatStore = create<ChatState>()(
         set({ isConnected: connected }),
       
       setAgentTyping: (typing) => {
-        // #region agent log
-        const prevTyping = get().isAgentTyping
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setAgentTyping:before',message:'Setting isAgentTyping',data:{prevTyping,newTyping:typing,changed:prevTyping!==typing,stackTrace:new Error().stack?.split('\n').slice(0,5)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-        // #endregion
         // При завершении (typing=false) также скрываем индикатор "Думаю..."
         if (!typing) {
           set({ isAgentTyping: typing, showThinkingIndicator: false })
         } else {
           set({ isAgentTyping: typing })
         }
-        // #region agent log
-        const afterTyping = get().isAgentTyping
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setAgentTyping:after',message:'After set isAgentTyping',data:{prevTyping,newTyping:typing,afterTyping,actuallyChanged:prevTyping!==afterTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-        // #endregion
       },
       
       setShowThinkingIndicator: (show) => {
@@ -1263,18 +1255,12 @@ export const useChatStore = create<ChatState>()(
       
       // Current action methods
       setCurrentAction: (action) => {
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setCurrentAction',message:'Setting current action',data:{action,previousAction:get().currentAction},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-        // #endregion
         set({
           currentAction: action,
         })
       },
       
       clearCurrentAction: () => {
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:clearCurrentAction',message:'Clearing current action',data:{previousAction:get().currentAction},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-        // #endregion
         set({
           currentAction: null,
         })
@@ -1283,9 +1269,6 @@ export const useChatStore = create<ChatState>()(
       // Thinking block methods
       startThinking: (thinkingId: string) =>
         set((state) => {
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startThinking',message:'startThinking called',data:{thinkingId,currentActiveThinkingId:state.activeThinkingId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H6'})}).catch(()=>{});
-          // #endregion
           // По умолчанию не закреплён (проверка будет в компоненте при необходимости)
           // НЕ устанавливаем activeThinkingId сразу - это будет сделано через таймер через 2 секунды
           return {
@@ -1349,9 +1332,6 @@ export const useChatStore = create<ChatState>()(
       
       completeThinking: (thinkingId: string, autoCollapse: boolean) =>
         set((state) => {
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:completeThinking:entry',message:'completeThinking called',data:{thinkingId,autoCollapse,currentActiveThinkingId:state.activeThinkingId,blockExists:!!state.thinkingBlocks[thinkingId],blockStatus:state.thinkingBlocks[thinkingId]?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
-          // #endregion
           const existingBlock = state.thinkingBlocks[thinkingId]
           if (!existingBlock) return state
           
@@ -1359,9 +1339,6 @@ export const useChatStore = create<ChatState>()(
           const shouldCollapse = autoCollapse && !existingBlock.isPinned
           
           const newActiveThinkingId = state.activeThinkingId === thinkingId ? null : state.activeThinkingId
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:completeThinking:before_return',message:'Before returning from completeThinking',data:{thinkingId,oldActiveThinkingId:state.activeThinkingId,newActiveThinkingId,willClearActive:state.activeThinkingId===thinkingId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
-          // #endregion
           return {
             thinkingBlocks: {
               ...state.thinkingBlocks,
@@ -1413,25 +1390,14 @@ export const useChatStore = create<ChatState>()(
         }),
       
       setActiveThinking: (thinkingId: string | null) => {
-        // #region agent log
-        const stateBefore = get()
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setActiveThinking',message:'setActiveThinking called',data:{thinkingId,previousActiveThinkingId:stateBefore.activeThinkingId,blockExists:thinkingId?!!stateBefore.thinkingBlocks[thinkingId]:false,blockStatus:thinkingId?stateBefore.thinkingBlocks[thinkingId]?.status:null},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H6'})}).catch(()=>{});
-        // #endregion
         set({
           activeThinkingId: thinkingId,
         })
-        // #region agent log
-        const stateAfter = get()
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setActiveThinking:after',message:'After setActiveThinking',data:{thinkingId,activeThinkingId:stateAfter.activeThinkingId,changed:stateBefore.activeThinkingId!==stateAfter.activeThinkingId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H6'})}).catch(()=>{});
-        // #endregion
       },
       
       // Intent block methods (Cursor-style)
       startIntent: (workflowId: string, intentId: string, intentText: string) =>
         set((state) => {
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startIntent',message:'startIntent called',data:{workflowId,intentId,intentText:intentText.substring(0,50),existingIntentsCount:state.intentBlocks[workflowId]?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
-          // #endregion
           const existingIntents = state.intentBlocks[workflowId] || []
           const newIntent: IntentBlock = {
             id: intentId,

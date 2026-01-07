@@ -8,29 +8,6 @@ interface AnswerBlockProps {
 }
 
 export function AnswerBlock({ block }: AnswerBlockProps) {
-  // #region agent log
-  React.useEffect(() => {
-    if (block.content && (block.content.includes('-') || block.content.includes('*') || /^\d+\./.test(block.content))) {
-      const checkStyles = () => {
-        const proseDiv = document.querySelector('.answer-block .prose');
-        if (proseDiv) {
-          const ul = proseDiv.querySelector('ul');
-          const ol = proseDiv.querySelector('ol');
-          if (ul || ol) {
-            const list = ul || ol;
-            const computed = window.getComputedStyle(list!);
-            const parentComputed = window.getComputedStyle(proseDiv);
-            const listRect = list!.getBoundingClientRect();
-            const parentRect = proseDiv.getBoundingClientRect();
-            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AnswerBlock.tsx:useEffect:post-fix-v2',message:'List styles computed after fix v2',data:{listPaddingLeft:computed.paddingLeft,listMarginLeft:computed.marginLeft,parentPadding:parentComputed.padding,listStylePosition:computed.listStylePosition,listType:ul?'ul':'ol',listLeft:listRect.left,parentLeft:parentRect.left,offset:listRect.left-parentRect.left},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix-v2',hypothesisId:'A'})}).catch(()=>{});
-          }
-        }
-      };
-      setTimeout(checkStyles, 100);
-      setTimeout(checkStyles, 500);
-    }
-  }, [block.content]);
-  // #endregion
   return (
     <div className="answer-block" style={{ paddingLeft: '0', paddingRight: '0', paddingTop: '0', paddingBottom: '0' }}>
       <div className="answer-block-content">

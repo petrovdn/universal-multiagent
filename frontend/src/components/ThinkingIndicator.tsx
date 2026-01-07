@@ -35,10 +35,6 @@ function getToolEmoji(tool: string): string {
 }
 
 export function ThinkingIndicator({ tool, description }: ThinkingIndicatorProps) {
-  // #region agent log
-  fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ThinkingIndicator.tsx:render',message:'ThinkingIndicator rendering',data:{tool,description,hasTool:!!tool,hasDescription:!!description},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
-  // #endregion
-  
   // Если есть описание действия, показываем его с эмодзи
   if (tool && description) {
     const emoji = getToolEmoji(tool)

@@ -430,14 +430,7 @@ export function ChatInterface() {
   }
   
   const handleSend = async () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend:entry',message:'handleSend called',data:{inputLength:input.length,inputTrimmed:input.trim().length,hasFiles:attachedFiles.length>0,isSending},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
-    
     if ((!input.trim() && attachedFiles.length === 0) || isSending) {
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend:early_return',message:'handleSend early return',data:{inputTrimmed:input.trim().length,hasFiles:attachedFiles.length>0,isSending},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       return
     }
 
@@ -482,9 +475,6 @@ export function ChatInterface() {
     // Activate scroll to new message    setShouldScrollToNew(true)
     
     // Mark agent as typing
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend',message:'Setting agent typing before send',data:{executionMode,userMessageLength:userMessage.length,hasSession:!!currentSession,wsConnected:wsClient.isConnected()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
     setAgentTyping(true)
     
     // Показываем "Думаю..." через 0.5 секунды (если intent не появится раньше)
@@ -502,9 +492,6 @@ export function ChatInterface() {
         // Use REST API when files are attached (WebSocket doesn't support files yet)
         if (fileIds.length > 0 || openFiles.length > 0) {
           console.log('[ChatInterface] Using REST API (files attached or open files)')
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage:rest',message:'Sending message via REST API',data:{executionMode,sessionId:currentSession,hasFiles:fileIds.length>0,hasOpenFiles:openFiles.length>0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-          // #endregion
           await sendMessage({
             message: userMessage,
             session_id: currentSession,
@@ -530,9 +517,6 @@ export function ChatInterface() {
         wsClient.connect(currentSession)
         
         console.log('[ChatInterface] Sending via REST API (fallback)')
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage:rest:before',message:'About to send REST API message',data:{executionMode,userMessage,currentSession},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
         const response = await sendMessage({
           message: userMessage,
           session_id: currentSession,
@@ -540,10 +524,6 @@ export function ChatInterface() {
           file_ids: fileIds.length > 0 ? fileIds : undefined,
           open_files: openFiles.length > 0 ? openFiles : undefined,
         })
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage:rest:after',message:'REST API response received',data:{hasResponse:!!response,hasResult:!!response?.result,hasResponseContent:!!response?.result?.response,responseKeys:response?Object.keys(response):[],resultKeys:response?.result?Object.keys(response.result):[]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
         
         // Handle REST API response when WebSocket is not connected
         if (response?.result?.response) {
@@ -671,19 +651,10 @@ export function ChatInterface() {
   }
   
   const handleStopGeneration = () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleStopGeneration:entry',message:'Stop button clicked',data:{isSending,isAgentTyping,executionMode,currentSession,wsConnected:wsClient.isConnected()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_STOP'})}).catch(()=>{});
-    // #endregion
     console.log('[ChatInterface] Stopping generation')
     wsClient.stopGeneration()
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleStopGeneration:after_stop',message:'After calling stopGeneration',data:{isSending,isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_STOP'})}).catch(()=>{});
-    // #endregion
     setIsSending(false)
     setAgentTyping(false)
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleStopGeneration:after_state',message:'After setting state to false',data:{isSending,isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_STOP'})}).catch(()=>{});
-    // #endregion
   }
   
   const handleExecutionModeChange = async (mode: ExecutionMode) => {
@@ -776,9 +747,6 @@ export function ChatInterface() {
                     const workflowIntentBlocks = intentBlocks[workflowId] || []
                     // isLastUserMessage уже вычислен выше
                     const shouldShowThinking = isLastUserMessage && showThinkingIndicator && workflowIntentBlocks.length === 0
-                    // #region agent log
-                    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:intentBlocks_render',message:'Rendering intent blocks section',data:{workflowId,intentBlocksCount:workflowIntentBlocks.length,allIntentBlocksKeys:Object.keys(intentBlocks),isLastUserMessage,shouldShowThinking,showThinkingIndicator},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-                    // #endregion
                     
                     // Показываем либо "Думаю...", либо intent блоки
                     if (shouldShowThinking) {
@@ -896,10 +864,7 @@ export function ChatInterface() {
                   })()}
                   {/* Результат - sticky, останавливается после шагов */}
                   {(() => {
-                    // #region agent log
                     const hasFinalResult = workflow?.finalResult !== null && workflow?.finalResult !== undefined
-                    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:finalResultCheck',message:'Checking final result',data:{workflowId,hasFinalResult,finalResultLength:workflow?.finalResult?.length || 0,finalResultPreview:workflow?.finalResult?.substring(0,100) || '',executionMode},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
-                    // #endregion
                     
                     if (!hasFinalResult || !workflow || !workflow.finalResult) {
                       return null
@@ -1376,13 +1341,7 @@ export function ChatInterface() {
               <div className="input-actions-spacer"></div>
 
               {/* Send/Stop Button */}
-              {(() => {
-                // #region agent log
-                const shouldShowStop = isSending || isAgentTyping
-                fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render:stopButton',message:'Rendering button area',data:{isSending,isAgentTyping,shouldShowStop},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-                // #endregion
-                return shouldShowStop
-              })() ? (
+              {(isSending || isAgentTyping) ? (
                 <button
                   type="button"
                   onClick={handleStopGeneration}
