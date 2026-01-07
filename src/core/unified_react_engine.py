@@ -87,6 +87,9 @@ class UnifiedReActEngine:
         # Result analyzer
         self.result_analyzer = ResultAnalyzer(model_name=model_name)
         
+        # Fast LLM for simple checks (no extended thinking)
+        self.fast_llm = self._create_fast_llm()
+        
         # Stop flag
         self._stop_requested: bool = False
         self._current_thinking_id: Optional[str] = None  # Current thinking block ID
@@ -124,6 +127,18 @@ class UnifiedReActEngine:
         
         logger.info(f"[UnifiedReActEngine] Built {len(tools)} tools for LLM planning")
         return tools
+    
+    def _create_fast_llm(self) -> BaseChatModel:
+        """Create fast LLM for simple checks (no extended thinking)."""
+        from src.utils.config_loader import get_config
+        from src.agents.model_factory import create_llm
+        
+        config = get_config()
+        # Use haiku or default model without thinking for fast responses
+        try:
+            return create_llm("claude-3-haiku")
+        except Exception:
+            return create_llm(config.default_model)
     
     def _create_llm_with_thinking(self, budget_tokens: int = 5000) -> BaseChatModel:
         """Create LLM instance with extended thinking support."""
@@ -255,11 +270,7 @@ class UnifiedReActEngine:
                 
                 # 1. THINK - Analyze current situation
                 state.status = "thinking"
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "intent_detail",
-                    {"intent_id": iteration_intent_id, "type": "think", "description": "Формирую понимание задачи..."}
-                )
+                # NOTE: Removed static message - progress updates will show progress
                 
                 # Start progress updates while LLM thinks
                 think_progress_messages = [
@@ -269,7 +280,7 @@ class UnifiedReActEngine:
                     "Определяю требуемые действия...",
                 ]
                 think_progress_task = asyncio.create_task(
-                    self._send_progress_updates(iteration_intent_id, think_progress_messages, interval=4.0)
+                    self._send_progress_updates(iteration_intent_id, think_progress_messages, interval=5.0)
                 )
                 
                 try:
@@ -293,11 +304,7 @@ class UnifiedReActEngine:
                 
                 # 2. PLAN - Choose next action
                 state.status = "acting"
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "intent_detail",
-                    {"intent_id": iteration_intent_id, "type": "plan", "description": "Выбираю следующее действие..."}
-                )
+                # NOTE: Removed static message - progress updates will show progress
                 
                 # Start progress updates while LLM plans
                 plan_progress_messages = [
@@ -306,7 +313,7 @@ class UnifiedReActEngine:
                     "Подготавливаю параметры действия...",
                 ]
                 plan_progress_task = asyncio.create_task(
-                    self._send_progress_updates(iteration_intent_id, plan_progress_messages, interval=4.0)
+                    self._send_progress_updates(iteration_intent_id, plan_progress_messages, interval=5.0)
                 )
                 
                 try:
@@ -469,6 +476,7 @@ class UnifiedReActEngine:
         
         Simple queries (greetings, simple questions) don't need tools.
         Complex queries (data retrieval, file operations) need tools.
+        Also checks conversation context for follow-up queries.
         """
         goal_lower = goal.lower().strip()
         
@@ -484,40 +492,139 @@ class UnifiedReActEngine:
             if re.match(pattern, goal_lower):
                 return False
         
+        # Check for simple generative patterns (poems, jokes, greetings, etc.) - no tools needed
+        simple_generative_patterns = [
+            r"(напиши|составь|сочини|придумай|создай)\s+(мне\s+)?(краткое\s+)?(поздравление|стих|стихотворение|шутку|анекдот|сообщение|текст|письмо|хокку|хайку|haiku|рассказ|историю|сказку|песню)",
+            r"(напиши|составь|сочини|придумай)\s+\w*\s*(хокку|хайку|haiku)",
+            r"write\s+(me\s+)?(a\s+)?(greeting|poem|joke|message|story|haiku)",
+            # Direct creative requests
+            r"^(хокку|хайку|haiku|стих|анекдот|шутка)$",
+            r"^(напиши|составь|сочини|придумай)\s+\w{2,}$",  # "напиши хокку", "составь рассказ"
+        ]
+        
+        for pattern in simple_generative_patterns:
+            if re.search(pattern, goal_lower):
+                return False
+        
         # Check if query mentions specific actions that require tools
         tool_keywords = [
             'найди', 'find', 'получи', 'get', 'выведи', 'show', 'открой', 'open',
             'создай', 'create', 'отправь', 'send', 'сохрани', 'save',
-            'календарь', 'calendar', 'встречи', 'events', 'meetings',
+            'календарь', 'calendar', 
+            # Russian word forms for "встреча" (meeting) - all cases
+            'встречи', 'встреч', 'встреча', 'встречу', 'встречей', 'встречам', 'встречами', 'встречах',
+            'events', 'meetings', 'event', 'meeting',
             'письма', 'emails', 'почта', 'mail',
             'таблица', 'table', 'sheets', 'документ', 'document',
-            'файл', 'file', 'данные', 'data'
+            'файл', 'file', 'данные', 'data',
+            # 1C / Accounting keywords
+            'проводк', '1с', '1c', 'бухгалтер', 'выручк', 'остатк', 'склад',
+            # Project Lad keywords
+            'проект', 'портфел', 'гант', 'вех', 'работ', 'project lad', 'projectlad'
         ]
+        
+        # Check for specific calendar-related patterns
+        calendar_patterns = [
+            r'список\s+встреч',  # "список встреч" (list of meetings)
+            r'встреч[аи]?\s+на\s+(этой|следующей|прошлой)\s+неделе',  # "встречи на этой неделе"
+            r'встреч[аи]?\s+(сегодня|завтра|послезавтра)',  # "встречи сегодня"
+            r'расписание\s+(на|на\s+этой)',  # "расписание на этой неделе"
+        ]
+        
+        for pattern in calendar_patterns:
+            if re.search(pattern, goal_lower):
+                return True
         
         for keyword in tool_keywords:
             if keyword in goal_lower:
                 return True
         
+        # === NEW: Check for follow-up/clarification queries that reference previous context ===
+        # These patterns indicate user is asking for more info about a previous topic
+        followup_patterns = [
+            r'^а\s+(на|в|за|что|как|где|когда|сколько)',  # "а на следующей неделе?", "а в понедельник?"
+            r'^(а|и|еще|ещё|также|тоже)\s',  # "а ...", "еще покажи", "также ..."
+            r'^(на|в|за)\s+(следующ|прошл|эт)',  # "на следующей неделе", "в прошлый раз"
+            r'(следующ|прошл|предыдущ)\s*(недел|месяц|день|год)',  # "следующей неделе", "прошлом месяце"
+            r'^(что|какие|сколько)\s+(там|еще|ещё)',  # "что там еще?"
+            r'^(покажи|выведи|дай)\s+(еще|ещё|больше|другие)',  # "покажи еще", "дай больше"
+        ]
+        
+        is_followup = any(re.search(pattern, goal_lower) for pattern in followup_patterns)
+        
+        # If it looks like a follow-up, check previous context for tool-related topics
+        if is_followup and hasattr(context, 'messages') and context.messages:
+            recent_messages = context.get_recent_messages(6)  # Last 3 exchanges
+            
+            # Context keyword groups for different tool categories
+            context_keyword_groups = {
+                'calendar': ['встреч', 'календар', 'событи', 'расписани', 'meeting', 'event', 'calendar', 'schedule'],
+                'email': ['письм', 'почт', 'email', 'mail', 'сообщени'],
+                'files': ['файл', 'документ', 'file', 'document'],
+                'sheets': ['таблиц', 'sheet', 'spreadsheet', 'ячейк', 'столбц', 'строк'],
+                'accounting': ['проводк', '1с', '1c', 'бухгалтер', 'выручк', 'остатк', 'склад', 'учет', 'учёт', 'odata'],
+                'projectlad': ['проект', 'портфел', 'гант', 'вех', 'работ', 'project lad', 'projectlad', 'pl', 'пл', 'диаграмм']
+            }
+            
+            # Check recent messages for context
+            for msg in recent_messages:
+                msg_content = msg.get('content', '').lower()
+                
+                for category, keywords in context_keyword_groups.items():
+                    if any(kw in msg_content for kw in keywords):
+                        logger.info(f"[UnifiedReActEngine] Follow-up detected with {category} context")
+                        return True
+        
         # Use LLM to determine if tools are needed (for edge cases)
+        # NOW with context!
         try:
-            prompt = f"""Определи, нужны ли инструменты (календарь, почта, файлы) для ответа на этот запрос:
+            # Build context string from recent messages
+            context_str = ""
+            if hasattr(context, 'messages') and context.messages:
+                recent = context.get_recent_messages(4)
+                if recent:
+                    context_str = "\n\nКонтекст предыдущих сообщений:\n"
+                    for msg in recent:
+                        role = "Пользователь" if msg.get('role') == 'user' else "Ассистент"
+                        content = msg.get('content', '')[:200]  # Truncate
+                        context_str += f"{role}: {content}\n"
+            
+            prompt = f"""Определи, нужны ли ВНЕШНИЕ инструменты для ответа на этот запрос:
 
 Запрос: "{goal}"
+{context_str}
 
 Ответь только одним словом: ДА или НЕТ.
 
-ДА - если нужны инструменты (например, "найди встречи", "покажи письма", "открой файл")
-НЕТ - если это простой вопрос или приветствие, не требующее инструментов"""
+НЕТ - если это:
+- Простой вопрос, приветствие, благодарность
+- ТВОРЧЕСКАЯ просьба: написать стих, хокку, рассказ, шутку, историю, сочинить текст
+- Любая генеративная задача, которую можно выполнить БЕЗ внешних данных
+
+ДА - если нужны ВНЕШНИЕ данные из:
+- Календарь: "найди встречи", "покажи события на неделе"
+- Почта: "покажи письма", "непрочитанные сообщения"  
+- Файлы: "открой файл", "найди документ"
+- Таблицы: "данные из таблицы", "значения в ячейках"
+- 1С/Бухгалтерия: "проводки", "остатки на складах", "выручка"
+- Project Lad: "проекты", "портфель", "диаграмма ганта", "вехи"
+
+ВАЖНО: 
+- Если это УТОЧНЯЮЩИЙ вопрос (например "а на следующей неделе?", "а за прошлый месяц?", "еще покажи") 
+  и в КОНТЕКСТЕ обсуждались встречи/письма/файлы/таблицы/проводки/проекты - это ДА, нужны те же инструменты.
+- Короткие уточнения типа "а вчера?", "а там?" относятся к предыдущей теме разговора."""
             
             messages = [
-                SystemMessage(content="Ты эксперт по определению необходимости использования инструментов. Отвечай только ДА или НЕТ."),
+                SystemMessage(content="Ты эксперт по определению необходимости использования инструментов. Учитывай контекст разговора. Отвечай только ДА или НЕТ."),
                 HumanMessage(content=prompt)
             ]
             
-            response = await self.llm.ainvoke(messages)
+            # Use fast LLM (no extended thinking) for quick classification
+            response = await self.fast_llm.ainvoke(messages)
             response_text = str(response.content).strip().upper()
             
-            return "ДА" in response_text or "YES" in response_text
+            llm_result = "ДА" in response_text or "YES" in response_text
+            return llm_result
         except Exception as e:
             logger.error(f"[UnifiedReActEngine] Error checking if tools needed: {e}")
             # Default to using tools if check fails
@@ -532,30 +639,51 @@ class UnifiedReActEngine:
         """
         Answer simple queries directly without using tools.
         This mimics Cursor's behavior for simple queries.
+        Properly passes conversation history for reference resolution.
         """
         try:
-            # Build context from conversation history
-            context_str = ""
-            if hasattr(context, 'messages') and context.messages:
-                recent_messages = context.messages[-6:]  # Last 6 messages
-                context_str = "\n".join([
-                    f"{msg.get('role', 'user')}: {msg.get('content', '')}"
-                    for msg in recent_messages
-                    if isinstance(msg, dict)
-                ])
+            # Check if model uses extended thinking
+            uses_extended_thinking = False
+            try:
+                from src.agents.model_factory import get_available_models
+                available_models = get_available_models()
+                if self.model_name and self.model_name in available_models:
+                    model_config = available_models[self.model_name]
+                    if model_config.get("reasoning_type") == "extended_thinking":
+                        uses_extended_thinking = True
+            except:
+                pass
             
-            prompt = f"""Ты полезный AI-ассистент. Ответь на запрос пользователя естественно и дружелюбно.
-
-{context_str if context_str else ''}
-
-Запрос пользователя: {goal}
-
-Ответь кратко и по делу на русском языке."""
-            
+            # Build messages list with proper conversation history
             messages = [
-                SystemMessage(content="Ты дружелюбный и полезный AI-ассистент. Отвечай естественно и кратко на русском языке."),
-                HumanMessage(content=prompt)
+                SystemMessage(content="""Ты дружелюбный и полезный AI-ассистент. 
+Отвечай естественно и кратко на русском языке.
+Учитывай контекст предыдущих сообщений в разговоре.
+Если пользователь ссылается на что-то из предыдущих сообщений (например "переделай его", "сделай еще"), используй информацию из истории разговора.""")
             ]
+            
+            # Add conversation history as proper messages (for reference resolution)
+            if hasattr(context, 'messages') and context.messages:
+                recent_messages = context.messages[-6:]  # Last 6 messages (3 exchanges)
+                for msg in recent_messages:
+                    role = msg.get('role', 'user')
+                    content = msg.get('content', '')
+                    if not content:
+                        continue
+                    
+                    if role == 'user':
+                        messages.append(HumanMessage(content=content))
+                    elif role == 'assistant':
+                        # For extended thinking models, wrap as HumanMessage to avoid API errors
+                        if uses_extended_thinking:
+                            messages.append(HumanMessage(
+                                content=f"[Предыдущий ответ ассистента]:\n{content}"
+                            ))
+                        else:
+                            messages.append(AIMessage(content=content))
+            
+            # Add current user request
+            messages.append(HumanMessage(content=goal))
             
             # Send thinking_started event
             self._current_thinking_id = f"thinking-{int(time.time() * 1000)}"
@@ -643,7 +771,7 @@ class UnifiedReActEngine:
         self,
         intent_id: str,
         messages: List[str],
-        interval: float = 4.0
+        interval: float = 5.0
     ) -> None:
         """
         Send progress updates every interval seconds until cancelled.
@@ -671,6 +799,17 @@ class UnifiedReActEngine:
     ) -> str:
         """Generate thought about current situation."""
         context_str = f"Цель: {state.goal}\n\n"
+        
+        # Add conversation history for reference resolution (NEW)
+        if hasattr(context, 'messages') and context.messages:
+            recent_messages = context.messages[-4:]  # Last 2 exchanges
+            if recent_messages:
+                context_str += "📝 Контекст разговора (для понимания референсов):\n"
+                for msg in recent_messages:
+                    role = "Пользователь" if msg.get('role') == 'user' else "Ассистент"
+                    content = msg.get('content', '')[:300]  # Truncate
+                    context_str += f"  {role}: {content}\n"
+                context_str += "\n"
         
         # Add file context (uploaded files have PRIORITY #1)
         if file_ids:
@@ -806,6 +945,17 @@ class UnifiedReActEngine:
         # Build context
         context_str = f"Цель: {state.goal}\n\n"
         context_str += f"Текущий анализ: {thought}\n\n"
+        
+        # Add conversation history for reference resolution (NEW)
+        if hasattr(context, 'messages') and context.messages:
+            recent_messages = context.messages[-4:]  # Last 2 exchanges
+            if recent_messages:
+                context_str += "📝 Контекст разговора (для понимания референсов типа 'его', 'это', 'еще'):\n"
+                for msg in recent_messages:
+                    role = "Пользователь" if msg.get('role') == 'user' else "Ассистент"
+                    content = msg.get('content', '')[:300]  # Truncate
+                    context_str += f"  {role}: {content}\n"
+                context_str += "\n"
         
         if state.action_history:
             context_str += "Уже выполнено:\n"

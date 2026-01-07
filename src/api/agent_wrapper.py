@@ -289,6 +289,12 @@ Initialize agent wrapper."""
                     # Fallback: use status or empty string
                     result["response"] = result.get("status", "completed")
             
+            # CRITICAL: Add assistant response to context for reference resolution in future messages
+            assistant_response = result.get("response", "")
+            if assistant_response:
+                context.add_message("assistant", assistant_response)
+                logger.debug(f"[AgentWrapper] Added assistant response to context ({len(assistant_response)} chars)")
+            
             return result
             
         except Exception as e:
