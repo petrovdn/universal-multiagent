@@ -14,7 +14,6 @@ from src.agents.base_agent import StreamEvent
 from src.core.context_manager import ConversationContext
 from src.core.step_orchestrator import StepOrchestrator
 from src.core.react_orchestrator import ReActOrchestrator
-from src.core.task_classifier import TaskClassifier, TaskType
 from src.core.capability_registry import CapabilityRegistry
 from src.core.providers.mcp_provider import MCPToolProvider
 from src.core.providers.a2a_provider import A2AAgentProvider
@@ -40,8 +39,6 @@ Initialize agent wrapper."""
         self.audit_logger = get_audit_logger()
         # Store active orchestrators for plan confirmation (legacy)
         self._active_orchestrators: Dict[str, Any] = {}
-        # Task classifier for determining task complexity
-        self.task_classifier = TaskClassifier()
         # Store tool arguments for workspace events (key: run_id, value: {tool_name, arguments})
         self._tool_args_cache: Dict[str, Dict[str, Any]] = {}
         # Track sent workspace events to prevent duplicates (key: (session_id, tool_name, spreadsheet_id), value: timestamp)
@@ -108,6 +105,22 @@ Initialize agent wrapper."""
         Returns:
             Final execution result
         """
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({
+                    "location": "agent_wrapper.py:process_message:entry",
+                    "message": "process_message called",
+                    "data": {"session_id": session_id, "message_preview": user_message[:50], "file_ids_count": len(file_ids or [])},
+                    "timestamp": time.time() * 1000,
+                    "sessionId": session_id,
+                    "runId": "run1",
+                    "hypothesisId": "H2"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
         file_ids = file_ids or []
         open_files = open_files or []
         
@@ -122,16 +135,64 @@ Initialize agent wrapper."""
         wait_interval = 0.1  # Check every 100ms
         waited = 0
         logger.info(f"[AgentWrapper] Waiting for WebSocket connection for session {session_id}...")
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({
+                    "location": "agent_wrapper.py:process_message:ws_check",
+                    "message": "Checking WebSocket connection",
+                    "data": {"session_id": session_id, "connection_count": self.ws_manager.get_connection_count(session_id)},
+                    "timestamp": time.time() * 1000,
+                    "sessionId": session_id,
+                    "runId": "run1",
+                    "hypothesisId": "H3"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
         while self.ws_manager.get_connection_count(session_id) == 0 and waited < max_wait:
             await asyncio.sleep(wait_interval)
             waited += wait_interval
         
         if self.ws_manager.get_connection_count(session_id) == 0:
             logger.warning(f"[AgentWrapper] No WebSocket connection for session {session_id} after {max_wait}s, proceeding anyway")
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "agent_wrapper.py:process_message:ws_warning",
+                        "message": "No WebSocket connection, proceeding anyway",
+                        "data": {"session_id": session_id},
+                        "timestamp": time.time() * 1000,
+                        "sessionId": session_id,
+                        "runId": "run1",
+                        "hypothesisId": "H3"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
         else:
             logger.info(f"[AgentWrapper] WebSocket connected for session {session_id} (connections: {self.ws_manager.get_connection_count(session_id)})")
         
         # Send user message event
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({
+                    "location": "agent_wrapper.py:process_message:before_send_event",
+                    "message": "About to send user message event",
+                    "data": {"session_id": session_id},
+                    "timestamp": time.time() * 1000,
+                    "sessionId": session_id,
+                    "runId": "run1",
+                    "hypothesisId": "H3"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
         await self.ws_manager.send_event(
             session_id,
             "message",
@@ -160,23 +221,7 @@ Initialize agent wrapper."""
             }
         )
         try:
-            
-            # Classify task complexity
-            task_type = await self.task_classifier.classify_task(user_message, context)
-            
-            
-            # Simple tasks always use direct streaming (no plan shown), regardless of mode
-            if task_type == TaskType.SIMPLE:
-                logger.info(f"[AgentWrapper] Simple task detected, executing directly without workflow")
-                result = await self._execute_simple_task(
-                    user_message,
-                    context,
-                    session_id,
-                    file_ids
-                )
-                return result
-            
-            # Complex tasks use new unified mode adapters or legacy orchestrators
+            # All tasks use unified mode adapters (no simple/complex classification)
             # Map execution mode to adapter type
             execution_mode = context.execution_mode or "agent"
             
@@ -266,12 +311,44 @@ Initialize agent wrapper."""
                 # Store adapter for stop/confirmation handling
                 self._active_orchestrators[session_id] = adapter
                 
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "location": "agent_wrapper.py:process_message:before_adapter_execute",
+                            "message": f"About to execute {mapped_mode} adapter",
+                            "data": {"session_id": session_id, "mapped_mode": mapped_mode, "goal_preview": user_message[:50]},
+                            "timestamp": time.time() * 1000,
+                            "sessionId": session_id,
+                            "runId": "run1",
+                            "hypothesisId": "H5"
+                        }) + "\n")
+                except:
+                    pass
+                # #endregion
+                
                 # Execute through adapter
                 result = await adapter.execute(
                     goal=user_message,
                     context=context,
                     file_ids=file_ids
                 )
+                
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "location": "agent_wrapper.py:process_message:after_adapter_execute",
+                            "message": f"{mapped_mode} adapter executed",
+                            "data": {"session_id": session_id, "result_status": result.get("status", "unknown"), "has_response": "response" in result},
+                            "timestamp": time.time() * 1000,
+                            "sessionId": session_id,
+                            "runId": "run1",
+                            "hypothesisId": "H5"
+                        }) + "\n")
+                except:
+                    pass
+                # #endregion
                 
                 orchestrator_type = f"{mapped_mode.capitalize()}ModeAdapter"
             else:
@@ -322,6 +399,30 @@ Initialize agent wrapper."""
             if result.get("status") in ("completed", "rejected", "timeout"):
                 if session_id in self._active_orchestrators:
                     del self._active_orchestrators[session_id]
+            
+            # Ensure result has 'response' field for REST API compatibility
+            # UnifiedReActEngine returns 'final_result', adapters may return different formats
+            if "response" not in result:
+                if "final_result" in result:
+                    result["response"] = result["final_result"]
+                elif result.get("status") == "completed":
+                    # For completed tasks, try to extract response from context or use default
+                    # Check if there's a last assistant message in context
+                    if hasattr(context, 'messages') and context.messages:
+                        last_assistant_msg = None
+                        for msg in reversed(context.messages):
+                            if isinstance(msg, dict) and msg.get("role") == "assistant":
+                                last_assistant_msg = msg.get("content", "")
+                                break
+                        if last_assistant_msg:
+                            result["response"] = last_assistant_msg
+                        else:
+                            result["response"] = "Задача выполнена успешно."
+                    else:
+                        result["response"] = "Задача выполнена успешно."
+                else:
+                    # Fallback: use status or empty string
+                    result["response"] = result.get("status", "completed")
             
             return result
             
@@ -889,10 +990,41 @@ Callback to handle streaming events and send to WebSocket."""
                 response = data.get("response", accumulated_tokens)
                 logger.info(f"[AgentWrapper] DONE event received, response length: {len(response)}, message_started: {message_started}, final_result_started: {final_result_started}")
                 
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "location": "agent_wrapper.py:stream_event_callback:DONE",
+                            "message": "DONE event received",
+                            "data": {"response_length": len(response), "message_started": message_started, "final_result_started": final_result_started, "stream_to_final_result": stream_to_final_result},
+                            "timestamp": time.time() * 1000,
+                            "sessionId": session_id,
+                            "runId": "run1",
+                            "hypothesisId": "H4"
+                        }) + "\n")
+                except:
+                    pass
+                # #endregion
+                
                 if stream_to_final_result:
                     # Stream to final_result mode: send final_result_complete
                     if final_result_started:
                         logger.info(f"[AgentWrapper] Sending final_result_complete event")
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "location": "agent_wrapper.py:stream_event_callback:final_result_complete",
+                                    "message": "Sending final_result_complete",
+                                    "data": {"content_length": len(response)},
+                                    "timestamp": time.time() * 1000,
+                                    "sessionId": session_id,
+                                    "runId": "run1",
+                                    "hypothesisId": "H4"
+                                }) + "\n")
+                        except:
+                            pass
+                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "final_result_complete",
@@ -903,6 +1035,21 @@ Callback to handle streaming events and send to WebSocket."""
                     else:
                         # If no tokens were streamed, still send final_result with content
                         logger.info(f"[AgentWrapper] Sending final_result event (no streaming)")
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "location": "agent_wrapper.py:stream_event_callback:final_result",
+                                    "message": "Sending final_result (no streaming)",
+                                    "data": {"content_length": len(response)},
+                                    "timestamp": time.time() * 1000,
+                                    "sessionId": session_id,
+                                    "runId": "run1",
+                                    "hypothesisId": "H4"
+                                }) + "\n")
+                        except:
+                            pass
+                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "final_result",
@@ -915,6 +1062,21 @@ Callback to handle streaming events and send to WebSocket."""
                     # Always send response, even if empty or no tokens were streamed
                     if message_started:
                         logger.info(f"[AgentWrapper] Sending message_complete event")
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "location": "agent_wrapper.py:stream_event_callback:message_complete",
+                                    "message": "Sending message_complete",
+                                    "data": {"message_id": message_id, "content_length": len(response)},
+                                    "timestamp": time.time() * 1000,
+                                    "sessionId": session_id,
+                                    "runId": "run1",
+                                    "hypothesisId": "H4"
+                                }) + "\n")
+                        except:
+                            pass
+                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "message_complete",
@@ -927,6 +1089,21 @@ Callback to handle streaming events and send to WebSocket."""
                     else:
                         # If no tokens were streamed, send as regular message
                         logger.info(f"[AgentWrapper] Sending regular message (no streaming)")
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "location": "agent_wrapper.py:stream_event_callback:message",
+                                    "message": "Sending regular message (no streaming)",
+                                    "data": {"content_length": len(response)},
+                                    "timestamp": time.time() * 1000,
+                                    "sessionId": session_id,
+                                    "runId": "run1",
+                                    "hypothesisId": "H4"
+                                }) + "\n")
+                        except:
+                            pass
+                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "message",

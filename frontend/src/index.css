@@ -957,7 +957,7 @@ body {
   overflow-x: hidden !important;
   padding: 0;
   padding-bottom: 0; /* Убрали padding-bottom - контент сам создает отступ */
-  padding-top: 0; /* Отступ для Header теперь в App.tsx через marginTop */
+  padding-top: 49px; /* Точная высота Header: 8+32+8+1 = 49px */
   scroll-behavior: smooth;
   display: flex;
   flex-direction: column;
@@ -982,14 +982,14 @@ body {
   margin: 0 auto;
   margin-top: 0;
   margin-bottom: 0;
-  padding: 16px 14px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-secondary);
-  border-radius: 0;
+  padding: 16px 0;
+  background: var(--bg-primary);
+  border: 1.5px solid var(--border-primary);
+  border-radius: 12px;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  scroll-margin-top: 0; /* Header больше не перекрывает контент - margin в App.tsx */
+  scroll-margin-top: 52px; /* Смещение для прокрутки (высота Header 40px + border 1px + отступ 11px) */
 }
 
 /* Скрываем пустой user-query-flow-block */
@@ -1006,7 +1006,7 @@ body {
 /* User interaction container - контейнер для каждого запроса */
 .user-interaction-container {
   max-width: 900px;
-  width: 100%;
+  width: calc(100% - 20px);
   margin: 0 auto;
   margin-bottom: 40px; /* Отступ между разными запросами */
   position: relative;
@@ -1038,11 +1038,13 @@ body {
   width: 100%;
   margin: 0 auto;
   /* Перекрывает шаги - они не должны появляться выше */
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: none;
   /* Убеждаемся, что фон полностью непрозрачный */
   backdrop-filter: blur(0);
-  /* Добавляем нижнюю границу для визуального разделения */
-  border-bottom: 1px solid var(--border-secondary);
+  /* Убрали нижнюю границу */
+  border-bottom: none;
+  border: none;
+  outline: none;
   /* Минимальная высота чтобы перекрывать шаги */
   min-height: fit-content;
 }
@@ -1114,18 +1116,18 @@ body {
   z-index: 21; /* Ниже плана (22), но выше контента */
   background: var(--bg-primary);
   /* Убрали верхнюю границу и padding-top */
-  border-top: none;
+  border: none;
   padding-top: 0;
   margin-top: 0;
-  /* Перекрывает шаги */
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  /* Убрали тени и границы */
+  box-shadow: none;
+  outline: none;
 }
 
 /* Убираем отступы у первого дочернего блока в sticky-result-section */
 .sticky-result-section > div:first-child {
   margin-top: 0 !important;
   padding-top: 0 !important;
-  border-top: none !important;
 }
 
 /* Remove margins between plan blocks */
@@ -1153,6 +1155,8 @@ body {
   font-weight: normal; /* Обычный шрифт */
   color: var(--text-primary);
   line-height: 1.5;
+  display: block;
+  padding: 0 10px;
   white-space: normal;
   word-wrap: break-word;
 }
@@ -1164,13 +1168,17 @@ body {
   display: flex;
   flex-direction: column;
   max-width: 900px;
-  width: 100%;
+  width: calc(100% - 20px);
   margin-left: auto;
   margin-right: auto;
-  margin-top: 0;
+  margin-top: 16px;
   margin-bottom: 0; /* Убрали нижний отступ - контент доходит до низа */
+  padding: 0;
   flex-shrink: 0; /* Не сжимается - позволяет контенту быть длиннее */
   box-sizing: border-box;
+  /* Рамка вокруг блока результата */
+  border: 1.5px solid var(--border-primary);
+  border-radius: 12px;
   /* Создаем минимальную высоту для заполнения страницы - критично для Perplexity-style */
   /* Когда контент пустой или маленький, блок занимает всю видимую область */
   /* CRITICAL FIX: min-height only applies when there's actual content - removed to prevent empty blocks */
@@ -1209,24 +1217,39 @@ body {
   width: 100% !important;
 }
 
+/* Размер шрифта для текста результата */
+.assistant-message-wrapper .prose p,
+.answer-block .prose p,
+.answer-block-content .prose p,
+.answer-block .prose > p,
+.answer-block-content .prose > p,
+.assistant-message-wrapper .prose > p,
+div[style*="padding: '10px'"] .prose p,
+div[style*="padding: '10px'"] .prose > p {
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+
+.assistant-message-wrapper .prose li,
+.answer-block .prose li,
+.answer-block-content .prose li,
+.answer-block .prose > ul > li,
+.answer-block .prose > ol > li,
+.answer-block-content .prose > ul > li,
+.answer-block-content .prose > ol > li,
+div[style*="padding: '10px'"] .prose li {
+  font-size: 13px !important;
+}
+
 /* ============================================
    THINKING INDICATOR (Cursor-style animated text)
    ============================================ */
 .thinking-indicator-container {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  margin: 16px 0;
-  background: var(--bg-secondary);
-  border-radius: 8px;
-  border: 1px solid var(--border-primary);
-}
-
-.thinking-indicator-icon {
-  color: var(--accent-primary);
-  animation: thinkingPulse 1.5s ease-in-out infinite;
-  flex-shrink: 0;
+  gap: 6px;
+  padding: 0;
+  margin: 8px 0 0 0;
 }
 
 .thinking-indicator-text {
@@ -1265,17 +1288,6 @@ body {
   animation-delay: 0.4s;
 }
 
-@keyframes thinkingPulse {
-  0%, 100% {
-    opacity: 0.6;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.1);
-  }
-}
-
 @keyframes thinkingDot {
   0%, 80%, 100% {
     opacity: 0.3;
@@ -1284,6 +1296,190 @@ body {
   40% {
     opacity: 1;
     transform: translateY(-4px);
+  }
+}
+
+/* ============================================
+   THINKING MESSAGE (Cursor-style Thinking Block)
+   ============================================ */
+.thinking-message {
+  max-width: 900px;
+  width: 100%;
+  margin: 16px auto;
+  padding: 0;
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.thinking-message-streaming {
+  border-color: var(--accent-primary);
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+}
+
+.thinking-message-pinned {
+  border-color: var(--accent-primary);
+  border-width: 2px;
+}
+
+.thinking-message-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.15s ease;
+}
+
+.thinking-message-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.thinking-message-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  animation: thinkingPulse 1.5s ease-in-out infinite;
+}
+
+.thinking-message-streaming .thinking-message-icon {
+  color: var(--accent-primary);
+}
+
+.thinking-message-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.3px;
+}
+
+.thinking-message-time {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin-left: auto;
+  margin-right: 8px;
+}
+
+.thinking-message-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.thinking-message-pin-button {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  transition: color 0.15s ease;
+  border-radius: 4px;
+}
+
+.thinking-message-pin-button:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.thinking-message-pin-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.thinking-message-pin-icon.pinned {
+  color: var(--accent-primary);
+}
+
+.thinking-message-toggle {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  transition: color 0.15s ease;
+  border-radius: 4px;
+}
+
+.thinking-message-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.thinking-message-chevron {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s ease;
+}
+
+.thinking-message-content {
+  padding: 12px 14px;
+  max-height: 400px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.thinking-message-collapsed .thinking-message-content {
+  display: none;
+}
+
+.thinking-message-text {
+  font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.thinking-message-line {
+  margin: 2px 0;
+  min-height: 1.5em;
+}
+
+.thinking-message-placeholder {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+
+/* Custom scrollbar for thinking message content */
+.thinking-message-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.thinking-message-content::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+}
+
+.thinking-message-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.thinking-message-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
+}
+
+@keyframes thinkingPulse {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
   }
 }
 
@@ -2597,7 +2793,7 @@ body {
 .answer-block {
   width: 100%;
   margin-top: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 0;
 }
 
 .answer-block-content {
@@ -2722,7 +2918,7 @@ body {
   position: relative;
   width: 100%;
   z-index: 100;
-  padding: 0 14px 16px;
+  padding: 0 10px 16px;
   background: transparent;
   pointer-events: none;
   flex-shrink: 0;
@@ -3239,11 +3435,11 @@ body {
   .messages-container {
     padding: 16px;
     padding-bottom: 140px;
-    padding-top: 0; /* Отступ для Header теперь в App.tsx */
+    padding-top: 12px;
   }
   
   .input-area {
-    padding: 0 16px 12px;
+    padding: 0 12px 12px;
   }
   
   .settings-dropdown {

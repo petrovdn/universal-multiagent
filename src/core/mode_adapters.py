@@ -46,6 +46,7 @@ class QueryModeAdapter:
         self.ws_manager = ws_manager
         self.session_id = session_id
         self.model_name = model_name
+        self._active_engine: Optional[UnifiedReActEngine] = None
     
     def get_config(self) -> ReActConfig:
         """Get ReAct configuration for Query mode."""
@@ -84,10 +85,16 @@ class QueryModeAdapter:
             model_name=self.model_name
         )
         
-        result = await engine.execute(goal, context, file_ids)
+        # Save reference for stop() method
+        self._active_engine = engine
         
-        # Format result for query mode - emphasize data and insights
-        return self._format_query_response(result)
+        try:
+            result = await engine.execute(goal, context, file_ids)
+            # Format result for query mode - emphasize data and insights
+            return self._format_query_response(result)
+        finally:
+            # Clear reference after execution
+            self._active_engine = None
     
     def _format_query_response(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Format result for query mode presentation."""
@@ -96,6 +103,12 @@ class QueryModeAdapter:
             "mode": "query",
             "read_only": True
         }
+    
+    def stop(self):
+        """Stop active engine execution."""
+        if self._active_engine:
+            self._active_engine.stop()
+            logger.info(f"[QueryModeAdapter] Stop requested for session {self.session_id}")
 
 
 class AgentModeAdapter:
@@ -129,6 +142,7 @@ class AgentModeAdapter:
         self.ws_manager = ws_manager
         self.session_id = session_id
         self.model_name = model_name
+        self._active_engine: Optional[UnifiedReActEngine] = None
     
     def get_config(self) -> ReActConfig:
         """Get ReAct configuration for Agent mode."""
@@ -167,12 +181,24 @@ class AgentModeAdapter:
             model_name=self.model_name
         )
         
-        result = await engine.execute(goal, context, file_ids)
+        # Save reference for stop() method
+        self._active_engine = engine
         
-        return {
-            **result,
-            "mode": "agent"
-        }
+        try:
+            result = await engine.execute(goal, context, file_ids)
+            return {
+                **result,
+                "mode": "agent"
+            }
+        finally:
+            # Clear reference after execution
+            self._active_engine = None
+    
+    def stop(self):
+        """Stop active engine execution."""
+        if self._active_engine:
+            self._active_engine.stop()
+            logger.info(f"[AgentModeAdapter] Stop requested for session {self.session_id}")
 
 
 class PlanModeAdapter:
@@ -211,6 +237,7 @@ class PlanModeAdapter:
         self.ws_manager = ws_manager
         self.session_id = session_id
         self.model_name = model_name
+        self._active_engine: Optional[UnifiedReActEngine] = None
         
         # State for plan approval
         self._plan_text: Optional[str] = None
@@ -280,11 +307,17 @@ class PlanModeAdapter:
             model_name=self.model_name
         )
         
-        research_goal = f"Исследуй существующий код и данные для задачи: {goal}"
-        result = await engine.execute(research_goal, context, file_ids, phase="research")
+        # Save reference for stop() method
+        self._active_engine = engine
         
-        logger.info(f"[PlanModeAdapter] Research phase completed")
-        return result
+        try:
+            research_goal = f"Исследуй существующий код и данные для задачи: {goal}"
+            result = await engine.execute(research_goal, context, file_ids, phase="research")
+            logger.info(f"[PlanModeAdapter] Research phase completed")
+            return result
+        finally:
+            # Clear reference after research phase
+            self._active_engine = None
     
     async def _generate_plan(
         self,
@@ -471,14 +504,27 @@ class PlanModeAdapter:
             model_name=self.model_name
         )
         
-        # Execute with plan context
-        goal = f"Выполни план:\n{plan['plan']}"
-        result = await engine.execute(goal, context, file_ids, phase="execute")
+        # Save reference for stop() method
+        self._active_engine = engine
         
-        return {
-            **result,
-            "mode": "plan",
-            "plan": plan["plan"],
-            "steps": plan["steps"]
-        }
+        try:
+            # Execute with plan context
+            goal = f"Выполни план:\n{plan['plan']}"
+            result = await engine.execute(goal, context, file_ids, phase="execute")
+            
+            return {
+                **result,
+                "mode": "plan",
+                "plan": plan["plan"],
+                "steps": plan["steps"]
+            }
+        finally:
+            # Clear reference after execution
+            self._active_engine = None
+    
+    def stop(self):
+        """Stop active engine execution."""
+        if self._active_engine:
+            self._active_engine.stop()
+            logger.info(f"[PlanModeAdapter] Stop requested for session {self.session_id}")
 

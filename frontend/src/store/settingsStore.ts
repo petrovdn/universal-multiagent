@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
-type ExecutionMode = 'instant' | 'approval' | 'react' | 'query'
+export type ExecutionMode = 'query' | 'plan' | 'agent'
 type Theme = 'light' | 'dark'
 
 interface IntegrationInfo {
@@ -30,22 +30,48 @@ interface SettingsState {
   debugMode: boolean
   showReasoning: boolean // Show reasoning blocks in Query mode
   integrations: IntegrationsState
+  thinkingPreferences: {
+    defaultCollapsed: boolean      // По умолчанию свёрнуто?
+    pinnedThinkingIds: string[]    // Закреплённые thinking блоки (сохраняются между сессиями)
+  }
   setExecutionMode: (mode: ExecutionMode) => void
   setTimezone: (tz: string) => void
   setTheme: (theme: Theme) => void
   setDebugMode: (enabled: boolean) => void
   setShowReasoning: (enabled: boolean) => void
   setIntegrationStatus: (integration: keyof IntegrationsState, status: Partial<IntegrationsState[keyof IntegrationsState]>) => void
+  addPinnedThinkingId: (thinkingId: string) => void
+  removePinnedThinkingId: (thinkingId: string) => void
+}
+
+// Migration function for old execution modes
+const migrateExecutionMode = (mode: any): ExecutionMode => {
+  if (mode === 'query' || mode === 'plan' || mode === 'agent') {
+    return mode as ExecutionMode
+  }
+  // Map legacy modes to new ones
+  if (mode === 'instant' || mode === 'react') {
+    return 'agent'
+  }
+  if (mode === 'approval') {
+    return 'plan'
+  }
+  // Default to agent
+  return 'agent'
 }
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
-      executionMode: 'instant',
+      executionMode: 'agent',
       timezone: 'Europe/Moscow',
       theme: 'light',
       debugMode: false,
       showReasoning: false, // Hide reasoning by default in Query mode
+      thinkingPreferences: {
+        defaultCollapsed: true,  // По умолчанию свёрнуто
+        pinnedThinkingIds: [],   // Закреплённые thinking блоки
+      },
       integrations: {
         googleCalendar: {
           enabled: false,
@@ -99,9 +125,32 @@ export const useSettingsStore = create<SettingsState>()(
             },
           },
         })),
+      
+      addPinnedThinkingId: (thinkingId) =>
+        set((state) => ({
+          thinkingPreferences: {
+            ...state.thinkingPreferences,
+            pinnedThinkingIds: [...state.thinkingPreferences.pinnedThinkingIds.filter(id => id !== thinkingId), thinkingId],
+          },
+        })),
+      
+      removePinnedThinkingId: (thinkingId) =>
+        set((state) => ({
+          thinkingPreferences: {
+            ...state.thinkingPreferences,
+            pinnedThinkingIds: state.thinkingPreferences.pinnedThinkingIds.filter(id => id !== thinkingId),
+          },
+        })),
     }),
     {
       name: 'settings-storage',
+      migrate: (persistedState: any, version: number) => {
+        // Migrate old execution modes to new ones
+        if (persistedState?.state?.executionMode) {
+          persistedState.state.executionMode = migrateExecutionMode(persistedState.state.executionMode)
+        }
+        return persistedState
+      },
     }
   )
 )

@@ -141,9 +141,41 @@ class WebSocketManager:
         connection_count = self.get_connection_count(session_id)
         self.logger.info(f"Sending event '{event_type}' to session {session_id} (connections: {connection_count})")
         
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({
+                    "location": "websocket_manager.py:send_event",
+                    "message": f"Sending event {event_type}",
+                    "data": {"session_id": session_id, "event_type": event_type, "connection_count": connection_count, "has_content": "content" in data or "response" in str(data)},
+                    "timestamp": time.time() * 1000,
+                    "sessionId": session_id,
+                    "runId": "run1",
+                    "hypothesisId": "H4"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
         
         if connection_count == 0:
             self.logger.warning(f"No active connections for session {session_id} when sending event '{event_type}'")
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "location": "websocket_manager.py:send_event:no_connection",
+                        "message": f"No connections for event {event_type}",
+                        "data": {"session_id": session_id, "event_type": event_type},
+                        "timestamp": time.time() * 1000,
+                        "sessionId": session_id,
+                        "runId": "run1",
+                        "hypothesisId": "H4"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
             return
         
         

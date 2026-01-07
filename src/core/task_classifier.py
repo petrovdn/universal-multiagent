@@ -65,6 +65,11 @@ class TaskClassifier:
             "сравни", "compare", "сравнение",
             "загрузи", "upload", "скачай", "download",
             "покажи", "show", "открой", "open", "открыть",  # Actions that require multiple steps
+            # Calendar/email/data retrieval commands - need tool calls
+            "выведи", "вывести", "получи", "получить",
+            "встречи", "events", "meetings", "calendar", "календарь",
+            "письма", "emails", "почта", "mail",
+            "таблицу", "table", "данные", "data",
         ]
     
     def _get_llm(self):

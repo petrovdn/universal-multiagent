@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import asyncio
 import json
 import re
+import time
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -88,6 +89,8 @@ class UnifiedReActEngine:
         
         # Stop flag
         self._stop_requested: bool = False
+        self._current_thinking_id: Optional[str] = None  # Current thinking block ID
+        self._thinking_start_time: Optional[float] = None  # Start time for elapsed calculation
         
         logger.info(
             f"[UnifiedReActEngine] Initialized for session {session_id} "
@@ -187,11 +190,32 @@ class UnifiedReActEngine:
         }
         self._stop_requested = False
         
-        # Send start event
+        # Check if query needs tools or can be answered directly (like Cursor does)
+        needs_tools = await self._needs_tools(goal, context)
+        
+        if not needs_tools:
+            # Simple query - answer directly without tools
+            logger.info(f"[UnifiedReActEngine] Simple query detected, answering directly without tools")
+            try:
+                return await self._answer_directly(goal, context, state)
+            except Exception as e:
+                logger.warning(f"[UnifiedReActEngine] Direct answer failed, falling back to ReAct: {e}")
+                # Continue with normal ReAct loop if direct answer fails
+        
+        # Send start event (legacy)
         await self.ws_manager.send_event(
             self.session_id,
             "react_start",
             {"goal": goal, "mode": self.config.mode}
+        )
+        
+        # Send thinking_started event (new Cursor-style)
+        self._current_thinking_id = f"thinking-{int(time.time() * 1000)}"
+        self._thinking_start_time = time.time()  # Сохраняем время старта
+        await self.ws_manager.send_event(
+            self.session_id,
+            "thinking_started",
+            {"thinking_id": self._current_thinking_id, "started_at": int(time.time() * 1000)}
         )
         
         try:
@@ -347,6 +371,182 @@ class UnifiedReActEngine:
                     "tried": [alt for alt in state.alternatives_tried]
                 }
             )
+            raise
+    
+    async def _needs_tools(self, goal: str, context: ConversationContext) -> bool:
+        """
+        Determine if the query needs tools or can be answered directly.
+        
+        Simple queries (greetings, simple questions) don't need tools.
+        Complex queries (data retrieval, file operations) need tools.
+        """
+        goal_lower = goal.lower().strip()
+        
+        # Simple greetings and basic questions - no tools needed
+        simple_patterns = [
+            r'^(привет|hello|hi|здравствуй|здравствуйте|добрый\s+(день|вечер|утро))',
+            r'^(спасибо|thanks|thank\s+you|благодарю)',
+            r'^(как\s+дела|how\s+are\s+you|что\s+ты|who\s+are\s+you|что\s+умеешь)',
+            r'^(пока|bye|goodbye|до\s+свидания)',
+        ]
+        
+        for pattern in simple_patterns:
+            if re.match(pattern, goal_lower):
+                return False
+        
+        # Check if query mentions specific actions that require tools
+        tool_keywords = [
+            'найди', 'find', 'получи', 'get', 'выведи', 'show', 'открой', 'open',
+            'создай', 'create', 'отправь', 'send', 'сохрани', 'save',
+            'календарь', 'calendar', 'встречи', 'events', 'meetings',
+            'письма', 'emails', 'почта', 'mail',
+            'таблица', 'table', 'sheets', 'документ', 'document',
+            'файл', 'file', 'данные', 'data'
+        ]
+        
+        for keyword in tool_keywords:
+            if keyword in goal_lower:
+                return True
+        
+        # Use LLM to determine if tools are needed (for edge cases)
+        try:
+            prompt = f"""Определи, нужны ли инструменты (календарь, почта, файлы) для ответа на этот запрос:
+
+Запрос: "{goal}"
+
+Ответь только одним словом: ДА или НЕТ.
+
+ДА - если нужны инструменты (например, "найди встречи", "покажи письма", "открой файл")
+НЕТ - если это простой вопрос или приветствие, не требующее инструментов"""
+            
+            messages = [
+                SystemMessage(content="Ты эксперт по определению необходимости использования инструментов. Отвечай только ДА или НЕТ."),
+                HumanMessage(content=prompt)
+            ]
+            
+            response = await self.llm.ainvoke(messages)
+            response_text = str(response.content).strip().upper()
+            
+            return "ДА" in response_text or "YES" in response_text
+        except Exception as e:
+            logger.error(f"[UnifiedReActEngine] Error checking if tools needed: {e}")
+            # Default to using tools if check fails
+            return True
+    
+    async def _answer_directly(
+        self,
+        goal: str,
+        context: ConversationContext,
+        state: ReActState
+    ) -> Dict[str, Any]:
+        """
+        Answer simple queries directly without using tools.
+        This mimics Cursor's behavior for simple queries.
+        """
+        try:
+            # Build context from conversation history
+            context_str = ""
+            if hasattr(context, 'messages') and context.messages:
+                recent_messages = context.messages[-6:]  # Last 6 messages
+                context_str = "\n".join([
+                    f"{msg.get('role', 'user')}: {msg.get('content', '')}"
+                    for msg in recent_messages
+                    if isinstance(msg, dict)
+                ])
+            
+            prompt = f"""Ты полезный AI-ассистент. Ответь на запрос пользователя естественно и дружелюбно.
+
+{context_str if context_str else ''}
+
+Запрос пользователя: {goal}
+
+Ответь кратко и по делу на русском языке."""
+            
+            messages = [
+                SystemMessage(content="Ты дружелюбный и полезный AI-ассистент. Отвечай естественно и кратко на русском языке."),
+                HumanMessage(content=prompt)
+            ]
+            
+            # Send thinking_started event
+            self._current_thinking_id = f"thinking-{int(time.time() * 1000)}"
+            self._thinking_start_time = time.time()
+            await self.ws_manager.send_event(
+                self.session_id,
+                "thinking_started",
+                {"thinking_id": self._current_thinking_id, "started_at": int(time.time() * 1000)}
+            )
+            
+            response = await self.llm.ainvoke(messages)
+            
+            # Extract response text
+            if isinstance(response.content, list):
+                text_parts = []
+                for block in response.content:
+                    if hasattr(block, "text"):
+                        text_parts.append(block.text)
+                    elif isinstance(block, dict) and "text" in block:
+                        text_parts.append(block["text"])
+                    elif isinstance(block, str):
+                        text_parts.append(block)
+                answer = " ".join(text_parts).strip()
+            elif isinstance(response.content, str):
+                answer = response.content.strip()
+            else:
+                answer = str(response.content).strip()
+            
+            # Send thinking_completed
+            if self._current_thinking_id:
+                elapsed_seconds = time.time() - self._thinking_start_time
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "thinking_completed",
+                    {
+                        "thinking_id": self._current_thinking_id,
+                        "full_content": answer,
+                        "elapsed_seconds": elapsed_seconds,
+                        "auto_collapse": True
+                    }
+                )
+                self._current_thinking_id = None
+                self._thinking_start_time = None
+            
+            # Send final result or message_complete based on mode
+            if self.config.mode == "query":
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "final_result",
+                    {"content": answer}
+                )
+            else:
+                message_id = f"react_{self.session_id}_{int(time.time() * 1000)}"
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "message_complete",
+                    {
+                        "role": "assistant",
+                        "message_id": message_id,
+                        "content": answer
+                    }
+                )
+            
+            return {
+                "status": "completed",
+                "goal": goal,
+                "iterations": 1,
+                "actions_taken": 0,
+                "final_result": answer,
+                "reasoning_trail": [
+                    {
+                        "iteration": 1,
+                        "type": "direct_answer",
+                        "content": answer,
+                        "metadata": {"simple_query": True}
+                    }
+                ]
+            }
+        except Exception as e:
+            logger.error(f"[UnifiedReActEngine] Error in _answer_directly: {e}")
+            # If direct answer fails, raise exception to fall back to normal ReAct loop
             raise
     
     async def _think(
@@ -670,9 +870,9 @@ class UnifiedReActEngine:
             }
         )
         
-        # Also send final_result event for Query mode to ensure it's saved to workflow
+        # Send final_result or message_complete event based on mode
         if self.config.mode == "query":
-            # Send final_result event (legacy format for compatibility)
+            # Send final_result event for Query mode
             await self.ws_manager.send_event(
                 self.session_id,
                 "final_result",
@@ -680,6 +880,36 @@ class UnifiedReActEngine:
                     "content": str(final_result)
                 }
             )
+        else:
+            # For agent and plan modes, send message_complete to ensure response is displayed
+            message_id = f"react_{self.session_id}_{int(time.time() * 1000)}"
+            await self.ws_manager.send_event(
+                self.session_id,
+                "message_complete",
+                {
+                    "role": "assistant",
+                    "message_id": message_id,
+                    "content": str(final_result)
+                }
+            )
+        
+        # Send thinking_completed event
+        if self._current_thinking_id and self._thinking_start_time:
+            elapsed_seconds = time.time() - self._thinking_start_time
+            # Собираем весь контент из reasoning trail
+            full_content = "\n".join([step.content for step in state.reasoning_trail])
+            await self.ws_manager.send_event(
+                self.session_id,
+                "thinking_completed",
+                {
+                    "thinking_id": self._current_thinking_id,
+                    "full_content": full_content,
+                    "elapsed_seconds": elapsed_seconds,
+                    "auto_collapse": True
+                }
+            )
+            self._current_thinking_id = None
+            self._thinking_start_time = None
         
         if hasattr(context, 'add_message'):
             context.add_message("assistant", f"Задача выполнена: {state.goal}")
@@ -723,6 +953,37 @@ class UnifiedReActEngine:
             }
         )
         
+        # Send message_complete with error message for agent/plan modes
+        if self.config.mode != "query":
+            error_message = f"❌ Не удалось выполнить задачу: {failure_report['error']}"
+            message_id = f"react_{self.session_id}_{int(time.time() * 1000)}"
+            await self.ws_manager.send_event(
+                self.session_id,
+                "message_complete",
+                {
+                    "role": "assistant",
+                    "message_id": message_id,
+                    "content": error_message
+                }
+            )
+        
+        # Send thinking_completed event (with error, не сворачиваем)
+        if self._current_thinking_id and self._thinking_start_time:
+            elapsed_seconds = time.time() - self._thinking_start_time
+            full_content = "\n".join([step.content for step in state.reasoning_trail])
+            await self.ws_manager.send_event(
+                self.session_id,
+                "thinking_completed",
+                {
+                    "thinking_id": self._current_thinking_id,
+                    "full_content": full_content,
+                    "elapsed_seconds": elapsed_seconds,
+                    "auto_collapse": False  # Не сворачиваем при ошибке
+                }
+            )
+            self._current_thinking_id = None
+            self._thinking_start_time = None
+        
         logger.warning(f"[UnifiedReActEngine] Failed after {state.iteration} iterations: {failure_report['error']}")
         return failure_report
     
@@ -760,19 +1021,126 @@ class UnifiedReActEngine:
             }
         )
         
+        # Send timeout message based on mode
+        timeout_message = f"⏱️ {timeout_report['message']}. Попробуйте уточнить запрос или разбить задачу на более мелкие шаги."
+        
+        if self.config.mode == "query":
+            # For Query mode, send final_result event
+            await self.ws_manager.send_event(
+                self.session_id,
+                "final_result",
+                {
+                    "content": timeout_message
+                }
+            )
+        else:
+            # For agent and plan modes, send message_complete
+            message_id = f"react_{self.session_id}_{int(time.time() * 1000)}"
+            await self.ws_manager.send_event(
+                self.session_id,
+                "message_complete",
+                {
+                    "role": "assistant",
+                    "message_id": message_id,
+                    "content": timeout_message
+                }
+            )
+        
+        # Send thinking_completed event (timeout)
+        if self._current_thinking_id and self._thinking_start_time:
+            elapsed_seconds = time.time() - self._thinking_start_time
+            full_content = "\n".join([step.content for step in state.reasoning_trail])
+            await self.ws_manager.send_event(
+                self.session_id,
+                "thinking_completed",
+                {
+                    "thinking_id": self._current_thinking_id,
+                    "full_content": full_content,
+                    "elapsed_seconds": elapsed_seconds,
+                    "auto_collapse": False
+                }
+            )
+            self._current_thinking_id = None
+            self._thinking_start_time = None
+        
         logger.warning(f"[UnifiedReActEngine] Timeout after {state.iteration} iterations")
         return timeout_report
+    
+    def _transform_to_human_readable(self, action: str, tool_name: str) -> str:
+        """Transform technical messages to human-readable format."""
+        action_lower = action.lower()
+        tool_lower = tool_name.lower()
+        
+        # Если уже human-readable, возвращаем как есть
+        if not action_lower.startswith(('fallback:', 'error:', 'использование')):
+            return action
+        
+        # Маппинг tool names на human-readable описания
+        if 'calendar' in tool_lower or 'event' in tool_lower:
+            return "📅 Получаю события календаря..."
+        elif 'email' in tool_lower or 'gmail' in tool_lower or 'mail' in tool_lower:
+            return "📧 Ищу в почте..."
+        elif 'file' in tool_lower or 'workspace' in tool_lower or 'drive' in tool_lower:
+            return "📁 Ищу файлы..."
+        elif 'search' in tool_lower:
+            return "🔍 Ищу информацию..."
+        elif 'create' in tool_lower or 'write' in tool_lower:
+            return "✏️ Создаю документ..."
+        elif 'read' in tool_lower or 'get' in tool_lower:
+            return "📖 Читаю информацию..."
+        else:
+            return "🔧 Выполняю действие..."
     
     async def _stream_reasoning(self, event_type: str, data: Dict[str, Any]):
         """Stream reasoning event to WebSocket."""
         try:
             connection_count = self.ws_manager.get_connection_count(self.session_id)
             if connection_count > 0:
+                # Отправляем legacy событие
                 await self.ws_manager.send_event(
                     self.session_id,
                     event_type,
                     data
                 )
+                
+                # Также отправляем thinking_chunk если есть thinking_id
+                if self._current_thinking_id and self._thinking_start_time:
+                    thinking_data = {}
+                    elapsed_seconds = time.time() - self._thinking_start_time
+                    
+                    if event_type == "react_thinking":
+                        thought = data.get("thought", "Анализирую ситуацию...")
+                        thinking_data = {
+                            "thinking_id": self._current_thinking_id,
+                            "chunk": f"🧠 {thought}\n",
+                            "elapsed_seconds": elapsed_seconds,
+                            "step_type": "analyzing"
+                        }
+                    elif event_type == "react_action":
+                        action = data.get("action", "Выполняю действие...")
+                        tool = data.get("tool", "unknown")
+                        human_readable = self._transform_to_human_readable(action, tool)
+                        thinking_data = {
+                            "thinking_id": self._current_thinking_id,
+                            "chunk": f"{human_readable}\n",
+                            "elapsed_seconds": elapsed_seconds,
+                            "step_type": "executing"
+                        }
+                    elif event_type == "react_observation":
+                        result = str(data.get("result", "Результат получен"))[:100]
+                        thinking_data = {
+                            "thinking_id": self._current_thinking_id,
+                            "chunk": f"✓ {result}\n",
+                            "elapsed_seconds": elapsed_seconds,
+                            "step_type": "observing"
+                        }
+                    
+                    if thinking_data:
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "thinking_chunk",
+                            thinking_data
+                        )
             else:
                 logger.debug(f"[UnifiedReActEngine] Skipping event {event_type} - no WebSocket connection")
         except Exception as e:

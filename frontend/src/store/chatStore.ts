@@ -133,6 +133,23 @@ export interface ResultSummary {
   tokensUsed?: number
 }
 
+// ThinkingBlock - блок мышления (как в Cursor IDE)
+export interface ThinkingBlock {
+  id: string
+  status: 'started' | 'streaming' | 'completed' | 'error'
+  content: string              // Accumulated text
+  elapsedSeconds: number
+  startedAt: number            // timestamp
+  completedAt?: number         // timestamp
+  isCollapsed: boolean
+  isPinned: boolean
+  stepHistory: Array<{        // История шагов для отображения
+    type: 'analyzing' | 'searching' | 'executing' | 'observing' | 'success' | 'error'
+    text: string
+    timestamp: number
+  }>
+}
+
 interface ChatState {
   messages: Message[]
   assistantMessages: Record<string, AssistantMessage> // message_id -> AssistantMessage
@@ -165,6 +182,13 @@ interface ChatState {
   
   // Result summaries - итоговые результаты
   resultSummaries: Record<string, ResultSummary> // workflowId -> ResultSummary
+  
+  // Current action indicator - для динамического отображения текущего действия
+  currentAction: { tool: string; description: string } | null
+  
+  // Thinking blocks - блоки мышления (как в Cursor IDE)
+  thinkingBlocks: Record<string, ThinkingBlock> // thinking_id -> ThinkingBlock
+  activeThinkingId: string | null // Текущий активный thinking блок
   
   // Legacy support (will be removed)
   streamingMessages: Record<string, Message>
@@ -232,6 +256,18 @@ interface ChatState {
   updateResultSummary: (workflowId: string, updates: Partial<ResultSummary>) => void
   clearResultSummary: (workflowId: string) => void
   
+  // Current action methods
+  setCurrentAction: (action: { tool: string; description: string } | null) => void
+  clearCurrentAction: () => void
+  
+  // Thinking block methods
+  startThinking: (thinkingId: string) => void
+  appendThinkingChunk: (thinkingId: string, chunk: string, elapsedSeconds: number, stepType?: 'analyzing' | 'searching' | 'executing' | 'observing' | 'success' | 'error') => void
+  completeThinking: (thinkingId: string, autoCollapse: boolean) => void
+  toggleThinkingCollapse: (thinkingId: string) => void
+  toggleThinkingPin: (thinkingId: string) => void
+  setActiveThinking: (thinkingId: string | null) => void
+  
   // Legacy methods (for compatibility during transition)
   startStreamingMessage: (messageId: string, message: Message) => void
   updateStreamingMessage: (messageId: string, content: string) => void
@@ -257,6 +293,9 @@ export const useChatStore = create<ChatState>()(
       actionMessages: {},
       questionMessages: {},
       resultSummaries: {},
+      currentAction: null,
+      thinkingBlocks: {},
+      activeThinkingId: null,
       streamingMessages: {},
       reasoningSteps: [],
       reasoningStartTime: null,
@@ -278,6 +317,9 @@ export const useChatStore = create<ChatState>()(
           actionMessages: {},
           questionMessages: {},
           resultSummaries: {},
+          currentAction: null,
+          thinkingBlocks: {},
+          activeThinkingId: null,
         }),
       
       startNewSession: () =>
@@ -294,6 +336,9 @@ export const useChatStore = create<ChatState>()(
           actionMessages: {},
           questionMessages: {},
           resultSummaries: {},
+          currentAction: null,
+          thinkingBlocks: {},
+          activeThinkingId: null,
         }),
       
       setCurrentSession: (sessionId) =>
@@ -302,8 +347,17 @@ export const useChatStore = create<ChatState>()(
       setConnectionStatus: (connected) =>
         set({ isConnected: connected }),
       
-      setAgentTyping: (typing) =>
-        set({ isAgentTyping: typing }),
+      setAgentTyping: (typing) => {
+        // #region agent log
+        const prevTyping = get().isAgentTyping
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setAgentTyping:before',message:'Setting isAgentTyping',data:{prevTyping,newTyping:typing,changed:prevTyping!==typing,stackTrace:new Error().stack?.split('\n').slice(0,5)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
+        // #endregion
+        set({ isAgentTyping: typing })
+        // #region agent log
+        const afterTyping = get().isAgentTyping
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setAgentTyping:after',message:'After set isAgentTyping',data:{prevTyping,newTyping:typing,afterTyping,actuallyChanged:prevTyping!==afterTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
+        // #endregion
+      },
       
       // Start a new reasoning block
       startReasoningBlock: (messageId: string, blockId: string) =>
@@ -1155,6 +1209,171 @@ export const useChatStore = create<ChatState>()(
           }
         }),
       
+      // Current action methods
+      setCurrentAction: (action) => {
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setCurrentAction',message:'Setting current action',data:{action,previousAction:get().currentAction},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
+        // #endregion
+        set({
+          currentAction: action,
+        })
+      },
+      
+      clearCurrentAction: () => {
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:clearCurrentAction',message:'Clearing current action',data:{previousAction:get().currentAction},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
+        // #endregion
+        set({
+          currentAction: null,
+        })
+      },
+      
+      // Thinking block methods
+      startThinking: (thinkingId: string) =>
+        set((state) => {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startThinking',message:'startThinking called',data:{thinkingId,currentActiveThinkingId:state.activeThinkingId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H6'})}).catch(()=>{});
+          // #endregion
+          // По умолчанию не закреплён (проверка будет в компоненте при необходимости)
+          // НЕ устанавливаем activeThinkingId сразу - это будет сделано через таймер через 2 секунды
+          return {
+            thinkingBlocks: {
+              ...state.thinkingBlocks,
+              [thinkingId]: {
+                id: thinkingId,
+                status: 'started',
+                content: '',
+                elapsedSeconds: 0,
+                startedAt: Date.now(),
+                isCollapsed: false, // Начинаем развёрнутым, auto-collapse при завершении
+                isPinned: false, // Будет синхронизировано с settingsStore при необходимости
+                stepHistory: [],
+              },
+            },
+            // НЕ устанавливаем activeThinkingId здесь - только через setActiveThinking после задержки
+          }
+        }),
+      
+      appendThinkingChunk: (thinkingId: string, chunk: string, elapsedSeconds: number, stepType?: 'analyzing' | 'searching' | 'executing' | 'observing' | 'success' | 'error') =>
+        set((state) => {
+          const existingBlock = state.thinkingBlocks[thinkingId]
+          if (!existingBlock) {
+            // Если блока нет, создаём его (fallback - не должно происходить, если startThinking был вызван)
+            // НЕ устанавливаем activeThinkingId - только через таймер
+            const newBlock: ThinkingBlock = {
+              id: thinkingId,
+              status: 'streaming',
+              content: chunk,
+              elapsedSeconds,
+              startedAt: Date.now(),
+              isCollapsed: false,
+              isPinned: false,
+              stepHistory: stepType ? [{ type: stepType, text: chunk, timestamp: Date.now() }] : [],
+            }
+            return {
+              thinkingBlocks: {
+                ...state.thinkingBlocks,
+                [thinkingId]: newBlock,
+              },
+              // НЕ устанавливаем activeThinkingId здесь - только через setActiveThinking после задержки
+            }
+          }
+          
+          return {
+            thinkingBlocks: {
+              ...state.thinkingBlocks,
+              [thinkingId]: {
+                ...existingBlock,
+                status: 'streaming',
+                content: existingBlock.content + chunk,
+                elapsedSeconds,
+                stepHistory: stepType
+                  ? [...existingBlock.stepHistory, { type: stepType, text: chunk, timestamp: Date.now() }]
+                  : existingBlock.stepHistory,
+              },
+            },
+          }
+        }),
+      
+      completeThinking: (thinkingId: string, autoCollapse: boolean) =>
+        set((state) => {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:completeThinking:entry',message:'completeThinking called',data:{thinkingId,autoCollapse,currentActiveThinkingId:state.activeThinkingId,blockExists:!!state.thinkingBlocks[thinkingId],blockStatus:state.thinkingBlocks[thinkingId]?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+          // #endregion
+          const existingBlock = state.thinkingBlocks[thinkingId]
+          if (!existingBlock) return state
+          
+          // Auto-collapse если не закреплён
+          const shouldCollapse = autoCollapse && !existingBlock.isPinned
+          
+          const newActiveThinkingId = state.activeThinkingId === thinkingId ? null : state.activeThinkingId
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:completeThinking:before_return',message:'Before returning from completeThinking',data:{thinkingId,oldActiveThinkingId:state.activeThinkingId,newActiveThinkingId,willClearActive:state.activeThinkingId===thinkingId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+          // #endregion
+          return {
+            thinkingBlocks: {
+              ...state.thinkingBlocks,
+              [thinkingId]: {
+                ...existingBlock,
+                status: 'completed',
+                completedAt: Date.now(),
+                isCollapsed: shouldCollapse ? true : existingBlock.isCollapsed,
+              },
+            },
+            activeThinkingId: newActiveThinkingId,
+          }
+        }),
+      
+      toggleThinkingCollapse: (thinkingId: string) =>
+        set((state) => {
+          const existingBlock = state.thinkingBlocks[thinkingId]
+          if (!existingBlock) return state
+          
+          return {
+            thinkingBlocks: {
+              ...state.thinkingBlocks,
+              [thinkingId]: {
+                ...existingBlock,
+                isCollapsed: !existingBlock.isCollapsed,
+              },
+            },
+          }
+        }),
+      
+      toggleThinkingPin: (thinkingId: string) =>
+        set((state) => {
+          const existingBlock = state.thinkingBlocks[thinkingId]
+          if (!existingBlock) return state
+          
+          const newPinnedState = !existingBlock.isPinned
+          
+          return {
+            thinkingBlocks: {
+              ...state.thinkingBlocks,
+              [thinkingId]: {
+                ...existingBlock,
+                isPinned: newPinnedState,
+                // Если закрепляем, разворачиваем
+                isCollapsed: newPinnedState ? false : existingBlock.isCollapsed,
+              },
+            },
+          }
+        }),
+      
+      setActiveThinking: (thinkingId: string | null) => {
+        // #region agent log
+        const stateBefore = get()
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setActiveThinking',message:'setActiveThinking called',data:{thinkingId,previousActiveThinkingId:stateBefore.activeThinkingId,blockExists:thinkingId?!!stateBefore.thinkingBlocks[thinkingId]:false,blockStatus:thinkingId?stateBefore.thinkingBlocks[thinkingId]?.status:null},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H6'})}).catch(()=>{});
+        // #endregion
+        set({
+          activeThinkingId: thinkingId,
+        })
+        // #region agent log
+        const stateAfter = get()
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setActiveThinking:after',message:'After setActiveThinking',data:{thinkingId,activeThinkingId:stateAfter.activeThinkingId,changed:stateBefore.activeThinkingId!==stateAfter.activeThinkingId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H6'})}).catch(()=>{});
+        // #endregion
+      },
+      
       setUserAssistanceRequest: (request) =>
         set({
           userAssistanceRequest: request,
@@ -1182,6 +1401,7 @@ export const useChatStore = create<ChatState>()(
             actionMessages: {},
             questionMessages: {},
             resultSummaries: {},
+            currentAction: null,
           }
         }
         return persistedState

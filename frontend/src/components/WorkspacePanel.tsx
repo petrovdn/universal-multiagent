@@ -215,7 +215,7 @@ export function WorkspacePanel() {
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        paddingTop: '0', /* Отступ для Header теперь в App.tsx через marginTop */
+        paddingTop: '49px', /* Точная высота Header: 8+32+8+1 = 49px */
         backgroundColor: document.documentElement.classList.contains('dark')
           ? 'rgb(30 41 59)'
           : 'rgb(255 255 255)'

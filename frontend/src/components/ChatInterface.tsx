@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain, Square } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
-import { useSettingsStore } from '../store/settingsStore'
+import { useSettingsStore, ExecutionMode } from '../store/settingsStore'
 import { useModelStore } from '../store/modelStore'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { wsClient } from '../services/websocket'
@@ -17,7 +17,7 @@ import { CollapsibleBlock } from './CollapsibleBlock'
 import { ActionItem } from './ActionItem'
 import { QuestionForm } from './QuestionForm'
 import { ResultSummary } from './ResultSummary'
-import { ThinkingIndicator } from './ThinkingIndicator'
+import { ThinkingMessage } from './ThinkingMessage'
 
 interface AttachedFile {
   id: string
@@ -33,7 +33,6 @@ export function ChatInterface() {
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false)
   const [shouldScrollToNew, setShouldScrollToNew] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
-  const [showThinkingIndicator, setShowThinkingIndicator] = useState(false)
   const currentInteractionRef = useRef<HTMLDivElement>(null)
   const lastUserMessageCountRef = useRef<number>(0)
   const isCollapsingRef = useRef<boolean>(false)
@@ -63,6 +62,12 @@ export function ChatInterface() {
     resultSummaries,
     questionMessages,
     actionMessages,
+    currentAction,
+    clearCurrentAction,
+    thinkingBlocks,
+    activeThinkingId,
+    toggleThinkingCollapse,
+    toggleThinkingPin,
   } = useChatStore()
   
   const { executionMode, setExecutionMode, showReasoning } = useSettingsStore()
@@ -104,32 +109,42 @@ export function ChatInterface() {
     }
   }, [currentSession])
   
-  // Show thinking indicator when reasoning is active but not visible to user
-  useEffect(() => {
-    // Check if reasoning blocks are active (streaming or have content)
-    const hasActiveReasoning = Object.values(assistantMessages).some(msg => 
-      msg.reasoningBlocks.some(block => 
-        block.isStreaming || (block.content && block.content.trim().length > 0)
-      )
-    )
+  // Определяем, нужно ли показывать ThinkingMessage в зависимости от режима
+  const shouldShowThinkingMessage = () => {
+    if (!activeThinkingId) return false
     
-    // Check if reasoning should be visible to user
-    const isReasoningVisible = executionMode === 'react' || 
-      (executionMode === 'query' && showReasoning)
+    const block = thinkingBlocks[activeThinkingId]
+    if (!block) return false
     
-    // Show indicator if:
-    // 1. Agent is typing AND
-    // 2. Reasoning is active BUT not visible to user
-    if (isAgentTyping && hasActiveReasoning && !isReasoningVisible) {
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:shouldShowThinkingMessage',message:'Checking if should show thinking message',data:{activeThinkingId,blockStatus:block.status,executionMode,showReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
+    // #endregion
+    
+    // Don't show if already completed (unless pinned)
+    if (block.status === 'completed' && !block.isPinned) {
       // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:thinkingIndicator:logic',message:'Showing thinking indicator - reasoning active but not visible',data:{isAgentTyping,hasActiveReasoning,isReasoningVisible,executionMode,showReasoning},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:shouldShowThinkingMessage:rejected_completed',message:'Rejecting completed thinking block',data:{activeThinkingId,blockStatus:block.status,isPinned:block.isPinned},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H5'})}).catch(()=>{});
       // #endregion
-      setShowThinkingIndicator(true)
-    } else if (!isAgentTyping || !hasActiveReasoning || isReasoningVisible) {
-      // Hide indicator when typing stops, reasoning stops, or reasoning becomes visible
-      setShowThinkingIndicator(false)
+      return false
     }
-  }, [isAgentTyping, assistantMessages, executionMode, showReasoning])
+    
+    // Query Mode: Thinking всегда виден
+    if (executionMode === 'query') {
+      return true
+    }
+    
+    // Agent Mode: Thinking только если showReasoning включен
+    if (executionMode === 'agent') {
+      return showReasoning
+    }
+    
+    // Plan Mode: Thinking во время research фазы
+    if (executionMode === 'plan') {
+      return true
+    }
+    
+    return false
+  }
 
   // Timeout to reset agent typing state if it gets stuck
   useEffect(() => {
@@ -204,7 +219,7 @@ export function ChatInterface() {
       const elementRect = interactionContainer.getBoundingClientRect()
       
       // Вычисляем позицию прокрутки: позиция элемента относительно контейнера + текущая прокрутка
-      const scrollTop = container.scrollTop + (elementRect.top - containerRect.top) // Header больше не перекрывает - margin в App.tsx
+      const scrollTop = container.scrollTop + (elementRect.top - containerRect.top) - 52 // 52px для header
       
       // Проверяем, что элемент имеет правильную позицию (не 0 или отрицательную)
       if ((elementRect.top - containerRect.top) <= 0 && attempt < 5) {        // Элемент еще не готов, пробуем еще раз
@@ -542,13 +557,40 @@ export function ChatInterface() {
         wsClient.connect(currentSession)
         
         console.log('[ChatInterface] Sending via REST API (fallback)')
-        await sendMessage({
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage:rest:before',message:'About to send REST API message',data:{executionMode,userMessage,currentSession},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        const response = await sendMessage({
           message: userMessage,
           session_id: currentSession,
           execution_mode: executionMode,
           file_ids: fileIds.length > 0 ? fileIds : undefined,
           open_files: openFiles.length > 0 ? openFiles : undefined,
         })
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:sendMessage:rest:after',message:'REST API response received',data:{hasResponse:!!response,hasResult:!!response?.result,hasResponseContent:!!response?.result?.response,responseKeys:response?Object.keys(response):[],resultKeys:response?.result?Object.keys(response.result):[]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        
+        // Handle REST API response when WebSocket is not connected
+        if (response?.result?.response) {
+          console.log('[ChatInterface] Adding assistant message from REST API response')
+          // For query mode, save to workflow finalResult instead of regular messages
+          if (executionMode === 'query') {
+            const workflowId = messages.find(m => m.role === 'user')?.timestamp
+            if (workflowId) {
+              chatStore.setWorkflowFinalResult(workflowId, response.result.response)
+            }
+          } else {
+            addMessage({
+              role: 'assistant',
+              content: response.result.response,
+              timestamp: new Date().toISOString(),
+            })
+          }
+        } else {
+          console.warn('[ChatInterface] REST API response missing result.response', { response })
+        }
       } else {
         // Create new session FIRST, then connect WebSocket, then send message
         console.log('[ChatInterface] Creating new session first')
@@ -580,23 +622,41 @@ export function ChatInterface() {
         // Note: WebSocket doesn't support file_ids/open_files yet, so we use REST API when files are attached
         if (fileIds.length > 0 || openFiles.length > 0 || !wsClient.isConnected()) {
           console.log('[ChatInterface] Using REST API (files attached, open files, or WebSocket not connected)')
-          await sendMessage({
+          const response = await sendMessage({
             message: userMessage,
             session_id: newSessionId,
             execution_mode: executionMode,
             file_ids: fileIds.length > 0 ? fileIds : undefined,
             open_files: openFiles.length > 0 ? openFiles : undefined,
           })
+          
+          // Handle REST API response when WebSocket is not connected
+          if (response?.result?.response) {
+            addMessage({
+              role: 'assistant',
+              content: response.result.response,
+              timestamp: new Date().toISOString(),
+            })
+          }
         } else {
           console.log('[ChatInterface] Sending message via WebSocket')
           const sent = wsClient.sendMessage(userMessage)
           if (!sent) {
             console.warn('[ChatInterface] WebSocket send failed, using REST API')
-            await sendMessage({
+            const response = await sendMessage({
               message: userMessage,
               session_id: newSessionId,
               execution_mode: executionMode,
             })
+            
+            // Handle REST API response when WebSocket send failed
+            if (response?.result?.response) {
+              addMessage({
+                role: 'assistant',
+                content: response.result.response,
+                timestamp: new Date().toISOString(),
+              })
+            }
           }
         }
       }
@@ -638,13 +698,22 @@ export function ChatInterface() {
   }
   
   const handleStopGeneration = () => {
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleStopGeneration:entry',message:'Stop button clicked',data:{isSending,isAgentTyping,executionMode,currentSession,wsConnected:wsClient.isConnected()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_STOP'})}).catch(()=>{});
+    // #endregion
     console.log('[ChatInterface] Stopping generation')
     wsClient.stopGeneration()
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleStopGeneration:after_stop',message:'After calling stopGeneration',data:{isSending,isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_STOP'})}).catch(()=>{});
+    // #endregion
     setIsSending(false)
     setAgentTyping(false)
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleStopGeneration:after_state',message:'After setting state to false',data:{isSending,isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_STOP'})}).catch(()=>{});
+    // #endregion
   }
   
-  const handleExecutionModeChange = async (mode: 'instant' | 'approval' | 'react' | 'query') => {
+  const handleExecutionModeChange = async (mode: ExecutionMode) => {
     setExecutionMode(mode)
     if (currentSession) {
       await updateSettings({
@@ -901,7 +970,7 @@ export function ChatInterface() {
             // CRITICAL: For ReAct mode, render reasoning blocks directly using CollapsibleBlock (same as Plan mode)
             // This check MUST come FIRST, before all other checks, to ensure ReAct blocks are rendered
             // For Query mode, only show reasoning if showReasoning setting is enabled
-            const shouldShowReasoning = executionMode === 'react' || 
+            const shouldShowReasoning = executionMode === 'agent' || 
               (executionMode === 'query' && useSettingsStore.getState().showReasoning)
             
             if (shouldShowReasoning && assistantMsg.reasoningBlocks.length > 0) {
@@ -972,8 +1041,9 @@ export function ChatInterface() {
               
               // Don't render assistant-message-wrapper if workflow exists
               // Multi-step workflows display content through PlanBlock, StepProgress, FinalResultBlock
-              // BUT: For ReAct mode, always render assistant messages (no workflow system)
-              if (lastUserWorkflow && executionMode !== 'react') {
+              // BUT: For ReAct mode and agent/approval modes, always render assistant messages to show reasoning
+              // For agent/approval modes, we want to show reasoning blocks even if workflow exists
+              if (lastUserWorkflow && executionMode !== 'agent' && executionMode !== 'plan') {
                 // Simple task: no plan or plan has no steps
                 const isSimpleTask = !lastUserWorkflow.plan || !lastUserWorkflow.plan.steps || lastUserWorkflow.plan.steps.length === 0
                 
@@ -989,9 +1059,10 @@ export function ChatInterface() {
                 return null
               }
               
-              // For ReAct mode, always render assistant messages (even if workflow exists)
-              if (executionMode === 'react') {
-                console.log('[ChatInterface] Rendering assistant message for ReAct mode', { messageId: assistantMsg.id })
+              // For ReAct/agent/approval modes, always render assistant messages (even if workflow exists)
+              // This ensures reasoning blocks are visible
+              if (executionMode === 'agent' || executionMode === 'plan') {
+                console.log('[ChatInterface] Rendering assistant message for agent/plan mode', { messageId: assistantMsg.id, executionMode })
               }
               
               // No workflow - render normally
@@ -1098,10 +1169,33 @@ export function ChatInterface() {
         })
         })()}
         
-        {/* Thinking Indicator - показывается когда reasoning активен, но не виден пользователю */}
-        {showThinkingIndicator && (
-          <div style={{ maxWidth: '900px', width: '100%', margin: '0 auto', padding: '0 14px' }}>
-            <ThinkingIndicator />
+        {/* Thinking Message - appears after last message in the flow */}
+        {shouldShowThinkingMessage() && activeThinkingId && thinkingBlocks[activeThinkingId] && (
+          <div style={{ maxWidth: '900px', width: '100%', margin: '0 auto', padding: '0 14px', marginTop: '0' }}>
+            <ThinkingMessage
+              thinkingId={activeThinkingId}
+              block={thinkingBlocks[activeThinkingId]}
+              onToggleCollapse={() => toggleThinkingCollapse(activeThinkingId)}
+              onTogglePin={() => toggleThinkingPin(activeThinkingId)}
+            />
+          </div>
+        )}
+        
+        {/* Debug: Log thinking blocks state */}
+        {process.env.NODE_ENV === 'development' && (
+          <div style={{ display: 'none' }}>
+            {console.log('[ChatInterface] Thinking blocks state:', {
+              activeThinkingId,
+              thinkingBlocksCount: Object.keys(thinkingBlocks).length,
+              thinkingBlocks: Object.keys(thinkingBlocks).map(id => ({
+                id,
+                contentLength: thinkingBlocks[id]?.content?.length || 0,
+                status: thinkingBlocks[id]?.status,
+                isStreaming: thinkingBlocks[id]?.isStreaming
+              })),
+              shouldShow: shouldShowThinkingMessage(),
+              executionMode
+            })}
           </div>
         )}
         
@@ -1160,17 +1254,15 @@ export function ChatInterface() {
                   onClick={() => setIsModeDropdownOpen(!isModeDropdownOpen)}
                   className="mode-selector-dropdown-button"
                   title={
-                    executionMode === 'instant' ? 'Мгновенное выполнение' :
-                    executionMode === 'approval' ? 'С подтверждением действий' :
                     executionMode === 'query' ? 'Только чтение данных' :
-                    'ReAct адаптивный режим'
+                    executionMode === 'plan' ? 'С планированием и подтверждением' :
+                    'Автономное выполнение'
                   }
                 >
                   <span>
-                    {executionMode === 'instant' ? 'Агент' :
-                     executionMode === 'approval' ? 'План' :
-                     executionMode === 'query' ? 'Вопрос' :
-                     'ReAct'}
+                    {executionMode === 'query' ? 'Вопрос' :
+                     executionMode === 'plan' ? 'План' :
+                     'Агент'}
                   </span>
                   <ChevronDown className={`w-2.5 h-2.5 transition-transform ${isModeDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -1180,42 +1272,32 @@ export function ChatInterface() {
                     <button
                       type="button"
                       onClick={() => {
-                        handleExecutionModeChange('instant')
-                        setIsModeDropdownOpen(false)
-                      }}
-                      className={`mode-dropdown-item ${executionMode === 'instant' ? 'active' : ''}`}
-                    >
-                      Агент
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleExecutionModeChange('approval')
-                        setIsModeDropdownOpen(false)
-                      }}
-                      className={`mode-dropdown-item ${executionMode === 'approval' ? 'active' : ''}`}
-                    >
-                      План
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleExecutionModeChange('react')
-                        setIsModeDropdownOpen(false)
-                      }}
-                      className={`mode-dropdown-item ${executionMode === 'react' ? 'active' : ''}`}
-                    >
-                      ReAct
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
                         handleExecutionModeChange('query')
                         setIsModeDropdownOpen(false)
                       }}
                       className={`mode-dropdown-item ${executionMode === 'query' ? 'active' : ''}`}
                     >
                       Вопрос
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleExecutionModeChange('plan')
+                        setIsModeDropdownOpen(false)
+                      }}
+                      className={`mode-dropdown-item ${executionMode === 'plan' ? 'active' : ''}`}
+                    >
+                      План
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleExecutionModeChange('agent')
+                        setIsModeDropdownOpen(false)
+                      }}
+                      className={`mode-dropdown-item ${executionMode === 'agent' ? 'active' : ''}`}
+                    >
+                      Агент
                     </button>
                   </div>
                 )}
@@ -1311,7 +1393,13 @@ export function ChatInterface() {
               <div className="input-actions-spacer"></div>
 
               {/* Send/Stop Button */}
-              {(isSending || isAgentTyping) ? (
+              {(() => {
+                // #region agent log
+                const shouldShowStop = isSending || isAgentTyping
+                fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:render:stopButton',message:'Rendering button area',data:{isSending,isAgentTyping,shouldShowStop},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
+                // #endregion
+                return shouldShowStop
+              })() ? (
                 <button
                   type="button"
                   onClick={handleStopGeneration}

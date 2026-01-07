@@ -19,6 +19,10 @@ export class WebSocketClient {
   private currentReasoningBlockId: string | null = null
   private currentAnswerBlockId: string | null = null
   private currentMessageId: string | null = null
+  
+  // Thinking block delay (2 seconds)
+  private thinkingDelayTimer: NodeJS.Timeout | null = null
+  private pendingThinkingId: string | null = null
 
   connect(sessionId: string): void {
     this.sessionId = sessionId
@@ -468,8 +472,32 @@ export class WebSocketClient {
         break
 
       case 'message_complete':
+        // Cancel thinking delay timer if response completed quickly
+        if (this.thinkingDelayTimer) {
+          clearTimeout(this.thinkingDelayTimer)
+          this.thinkingDelayTimer = null
+          console.log('[WebSocket] Cancelled thinking delay - response completed quickly')
+        }
+        // Clear pending thinking ID
+        this.pendingThinkingId = null
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_complete:entry',message:'Message complete event received',data:{eventData:event.data,currentMessageId:this.currentMessageId,isAgentTypingBefore:useChatStore.getState().isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
         // Complete the message
-        const completeMessageId = event.data.message_id || this.currentMessageId
+        let completeMessageId = event.data.message_id || this.currentMessageId
+        
+        // If no message ID exists, create a new message with the content
+        if (!completeMessageId && event.data.content) {
+          completeMessageId = event.data.message_id || `msg-${Date.now()}`
+          // Create a new assistant message by starting an answer block
+          const answerBlockId = `answer-${Date.now()}`
+          chatStore.startAnswerBlock(completeMessageId, answerBlockId)
+          chatStore.updateAnswerBlock(completeMessageId, answerBlockId, event.data.content)
+          chatStore.completeAnswerBlock(completeMessageId, answerBlockId)
+          this.currentMessageId = completeMessageId
+        }
+        
         if (completeMessageId) {
           // Complete any active blocks
           if (this.currentReasoningBlockId) {
@@ -520,7 +548,23 @@ export class WebSocketClient {
           this.currentReasoningBlockId = null
           this.currentAnswerBlockId = null
         }
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_complete:before_clear',message:'About to clear current action in message_complete',data:{currentAction:useChatStore.getState().currentAction,completeMessageId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+        
+        // #region agent log
+        const isAgentTypingBefore = useChatStore.getState().isAgentTyping
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_complete:before_setAgentTyping',message:'About to set isAgentTyping to false',data:{isAgentTypingBefore,completeMessageId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        
         chatStore.setAgentTyping(false)
+        chatStore.clearCurrentAction()
+        
+        // #region agent log
+        const isAgentTypingAfter = useChatStore.getState().isAgentTyping
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_complete:after_setAgentTyping',message:'After setAgentTyping(false)',data:{isAgentTypingBefore,isAgentTypingAfter,changed:isAgentTypingBefore!==isAgentTypingAfter,currentActionAfter:useChatStore.getState().currentAction},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        
         console.log('[WebSocket] Completed message:', completeMessageId)
         break
 
@@ -638,7 +682,7 @@ export class WebSocketClient {
         console.log('[WebSocket] Step started:', event.data.step, event.data.title)
         break
 
-      case 'thinking_chunk':
+      case 'step_thinking_chunk':
         // Ensure active workflow exists
         ensureActiveWorkflow()
         // Add thinking chunk to current step (streaming) - use getState() to get fresh state
@@ -690,9 +734,15 @@ export class WebSocketClient {
         break
 
       case 'workflow_stopped':
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:workflow_stopped:entry',message:'Workflow stopped event received',data:{eventData:event.data,isAgentTypingBefore:useChatStore.getState().isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_STOP'})}).catch(()=>{});
+        // #endregion
         console.log('[WebSocket] Workflow stopped by user:', event.data)
         // Workflow stopped by user request
         useChatStore.getState().setAgentTyping(false)
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:workflow_stopped:after',message:'After setAgentTyping(false) in workflow_stopped',data:{isAgentTypingAfter:useChatStore.getState().isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_STOP'})}).catch(()=>{});
+        // #endregion
         break
 
       case 'workflow_complete':
@@ -728,15 +778,29 @@ export class WebSocketClient {
         break
 
       case 'final_result_complete':
+        // Cancel thinking delay timer if response completed quickly
+        if (this.thinkingDelayTimer) {
+          clearTimeout(this.thinkingDelayTimer)
+          this.thinkingDelayTimer = null
+          console.log('[WebSocket] Cancelled thinking delay - final result completed quickly')
+        }
+        // Clear pending thinking ID
+        this.pendingThinkingId = null
+        
         // Complete final result streaming
         const finalResultCompleteWorkflowId = ensureActiveWorkflow()
         // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result_complete',message:'Final result streaming completed',data:{workflowId:finalResultCompleteWorkflowId,contentLength:event.data.content?.length || 0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+        const isAgentTypingBeforeFinal = useChatStore.getState().isAgentTyping
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result_complete:entry',message:'Final result streaming completed',data:{workflowId:finalResultCompleteWorkflowId,contentLength:event.data.content?.length || 0,isAgentTypingBefore:isAgentTypingBeforeFinal},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
         // #endregion
         if (finalResultCompleteWorkflowId) {
           chatStore.updateWorkflowFinalResult(finalResultCompleteWorkflowId, event.data.content || '')
         }
         chatStore.setAgentTyping(false)
+        // #region agent log
+        const isAgentTypingAfterFinal = useChatStore.getState().isAgentTyping
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result_complete:after_setAgentTyping',message:'After setAgentTyping(false) in final_result_complete',data:{isAgentTypingBefore:isAgentTypingBeforeFinal,isAgentTypingAfter:isAgentTypingAfterFinal,changed:isAgentTypingBeforeFinal!==isAgentTypingAfterFinal},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
         console.log('[WebSocket] Final result streaming completed')
         break
 
@@ -969,15 +1033,158 @@ export class WebSocketClient {
         break
       }
 
+      // New thinking events (Cursor-style)
+      case 'thinking_started': {
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking_started:entry',message:'Thinking started event received',data:{eventData:event.data,pendingThinkingId:this.pendingThinkingId,hasTimer:!!this.thinkingDelayTimer,activeThinkingId:useChatStore.getState().activeThinkingId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        console.log('[WebSocket] Thinking started:', event.data)
+        const thinkingId = event.data.thinking_id || `thinking-${Date.now()}`
+        
+        // Create thinking block but don't show it immediately
+        chatStore.startThinking(thinkingId)
+        chatStore.setAgentTyping(true)
+        
+        // Store thinking ID for delayed activation
+        this.pendingThinkingId = thinkingId
+        
+        // Clear any existing timer
+        if (this.thinkingDelayTimer) {
+          clearTimeout(this.thinkingDelayTimer)
+        }
+        
+        // Set timer to show thinking block after 2 seconds
+        this.thinkingDelayTimer = setTimeout(() => {
+          // #region agent log
+          const stateBeforeCheck = useChatStore.getState()
+          const blockBeforeCheck = stateBeforeCheck.thinkingBlocks[thinkingId]
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking_started:timer_fired',message:'Thinking delay timer fired',data:{thinkingId,pendingThinkingId:this.pendingThinkingId,activeThinkingId:stateBeforeCheck.activeThinkingId,blockStatus:blockBeforeCheck?.status,blockExists:!!blockBeforeCheck,willActivate:this.pendingThinkingId===thinkingId&&stateBeforeCheck.activeThinkingId!==thinkingId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+          // #endregion
+          // Only show if response hasn't completed yet
+          const state = useChatStore.getState()
+          const block = state.thinkingBlocks[thinkingId]
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking_started:timer_check',message:'Timer check before activation',data:{thinkingId,pendingThinkingId:this.pendingThinkingId,activeThinkingId:state.activeThinkingId,blockStatus:block?.status,blockExists:!!block,shouldActivate:this.pendingThinkingId===thinkingId&&state.activeThinkingId!==thinkingId&&block?.status!=='completed'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+          // #endregion
+          if (this.pendingThinkingId === thinkingId && state.activeThinkingId !== thinkingId && block?.status !== 'completed') {
+            chatStore.setActiveThinking(thinkingId)
+            // #region agent log
+            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking_started:timer_activated',message:'Timer activated thinking block',data:{thinkingId,blockStatus:block?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+            // #endregion
+            console.log('[WebSocket] Showing thinking block after 2s delay')
+          } else {
+            // #region agent log
+            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking_started:timer_skipped',message:'Timer skipped activation',data:{thinkingId,pendingThinkingId:this.pendingThinkingId,activeThinkingId:state.activeThinkingId,blockStatus:block?.status,reason:this.pendingThinkingId!==thinkingId?'pendingIdMismatch':state.activeThinkingId===thinkingId?'alreadyActive':block?.status==='completed'?'alreadyCompleted':'unknown'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+            // #endregion
+          }
+          this.thinkingDelayTimer = null
+        }, 2000)
+        
+        break
+      }
+
+      case 'thinking_chunk': {
+        console.log('[WebSocket] Thinking chunk:', event.data)
+        const thinkingId = event.data.thinking_id || useChatStore.getState().activeThinkingId
+        if (!thinkingId) {
+          // Fallback: create thinking block if doesn't exist
+          const newThinkingId = `thinking-${Date.now()}`
+          chatStore.startThinking(newThinkingId)
+          chatStore.appendThinkingChunk(newThinkingId, event.data.chunk || '', event.data.elapsed_seconds || 0, event.data.step_type)
+        } else {
+          chatStore.appendThinkingChunk(thinkingId, event.data.chunk || '', event.data.elapsed_seconds || 0, event.data.step_type)
+        }
+        break
+      }
+
+      case 'thinking_completed': {
+        // #region agent log
+        const stateBeforeComplete = useChatStore.getState()
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking_completed:entry',message:'Thinking completed event received',data:{eventData:event.data,pendingThinkingId:this.pendingThinkingId,hasTimer:!!this.thinkingDelayTimer,activeThinkingId:stateBeforeComplete.activeThinkingId,blockStatus:stateBeforeComplete.thinkingBlocks[event.data.thinking_id]?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+        console.log('[WebSocket] Thinking completed:', event.data)
+        const thinkingId = event.data.thinking_id || useChatStore.getState().activeThinkingId
+        if (thinkingId) {
+          // Cancel timer if it's for this thinkingId
+          if (this.thinkingDelayTimer && this.pendingThinkingId === thinkingId) {
+            // #region agent log
+            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking_completed:cancel_timer',message:'Cancelling thinking delay timer',data:{thinkingId,pendingThinkingId:this.pendingThinkingId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+            // #endregion
+            clearTimeout(this.thinkingDelayTimer)
+            this.thinkingDelayTimer = null
+            this.pendingThinkingId = null
+          }
+          const autoCollapse = event.data.auto_collapse !== false // Default true
+          chatStore.completeThinking(thinkingId, autoCollapse)
+          // #region agent log
+          const stateAfterComplete = useChatStore.getState()
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking_completed:after_complete',message:'After completeThinking call',data:{thinkingId,activeThinkingId:stateAfterComplete.activeThinkingId,blockStatus:stateAfterComplete.thinkingBlocks[thinkingId]?.status,blockExists:!!stateAfterComplete.thinkingBlocks[thinkingId]},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+          // #endregion
+          // Если есть полный текст, обновляем контент
+          if (event.data.full_content) {
+            const thinkingState = useChatStore.getState()
+            const block = thinkingState.thinkingBlocks[thinkingId]
+            if (block) {
+              // Обновляем контент через appendThinkingChunk
+              chatStore.appendThinkingChunk(thinkingId, event.data.full_content, event.data.elapsed_seconds || block.elapsedSeconds)
+            }
+          }
+        }
+        break
+      }
+
       case 'react_start': {
-        // ReAct cycle started
-        console.log('[WebSocket] ReAct cycle started:', event.data)
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_start:entry',message:'ReAct start event received',data:{eventData:event.data,currentMessageId:this.currentMessageId,isAgentTypingBefore:chatStore.isAgentTyping,activeWorkflowId:chatStore.activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_REACT_START'})}).catch(()=>{});
+        // #endregion
+        // ReAct cycle started - FALLBACK: create thinking block
+        console.log('[WebSocket] ReAct cycle started (fallback to thinking):', event.data)
+        const thinkingId = `thinking-${Date.now()}`
+        
+        // Create thinking block but don't show it immediately
+        chatStore.startThinking(thinkingId)
+        
+        // Store thinking ID for delayed activation
+        this.pendingThinkingId = thinkingId
+        
+        // Clear any existing timer
+        if (this.thinkingDelayTimer) {
+          clearTimeout(this.thinkingDelayTimer)
+        }
+        
+        // Set timer to show thinking block after 2 seconds
+        this.thinkingDelayTimer = setTimeout(() => {
+          // Only show if response hasn't completed yet
+          const state = useChatStore.getState()
+          if (this.pendingThinkingId === thinkingId && state.activeThinkingId !== thinkingId) {
+            chatStore.setActiveThinking(thinkingId)
+            console.log('[WebSocket] Showing thinking block after 2s delay (react_start)')
+          }
+          this.thinkingDelayTimer = null
+        }, 2000)
+        
+        // Also handle legacy reasoning block
         console.log('[WebSocket] Current message ID:', this.currentMessageId)
         console.log('[WebSocket] Current reasoning block ID:', this.currentReasoningBlockId)
         
         const reactMsgId = this.currentMessageId || `msg-${Date.now()}`
         this.currentMessageId = reactMsgId
-        chatStore.setAgentTyping(true)
+        
+        // Only set isAgentTyping=true if there's an active workflow or message
+        // This prevents setting it for background processes or stale events
+        const hasActiveWorkflow = chatStore.activeWorkflowId && chatStore.workflows[chatStore.activeWorkflowId]
+        const hasActiveMessage = chatStore.assistantMessages[reactMsgId] && !chatStore.assistantMessages[reactMsgId].isComplete
+        
+        if (hasActiveWorkflow || hasActiveMessage || !chatStore.isAgentTyping) {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_start:setTyping',message:'Setting isAgentTyping=true in react_start',data:{hasActiveWorkflow,hasActiveMessage,isAgentTypingBefore:chatStore.isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_REACT_START'})}).catch(()=>{});
+          // #endregion
+          chatStore.setAgentTyping(true)
+        } else {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_start:skipTyping',message:'Skipping setAgentTyping(true) - no active workflow/message',data:{hasActiveWorkflow,hasActiveMessage,isAgentTyping:chatStore.isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_REACT_START'})}).catch(()=>{});
+          // #endregion
+        }
         
         // Create reasoning block for ReAct trail
         this.currentReasoningBlockId = `react-reasoning-${Date.now()}`
@@ -1005,8 +1212,24 @@ export class WebSocketClient {
       }
 
       case 'react_thinking': {
-        // ReAct thinking phase
-        console.log('[WebSocket] ReAct thinking:', event.data)
+        // ReAct thinking phase - FALLBACK: update thinking block
+        console.log('[WebSocket] ReAct thinking (fallback to thinking):', event.data)
+        
+        // Update thinking block if exists, or create new one
+        const thinkingState = useChatStore.getState()
+        let thinkingId = thinkingState.activeThinkingId
+        if (!thinkingId) {
+          // Create thinking block if it doesn't exist
+          thinkingId = `thinking-${Date.now()}`
+          chatStore.startThinking(thinkingId)
+        }
+        
+        const thoughtText = event.data.thought || 'Анализирую ситуацию...'
+        const block = thinkingState.thinkingBlocks[thinkingId]
+        const elapsedSeconds = block ? (Date.now() - block.startedAt) / 1000 : 0
+        chatStore.appendThinkingChunk(thinkingId, `🧠 ${thoughtText}\n`, elapsedSeconds, 'analyzing')
+        
+        // Legacy reasoning block handling
         const thinkingMsgId = this.currentMessageId || `msg-${Date.now()}`
         if (!this.currentMessageId) {
           this.currentMessageId = thinkingMsgId
@@ -1022,8 +1245,8 @@ export class WebSocketClient {
         const iteration = event.data.iteration || 1
         
         // Append to existing content instead of replacing
-        const state = useChatStore.getState()
-        const message = state.assistantMessages[thinkingMsgId]
+        const reasoningState = useChatStore.getState()
+        const message = reasoningState.assistantMessages[thinkingMsgId]
         const existingContent = message?.reasoningBlocks.find(b => b.id === this.currentReasoningBlockId)?.content || ''
         
         const thinkingContent = existingContent 
@@ -1054,9 +1277,51 @@ export class WebSocketClient {
         const tool = event.data.tool || 'unknown'
         const iteration = event.data.iteration || 1
         
+        // Update thinking block if exists, or create new one
+        const actionThinkingState = useChatStore.getState()
+        let thinkingId = actionThinkingState.activeThinkingId
+        if (!thinkingId) {
+          // Create thinking block if it doesn't exist
+          thinkingId = `thinking-${Date.now()}`
+          chatStore.startThinking(thinkingId)
+        }
+        
+        if (thinkingId) {
+          // Трансформируем технические сообщения в human-readable
+          let humanReadable = action
+          if (action.includes('Fallback: использование')) {
+            humanReadable = '🔍 Ищу информацию...'
+          } else if (tool.includes('calendar') || tool.includes('event')) {
+            humanReadable = `📅 Получаю события календаря...`
+          } else if (tool.includes('email') || tool.includes('gmail')) {
+            humanReadable = `📧 Ищу в почте...`
+          } else if (tool.includes('file') || tool.includes('workspace')) {
+            humanReadable = `📁 Ищу файлы...`
+          } else if (tool.includes('search')) {
+            humanReadable = `🔍 Ищу информацию...`
+          } else {
+            humanReadable = action
+          }
+          
+          const elapsedSeconds = (Date.now() - actionThinkingState.thinkingBlocks[thinkingId].startedAt) / 1000
+          chatStore.appendThinkingChunk(thinkingId, `${humanReadable}\n`, elapsedSeconds, 'executing')
+        }
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_action:before_setCurrentAction',message:'About to set current action',data:{tool,action,iteration},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+        
+        // Set current action for dynamic indicator
+        chatStore.setCurrentAction({ tool, description: action })
+        
+        // #region agent log
+        const stateAfter = useChatStore.getState()
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_action:after_setCurrentAction',message:'Current action set',data:{tool,action,currentActionInStore:stateAfter.currentAction},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+        
         // Append to existing content instead of replacing
-        const state = useChatStore.getState()
-        const message = state.assistantMessages[actionMsgId]
+        const actionReasoningState = useChatStore.getState()
+        const message = actionReasoningState.assistantMessages[actionMsgId]
         const existingContent = message?.reasoningBlocks.find(b => b.id === this.currentReasoningBlockId)?.content || ''
         
         const actionContent = existingContent
@@ -1070,8 +1335,26 @@ export class WebSocketClient {
       }
 
       case 'react_observation': {
-        // ReAct observation phase
-        console.log('[WebSocket] ReAct observation:', event.data)
+        // ReAct observation phase - FALLBACK: update thinking block
+        console.log('[WebSocket] ReAct observation (fallback to thinking):', event.data)
+        
+        // Update thinking block if exists, or create new one
+        const obsThinkingState = useChatStore.getState()
+        let thinkingId = obsThinkingState.activeThinkingId
+        if (!thinkingId) {
+          // Create thinking block if it doesn't exist
+          thinkingId = `thinking-${Date.now()}`
+          chatStore.startThinking(thinkingId)
+        }
+        
+        if (thinkingId) {
+          const result = event.data.result || 'Результат получен'
+          const resultPreview = result.length > 100 ? result.substring(0, 100) + '...' : result
+          const elapsedSeconds = (Date.now() - obsThinkingState.thinkingBlocks[thinkingId].startedAt) / 1000
+          chatStore.appendThinkingChunk(thinkingId, `✓ ${resultPreview}\n`, elapsedSeconds, 'observing')
+        }
+        
+        // Legacy reasoning block handling
         const obsMsgId = this.currentMessageId || `msg-${Date.now()}`
         if (!this.currentMessageId) {
           this.currentMessageId = obsMsgId
@@ -1087,8 +1370,8 @@ export class WebSocketClient {
         const iteration = event.data.iteration || 1
         
         // Append to existing content instead of replacing
-        const state = useChatStore.getState()
-        const message = state.assistantMessages[obsMsgId]
+        const obsReasoningState = useChatStore.getState()
+        const message = obsReasoningState.assistantMessages[obsMsgId]
         const existingContent = message?.reasoningBlocks.find(b => b.id === this.currentReasoningBlockId)?.content || ''
         
         const obsContent = existingContent
@@ -1125,8 +1408,25 @@ export class WebSocketClient {
       }
 
       case 'react_complete': {
-        // ReAct cycle completed successfully
-        console.log('[WebSocket] ReAct cycle completed:', event.data)
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_complete:entry',message:'React complete event received',data:{eventData:event.data,isAgentTypingBefore:useChatStore.getState().isAgentTyping},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+        // ReAct cycle completed successfully - FALLBACK: complete thinking block
+        console.log('[WebSocket] ReAct cycle completed (fallback to thinking):', event.data)
+        
+        // Complete thinking block if exists
+        const state = useChatStore.getState()
+        const thinkingId = state.activeThinkingId
+        if (thinkingId) {
+          const block = state.thinkingBlocks[thinkingId]
+          if (block) {
+            const elapsedSeconds = block.status === 'completed' 
+              ? block.elapsedSeconds 
+              : (Date.now() - block.startedAt) / 1000
+            chatStore.completeThinking(thinkingId, true) // Auto-collapse
+          }
+        }
+        
         const completeMsgId = this.currentMessageId || `msg-${Date.now()}`
         
         // Complete reasoning block
@@ -1139,7 +1439,6 @@ export class WebSocketClient {
         const trail = event.data.trail || []
         
         // #region agent log
-        const state = useChatStore.getState()
         const settingsState = useSettingsStore.getState()
         const isQueryMode = settingsState.executionMode === 'query'
         const activeWorkflowId = state.activeWorkflowId
@@ -1161,7 +1460,17 @@ export class WebSocketClient {
         chatStore.updateAnswerBlock(completeMsgId, this.currentAnswerBlockId, `✅ **Задача выполнена!**\n\n${result}`)
         chatStore.completeAnswerBlock(completeMsgId, this.currentAnswerBlockId)
         
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_complete:before_clear',message:'About to clear current action in react_complete',data:{currentAction:useChatStore.getState().currentAction},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+        
         chatStore.setAgentTyping(false)
+        chatStore.clearCurrentAction()
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_complete:after_clear',message:'Current action cleared in react_complete',data:{currentActionAfter:useChatStore.getState().currentAction},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+        
         addDebugChunkIfEnabled(completeMsgId, 'message_complete', result, event.data)
         break
       }
@@ -1180,8 +1489,14 @@ export class WebSocketClient {
         const tried = event.data.tried || []
         const result = event.data.result || '' // Check if there's any partial result
         
-        // #region agent log
+        // Complete thinking block if exists
         const state = useChatStore.getState()
+        const thinkingId = state.activeThinkingId
+        if (thinkingId) {
+          chatStore.completeThinking(thinkingId, false) // Не сворачиваем при ошибке
+        }
+        
+        // #region agent log
         const settingsState = useSettingsStore.getState()
         const isQueryMode = settingsState.executionMode === 'query'
         const activeWorkflowId = state.activeWorkflowId
@@ -1203,7 +1518,19 @@ export class WebSocketClient {
         chatStore.updateAnswerBlock(failedMsgId, this.currentAnswerBlockId, `❌ **Задача не выполнена**\n\n**Причина:** ${reason}\n\n${result ? `**Полученные данные:**\n${result}\n\n` : ''}**Попытки:** ${tried.join(', ') || 'нет'}`)
         chatStore.completeAnswerBlock(failedMsgId, this.currentAnswerBlockId)
         
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_failed:before_clear',message:'About to clear current action in react_failed',data:{currentAction:useChatStore.getState().currentAction},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+        
+        // Don't clear currentAction here - let it stay visible until reasoning blocks complete
+        // This ensures the indicator shows what action was being performed even if it failed
         chatStore.setAgentTyping(false)
+        // chatStore.clearCurrentAction() - removed to keep action visible
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_failed:after_clear',message:'Current action cleared in react_failed',data:{currentActionAfter:useChatStore.getState().currentAction},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+        
         addDebugChunkIfEnabled(failedMsgId, 'error', reason, event.data)
         break
       }
@@ -1370,13 +1697,23 @@ export class WebSocketClient {
   }
 
   stopGeneration(): void {
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:stopGeneration:entry',message:'Stop generation called',data:{hasWs:!!this.ws,readyState:this.ws?.readyState,wsOpen:this.ws?.readyState === WebSocket.OPEN},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_STOP'})}).catch(()=>{});
+    // #endregion
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         type: 'stop_generation',
       }))
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:stopGeneration:sent',message:'Stop generation message sent',data:{timestamp:Date.now()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_STOP'})}).catch(()=>{});
+      // #endregion
       console.log('[WebSocket] Stop generation requested')
       // NOTE: Do NOT disconnect here - it closes the connection before the server can process the stop_generation message
       // The connection should remain open to receive workflow_stopped event
+    } else {
+      // #region agent log
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:stopGeneration:failed',message:'Stop generation failed - WebSocket not open',data:{hasWs:!!this.ws,readyState:this.ws?.readyState},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H_STOP'})}).catch(()=>{});
+      // #endregion
     }
   }
 

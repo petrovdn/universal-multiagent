@@ -1,5 +1,6 @@
 import axios from 'axios'
 import type { WorkspaceTabType } from '../types/workspace'
+import { ExecutionMode } from '../store/settingsStore'
 
 const api = axios.create({
   baseURL: '/api',
@@ -65,7 +66,7 @@ export interface OpenFile {
 export interface SendMessageRequest {
   message: string
   session_id?: string
-  execution_mode?: 'instant' | 'approval' | 'react' | 'query'
+  execution_mode?: ExecutionMode
   file_ids?: string[]
   open_files?: OpenFile[]
 }
@@ -99,7 +100,7 @@ export const getHistory = async (sessionId: string) => {
 
 export const updateSettings = async (settings: {
   session_id: string
-  execution_mode?: 'instant' | 'approval' | 'react' | 'query'
+  execution_mode?: ExecutionMode
   model_name?: string
 }) => {
   const response = await api.post('/settings', settings)
@@ -165,7 +166,7 @@ export const healthCheck = async () => {
   return response.data
 }
 
-export const createSession = async (executionMode: 'instant' | 'approval' | 'react' | 'query' = 'instant', modelName?: string) => {
+export const createSession = async (executionMode: ExecutionMode = 'instant', modelName?: string) => {
   const request: any = { execution_mode: executionMode }
   if (modelName) {
     request.model_name = modelName
