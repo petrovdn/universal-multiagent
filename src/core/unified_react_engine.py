@@ -91,6 +91,7 @@ class UnifiedReActEngine:
         self._stop_requested: bool = False
         self._current_thinking_id: Optional[str] = None  # Current thinking block ID
         self._thinking_start_time: Optional[float] = None  # Start time for elapsed calculation
+        self._current_intent_id: Optional[str] = None  # Current intent block ID (Cursor-style)
         
         logger.info(
             f"[UnifiedReActEngine] Initialized for session {session_id} "
@@ -1091,6 +1092,18 @@ class UnifiedReActEngine:
         else:
             return "🔧 Выполняю действие..."
     
+    def _get_detail_type(self, tool_name: str) -> str:
+        """Map tool name to intent detail type."""
+        tool_lower = tool_name.lower()
+        if 'search' in tool_lower or 'find' in tool_lower:
+            return 'search'
+        elif 'read' in tool_lower or 'get' in tool_lower or 'list' in tool_lower or 'fetch' in tool_lower:
+            return 'read'
+        elif 'create' in tool_lower or 'write' in tool_lower or 'send' in tool_lower or 'update' in tool_lower:
+            return 'write'
+        else:
+            return 'execute'
+    
     async def _stream_reasoning(self, event_type: str, data: Dict[str, Any]):
         """Stream reasoning event to WebSocket."""
         try:
@@ -1141,6 +1154,65 @@ class UnifiedReActEngine:
                             "thinking_chunk",
                             thinking_data
                         )
+                
+                # Отправляем intent события (Cursor-style)
+                if event_type == "react_thinking":
+                    # Начинаем новое намерение
+                    thought = data.get("thought", "Анализирую запрос...")
+                    self._current_intent_id = f"intent-{int(time.time() * 1000)}"
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "intent_start",
+                        {
+                            "intent_id": self._current_intent_id,
+                            "text": thought
+                        }
+                    )
+                
+                elif event_type == "react_action":
+                    # Добавляем деталь к текущему намерению
+                    if hasattr(self, '_current_intent_id') and self._current_intent_id:
+                        tool = data.get("tool", "unknown")
+                        action = data.get("action", "")
+                        detail_type = self._get_detail_type(tool)
+                        
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "intent_detail",
+                            {
+                                "intent_id": self._current_intent_id,
+                                "type": detail_type,
+                                "description": f"{tool}"
+                            }
+                        )
+                
+                elif event_type == "react_observation":
+                    # Добавляем результат как деталь и завершаем намерение
+                    if hasattr(self, '_current_intent_id') and self._current_intent_id:
+                        result = str(data.get("result", ""))[:100]
+                        
+                        # Добавляем результат как деталь
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "intent_detail",
+                            {
+                                "intent_id": self._current_intent_id,
+                                "type": "analyze",
+                                "description": f"✓ {result}" if result else "✓ Done"
+                            }
+                        )
+                        
+                        # Завершаем текущее намерение
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "intent_complete",
+                            {
+                                "intent_id": self._current_intent_id,
+                                "auto_collapse": True
+                            }
+                        )
+                        self._current_intent_id = None
+                
             else:
                 logger.debug(f"[UnifiedReActEngine] Skipping event {event_type} - no WebSocket connection")
         except Exception as e:

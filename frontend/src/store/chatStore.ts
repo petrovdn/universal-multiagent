@@ -150,6 +150,25 @@ export interface ThinkingBlock {
   }>
 }
 
+// IntentBlock - блок намерения (Cursor-style: заголовок + сворачиваемые детали)
+export type IntentDetailType = 'search' | 'read' | 'execute' | 'analyze' | 'write'
+
+export interface IntentDetail {
+  type: IntentDetailType
+  description: string
+  timestamp: number
+}
+
+export interface IntentBlock {
+  id: string
+  intent: string                    // "Изучаю текущую реализацию блока thinking..."
+  status: 'started' | 'streaming' | 'completed'
+  details: IntentDetail[]           // Список деталей выполнения
+  isCollapsed: boolean
+  startedAt: number
+  completedAt?: number
+}
+
 interface ChatState {
   messages: Message[]
   assistantMessages: Record<string, AssistantMessage> // message_id -> AssistantMessage
@@ -189,6 +208,10 @@ interface ChatState {
   // Thinking blocks - блоки мышления (как в Cursor IDE)
   thinkingBlocks: Record<string, ThinkingBlock> // thinking_id -> ThinkingBlock
   activeThinkingId: string | null // Текущий активный thinking блок
+  
+  // Intent blocks - блоки намерений (Cursor-style: заголовок + детали)
+  intentBlocks: Record<string, IntentBlock[]> // workflowId -> IntentBlock[]
+  activeIntentId: string | null // Текущий активный intent блок
   
   // Legacy support (will be removed)
   streamingMessages: Record<string, Message>
@@ -268,6 +291,14 @@ interface ChatState {
   toggleThinkingPin: (thinkingId: string) => void
   setActiveThinking: (thinkingId: string | null) => void
   
+  // Intent block methods (Cursor-style)
+  startIntent: (workflowId: string, intentId: string, intentText: string) => void
+  addIntentDetail: (workflowId: string, intentId: string, detail: IntentDetail) => void
+  completeIntent: (workflowId: string, intentId: string, autoCollapse: boolean) => void
+  toggleIntentCollapse: (workflowId: string, intentId: string) => void
+  clearIntents: (workflowId: string) => void
+  setActiveIntent: (intentId: string | null) => void
+  
   // Legacy methods (for compatibility during transition)
   startStreamingMessage: (messageId: string, message: Message) => void
   updateStreamingMessage: (messageId: string, content: string) => void
@@ -296,6 +327,8 @@ export const useChatStore = create<ChatState>()(
       currentAction: null,
       thinkingBlocks: {},
       activeThinkingId: null,
+      intentBlocks: {},
+      activeIntentId: null,
       streamingMessages: {},
       reasoningSteps: [],
       reasoningStartTime: null,
@@ -320,6 +353,8 @@ export const useChatStore = create<ChatState>()(
           currentAction: null,
           thinkingBlocks: {},
           activeThinkingId: null,
+          intentBlocks: {},
+          activeIntentId: null,
         }),
       
       startNewSession: () =>
@@ -339,6 +374,8 @@ export const useChatStore = create<ChatState>()(
           currentAction: null,
           thinkingBlocks: {},
           activeThinkingId: null,
+          intentBlocks: {},
+          activeIntentId: null,
         }),
       
       setCurrentSession: (sessionId) =>
@@ -1373,6 +1410,105 @@ export const useChatStore = create<ChatState>()(
         fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:setActiveThinking:after',message:'After setActiveThinking',data:{thinkingId,activeThinkingId:stateAfter.activeThinkingId,changed:stateBefore.activeThinkingId!==stateAfter.activeThinkingId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H6'})}).catch(()=>{});
         // #endregion
       },
+      
+      // Intent block methods (Cursor-style)
+      startIntent: (workflowId: string, intentId: string, intentText: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const newIntent: IntentBlock = {
+            id: intentId,
+            intent: intentText,
+            status: 'started',
+            details: [],
+            isCollapsed: false,
+            startedAt: Date.now(),
+          }
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: [...existingIntents, newIntent],
+            },
+            activeIntentId: intentId,
+          }
+        }),
+      
+      addIntentDetail: (workflowId: string, intentId: string, detail: IntentDetail) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              return {
+                ...intent,
+                status: 'streaming' as const,
+                details: [...intent.details, detail],
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      completeIntent: (workflowId: string, intentId: string, autoCollapse: boolean) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              return {
+                ...intent,
+                status: 'completed' as const,
+                completedAt: Date.now(),
+                isCollapsed: autoCollapse,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+            activeIntentId: state.activeIntentId === intentId ? null : state.activeIntentId,
+          }
+        }),
+      
+      toggleIntentCollapse: (workflowId: string, intentId: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              return {
+                ...intent,
+                isCollapsed: !intent.isCollapsed,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      clearIntents: (workflowId: string) =>
+        set((state) => {
+          const newIntentBlocks = { ...state.intentBlocks }
+          delete newIntentBlocks[workflowId]
+          return {
+            intentBlocks: newIntentBlocks,
+          }
+        }),
+      
+      setActiveIntent: (intentId: string | null) =>
+        set({
+          activeIntentId: intentId,
+        }),
       
       setUserAssistanceRequest: (request) =>
         set({

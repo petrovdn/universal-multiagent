@@ -18,6 +18,7 @@ import { ActionItem } from './ActionItem'
 import { QuestionForm } from './QuestionForm'
 import { ResultSummary } from './ResultSummary'
 import { ThinkingMessage } from './ThinkingMessage'
+import { IntentMessage } from './IntentMessage'
 
 interface AttachedFile {
   id: string
@@ -68,6 +69,8 @@ export function ChatInterface() {
     activeThinkingId,
     toggleThinkingCollapse,
     toggleThinkingPin,
+    intentBlocks,
+    toggleIntentCollapse,
   } = useChatStore()
   
   const { executionMode, setExecutionMode, showReasoning } = useSettingsStore()
@@ -579,7 +582,7 @@ export function ChatInterface() {
           if (executionMode === 'query') {
             const workflowId = messages.find(m => m.role === 'user')?.timestamp
             if (workflowId) {
-              chatStore.setWorkflowFinalResult(workflowId, response.result.response)
+              useChatStore.getState().setWorkflowFinalResult(workflowId, response.result.response)
             }
           } else {
             addMessage({
@@ -823,6 +826,15 @@ export function ChatInterface() {
                       >
                         {/* Show workflow plan */}
                         <PlanBlock workflowId={workflowId} />
+                        
+                        {/* Show intent blocks (Cursor-style) */}
+                        {(intentBlocks[workflowId] || []).map((intentBlock) => (
+                          <IntentMessage
+                            key={intentBlock.id}
+                            block={intentBlock}
+                            onToggleCollapse={() => toggleIntentCollapse(workflowId, intentBlock.id)}
+                          />
+                        ))}
                         
                         {/* Show question forms (Plan mode) */}
                         {(questionMessages[workflowId] || []).map((question) => (
@@ -1181,23 +1193,6 @@ export function ChatInterface() {
           </div>
         )}
         
-        {/* Debug: Log thinking blocks state */}
-        {process.env.NODE_ENV === 'development' && (
-          <div style={{ display: 'none' }}>
-            {console.log('[ChatInterface] Thinking blocks state:', {
-              activeThinkingId,
-              thinkingBlocksCount: Object.keys(thinkingBlocks).length,
-              thinkingBlocks: Object.keys(thinkingBlocks).map(id => ({
-                id,
-                contentLength: thinkingBlocks[id]?.content?.length || 0,
-                status: thinkingBlocks[id]?.status,
-                isStreaming: thinkingBlocks[id]?.isStreaming
-              })),
-              shouldShow: shouldShowThinkingMessage(),
-              executionMode
-            })}
-          </div>
-        )}
         
         {/* Scroll spacer */}
         <div className="scroll-spacer" />

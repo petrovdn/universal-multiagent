@@ -21,7 +21,7 @@ export class WebSocketClient {
   private currentMessageId: string | null = null
   
   // Thinking block delay (2 seconds)
-  private thinkingDelayTimer: NodeJS.Timeout | null = null
+  private thinkingDelayTimer: ReturnType<typeof setTimeout> | null = null
   private pendingThinkingId: string | null = null
 
   connect(sessionId: string): void {
@@ -1129,6 +1129,48 @@ export class WebSocketClient {
               chatStore.appendThinkingChunk(thinkingId, event.data.full_content, event.data.elapsed_seconds || block.elapsedSeconds)
             }
           }
+        }
+        break
+      }
+
+      // Intent events (Cursor-style)
+      case 'intent_start': {
+        console.log('[WebSocket] Intent started:', event.data)
+        const workflowId = ensureActiveWorkflow()
+        if (workflowId) {
+          const intentId = event.data.intent_id || `intent-${Date.now()}`
+          const intentText = event.data.text || 'Выполняю действие...'
+          chatStore.startIntent(workflowId, intentId, intentText)
+          chatStore.setAgentTyping(true)
+        }
+        break
+      }
+
+      case 'intent_detail': {
+        console.log('[WebSocket] Intent detail:', event.data)
+        const state = useChatStore.getState()
+        const workflowId = state.activeWorkflowId
+        const intentId = event.data.intent_id || state.activeIntentId
+        
+        if (workflowId && intentId) {
+          chatStore.addIntentDetail(workflowId, intentId, {
+            type: event.data.type || 'execute',
+            description: event.data.description || '',
+            timestamp: Date.now(),
+          })
+        }
+        break
+      }
+
+      case 'intent_complete': {
+        console.log('[WebSocket] Intent completed:', event.data)
+        const state = useChatStore.getState()
+        const workflowId = state.activeWorkflowId
+        const intentId = event.data.intent_id || state.activeIntentId
+        
+        if (workflowId && intentId) {
+          const autoCollapse = event.data.auto_collapse !== false // Default true
+          chatStore.completeIntent(workflowId, intentId, autoCollapse)
         }
         break
       }

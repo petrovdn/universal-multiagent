@@ -1506,6 +1506,127 @@ div[style*='padding: "10px"'] .prose ol {
 }
 
 /* ============================================
+   INTENT MESSAGE (Cursor-style Intent Block)
+   ============================================ */
+.intent-message {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  margin-bottom: 16px;
+  padding: 0 14px;
+}
+
+.intent-text {
+  font-size: 14px;
+  color: var(--text-primary);
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+
+.intent-text-dots::after {
+  content: '...';
+  animation: intentDots 1.5s steps(3) infinite;
+}
+
+@keyframes intentDots {
+  0%, 20% { content: '.'; }
+  40% { content: '..'; }
+  60%, 100% { content: '...'; }
+}
+
+.intent-message-streaming .intent-text {
+  color: var(--text-primary);
+}
+
+.intent-details {
+  background: transparent;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.intent-details-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 13px;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.intent-details-header:hover {
+  background: var(--bg-elevated);
+}
+
+.intent-chevron {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.intent-summary {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.intent-details-content {
+  padding: 8px 0 8px 28px;
+  border-left: 1px solid var(--border-secondary);
+  margin-left: 14px;
+}
+
+.intent-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding: 4px 0;
+  font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
+}
+
+.intent-detail-icon {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.intent-detail-icon-success {
+  color: var(--accent-success);
+}
+
+.intent-detail-text {
+  word-break: break-word;
+}
+
+.intent-details-collapsed .intent-details-content {
+  display: none;
+}
+
+/* Animation for streaming intent */
+.intent-message-streaming .intent-details-header::after {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: var(--accent-primary);
+  border-radius: 50%;
+  margin-left: auto;
+  animation: intentPulse 1s ease-in-out infinite;
+}
+
+@keyframes intentPulse {
+  0%, 100% {
+    opacity: 0.4;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ============================================
    THINKING BLOCK - ALWAYS VISIBLE (КАК В CURSOR/PERPLEXITY)
    ============================================ */
 .thinking-block-always-open {

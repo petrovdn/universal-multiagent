@@ -166,7 +166,7 @@ export const healthCheck = async () => {
   return response.data
 }
 
-export const createSession = async (executionMode: ExecutionMode = 'instant', modelName?: string) => {
+export const createSession = async (executionMode: ExecutionMode = 'query', modelName?: string) => {
   const request: any = { execution_mode: executionMode }
   if (modelName) {
     request.model_name = modelName
