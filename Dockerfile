@@ -36,7 +36,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Обновляем pip для лучшей производительности
-RUN pip install --upgrade pip setuptools wheel
+# Используем python -m pip для более надежного обновления
+RUN python -m pip install --upgrade pip && \
+    pip install --upgrade setuptools wheel
 
 # Этап 1: Основные зависимости (быстрые, кешируются)
 # Эти пакеты редко меняются и будут кешироваться Docker
