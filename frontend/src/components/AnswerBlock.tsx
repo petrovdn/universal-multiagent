@@ -11,17 +11,19 @@ export function AnswerBlock({ block }: AnswerBlockProps) {
   // #region agent log
   React.useEffect(() => {
     if (block.content && (block.content.includes('-') || block.content.includes('*') || /^\d+\./.test(block.content))) {
-      const proseDiv = document.querySelector('.answer-block .prose');
-      if (proseDiv) {
-        const ul = proseDiv.querySelector('ul');
-        const ol = proseDiv.querySelector('ol');
-        if (ul || ol) {
-          const list = ul || ol;
-          const computed = window.getComputedStyle(list!);
-          const parentComputed = window.getComputedStyle(proseDiv);
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AnswerBlock.tsx:useEffect',message:'List styles computed',data:{listPaddingLeft:computed.paddingLeft,listMarginLeft:computed.marginLeft,parentPadding:parentComputed.padding,listStylePosition:computed.listStylePosition,listType:ul?'ul':'ol'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      setTimeout(() => {
+        const proseDiv = document.querySelector('.answer-block .prose');
+        if (proseDiv) {
+          const ul = proseDiv.querySelector('ul');
+          const ol = proseDiv.querySelector('ol');
+          if (ul || ol) {
+            const list = ul || ol;
+            const computed = window.getComputedStyle(list!);
+            const parentComputed = window.getComputedStyle(proseDiv);
+            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'AnswerBlock.tsx:useEffect:post-fix',message:'List styles computed after fix',data:{listPaddingLeft:computed.paddingLeft,listMarginLeft:computed.marginLeft,parentPadding:parentComputed.padding,listStylePosition:computed.listStylePosition,listType:ul?'ul':'ol'},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'A'})}).catch(()=>{});
+          }
         }
-      }
+      }, 100);
     }
   }, [block.content]);
   // #endregion

@@ -1241,6 +1241,26 @@ div[style*="padding: '10px'"] .prose li {
   font-size: 13px !important;
 }
 
+/* Padding для списков в блоке результата - чтобы маркеры не выходили за границу */
+.answer-block .prose ul,
+.answer-block .prose ol,
+.answer-block-content .prose ul,
+.answer-block-content .prose ol,
+.assistant-message-wrapper .prose ul,
+.assistant-message-wrapper .prose ol {
+  padding-left: 24px !important;
+  margin-left: 0 !important;
+}
+
+/* Для FinalResultBlock и других блоков результата с padding 10px */
+div[style*="padding: '10px'"] .prose ul,
+div[style*="padding: '10px'"] .prose ol,
+div[style*='padding: "10px"'] .prose ul,
+div[style*='padding: "10px"'] .prose ol {
+  padding-left: 24px !important;
+  margin-left: 0 !important;
+}
+
 /* ============================================
    THINKING INDICATOR (Cursor-style animated text)
    ============================================ */
@@ -1305,37 +1325,38 @@ div[style*="padding: '10px'"] .prose li {
 .thinking-message {
   max-width: 900px;
   width: 100%;
-  margin: 16px auto;
+  margin: 0 auto;
+  margin-top: 0;
+  margin-bottom: 0;
   padding: 0;
-  border: 1px solid var(--border-secondary);
-  border-radius: 8px;
-  background: var(--bg-secondary);
-  overflow: hidden;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
   transition: all 0.2s ease;
 }
 
 .thinking-message-streaming {
-  border-color: var(--accent-primary);
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
+  /* No special styling for streaming - simple design */
 }
 
 .thinking-message-pinned {
-  border-color: var(--accent-primary);
-  border-width: 2px;
+  /* No special styling for pinned - simple design */
 }
 
 .thinking-message-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 12px 14px;
+  gap: 6px;
+  padding: 0;
+  margin-bottom: 4px;
   cursor: pointer;
   user-select: none;
-  transition: background-color 0.15s ease;
+  transition: opacity 0.15s ease;
 }
 
 .thinking-message-header:hover {
-  background: var(--bg-tertiary);
+  opacity: 0.8;
 }
 
 .thinking-message-icon {
@@ -1351,17 +1372,17 @@ div[style*="padding: '10px'"] .prose li {
 }
 
 .thinking-message-title {
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
   color: var(--text-secondary);
-  letter-spacing: 0.3px;
+  letter-spacing: 0;
 }
 
 .thinking-message-time {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-tertiary);
   margin-left: auto;
-  margin-right: 8px;
+  margin-right: 0;
 }
 
 .thinking-message-actions {
@@ -1422,15 +1443,16 @@ div[style*="padding: '10px'"] .prose li {
 }
 
 .thinking-message-content {
-  padding: 12px 14px;
+  padding: 10px;
   max-height: 400px;
   overflow-y: auto;
-  border-top: 1px solid var(--border-secondary);
+  border: none;
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.5;
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-wrap: break-word;
+  background: transparent;
 }
 
 .thinking-message-collapsed .thinking-message-content {
@@ -1439,8 +1461,8 @@ div[style*="padding: '10px'"] .prose li {
 
 .thinking-message-text {
   font-family: 'SF Mono', 'Monaco', 'Cascadia Code', 'Roboto Mono', monospace;
-  font-size: 12px;
-  line-height: 1.7;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .thinking-message-line {
