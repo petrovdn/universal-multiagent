@@ -480,6 +480,125 @@ class TestBufferTime:
 
 
 # ============================================================================
+# ТЕСТЫ: Проверка занятости ВСЕХ участников (БАГ-ФИКС)
+# ============================================================================
+
+class TestMultipleParticipantsCalendars:
+    """Тесты проверки занятости ВСЕХ участников (баг-фикс)."""
+    
+    @pytest.mark.asyncio
+    async def test_checks_all_participants_calendars_not_just_one(self):
+        """
+        БАГ: Планировщик учитывал только один календарь, игнорируя занятость других.
+        
+        ВОСПРОИЗВЕДЕНИЕ:
+        - Участник A свободен в 9:00-12:00
+        - Участник B занят в 9:00-12:00
+        - Ожидаем: НЕ ставит встречу в 9:00
+        - Факт (баг): Ставил встречу в 9:00, игнорируя B
+        """
+        from src.core.meeting_scheduler import MeetingScheduler
+        
+        participants = ["alice@example.com", "bob@example.com"]
+        
+        # РАЗНЫЕ календари для разных участников
+        mock_calendars = {
+            "alice@example.com": [],  # Alice свободна весь день
+            "bob@example.com": [      # Bob занят с 9:00 до 12:00
+                {"start": "2026-01-09T09:00:00", "end": "2026-01-09T12:00:00"}
+            ]
+        }
+        
+        scheduler = MeetingScheduler()
+        with patch.object(scheduler, '_get_calendar_events', return_value=mock_calendars):
+            result = await scheduler.find_available_slot(
+                participants=participants,
+                duration_minutes=50,
+                buffer_minutes=10,
+                search_start=datetime(2026, 1, 9, 9, 0),
+                search_end=datetime(2026, 1, 9, 18, 0)
+            )
+        
+        # НЕ должен поставить в 9:00-9:50, т.к. Bob занят до 12:00
+        # Должен поставить после 12:00 + 10 мин буфер = 12:10
+        assert result is not None, "Должен найти слот"
+        assert result["start"] >= datetime(2026, 1, 9, 12, 10), \
+            f"Должен учитывать занятость Bob (до 12:00 + буфер), но получили {result['start']}"
+    
+    @pytest.mark.asyncio
+    async def test_respects_all_three_participants_busy_times(self):
+        """
+        Тест: Учитывает занятость всех трёх участников.
+        
+        A занят: 9:00-10:00
+        B занят: 10:30-11:30
+        C занят: 14:00-15:00
+        
+        Общее свободное: 11:40+ (после B + буфер) до 13:50 (до C - буфер)
+        """
+        from src.core.meeting_scheduler import MeetingScheduler
+        
+        participants = ["a@test.com", "b@test.com", "c@test.com"]
+        
+        mock_calendars = {
+            "a@test.com": [{"start": "2026-01-09T09:00:00", "end": "2026-01-09T10:00:00"}],
+            "b@test.com": [{"start": "2026-01-09T10:30:00", "end": "2026-01-09T11:30:00"}],
+            "c@test.com": [{"start": "2026-01-09T14:00:00", "end": "2026-01-09T15:00:00"}]
+        }
+        
+        scheduler = MeetingScheduler()
+        with patch.object(scheduler, '_get_calendar_events', return_value=mock_calendars):
+            result = await scheduler.find_available_slot(
+                participants=participants,
+                duration_minutes=50,
+                buffer_minutes=10,
+                search_start=datetime(2026, 1, 9, 9, 0),
+                search_end=datetime(2026, 1, 9, 18, 0)
+            )
+        
+        # Должен поставить после 11:30 + 10 мин = 11:40
+        assert result is not None
+        assert result["start"] >= datetime(2026, 1, 9, 11, 40), \
+            f"Должен учитывать занятость B, но получили {result['start']}"
+        # И закончить до 14:00 - 10 мин = 13:50
+        assert result["end"] <= datetime(2026, 1, 9, 13, 50), \
+            f"Должен учитывать занятость C, но получили {result['end']}"
+    
+    @pytest.mark.asyncio
+    async def test_no_slot_when_participants_have_conflicting_schedules(self):
+        """
+        Тест: Нет слота когда участники заняты в разное время без общего окна.
+        
+        A занят: 9:00-13:00
+        B занят: 12:00-18:00
+        
+        Пересечение свободного времени: нет (A свободен после 13:00+буфер, но B занят)
+        """
+        from src.core.meeting_scheduler import MeetingScheduler
+        
+        participants = ["a@test.com", "b@test.com"]
+        
+        mock_calendars = {
+            "a@test.com": [{"start": "2026-01-09T09:00:00", "end": "2026-01-09T13:00:00"}],
+            "b@test.com": [{"start": "2026-01-09T12:00:00", "end": "2026-01-09T18:00:00"}]
+        }
+        
+        scheduler = MeetingScheduler()
+        with patch.object(scheduler, '_get_calendar_events', return_value=mock_calendars):
+            result = await scheduler.find_available_slot(
+                participants=participants,
+                duration_minutes=50,
+                buffer_minutes=10,
+                search_start=datetime(2026, 1, 9, 9, 0),
+                search_end=datetime(2026, 1, 9, 18, 0)
+            )
+        
+        # Нет общего свободного окна
+        assert result is None, \
+            f"Не должен найти слот при конфликтующих расписаниях, но получили {result}"
+
+
+# ============================================================================
 # ТЕСТЫ: Интеграция (пропускаются без реальных credentials)
 # ============================================================================
 

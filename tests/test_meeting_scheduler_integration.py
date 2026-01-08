@@ -20,14 +20,103 @@ class TestMeetingSchedulerMCPIntegration:
     """Тесты интеграции MeetingScheduler с MCP Calendar."""
     
     @pytest.mark.asyncio
-    async def test_fetches_events_from_mcp(self):
+    async def test_mcp_mode_uses_freebusy_for_all_participants(self):
         """
-        Тест: Получает события календаря через MCP.
+        ФИКС: В MCP режиме планировщик использует FreeBusy API для проверки
+        занятости ВСЕХ участников.
+        
+        Ожидаемое поведение:
+        - Вызывает freebusy_query с items для всех участников
+        - Учитывает занятость каждого участника
         """
-        # Mock MCP manager
+        mock_mcp_manager = AsyncMock()
+        
+        # FreeBusy возвращает: Alice свободна, Bob занят 9:00-12:00
+        freebusy_response = {
+            "timeMin": "2026-01-09T09:00:00Z",
+            "timeMax": "2026-01-09T18:00:00Z",
+            "calendars": {
+                "alice@example.com": {"busy": []},
+                "bob@example.com": {
+                    "busy": [
+                        {"start": "2026-01-09T09:00:00Z", "end": "2026-01-09T12:00:00Z"}
+                    ]
+                }
+            }
+        }
+        mock_mcp_manager.call_tool.return_value = [
+            MagicMock(text=json.dumps(freebusy_response))
+        ]
+        
+        with patch('src.core.meeting_scheduler.get_mcp_manager', return_value=mock_mcp_manager):
+            scheduler = MeetingScheduler(use_mcp=True)
+            
+            result = await scheduler.find_available_slot(
+                participants=["alice@example.com", "bob@example.com"],
+                duration_minutes=50,
+                buffer_minutes=10,
+                search_start=datetime(2026, 1, 9, 9, 0),
+                search_end=datetime(2026, 1, 9, 18, 0)
+            )
+        
+        # Проверяем что использовался freebusy_query
+        assert mock_mcp_manager.call_tool.called
+        call_args = mock_mcp_manager.call_tool.call_args_list
+        assert any('freebusy_query' in str(call) for call in call_args), \
+            f"Должен использовать freebusy_query, но вызвал: {call_args}"
+        
+        # Проверяем что учёл занятость Bob
+        assert result is not None, "Должен найти слот"
+        assert result["start"] >= datetime(2026, 1, 9, 12, 10), \
+            f"Должен учитывать занятость Bob (до 12:00 + буфер), но получили {result['start']}"
+    
+    @pytest.mark.asyncio
+    async def test_mcp_mode_freebusy_includes_all_participants(self):
+        """
+        Тест: FreeBusy запрос включает всех участников.
+        """
         mock_mcp_manager = AsyncMock()
         mock_mcp_manager.call_tool.return_value = [
-            MagicMock(text='{"items": [{"summary": "Meeting", "start": {"dateTime": "2026-01-09T10:00:00"}, "end": {"dateTime": "2026-01-09T11:00:00"}}], "count": 1}')
+            MagicMock(text='{"calendars": {}}')
+        ]
+        
+        with patch('src.core.meeting_scheduler.get_mcp_manager', return_value=mock_mcp_manager):
+            scheduler = MeetingScheduler(use_mcp=True)
+            
+            await scheduler.find_available_slot(
+                participants=["alice@example.com", "bob@example.com", "charlie@example.com"],
+                duration_minutes=50,
+                search_start=datetime(2026, 1, 9, 9, 0),
+                search_end=datetime(2026, 1, 9, 18, 0)
+            )
+        
+        # Проверяем что все участники включены в запрос
+        call_args = mock_mcp_manager.call_tool.call_args
+        items = call_args[0][1].get("items", [])
+        item_ids = [item["id"] for item in items]
+        
+        assert "alice@example.com" in item_ids
+        assert "bob@example.com" in item_ids
+        assert "charlie@example.com" in item_ids
+    
+    @pytest.mark.asyncio
+    async def test_fetches_events_from_mcp_via_freebusy(self):
+        """
+        Тест: Получает занятость календаря через MCP FreeBusy API.
+        """
+        # Mock MCP manager с FreeBusy ответом
+        mock_mcp_manager = AsyncMock()
+        freebusy_response = {
+            "calendars": {
+                "alice@example.com": {
+                    "busy": [
+                        {"start": "2026-01-09T10:00:00Z", "end": "2026-01-09T11:00:00Z"}
+                    ]
+                }
+            }
+        }
+        mock_mcp_manager.call_tool.return_value = [
+            MagicMock(text=json.dumps(freebusy_response))
         ]
         
         with patch('src.core.meeting_scheduler.get_mcp_manager', return_value=mock_mcp_manager):
@@ -39,9 +128,12 @@ class TestMeetingSchedulerMCPIntegration:
                 end=datetime(2026, 1, 9, 18, 0)
             )
         
-        # Должен вызвать MCP tool
+        # Должен вызвать freebusy_query
         assert mock_mcp_manager.call_tool.called
-        # Должен вернуть события
+        call_args = mock_mcp_manager.call_tool.call_args
+        assert call_args[0][0] == "freebusy_query"
+        
+        # Должен вернуть занятость
         assert "alice@example.com" in events
         assert len(events["alice@example.com"]) == 1
     
@@ -110,30 +202,33 @@ class TestScheduleGroupMeetingTool:
         """
         Тест: Tool возвращает ошибку, если слот не найден.
         
-        Мокаем календарь так, чтобы все рабочие часы были заняты.
+        Мокаем FreeBusy так, чтобы все рабочие часы были заняты.
         """
         from src.mcp_tools.calendar_tools import ScheduleGroupMeetingTool
         
         tool = ScheduleGroupMeetingTool()
         
-        # Mock: заняты все рабочие часы на ближайшие дни
-        # Создаём события на каждый день в ближайшую неделю
+        # Mock: заняты все рабочие часы на ближайшие дни (FreeBusy формат)
         mock_mcp_manager = AsyncMock()
         
-        # Занято с 9:00 до 18:00 каждый день (весь рабочий день)
-        # Чтобы точно не было слота, заполняем все рабочие часы
-        busy_events = []
+        # Создаём FreeBusy ответ с занятостью весь день каждый день
+        busy_slots = []
         base_date = datetime.now().date()
         for day_offset in range(7):
             event_date = base_date + timedelta(days=day_offset)
-            busy_events.append({
-                "summary": f"Busy day {day_offset}",
-                "start": {"dateTime": f"{event_date}T09:00:00"},
-                "end": {"dateTime": f"{event_date}T18:00:00"}
+            busy_slots.append({
+                "start": f"{event_date}T09:00:00Z",
+                "end": f"{event_date}T18:00:00Z"
             })
         
+        freebusy_response = {
+            "calendars": {
+                "alice@example.com": {"busy": busy_slots}
+            }
+        }
+        
         mock_mcp_manager.call_tool.return_value = [
-            MagicMock(text=json.dumps({"items": busy_events, "count": len(busy_events)}))
+            MagicMock(text=json.dumps(freebusy_response))
         ]
         
         with patch('src.core.meeting_scheduler.get_mcp_manager', return_value=mock_mcp_manager):

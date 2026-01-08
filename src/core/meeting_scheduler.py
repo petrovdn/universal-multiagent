@@ -134,33 +134,42 @@ class MeetingScheduler:
         calendars = {}
         
         if self.use_mcp:
-            # Реальная интеграция с MCP Calendar
+            # Используем FreeBusy API для проверки занятости ВСЕХ участников
             try:
                 mcp_manager = get_mcp_manager()
                 
-                # Запрашиваем события для периода поиска
-                # MCP Calendar возвращает события текущего пользователя
-                # TODO: В будущем можно добавить FreeBusy API для проверки занятости других
-                args = {
-                    "timeMin": start.isoformat(),
-                    "timeMax": end.isoformat(),
-                    "maxResults": 100
+                # FreeBusy запрос для всех участников
+                freebusy_args = {
+                    "timeMin": start.isoformat() + "Z" if "+" not in start.isoformat() else start.isoformat(),
+                    "timeMax": end.isoformat() + "Z" if "+" not in end.isoformat() else end.isoformat(),
+                    "items": [{"id": email} for email in participants]
                 }
                 
-                result = await mcp_manager.call_tool("list_events", args, server_name="calendar")
+                logger.info(f"[MeetingScheduler] Querying FreeBusy for {len(participants)} participants")
+                result = await mcp_manager.call_tool("freebusy_query", freebusy_args, server_name="calendar")
                 
-                # Парсим результат
-                events = self._parse_mcp_result(result)
-                
-                # Пока присваиваем все события каждому участнику
-                # (предполагаем что запрашиваем свой календарь)
-                for email in participants:
-                    calendars[email] = events
+                # Парсим результат FreeBusy
+                calendars = self._parse_freebusy_result(result, participants)
+                logger.info(f"[MeetingScheduler] FreeBusy returned busy slots for {len(calendars)} calendars")
                     
             except Exception as e:
-                logger.error(f"[MeetingScheduler] Error getting calendar via MCP: {e}")
-                for email in participants:
-                    calendars[email] = []
+                logger.warning(f"[MeetingScheduler] FreeBusy failed: {e}, falling back to list_events")
+                # Fallback: запрашиваем свой календарь (старое поведение)
+                try:
+                    args = {
+                        "timeMin": start.isoformat(),
+                        "timeMax": end.isoformat(),
+                        "maxResults": 100
+                    }
+                    result = await mcp_manager.call_tool("list_events", args, server_name="calendar")
+                    events = self._parse_mcp_result(result)
+                    # В fallback режиме присваиваем всем один календарь (текущего пользователя)
+                    for email in participants:
+                        calendars[email] = events
+                except Exception as e2:
+                    logger.error(f"[MeetingScheduler] Fallback also failed: {e2}")
+                    for email in participants:
+                        calendars[email] = []
                     
         elif self.calendar_tools:
             # Legacy: через переданные calendar_tools
@@ -176,6 +185,71 @@ class MeetingScheduler:
             calendars = {email: [] for email in participants}
             
         return calendars
+    
+    def _parse_freebusy_result(
+        self, 
+        result, 
+        participants: List[str]
+    ) -> Dict[str, List[Dict]]:
+        """
+        Парсит результат FreeBusy API в словарь календарей.
+        
+        Args:
+            result: Результат от MCP freebusy_query
+            participants: Список email участников
+        
+        Returns:
+            Словарь {email: [{"start": ..., "end": ...}, ...]}
+        """
+        calendars = {email: [] for email in participants}
+        
+        try:
+            # Handle MCP result format
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result_text = first_item.text
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result_text = first_item['text']
+                else:
+                    result_text = str(first_item)
+                
+                parsed = json.loads(result_text)
+            elif isinstance(result, str):
+                parsed = json.loads(result)
+            elif isinstance(result, dict):
+                parsed = result
+            else:
+                logger.warning(f"[MeetingScheduler] Unknown FreeBusy result type: {type(result)}")
+                return calendars
+            
+            # Extract calendars data from FreeBusy response
+            freebusy_calendars = parsed.get("calendars", {})
+            
+            for email in participants:
+                calendar_data = freebusy_calendars.get(email, {})
+                busy_slots = calendar_data.get("busy", [])
+                
+                # Convert FreeBusy format to our format
+                events = []
+                for slot in busy_slots:
+                    events.append({
+                        "start": slot.get("start"),
+                        "end": slot.get("end")
+                    })
+                
+                calendars[email] = events
+                
+                # Log any errors for this calendar
+                errors = calendar_data.get("errors", [])
+                if errors:
+                    logger.warning(f"[MeetingScheduler] FreeBusy errors for {email}: {errors}")
+            
+            return calendars
+            
+        except Exception as e:
+            logger.error(f"[MeetingScheduler] Error parsing FreeBusy result: {e}")
+            return calendars
     
     def _parse_mcp_result(self, result) -> List[Dict]:
         """

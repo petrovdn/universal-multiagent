@@ -290,6 +290,42 @@ class GoogleCalendarMCPServer:
                         },
                         "required": ["text"]
                     }
+                ),
+                Tool(
+                    name="freebusy_query",
+                    description="Check free/busy information for multiple users. Returns busy time slots for each user.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "timeMin": {
+                                "type": "string",
+                                "description": "Start of time range (ISO 8601 format)"
+                            },
+                            "timeMax": {
+                                "type": "string",
+                                "description": "End of time range (ISO 8601 format)"
+                            },
+                            "items": {
+                                "type": "array",
+                                "description": "List of calendars/users to check",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "id": {
+                                            "type": "string",
+                                            "description": "Calendar ID or email address"
+                                        }
+                                    }
+                                }
+                            },
+                            "timeZone": {
+                                "type": "string",
+                                "description": "Timezone (default: UTC)",
+                                "default": "UTC"
+                            }
+                        },
+                        "required": ["timeMin", "timeMax", "items"]
+                    }
                 )
             ]
         
@@ -461,6 +497,47 @@ class GoogleCalendarMCPServer:
                             "end": event.get('end'),
                             "status": "created"
                         }, indent=2, default=str)
+                    )]
+                
+                elif name == "freebusy_query":
+                    time_min = arguments.get("timeMin")
+                    time_max = arguments.get("timeMax")
+                    items = arguments.get("items", [])
+                    time_zone = arguments.get("timeZone", "UTC")
+                    
+                    # Build freebusy request body
+                    body = {
+                        "timeMin": time_min,
+                        "timeMax": time_max,
+                        "timeZone": time_zone,
+                        "items": items
+                    }
+                    
+                    # Query freebusy information
+                    freebusy_result = service.freebusy().query(body=body).execute()
+                    
+                    # Extract calendars data
+                    calendars = freebusy_result.get('calendars', {})
+                    
+                    # Format response
+                    result = {
+                        "timeMin": freebusy_result.get('timeMin'),
+                        "timeMax": freebusy_result.get('timeMax'),
+                        "calendars": {}
+                    }
+                    
+                    for calendar_id, calendar_data in calendars.items():
+                        busy_slots = calendar_data.get('busy', [])
+                        errors = calendar_data.get('errors', [])
+                        
+                        result["calendars"][calendar_id] = {
+                            "busy": busy_slots,
+                            "errors": errors
+                        }
+                    
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(result, indent=2, default=str)
                     )]
                 
                 else:
