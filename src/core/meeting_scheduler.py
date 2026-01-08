@@ -20,8 +20,18 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import logging
 import json
+import pytz
 
 logger = logging.getLogger(__name__)
+
+
+def get_local_timezone():
+    """Получает локальную таймзону из конфига."""
+    try:
+        from src.utils.config_loader import get_config
+        return pytz.timezone(get_config().timezone)
+    except:
+        return pytz.timezone("Europe/Moscow")
 
 
 def get_mcp_manager():
@@ -150,9 +160,16 @@ class MeetingScheduler:
                 
                 # Парсим результат FreeBusy
                 calendars = self._parse_freebusy_result(result, participants)
+                
                 logger.info(f"[MeetingScheduler] FreeBusy returned busy slots for {len(calendars)} calendars")
                     
+            except ValueError as e:
+                # ValueError означает недоступность календарей - НЕ используем fallback!
+                logger.error(f"[MeetingScheduler] Calendar access denied: {e}")
+                raise  # Пробрасываем ошибку наверх
+                
             except Exception as e:
+                # Другие ошибки (сеть, etc.) - пробуем fallback
                 logger.warning(f"[MeetingScheduler] FreeBusy failed: {e}, falling back to list_events")
                 # Fallback: запрашиваем свой календарь (старое поведение)
                 try:
@@ -200,8 +217,12 @@ class MeetingScheduler:
         
         Returns:
             Словарь {email: [{"start": ..., "end": ...}, ...]}
+            
+        Raises:
+            ValueError: Если календарь участника недоступен (notFound, etc.)
         """
         calendars = {email: [] for email in participants}
+        unavailable_calendars = []
         
         try:
             # Handle MCP result format
@@ -230,6 +251,18 @@ class MeetingScheduler:
                 calendar_data = freebusy_calendars.get(email, {})
                 busy_slots = calendar_data.get("busy", [])
                 
+                # Check for errors FIRST - calendar might be unavailable
+                errors = calendar_data.get("errors", [])
+                if errors:
+                    for error in errors:
+                        if error.get("reason") in ("notFound", "notAuthorized", "forbidden"):
+                            unavailable_calendars.append(email)
+                            logger.warning(f"[MeetingScheduler] Calendar unavailable for {email}: {error}")
+                            break
+                    else:
+                        # Other errors - just log warning
+                        logger.warning(f"[MeetingScheduler] FreeBusy errors for {email}: {errors}")
+                
                 # Convert FreeBusy format to our format
                 events = []
                 for slot in busy_slots:
@@ -239,14 +272,19 @@ class MeetingScheduler:
                     })
                 
                 calendars[email] = events
-                
-                # Log any errors for this calendar
-                errors = calendar_data.get("errors", [])
-                if errors:
-                    logger.warning(f"[MeetingScheduler] FreeBusy errors for {email}: {errors}")
+            
+            # If any calendars are unavailable, raise an error
+            if unavailable_calendars:
+                raise ValueError(
+                    f"Не удалось проверить календари участников: {', '.join(unavailable_calendars)}. "
+                    f"Участники должны открыть доступ к своему календарю или находиться в том же домене Google Workspace."
+                )
             
             return calendars
             
+        except ValueError:
+            # Re-raise ValueError (calendar unavailable)
+            raise
         except Exception as e:
             logger.error(f"[MeetingScheduler] Error parsing FreeBusy result: {e}")
             return calendars
@@ -364,7 +402,7 @@ class MeetingScheduler:
     
     def _parse_datetime(self, dt_str: str) -> datetime:
         """
-        Парсит строку datetime в объект datetime (naive).
+        Парсит строку datetime в объект datetime (naive, LOCAL timezone).
         
         Поддерживает форматы:
         - 2026-01-09T10:00:00
@@ -372,22 +410,32 @@ class MeetingScheduler:
         - 2026-01-09T10:00:00+00:00
         - 2026-01-09T10:00:00+03:00
         
-        Всегда возвращает naive datetime для консистентности.
+        ВАЖНО: Конвертирует UTC в локальную таймзону перед удалением tzinfo!
+        Это гарантирует корректное сравнение с локальным временем.
         """
-        # Убираем Z
+        local_tz = get_local_timezone()
+        
+        # Убираем Z и заменяем на +00:00
         dt_str = dt_str.replace("Z", "+00:00")
         
         # Парсим как aware если есть timezone
         try:
             dt = datetime.fromisoformat(dt_str)
-            # Конвертируем в naive (убираем tzinfo)
+            
+            # Если есть timezone — конвертируем в локальную, затем убираем tzinfo
             if dt.tzinfo is not None:
-                dt = dt.replace(tzinfo=None)
+                # Конвертируем в локальную таймзону
+                dt_local = dt.astimezone(local_tz)
+                # Убираем tzinfo для naive сравнений
+                dt = dt_local.replace(tzinfo=None)
+            
             return dt
         except ValueError:
             # Если не удалось — пробуем без timezone
-            dt_str_naive = dt_str.split("+")[0].split("-")[0] if "+" in dt_str else dt_str
-            return datetime.fromisoformat(dt_str_naive)
+            dt_str_naive = dt_str.split("+")[0]
+            if "T" in dt_str_naive:
+                return datetime.fromisoformat(dt_str_naive)
+            return datetime.fromisoformat(dt_str)
     
     def _find_first_free_slot(
         self,

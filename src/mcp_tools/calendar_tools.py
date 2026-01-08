@@ -5,8 +5,11 @@ Provides validated interfaces to calendar operations with timezone handling.
 
 import json
 import pytz
+import logging
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
@@ -507,6 +510,28 @@ class ScheduleGroupMeetingTool(BaseTool):
             tz = pytz.timezone(timezone)
             now = datetime.now(tz)
             
+            # Get organizer's email (primary calendar) and include in participants
+            mcp_manager = get_mcp_manager()
+            try:
+                calendars_result = await mcp_manager.call_tool("list_calendars", {}, server_name="calendar")
+                # Parse result to find primary calendar email
+                if calendars_result:
+                    import json as _json
+                    if hasattr(calendars_result[0], 'text'):
+                        calendars_data = _json.loads(calendars_result[0].text)
+                    else:
+                        calendars_data = calendars_result[0]
+                    
+                    for cal in calendars_data.get("calendars", []):
+                        if cal.get("primary"):
+                            organizer_email = cal.get("id")
+                            if organizer_email and organizer_email not in attendee_emails:
+                                attendee_emails = [organizer_email] + attendee_emails
+                                logger.info(f"[ScheduleGroupMeetingTool] Added organizer {organizer_email} to participants")
+                            break
+            except Exception as e:
+                logger.warning(f"[ScheduleGroupMeetingTool] Could not get organizer email: {e}")
+            
             # Calculate search range
             search_start = now
             search_end = now + timedelta(days=search_days)
@@ -514,7 +539,7 @@ class ScheduleGroupMeetingTool(BaseTool):
             # Create scheduler with MCP integration
             scheduler = MeetingScheduler(use_mcp=True)
             
-            # Find available slot
+            # Find available slot (includes organizer + attendees)
             slot = await scheduler.find_available_slot(
                 participants=attendee_emails,
                 duration_minutes=duration_minutes,
