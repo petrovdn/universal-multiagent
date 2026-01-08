@@ -55,8 +55,10 @@ restart-server.sh
 *.bak
 docs.prod.bak/
 
-# Test files (if you want to exclude them)
-test_*.py
+# Test files in root (temp/manual tests)
+/test_*.py
+# But keep tests/ folder tracked for TDD
+!tests/
 
 
 

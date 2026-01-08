@@ -20,12 +20,9 @@ exclude = [
 stubPath = "typings"
 
 # Execution environment
-executionEnvironments = [
-    {
-        "root": ".",
-        "pythonVersion": "3.10",
-        "pythonPlatform": "All",
-        "extraPaths": []
-    }
-]
+[[tool.basedpyright.executionEnvironments]]
+root = "."
+pythonVersion = "3.10"
+pythonPlatform = "All"
+extraPaths = []
 
