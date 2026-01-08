@@ -726,6 +726,10 @@ export const useChatStore = create<ChatState>()(
             }
           }
           
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:completeMessage:no_content',message:'No finalContent - returning state unchanged',data:{messageId:messageId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
+          // #endregion
+          
           return state
         }),
       

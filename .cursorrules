@@ -1,0 +1,729 @@
+# .cursorrules для платформы AI-агентов Universal Multi-Agent
+# LangGraph + Python + React + MCP + A2A
+
+Вы — AI-ассистент для разработки платформы AI-агентов, построенной на LangGraph. Вы работаете как автономный агент и должны полностью решать задачи пользователя перед завершением своего хода.
+
+---
+
+## 🎯 Контекст проекта
+
+### Архитектура
+- **Backend**: Python 3.10+, LangGraph, FastAPI, WebSocket
+- **Frontend**: React 18+, TypeScript, Zustand, Tailwind CSS
+- **Интеграции**: MCP (Model Context Protocol), A2A (Agent-to-Agent) — в разработке
+- **Персистентность**: JSON-файлы (data/sessions/), НЕ PostgreSQL
+- **Паттерн**: ReAct (Reasoning + Acting), мультиагентная система
+- **Стриминг**: WebSocket (НЕ SSE)
+
+### Структура проекта
+```
+src/
+├── agents/           # LangGraph агенты (BaseAgent, MainAgent, sub-agents)
+├── api/              # FastAPI + WebSocket (server.py, websocket_manager.py)
+├── core/             # ReAct engine, orchestrators, providers
+│   └── providers/    # MCP и A2A провайдеры
+├── mcp_servers/      # MCP серверы для интеграций
+├── mcp_tools/        # LangChain tools через MCP
+└── utils/            # Config, logging, exceptions
+
+frontend/src/
+├── components/       # React компоненты
+├── store/            # Zustand stores (chatStore, settingsStore)
+├── services/         # API клиенты
+└── types/            # TypeScript типы
+```
+
+### Философия кода
+- Минималистичный, типобезопасный, тестируемый
+- Четкая структура state management
+- Унифицированный интерфейс через ActionProvider (MCP + A2A)
+
+---
+
+## 📋 Общие принципы разработки
+
+### Автономность
+- НЕ ЖДИТЕ подтверждения — если составили план, сразу выполняйте его
+- Если нужна информация — используйте инструменты для её получения
+- Завершайте задачу полностью перед возвратом управления пользователю
+- Если сомневаетесь в содержимом файла — читайте его целиком
+
+### Инкрементальность
+- Разбивайте большие задачи на маленькие проверяемые шаги
+- Делайте ТОЛЬКО минимальные изменения для реализации фичи
+- Если изменение не нужно для текущей задачи — НЕ ДЕЛАЙТЕ его
+- После каждого шага проверяйте работоспособность
+
+### Коммуникация
+- НИКОГДА не упоминайте названия инструментов при общении с пользователем
+- Вместо "вызываю read_file" говорите "проверяю содержимое файла"
+- Не выводите код пользователю, если не попросили — используйте инструменты для редактирования
+- Форматируйте LaTeX как \( \) для inline и \[ \] для блоков
+
+---
+
+## 🐍 Backend: Python + LangGraph
+
+### Структура State (КРИТИЧНО)
+```python
+# ✅ ПРАВИЛЬНО: Минимальный, типизированный State
+from typing import TypedDict, Annotated, List, Any, Optional
+import operator
+
+class AgentState(TypedDict):
+    """State for LangGraph agent execution."""
+    messages: Annotated[List[Any], operator.add]  # operator.add для аккумуляции
+    error: Optional[str]
+    # НЕ храните context, tools — они управляются отдельно
+
+# ❌ НЕПРАВИЛЬНО: Раздутый State
+class AgentState(TypedDict):
+    messages: list  # Без reducer
+    context: Any    # Context НЕ сериализуется — не храните в state
+    everything: dict  # Слишком общее
+```
+
+**Правила State:**
+- Используйте `TypedDict` для всех State объектов
+- `operator.add` для аккумуляции сообщений (НЕ `add_messages`)
+- НЕ храните `ConversationContext` в state — он управляется отдельно
+- Минимум полей — только то, что нужно для графа
+
+### Ноды графа
+```python
+# ✅ ПРАВИЛЬНО: Чистая функция с partial update
+async def agent_node(state: AgentState) -> dict:
+    """Обрабатывает сообщения и возвращает ответ."""
+    messages = state["messages"]
+    response = await llm.ainvoke(messages)
+    return {"messages": [response]}  # Partial update
+
+# ❌ НЕПРАВИЛЬНО: Мутация state напрямую
+def agent_node(state: AgentState):
+    state["messages"].append(response)  # Мутация!
+    return state
+```
+
+### Edges и условная логика
+```python
+# ✅ ПРАВИЛЬНО: Простые edges для линейных шагов
+workflow.add_edge("tools", "agent")
+
+# Условные edges для tool calls
+workflow.add_conditional_edges(
+    "agent",
+    should_continue,  # Возвращает "continue" или "end"
+    {"continue": "tools", "end": END}
+)
+
+# ❌ НЕПРАВИЛЬНО: Условные edges везде
+workflow.add_conditional_edges("every", "single", "node")
+```
+
+### Персистентность (НЕ PostgreSQL!)
+```python
+# ✅ ПРАВИЛЬНО: LangGraph checkpointer ОТКЛЮЧЕН
+compiled_graph = workflow.compile()  # Без checkpointer
+
+# Персистентность через PersistentStorage (JSON-файлы)
+from src.core.context_manager import PersistentStorage, ConversationContext
+
+storage = PersistentStorage(storage_dir=Path("data/sessions"))
+storage.save_context(context)
+context = storage.load_context(session_id)
+
+# ❌ НЕПРАВИЛЬНО: PostgreSQL checkpointer (не настроен в проекте)
+from langgraph.checkpoint.postgres import PostgresSaver  # НЕ ИСПОЛЬЗУЕМ
+```
+
+**Причина**: `ConversationContext` содержит несериализуемые объекты. Используем собственную JSON-based персистентность.
+
+---
+
+## 🔌 Интеграции: MCP + A2A
+
+### ActionProvider — унифицированный интерфейс (КРИТИЧНО!)
+```python
+# src/core/action_provider.py — базовый интерфейс
+from abc import ABC, abstractmethod
+from enum import Enum
+
+class ProviderType(Enum):
+    MCP_TOOL = "mcp_tool"      # Текущие интеграции
+    A2A_AGENT = "a2a_agent"    # Будущие агенты
+    LOCAL_FUNCTION = "local"   # Локальные функции
+
+class ActionProvider(ABC):
+    @abstractmethod
+    async def execute(self, capability_name: str, arguments: dict) -> Any:
+        pass
+    
+    @abstractmethod
+    def get_capabilities(self) -> List[ActionCapability]:
+        pass
+
+# ✅ ПРАВИЛЬНО: Добавляйте новые интеграции через ActionProvider
+# ❌ НЕПРАВИЛЬНО: Прямые HTTP вызовы к внешним API
+```
+
+### MCP интеграции (текущий стек)
+```python
+# ✅ ПРАВИЛЬНО: Используйте MCP tools для внешних сервисов
+from src.mcp_tools.calendar_tools import get_calendar_tools
+from src.mcp_tools.gmail_tools import get_gmail_tools
+from src.mcp_tools.sheets_tools import get_sheets_tools
+from src.mcp_tools.onec_tools import get_onec_tools
+from src.mcp_tools.projectlad_tools import get_projectlad_tools
+
+# MCP серверы в src/mcp_servers/
+# Transport: stdio (локальные Python серверы)
+
+# ❌ НЕПРАВИЛЬНО: Прямые вызовы Google API
+from googleapiclient.discovery import build  # НЕ ДЕЛАЙТЕ ТАК!
+```
+
+### A2A интеграции (будущее)
+```python
+# src/core/providers/a2a_provider.py — placeholder для A2A
+from src.core.action_provider import ActionProvider, ProviderType
+
+class A2AAgentProvider(ActionProvider):
+    """
+    Будущая поддержка Agent-to-Agent протокола.
+    
+    Планируемый функционал:
+    1. Discover agents via Agent Cards (.well-known/agent.json)
+    2. Parse agent skills/capabilities
+    3. Route requests via A2A protocol
+    4. Handle responses in unified format
+    """
+    
+    async def discover_agents(self, agent_card_urls: List[str]) -> List[str]:
+        # TODO: Fetch and parse Agent Cards
+        pass
+    
+    @property
+    def provider_type(self) -> ProviderType:
+        return ProviderType.A2A_AGENT
+
+# При добавлении A2A:
+# 1. Реализуйте методы в A2AAgentProvider
+# 2. Добавьте Agent Card parsing
+# 3. Интегрируйте в CapabilityRegistry
+# 4. НЕ меняйте ReAct engine — он работает через ActionProvider
+```
+
+### CapabilityRegistry — единый реестр
+```python
+# src/core/capability_registry.py
+# Регистрирует capabilities от всех провайдеров (MCP + A2A)
+
+# ✅ ПРАВИЛЬНО: Добавляйте провайдеры через реестр
+registry.register_provider(mcp_provider)
+registry.register_provider(a2a_provider)  # Когда будет готов
+
+capabilities = registry.get_all_capabilities()
+```
+
+---
+
+## 🎛️ Стриминг (WebSocket, НЕ SSE)
+
+```python
+# ✅ ПРАВИЛЬНО: WebSocket для real-time
+# src/api/websocket_manager.py
+async for chunk in graph.astream(state, stream_mode="messages"):
+    await websocket.send_json({
+        "type": "token",
+        "content": chunk
+    })
+
+# stream_mode варианты:
+# - "messages" — для chat UI (токены LLM) ← ИСПОЛЬЗУЕМ
+# - "updates" — для дашбордов (дельты state)
+# - "values" — полные снимки (избыточно)
+
+# ❌ НЕПРАВИЛЬНО: SSE
+from sse_starlette import EventSourceResponse  # НЕ ИСПОЛЬЗУЕМ
+```
+
+---
+
+## ⚛️ Frontend: React + TypeScript + Zustand
+
+### State Management — Zustand (НЕ Context+useReducer!)
+```typescript
+// ✅ ПРАВИЛЬНО: Zustand с persist
+import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+interface ChatState {
+  messages: Message[]
+  isConnected: boolean
+  isAgentTyping: boolean
+  workflows: Record<string, Workflow>
+  
+  addMessage: (msg: Message) => void
+  setConnectionStatus: (connected: boolean) => void
+}
+
+export const useChatStore = create<ChatState>()(
+  persist(
+    (set, get) => ({
+      messages: [],
+      isConnected: false,
+      isAgentTyping: false,
+      workflows: {},
+      
+      addMessage: (msg) => set((state) => ({
+        messages: [...state.messages, msg]
+      })),
+      
+      setConnectionStatus: (connected) => set({ isConnected: connected }),
+    }),
+    {
+      name: 'chat-storage',
+      partialize: (state) => ({
+        // Не персистим временные данные
+        currentSession: state.currentSession,
+      }),
+    }
+  )
+)
+
+// ❌ НЕПРАВИЛЬНО: Context + useReducer для глобального state
+import { createContext, useReducer } from 'react'  // НЕ для state management
+```
+
+### Типобезопасность
+```typescript
+// ✅ ПРАВИЛЬНО: Строгие типы
+interface Message {
+  role: 'user' | 'assistant' | 'system'
+  content: string
+  timestamp: string
+  metadata?: Record<string, unknown>  // unknown вместо any где возможно
+}
+
+interface WorkflowStep {
+  stepNumber: number
+  title: string
+  status: 'pending' | 'in_progress' | 'completed'
+  thinking: string
+  response: string
+}
+
+// ❌ НЕПРАВИЛЬНО
+interface Message {
+  role: string       // Слишком широко
+  content: any       // Избегайте any
+  metadata?: any     // Используйте Record<string, unknown>
+}
+```
+
+### WebSocket клиент
+```typescript
+// ✅ ПРАВИЛЬНО: WebSocket для стриминга
+const connectWebSocket = (sessionId: string) => {
+  const ws = new WebSocket(`ws://localhost:8000/ws/${sessionId}`)
+  
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    
+    switch (data.type) {
+      case 'token':
+        // Стриминг токенов
+        updateStreamingMessage(data.content)
+        break
+      case 'tool_call':
+        // Tool вызов
+        addToolCall(data)
+        break
+      case 'message_complete':
+        // Сообщение завершено
+        completeMessage(data)
+        break
+    }
+  }
+  
+  return ws
+}
+
+// ❌ НЕПРАВИЛЬНО: SSE или polling
+const eventSource = new EventSource('/stream')  // НЕ ИСПОЛЬЗУЕМ
+```
+
+### Стилизация — Tailwind CSS
+```tsx
+// ✅ ПРАВИЛЬНО: Tailwind классы
+<div className="flex items-center gap-2 p-4 bg-gray-100 dark:bg-gray-800 rounded-lg shadow-sm">
+  <div className="flex-1">
+    <p className="text-sm font-medium text-gray-900 dark:text-white">
+      {message.content}
+    </p>
+    <span className="text-xs text-gray-500">{timestamp}</span>
+  </div>
+</div>
+
+// ❌ НЕПРАВИЛЬНО: Inline styles или CSS-in-JS
+<div style={{ display: 'flex', padding: '1rem' }}>  // НЕ ИСПОЛЬЗУЕМ
+```
+
+### Структура компонентов
+```typescript
+// ✅ ПРАВИЛЬНО: Функциональный компонент с типами
+interface ChatMessageProps {
+  message: Message
+  isStreaming?: boolean
+  onRetry?: () => void
+}
+
+export const ChatMessage: React.FC<ChatMessageProps> = ({ 
+  message, 
+  isStreaming = false,
+  onRetry 
+}) => {
+  const { role, content, timestamp } = message
+  
+  return (
+    <div className={`chat-message ${role}`}>
+      {/* JSX */}
+    </div>
+  )
+}
+
+// ❌ НЕПРАВИЛЬНО: Классовые компоненты
+class ChatMessage extends React.Component {  // Устаревший подход
+```
+
+---
+
+## 🔧 Конфигурация
+
+### Backend config (Pydantic)
+```python
+# ✅ ПРАВИЛЬНО: src/utils/config_loader.py уже настроен
+from pydantic_settings import BaseSettings
+
+class AppConfig(BaseSettings):
+    anthropic_api_key: Optional[str] = Field(alias="ANTHROPIC_API_KEY")
+    openai_api_key: Optional[str] = Field(alias="OPENAI_API_KEY")
+    default_model: str = Field(default="gpt-4o", alias="DEFAULT_MODEL")
+    
+    model_config = SettingsConfigDict(
+        env_file="config/.env",
+        extra="ignore"
+    )
+
+# Использование:
+from src.utils.config_loader import get_config
+config = get_config()
+```
+
+### Структура конфигов
+```
+config/
+├── .env                    # Секреты (API keys) — НЕ в git
+├── onec_config.json        # 1С OData настройки
+├── projectlad_config.json  # Project Lad настройки
+├── users.json              # Пользователи
+└── *_token.json            # OAuth токены
+```
+
+---
+
+## 🧪 TDD-подход (Test-Driven Development)
+
+### Философия
+- **Тесты первыми**: При получении задачи сначала пишем failing тест, потом реализацию
+- **Красный-Зелёный-Рефакторинг**: Тест падает → минимальный код → тест проходит → рефакторинг
+- **Автоматизация проверки**: Никаких ручных проверок — всё через автотесты
+
+### Уровни тестирования
+1. **Unit тесты** (pytest / Jest) — отдельные функции и методы
+2. **Integration тесты** — взаимодействие компонентов (backend + WebSocket)
+3. **E2E тесты** (Playwright) — полный flow через браузер
+
+### Workflow для новых фич
+
+```
+1. ПЛАНИРОВАНИЕ
+   └── Получаем задачу от пользователя
+   └── Определяем критерии успеха (что проверить)
+
+2. ТЕСТЫ (до реализации!)
+   └── Пишем failing тест для каждого критерия
+   └── Запускаем — убеждаемся, что падает
+   └── Если тест не падает — уточняем требования
+
+3. РЕАЛИЗАЦИЯ
+   └── Минимальный код для прохождения тестов
+   └── После каждого изменения — запуск тестов
+   └── Не добавляем функционал без тестов
+
+4. РЕФАКТОРИНГ
+   └── Тесты зелёные — можно улучшать код
+   └── После рефакторинга — тесты всё ещё зелёные
+```
+
+### Workflow для багфиксов
+
+```
+1. ВОСПРОИЗВЕДЕНИЕ
+   └── Понимаем баг
+   └── Пишем failing тест, который воспроизводит баг
+   └── Запускаем — убеждаемся, что падает
+
+2. ИСПРАВЛЕНИЕ
+   └── Минимальное изменение для исправления
+   └── Запускаем тест — теперь проходит
+   └── Запускаем все тесты — регрессий нет
+
+3. ДОКУМЕНТАЦИЯ
+   └── Тест остаётся как регрессионный
+   └── Описание бага в комментарии к тесту
+```
+
+### Примеры тестов
+
+#### Backend: pytest + mock WebSocket
+```python
+# test_agent_simple_request.py
+import pytest
+from unittest.mock import AsyncMock
+
+class MockWebSocketManager:
+    """Мок для захвата WebSocket событий."""
+    def __init__(self):
+        self.events = []
+    
+    async def send_event(self, session_id, event_type, data):
+        self.events.append({"type": event_type, "data": data})
+
+@pytest.mark.asyncio
+async def test_agent_mode_simple_request_sends_final_result():
+    """
+    Тест: Agent mode для простого запроса должен отправлять 'final_result'.
+    Баг: Раньше отправлял 'message_complete', UI не отображал ответ.
+    """
+    mock_ws = MockWebSocketManager()
+    # ... setup agent with mock_ws ...
+    
+    result = await agent.process("напиши хокку")
+    
+    final_result_events = [e for e in mock_ws.events if e["type"] == "final_result"]
+    assert len(final_result_events) > 0, "Agent mode должен отправлять final_result"
+    assert len(final_result_events[0]["data"]["content"]) > 10
+```
+
+#### Frontend: Playwright E2E
+```typescript
+// tests/e2e/agent-mode.spec.ts
+import { test, expect } from '@playwright/test'
+
+test('agent mode displays response for simple query', async ({ page }) => {
+  await page.goto('/')
+  
+  // Переключаемся в agent mode
+  await page.click('[data-testid="mode-selector"]')
+  await page.click('text=Агент')
+  
+  // Отправляем простой запрос
+  await page.fill('[data-testid="chat-input"]', 'напиши хокку')
+  await page.click('[data-testid="send-button"]')
+  
+  // Ожидаем появления ответа (не loading spinner)
+  await expect(page.locator('[data-testid="assistant-message"]')).toBeVisible({ timeout: 30000 })
+  
+  // Проверяем, что ответ не пустой
+  const response = await page.locator('[data-testid="assistant-message"]').textContent()
+  expect(response?.length).toBeGreaterThan(10)
+})
+```
+
+### Команды тестирования
+
+```bash
+# Backend
+python -m pytest tests/ -v                    # Все тесты
+python -m pytest tests/test_agent.py -v       # Один файл
+python -m pytest tests/ -k "simple_request"   # По имени
+
+# Frontend E2E (Playwright)
+cd frontend && npx playwright test            # Все E2E тесты
+npx playwright test --ui                      # Интерактивный режим
+npx playwright test agent-mode.spec.ts        # Один файл
+
+# Watch mode (при разработке)
+python -m pytest tests/ --watch               # с pytest-watch
+npx playwright test --ui                      # Playwright UI
+```
+
+### Когда писать E2E vs Unit тесты
+
+| Тип теста | Когда использовать |
+|-----------|-------------------|
+| Unit      | Логика, вычисления, трансформации данных |
+| Integration | WebSocket события, API ответы, store updates |
+| E2E       | User flows, критические пути, визуальные баги |
+
+### Чеклист TDD
+
+При получении задачи:
+- [ ] Сформулировал критерии успеха
+- [ ] Написал failing тест для каждого критерия
+- [ ] Убедился, что тест падает по правильной причине
+
+При реализации:
+- [ ] Минимальный код для прохождения теста
+- [ ] Тест проходит
+- [ ] Все остальные тесты всё ещё проходят
+
+При рефакторинге:
+- [ ] Тесты зелёные до изменений
+- [ ] Тесты зелёные после изменений
+- [ ] Код стал чище/проще
+
+---
+
+## 🧪 Тестирование (справочник)
+
+### Backend тесты
+```python
+# ✅ ПРАВИЛЬНО: Тестируем агентов через execute
+import pytest
+from src.agents.main_agent import MainAgent
+from src.core.context_manager import ConversationContext
+
+@pytest.mark.asyncio
+async def test_agent_execution():
+    agent = MainAgent()
+    context = ConversationContext(session_id="test-session")
+    
+    result = await agent.execute(
+        user_message="Покажи встречи на завтра",
+        context=context
+    )
+    
+    assert result["agent"] == "MainAgent"
+    assert "response" in result
+    assert len(result["response"]) > 0
+
+# Мокайте MCP tools
+@pytest.fixture
+def mock_calendar_tools(mocker):
+    mocker.patch(
+        'src.mcp_tools.calendar_tools.list_events',
+        return_value={"events": []}
+    )
+```
+
+### Frontend тесты
+```typescript
+// ✅ ПРАВИЛЬНО: React Testing Library
+import { render, screen, fireEvent } from '@testing-library/react'
+import { ChatMessage } from './ChatMessage'
+
+test('renders message content', () => {
+  const message = {
+    role: 'assistant' as const,
+    content: 'Hello, world!',
+    timestamp: new Date().toISOString()
+  }
+  
+  render(<ChatMessage message={message} />)
+  
+  expect(screen.getByText('Hello, world!')).toBeInTheDocument()
+})
+```
+
+---
+
+## 🚀 Полезные команды
+
+```bash
+# Backend
+python -m pytest tests/ -v              # Тесты
+mypy src/                               # Проверка типов
+ruff check src/                         # Линтинг
+python -m uvicorn src.api.server:app    # Запуск сервера
+
+# Frontend
+npm run dev                             # Dev сервер
+npm run build                           # Production build
+npm run lint                            # ESLint
+npm run type-check                      # TypeScript проверка
+
+# Перезапуск
+./restart-server.sh                     # Backend
+./restart-frontend.sh                   # Frontend
+./restart-all.sh                        # Все
+```
+
+---
+
+## 🐛 Отладка
+
+### Двухшаговая отладка
+1. **Анализ** (без исправления):
+   - ОСТАНОВИТЕСЬ — не исправляйте сразу
+   - Сформулируйте 3-5 гипотез
+   - Выберите наиболее вероятную
+
+2. **Исправление**:
+   - Запросите план исправления
+   - Проверьте план
+   - Создайте регрессионный тест
+
+### Признаки цикла AI
+- AI постоянно извиняется и начинает с нуля
+- Решения становятся сложнее вместо проще
+- Одна ошибка "исправляется" многократно
+
+**Как разорвать:**
+1. STOP — прекратите принимать изменения
+2. Откат к рабочему состоянию (`git revert`)
+3. Переключение на анализ (не исправление)
+4. Запрос альтернативного подхода
+
+---
+
+## 📝 Контрольный чеклист
+
+### При получении задачи:
+- [ ] Понял требования полностью
+- [ ] Определил минимальные изменения
+- [ ] Проверил существующий код через поиск
+- [ ] Составил план с 2-4 шагами
+
+### Реализация:
+- [ ] Изменяю ТОЛЬКО необходимые файлы
+- [ ] Следую структуре State (TypedDict + operator.add)
+- [ ] Добавил типы для новых функций/компонентов
+- [ ] Использую ActionProvider для интеграций
+- [ ] Обработал ошибки и edge cases
+
+### Проверка:
+- [ ] Нет TypeScript/mypy ошибок
+- [ ] Создал/обновил тесты
+- [ ] Проверил работу в runtime
+- [ ] Добавил логирование для критических операций
+
+### Завершение:
+- [ ] Удалил debug код
+- [ ] Код соответствует style guide
+- [ ] Готов к коммиту
+
+---
+
+## 💡 Помни главное
+
+1. **Автономность**: Решай задачу до конца, не жди подтверждения
+2. **Минимализм**: Меняй только то, что нужно для текущей задачи
+3. **Типобезопасность**: TypedDict для Python, строгий TypeScript для React
+4. **ActionProvider**: Все интеграции через унифицированный интерфейс
+5. **Zustand, не Context**: Используй Zustand для state management
+6. **WebSocket, не SSE**: Стриминг через WebSocket
+7. **JSON persistence**: Не PostgreSQL, используй PersistentStorage
+
+При сомнениях — используй инструменты для получения информации. При ошибках — сначала анализируй, потом исправляй.

@@ -729,13 +729,15 @@ class UnifiedReActEngine:
                 self._thinking_start_time = None
             
             # Send final result or message_complete based on mode
-            if self.config.mode == "query":
+            # Agent mode uses final_result like query mode (UI expects workflow.finalResult)
+            if self.config.mode in ("query", "agent"):
                 await self.ws_manager.send_event(
                     self.session_id,
                     "final_result",
                     {"content": answer}
                 )
             else:
+                # Plan mode uses message_complete
                 message_id = f"react_{self.session_id}_{int(time.time() * 1000)}"
                 await self.ws_manager.send_event(
                     self.session_id,

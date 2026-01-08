@@ -992,9 +992,10 @@ export function ChatInterface() {
             
             // CRITICAL: For ReAct mode, render reasoning blocks directly using CollapsibleBlock (same as Plan mode)
             // This check MUST come FIRST, before all other checks, to ensure ReAct blocks are rendered
-            // For Query mode, only show reasoning if showReasoning setting is enabled
-            const shouldShowReasoning = executionMode === 'agent' || 
-              (executionMode === 'query' && useSettingsStore.getState().showReasoning)
+            // For Query and Agent modes, only show reasoning if showReasoning setting is enabled
+            const shouldShowReasoning = 
+              (executionMode === 'query' && useSettingsStore.getState().showReasoning) ||
+              (executionMode === 'agent' && useSettingsStore.getState().showReasoning)
             
             if (shouldShowReasoning && assistantMsg.reasoningBlocks.length > 0) {
               console.log('[ChatInterface] ReAct mode - rendering reasoning blocks directly', { 
@@ -1064,9 +1065,8 @@ export function ChatInterface() {
               
               // Don't render assistant-message-wrapper if workflow exists
               // Multi-step workflows display content through PlanBlock, StepProgress, FinalResultBlock
-              // BUT: For ReAct mode and agent/approval modes, always render assistant messages to show reasoning
-              // For agent/approval modes, we want to show reasoning blocks even if workflow exists
-              if (lastUserWorkflow && executionMode !== 'agent' && executionMode !== 'plan') {
+              // Agent mode now works like Query mode - uses workflow.finalResult
+              if (lastUserWorkflow && executionMode !== 'plan') {
                 // Simple task: no plan or plan has no steps
                 const isSimpleTask = !lastUserWorkflow.plan || !lastUserWorkflow.plan.steps || lastUserWorkflow.plan.steps.length === 0
                 
@@ -1080,12 +1080,6 @@ export function ChatInterface() {
                 // For multi-step workflows, also don't render ChatMessage
                 console.log('[ChatInterface] Skipping assistant message - multi-step workflow', { messageId: assistantMsg.id })
                 return null
-              }
-              
-              // For ReAct/agent/approval modes, always render assistant messages (even if workflow exists)
-              // This ensures reasoning blocks are visible
-              if (executionMode === 'agent' || executionMode === 'plan') {
-                console.log('[ChatInterface] Rendering assistant message for agent/plan mode', { messageId: assistantMsg.id, executionMode })
               }
               
               // No workflow - render normally

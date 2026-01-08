@@ -465,9 +465,15 @@ export class WebSocketClient {
         // Complete the message
         let completeMessageId = event.data.message_id || this.currentMessageId
         
-        // If no message ID exists, create a new message with the content
-        if (!completeMessageId && event.data.content) {
-          completeMessageId = event.data.message_id || `msg-${Date.now()}`
+        // Check if assistantMessages entry exists for this ID (get fresh state)
+        const existingAssistantMsg = useChatStore.getState().assistantMessages[completeMessageId]
+        
+        // If no message exists in assistantMessages (no prior message_start), create a new message with the content
+        // FIX: Changed condition from (!completeMessageId && event.data.content) to check if assistantMsg doesn't exist
+        if (!existingAssistantMsg && event.data.content) {
+          if (!completeMessageId) {
+            completeMessageId = `msg-${Date.now()}`
+          }
           // Create a new assistant message by starting an answer block
           const answerBlockId = `answer-${Date.now()}`
           chatStore.startAnswerBlock(completeMessageId, answerBlockId)
@@ -493,14 +499,15 @@ export class WebSocketClient {
             .join('\n\n')
             .trim() || event.data.content || ''
           
-          // For Query mode with workflow, save to workflow.finalResult instead of regular messages
+          // For Query and Agent modes with workflow, save to workflow.finalResult instead of regular messages
           if (state.activeWorkflowId && finalContent) {
             // Check execution mode
             const settingsState = useSettingsStore.getState()
             const isQueryMode = settingsState.executionMode === 'query'
+            const isAgentMode = settingsState.executionMode === 'agent'
             
-            if (isQueryMode) {
-              // Save to workflow finalResult for Query mode
+            if (isQueryMode || isAgentMode) {
+              // Save to workflow finalResult for Query and Agent modes
               chatStore.setWorkflowFinalResult(state.activeWorkflowId, finalContent)
             } else {
               // Complete the message (moves to regular messages)
@@ -1446,11 +1453,12 @@ export class WebSocketClient {
         
         const settingsState = useSettingsStore.getState()
         const isQueryMode = settingsState.executionMode === 'query'
+        const isAgentMode = settingsState.executionMode === 'agent'
         const activeWorkflowId = state.activeWorkflowId
         
-        // For Query mode, save to workflow.finalResult
+        // For Query and Agent modes, save to workflow.finalResult
         // BUT: Don't overwrite if streaming already provided longer content
-        if (isQueryMode && activeWorkflowId) {
+        if ((isQueryMode || isAgentMode) && activeWorkflowId) {
           const currentFinalResult = useChatStore.getState().workflows[activeWorkflowId]?.finalResult || ''
           // Only set if we don't have longer content from streaming
           if (result.length > currentFinalResult.length) {
@@ -1458,13 +1466,13 @@ export class WebSocketClient {
           } else {
             console.log('[WebSocket] react_complete: skipping setFinalResult, streaming provided longer content:', currentFinalResult.length, '>', result.length)
           }
+        } else {
+          // Create answer block with result (for non-Query/Agent modes or as fallback)
+          this.currentAnswerBlockId = `answer-${Date.now()}`
+          chatStore.startAnswerBlock(completeMsgId, this.currentAnswerBlockId)
+          chatStore.updateAnswerBlock(completeMsgId, this.currentAnswerBlockId, `✅ **Задача выполнена!**\n\n${result}`)
+          chatStore.completeAnswerBlock(completeMsgId, this.currentAnswerBlockId)
         }
-        
-        // Create answer block with result (for non-Query modes or as fallback)
-        this.currentAnswerBlockId = `answer-${Date.now()}`
-        chatStore.startAnswerBlock(completeMsgId, this.currentAnswerBlockId)
-        chatStore.updateAnswerBlock(completeMsgId, this.currentAnswerBlockId, `✅ **Задача выполнена!**\n\n${result}`)
-        chatStore.completeAnswerBlock(completeMsgId, this.currentAnswerBlockId)
         
         
         chatStore.setAgentTyping(false)
@@ -1498,19 +1506,20 @@ export class WebSocketClient {
         
         const settingsState = useSettingsStore.getState()
         const isQueryMode = settingsState.executionMode === 'query'
+        const isAgentMode = settingsState.executionMode === 'agent'
         const activeWorkflowId = state.activeWorkflowId
         
-        // For Query mode, save error or partial result to workflow.finalResult
-        if (isQueryMode && activeWorkflowId) {
+        // For Query and Agent modes, save error or partial result to workflow.finalResult
+        if ((isQueryMode || isAgentMode) && activeWorkflowId) {
           const errorMessage = `❌ **Ошибка выполнения запроса**\n\n**Причина:** ${reason}\n\n${result ? `**Полученные данные:**\n${result}\n\n` : ''}**Попытки:** ${tried.join(', ') || 'нет'}`
           chatStore.setWorkflowFinalResult(activeWorkflowId, errorMessage)
+        } else {
+          // Create answer block with error (for non-Query/Agent modes)
+          this.currentAnswerBlockId = `answer-${Date.now()}`
+          chatStore.startAnswerBlock(failedMsgId, this.currentAnswerBlockId)
+          chatStore.updateAnswerBlock(failedMsgId, this.currentAnswerBlockId, `❌ **Задача не выполнена**\n\n**Причина:** ${reason}\n\n${result ? `**Полученные данные:**\n${result}\n\n` : ''}**Попытки:** ${tried.join(', ') || 'нет'}`)
+          chatStore.completeAnswerBlock(failedMsgId, this.currentAnswerBlockId)
         }
-        
-        // Create answer block with error
-        this.currentAnswerBlockId = `answer-${Date.now()}`
-        chatStore.startAnswerBlock(failedMsgId, this.currentAnswerBlockId)
-        chatStore.updateAnswerBlock(failedMsgId, this.currentAnswerBlockId, `❌ **Задача не выполнена**\n\n**Причина:** ${reason}\n\n${result ? `**Полученные данные:**\n${result}\n\n` : ''}**Попытки:** ${tried.join(', ') || 'нет'}`)
-        chatStore.completeAnswerBlock(failedMsgId, this.currentAnswerBlockId)
         
         
         // Don't clear currentAction here - let it stay visible until reasoning blocks complete
