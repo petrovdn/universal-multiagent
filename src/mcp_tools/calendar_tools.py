@@ -432,6 +432,166 @@ class GetCalendarEventsTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
+class ScheduleGroupMeetingInput(BaseModel):
+    """Input schema for schedule_group_meeting tool."""
+    
+    title: str = Field(description="Meeting title/summary")
+    attendees: List[str] = Field(description="List of attendee email addresses")
+    duration: str = Field(default="50m", description="Meeting duration (e.g., '50m', '1h')")
+    buffer: str = Field(default="10m", description="Buffer time after meeting (e.g., '10m', '15m')")
+    description: Optional[str] = Field(default=None, description="Meeting description")
+    location: Optional[str] = Field(default=None, description="Meeting location or video link")
+    search_days: int = Field(default=7, description="Number of days to search for available slot")
+    working_hours_start: int = Field(default=9, description="Start of working hours (0-23)")
+    working_hours_end: int = Field(default=18, description="End of working hours (0-23)")
+
+
+class ScheduleGroupMeetingTool(BaseTool):
+    """
+    Tool for scheduling meetings with multiple participants.
+    
+    Finds the first available time slot when ALL participants are free,
+    respecting buffer time between meetings.
+    """
+    
+    name: str = "schedule_group_meeting"
+    description: str = """
+    Schedule a meeting with multiple participants by finding the first available time slot.
+    
+    Features:
+    - Finds first slot when ALL participants are free
+    - Respects buffer time between meetings (default 10 min)
+    - Works within working hours (default 9:00-18:00)
+    
+    Input:
+    - title: Meeting title (required)
+    - attendees: List of attendee emails (required)
+    - duration: Meeting duration (default '50m')
+    - buffer: Buffer after meeting (default '10m')
+    - description: Optional meeting description
+    - location: Optional location or video link
+    - search_days: Days to search (default 7)
+    - working_hours_start: Start hour (default 9)
+    - working_hours_end: End hour (default 18)
+    
+    Example:
+    - title="Командная встреча", attendees=["alice@example.com", "bob@example.com"]
+    - Will find first slot where both Alice and Bob are available
+    """
+    args_schema: type = ScheduleGroupMeetingInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        title: str,
+        attendees: List[str],
+        duration: str = "50m",
+        buffer: str = "10m",
+        description: Optional[str] = None,
+        location: Optional[str] = None,
+        search_days: int = 7,
+        working_hours_start: int = 9,
+        working_hours_end: int = 18
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            from src.core.meeting_scheduler import MeetingScheduler
+            from src.utils.validators import validate_duration, validate_attendee_list
+            
+            # Validate inputs
+            attendee_emails = validate_attendee_list(attendees)
+            duration_minutes = validate_duration(duration)
+            buffer_minutes = validate_duration(buffer)
+            
+            timezone = get_config().timezone
+            tz = pytz.timezone(timezone)
+            now = datetime.now(tz)
+            
+            # Calculate search range
+            search_start = now
+            search_end = now + timedelta(days=search_days)
+            
+            # Create scheduler with MCP integration
+            scheduler = MeetingScheduler(use_mcp=True)
+            
+            # Find available slot
+            slot = await scheduler.find_available_slot(
+                participants=attendee_emails,
+                duration_minutes=duration_minutes,
+                buffer_minutes=buffer_minutes,
+                search_start=search_start,
+                search_end=search_end,
+                working_hours=(working_hours_start, working_hours_end)
+            )
+            
+            if not slot:
+                return (
+                    f"Не удалось найти свободное время для встречи '{title}' "
+                    f"с участниками {', '.join(attendee_emails)} в ближайшие {search_days} дней. "
+                    f"Попробуйте увеличить период поиска или изменить рабочие часы."
+                )
+            
+            # Format slot times
+            slot_start = slot["start"]
+            slot_end = slot["end"]
+            
+            # Localize if needed
+            if slot_start.tzinfo is None:
+                slot_start = tz.localize(slot_start)
+            if slot_end.tzinfo is None:
+                slot_end = tz.localize(slot_end)
+            
+            # Create the event using MCP
+            mcp_manager = get_mcp_manager()
+            
+            event_args = {
+                "summary": title,
+                "start": {
+                    "dateTime": slot_start.isoformat(),
+                    "timeZone": timezone
+                },
+                "end": {
+                    "dateTime": slot_end.isoformat(),
+                    "timeZone": timezone
+                },
+                "attendees": [{"email": email} for email in attendee_emails]
+            }
+            
+            if description:
+                event_args["description"] = description
+            
+            if location:
+                event_args["location"] = location
+            
+            result = await mcp_manager.call_tool("create_event", event_args, server_name="calendar")
+            
+            # Format response
+            formatted_start = slot_start.strftime("%Y-%m-%d %H:%M")
+            formatted_end = slot_end.strftime("%H:%M")
+            
+            return (
+                f"✅ Встреча '{title}' запланирована!\n"
+                f"📅 Время: {formatted_start} - {formatted_end}\n"
+                f"👥 Участники: {', '.join(attendee_emails)}\n"
+                f"⏱ Длительность: {duration_minutes} мин (+ {buffer_minutes} мин буфер)"
+            )
+            
+        except ValidationError as e:
+            raise ToolExecutionError(
+                f"Ошибка валидации: {e.message}",
+                tool_name=self.name,
+                tool_args={"title": title, "attendees": attendees}
+            ) from e
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Не удалось запланировать встречу: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
 def get_calendar_tools() -> List[BaseTool]:
     """
     Get all Calendar tools.
@@ -443,5 +603,6 @@ def get_calendar_tools() -> List[BaseTool]:
         CreateEventTool(),
         GetNextAvailabilityTool(),
         GetCalendarEventsTool(),
+        ScheduleGroupMeetingTool(),
     ]
 

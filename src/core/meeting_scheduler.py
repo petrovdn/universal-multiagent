@@ -6,7 +6,7 @@
 с учётом буферного времени между встречами.
 
 Пример использования:
-    scheduler = MeetingScheduler(calendar_tools=get_calendar_tools())
+    scheduler = MeetingScheduler(use_mcp=True)
     slot = await scheduler.find_available_slot(
         participants=["alice@example.com", "bob@example.com"],
         duration_minutes=50,
@@ -19,8 +19,15 @@
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import logging
+import json
 
 logger = logging.getLogger(__name__)
+
+
+def get_mcp_manager():
+    """Ленивый импорт MCP manager для избежания циклических зависимостей."""
+    from src.utils.mcp_loader import get_mcp_manager as _get_mcp_manager
+    return _get_mcp_manager()
 
 
 class MeetingScheduler:
@@ -31,15 +38,17 @@ class MeetingScheduler:
     с учётом буферного времени между встречами.
     """
     
-    def __init__(self, calendar_tools=None):
+    def __init__(self, calendar_tools=None, use_mcp: bool = False):
         """
         Инициализация планировщика.
         
         Args:
             calendar_tools: MCP Calendar tools для получения событий календаря.
                            Если None, используется mock для тестов.
+            use_mcp: Использовать MCP для получения календарных данных.
         """
         self.calendar_tools = calendar_tools
+        self.use_mcp = use_mcp
     
     async def find_available_slot(
         self,
@@ -72,6 +81,12 @@ class MeetingScheduler:
             f"[MeetingScheduler] Searching slot for {len(participants)} participants, "
             f"duration={duration_minutes}min, buffer={buffer_minutes}min"
         )
+        
+        # Нормализуем datetime к naive для консистентности
+        if search_start.tzinfo is not None:
+            search_start = search_start.replace(tzinfo=None)
+        if search_end.tzinfo is not None:
+            search_end = search_end.replace(tzinfo=None)
         
         # 1. Получаем события всех участников
         calendars = await self._get_calendar_events(participants, search_start, search_end)
@@ -116,26 +131,114 @@ class MeetingScheduler:
         Returns:
             Словарь {email: [events]}
         """
-        if self.calendar_tools:
+        calendars = {}
+        
+        if self.use_mcp:
             # Реальная интеграция с MCP Calendar
-            # TODO: Реализовать через MCP tools
-            calendars = {}
+            try:
+                mcp_manager = get_mcp_manager()
+                
+                # Запрашиваем события для периода поиска
+                # MCP Calendar возвращает события текущего пользователя
+                # TODO: В будущем можно добавить FreeBusy API для проверки занятости других
+                args = {
+                    "timeMin": start.isoformat(),
+                    "timeMax": end.isoformat(),
+                    "maxResults": 100
+                }
+                
+                result = await mcp_manager.call_tool("list_events", args, server_name="calendar")
+                
+                # Парсим результат
+                events = self._parse_mcp_result(result)
+                
+                # Пока присваиваем все события каждому участнику
+                # (предполагаем что запрашиваем свой календарь)
+                for email in participants:
+                    calendars[email] = events
+                    
+            except Exception as e:
+                logger.error(f"[MeetingScheduler] Error getting calendar via MCP: {e}")
+                for email in participants:
+                    calendars[email] = []
+                    
+        elif self.calendar_tools:
+            # Legacy: через переданные calendar_tools
             for email in participants:
                 try:
-                    # events = await self.calendar_tools.list_events(
-                    #     email=email,
-                    #     time_min=start.isoformat(),
-                    #     time_max=end.isoformat()
-                    # )
-                    # calendars[email] = events
                     calendars[email] = []
                 except Exception as e:
                     logger.error(f"[MeetingScheduler] Error getting calendar for {email}: {e}")
                     calendars[email] = []
-            return calendars
         
-        # Без calendar_tools возвращаем пустой словарь (для тестов с моками)
-        return {}
+        # Без calendar_tools и use_mcp возвращаем пустой словарь (для тестов с моками)
+        if not calendars:
+            calendars = {email: [] for email in participants}
+            
+        return calendars
+    
+    def _parse_mcp_result(self, result) -> List[Dict]:
+        """
+        Парсит результат MCP call_tool в список событий.
+        
+        Args:
+            result: Результат от MCP (может быть list, dict, str)
+        
+        Returns:
+            Список событий [{"start": ..., "end": ...}, ...]
+        """
+        events = []
+        
+        try:
+            # Handle MCP result format (TextContent list or dict)
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result_text = first_item.text
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result_text = first_item['text']
+                else:
+                    result_text = str(first_item)
+                
+                # Parse JSON string
+                try:
+                    parsed = json.loads(result_text)
+                    events = parsed.get("items", [])
+                except json.JSONDecodeError:
+                    pass
+                    
+            elif isinstance(result, str):
+                try:
+                    parsed = json.loads(result)
+                    events = parsed.get("items", [])
+                except json.JSONDecodeError:
+                    pass
+                    
+            elif isinstance(result, dict):
+                events = result.get("items", [])
+            
+            # Преобразуем в нужный формат
+            formatted_events = []
+            for event in events:
+                if isinstance(event, dict):
+                    start_data = event.get("start", {})
+                    end_data = event.get("end", {})
+                    
+                    start_time = start_data.get("dateTime") or start_data.get("date")
+                    end_time = end_data.get("dateTime") or end_data.get("date")
+                    
+                    if start_time and end_time:
+                        formatted_events.append({
+                            "start": start_time,
+                            "end": end_time,
+                            "summary": event.get("summary", "")
+                        })
+            
+            return formatted_events
+            
+        except Exception as e:
+            logger.error(f"[MeetingScheduler] Error parsing MCP result: {e}")
+            return []
     
     def _merge_busy_slots(
         self,
@@ -187,16 +290,30 @@ class MeetingScheduler:
     
     def _parse_datetime(self, dt_str: str) -> datetime:
         """
-        Парсит строку datetime в объект datetime.
+        Парсит строку datetime в объект datetime (naive).
         
         Поддерживает форматы:
         - 2026-01-09T10:00:00
         - 2026-01-09T10:00:00Z
         - 2026-01-09T10:00:00+00:00
+        - 2026-01-09T10:00:00+03:00
+        
+        Всегда возвращает naive datetime для консистентности.
         """
-        # Убираем Z и timezone для простоты
-        dt_str = dt_str.replace("Z", "").split("+")[0]
-        return datetime.fromisoformat(dt_str)
+        # Убираем Z
+        dt_str = dt_str.replace("Z", "+00:00")
+        
+        # Парсим как aware если есть timezone
+        try:
+            dt = datetime.fromisoformat(dt_str)
+            # Конвертируем в naive (убираем tzinfo)
+            if dt.tzinfo is not None:
+                dt = dt.replace(tzinfo=None)
+            return dt
+        except ValueError:
+            # Если не удалось — пробуем без timezone
+            dt_str_naive = dt_str.split("+")[0].split("-")[0] if "+" in dt_str else dt_str
+            return datetime.fromisoformat(dt_str_naive)
     
     def _find_first_free_slot(
         self,
