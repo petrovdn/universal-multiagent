@@ -1586,6 +1586,33 @@ div[style*="padding: '10px'"] .prose li {
   color: #000000;
 }
 
+/* Streaming thinking text - обычный текст без иконок */
+.intent-thinking-text {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.6;
+  padding: 4px 0 8px 0;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.intent-thinking-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 14px;
+  background-color: #6b7280;
+  margin-left: 2px;
+  animation: intentCursorBlink 1s steps(1) infinite;
+  vertical-align: text-bottom;
+}
+
+@keyframes intentCursorBlink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
 /* Intent result - показывается под намерением */
 .intent-result {
   display: flex;

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React, { useMemo, useRef, useEffect } from 'react'
 import { ChevronDown, ChevronRight, Search, FileText, Play, Brain, Pencil, Check } from 'lucide-react'
 import { IntentBlock, IntentDetailType } from '../store/chatStore'
 
@@ -68,15 +68,32 @@ export function IntentMessage({ block, onToggleCollapse }: IntentMessageProps) {
   const isStreaming = block.status === 'streaming' || block.status === 'started'
   const isCompleted = block.status === 'completed'
   const hasDetails = block.details.length > 0
-  const showCollapsible = hasDetails || block.summary
+  const hasThinkingText = !!block.thinkingText
+  const showCollapsible = hasDetails || block.summary || hasThinkingText
+
+  // Auto-scroll для streaming thinking
+  const thinkingRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (thinkingRef.current && hasThinkingText && isStreaming) {
+      thinkingRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    }
+  }, [block.thinkingText, hasThinkingText, isStreaming])
 
   return (
     <div className={`intent-message ${isStreaming ? 'intent-message-streaming' : ''} ${isCompleted ? 'intent-message-completed' : ''}`}>
       {/* Текст намерения - простой текст */}
       <div className="intent-text">
         {block.intent}
-        {isStreaming && <span className="intent-text-dots" />}
+        {isStreaming && !hasThinkingText && <span className="intent-text-dots" />}
       </div>
+      
+      {/* Streaming thinking text - показывается как обычный текст без иконок */}
+      {hasThinkingText && !block.isCollapsed && (
+        <div ref={thinkingRef} className="intent-thinking-text">
+          {block.thinkingText}
+          {isStreaming && <span className="intent-thinking-cursor" />}
+        </div>
+      )}
       
       {/* Сворачиваемый блок с деталями */}
       {showCollapsible && (

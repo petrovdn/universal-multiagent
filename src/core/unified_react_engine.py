@@ -256,6 +256,11 @@ class UnifiedReActEngine:
             
             # Generate meaningful task description from goal
             task_description = self._generate_task_description(goal)
+            
+            # #region agent log - H1: Single-phase intent_start timing
+            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:single_phase_intent", "message": "Creating single-phase intent", "data": {"intent_id": task_intent_id, "description": task_description, "goal": goal[:100]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + '\n')
+            # #endregion
+            
             await self.ws_manager.send_event(
                 self.session_id,
                 "intent_start",
@@ -1732,13 +1737,12 @@ class UnifiedReActEngine:
         def __init__(self, ws_manager: WebSocketManager, session_id: str, intent_id: Optional[str] = None):
             self.ws_manager = ws_manager
             self.session_id = session_id
-            self.intent_id = intent_id  # NEW: для отправки intent_detail
+            self.intent_id = intent_id  # Для отправки intent_thinking_append
             self.buffer = ""
             self.thought_started = False
             self.thought_complete = False
             self.thought_content = ""
             self.thinking_id = f"thinking_{session_id}_{int(time.time() * 1000)}"
-            self._last_sent_length = 0  # Для отслеживания что уже отправили
         
         async def process_chunk(self, chunk: str) -> None:
             """Обрабатывает chunk, извлекает thought и стримит.
@@ -1780,7 +1784,11 @@ class UnifiedReActEngine:
                             }
                         )
                         # NEW: Отправляем как intent_detail для UI
-                        await self._send_intent_detail(thought_chunk.strip())
+                        # force_flush=True чтобы отправить весь оставшийся буфер
+                        await self._send_intent_detail(thought_chunk.strip(), force_flush=True)
+                    else:
+                        # Даже если chunk пустой, flush буфер
+                        await self._send_intent_detail("", force_flush=True)
                     
                     self.thought_complete = True
                     await self.ws_manager.send_event(
@@ -1797,6 +1805,7 @@ class UnifiedReActEngine:
                     if len(self.buffer) > len(self.thought_content):
                         new_chunk = self.buffer[len(self.thought_content):]
                         self.thought_content = self.buffer
+                        
                         if new_chunk.strip():
                             await self.ws_manager.send_event(
                                 self.session_id,
@@ -1806,32 +1815,34 @@ class UnifiedReActEngine:
                                     "chunk": new_chunk
                                 }
                             )
-                            # NEW: Отправляем как intent_detail для UI
-                            await self._send_intent_detail(new_chunk.strip())
+                            # Отправляем как intent_thinking_append для streaming в UI
+                            await self._send_intent_detail(new_chunk)
         
-        async def _send_intent_detail(self, text: str) -> None:
-            """Отправляет intent_detail с текстом thinking если есть intent_id."""
+        async def _send_intent_detail(self, text: str, force_flush: bool = False) -> None:
+            """Отправляет intent_thinking_append с текстом thinking если есть intent_id.
+            
+            Отправляет текст как есть для append к существующему thinkingText.
+            Без буферизации по предложениям - просто streaming.
+            
+            Args:
+                text: Новый chunk текста
+                force_flush: Если True, flush буфера (игнорируется в новой реализации)
+            """
             if not self.intent_id or not text:
                 return
             
-            # Форматируем текст для отображения
-            # Берём последнее предложение или весь текст если короткий
-            display_text = text
-            if len(text) > 100:
-                # Ищем последнее предложение
-                sentences = text.replace('\n', '. ').split('. ')
-                if sentences:
-                    display_text = sentences[-1].strip()
-                    if len(display_text) < 20 and len(sentences) > 1:
-                        display_text = sentences[-2].strip() + ". " + display_text
+            # #region agent log - H1,H2: Backend sends intent_thinking_append
+            import json as _json
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_send_intent_detail:SEND", "message": "Backend sending intent_thinking_append", "data": {"text_length": len(text), "text_preview": text[:30] if text else "", "intent_id": self.intent_id}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2"}) + '\n')
+            # #endregion
             
+            # Просто отправляем текст как есть для append
             await self.ws_manager.send_event(
                 self.session_id,
-                "intent_detail",
+                "intent_thinking_append",
                 {
                     "intent_id": self.intent_id,
-                    "type": "analyze",
-                    "description": f"🤔 {display_text}"
+                    "text": text  # Текст как есть, фронтенд аппендит
                 }
             )
         

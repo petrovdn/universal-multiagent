@@ -164,6 +164,7 @@ export interface IntentBlock {
   intent: string                    // "Изучаю текущую реализацию блока thinking..."
   status: 'started' | 'streaming' | 'completed'
   details: IntentDetail[]           // Список деталей выполнения
+  thinkingText?: string             // Streaming thinking text (аппендится, не создаёт новые строки)
   summary?: string                  // "Найдено 5 встреч" - показывается в свёрнутом виде
   isCollapsed: boolean
   startedAt: number
@@ -311,6 +312,7 @@ interface ChatState {
   // Intent block methods (Cursor-style)
   startIntent: (workflowId: string, intentId: string, intentText: string) => void
   addIntentDetail: (workflowId: string, intentId: string, detail: IntentDetail) => void
+  appendIntentThinking: (workflowId: string, intentId: string, text: string) => void
   completeIntent: (workflowId: string, intentId: string, autoCollapse: boolean, summary?: string) => void
   toggleIntentCollapse: (workflowId: string, intentId: string) => void
   collapseIntent: (workflowId: string, intentId: string) => void
@@ -1477,6 +1479,27 @@ export const useChatStore = create<ChatState>()(
                 ...intent,
                 status: 'streaming' as const,
                 details: [...intent.details, detail],
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      appendIntentThinking: (workflowId: string, intentId: string, text: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              return {
+                ...intent,
+                status: 'streaming' as const,
+                thinkingText: (intent.thinkingText || '') + text,
               }
             }
             return intent

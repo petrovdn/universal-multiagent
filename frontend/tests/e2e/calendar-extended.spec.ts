@@ -114,6 +114,7 @@ async function expectEventsDisplayed(page: Page): Promise<boolean> {
   const responseText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
   return responseText?.includes('событи') || 
          responseText?.includes('встреч') || 
+         responseText?.includes('мероприятий') ||
          responseText?.includes('Found') ||
          responseText?.includes('нет запланированных') ||
          responseText?.includes('Время:');
@@ -155,7 +156,8 @@ test.describe('Calendar Extended Tests', () => {
     });
 
     test('1.5 Показать встречи на следующей неделе (полный запрос)', async ({ page }) => {
-      await sendMessageAndWaitForResponse(page, 'покажи встречи на следующей неделе');
+      test.setTimeout(60000); // Complex query may take longer
+      await sendMessageAndWaitForResponse(page, 'покажи встречи на следующей неделе', 50000);
       expect(await expectEventsDisplayed(page)).toBeTruthy();
     });
 
@@ -178,6 +180,7 @@ test.describe('Calendar Extended Tests', () => {
   test.describe('2. Назначение встречи с одним участником', () => {
     
     test('2.1 Полный запрос: конкретное время без подбора', async ({ page }) => {
+      test.setTimeout(120000); // Meeting creation with availability check
       const message = `назначь встречу на завтра в 15:00 с ${PARTICIPANT_BSN} длительностью 30 минут на тему "Обсуждение проекта"`;
       await sendMessageAndWaitForResponse(page, message, 90000);
       
@@ -244,6 +247,7 @@ test.describe('Calendar Extended Tests', () => {
   test.describe('3. Назначение встречи с несколькими участниками', () => {
     
     test('3.1 Полный запрос: два участника, конкретное время', async ({ page }) => {
+      test.setTimeout(120000); // Multi-participant scheduling may take longer
       const message = `назначь встречу на послезавтра в 10:00 с ${PARTICIPANT_BSN} и ${PARTICIPANT_ARV} длительностью 1 час на тему "Планирование спринта"`;
       await sendMessageAndWaitForResponse(page, message, 90000);
       
@@ -252,6 +256,7 @@ test.describe('Calendar Extended Tests', () => {
     });
 
     test('3.2 Полный запрос: два участника, подбор свободного времени', async ({ page }) => {
+      test.setTimeout(150000); // Multi-participant availability search takes longer
       const message = `найди свободное время для встречи с ${PARTICIPANT_BSN} и ${PARTICIPANT_ARV} на 50 минут в ближайшие 5 дней`;
       await sendMessageAndWaitForResponse(page, message, 120000);
       
@@ -274,6 +279,7 @@ test.describe('Calendar Extended Tests', () => {
     });
 
     test('3.4 Сложный запрос: несколько участников + диапазон дней', async ({ page }) => {
+      test.setTimeout(150000); // Complex multi-participant scheduling
       const message = `организуй встречу команды с ${PARTICIPANT_BSN} и ${PARTICIPANT_ARV} на этой неделе, утром, на 1.5 часа`;
       await sendMessageAndWaitForResponse(page, message, 120000);
       

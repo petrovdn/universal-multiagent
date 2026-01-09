@@ -201,8 +201,10 @@ class GetNextAvailabilityTool(BaseTool):
     
     Input:
     - attendees: List of attendee email addresses
-    - duration: Meeting duration (e.g., '1h', '30m')
-    - start_time: Optional earliest start time to consider
+    - duration: Meeting duration (e.g., '1h', '30m', '1.5h')
+    - start_time: Optional earliest start time to consider (defaults to now)
+    
+    Returns the first available slot when all attendees are free.
     """
     args_schema: type = GetNextAvailabilityInput
     
@@ -215,28 +217,56 @@ class GetNextAvailabilityTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
+            from src.core.meeting_scheduler import MeetingScheduler
+            
             attendee_emails = validate_attendee_list(attendees)
             duration_minutes = validate_duration(duration)
             
             timezone = get_config().timezone
+            tz = pytz.timezone(timezone)
+            now = datetime.now(tz)
             
-            args = {
-                "attendees": attendee_emails,
-                "duration": duration_minutes
-            }
-            
+            # Parse start time or default to now
             if start_time:
-                start_dt = parse_datetime(start_time, timezone)
-                args["timeMin"] = start_dt.isoformat()
+                search_start = parse_datetime(start_time, timezone)
+            else:
+                search_start = now
             
-            mcp_manager = get_mcp_manager()
-            # Note: get_next_availability is not implemented in the MCP server yet
-            # For now, return an error message suggesting to use list_events instead
-            raise ToolExecutionError(
-                "get_next_availability is not yet implemented. "
-                "Please use get_calendar_events to check calendar availability manually.",
-                tool_name=self.name
+            # Search for 7 days from start
+            search_end = search_start + timedelta(days=7)
+            
+            # Use MeetingScheduler to find available slot
+            scheduler = MeetingScheduler(use_mcp=True)
+            slot = await scheduler.find_available_slot(
+                participants=attendee_emails,
+                duration_minutes=duration_minutes,
+                search_start=search_start.replace(tzinfo=None),
+                search_end=search_end.replace(tzinfo=None),
+                buffer_minutes=10,  # 10 min buffer between meetings
+                working_hours=(9, 18)  # 9am - 6pm
             )
+            
+            if slot:
+                slot_start = slot["start"]
+                slot_end = slot["end"]
+                # Format result
+                result = (
+                    f"✅ Found available slot:\n"
+                    f"   Start: {slot_start.strftime('%Y-%m-%d %H:%M')}\n"
+                    f"   End: {slot_end.strftime('%H:%M')}\n"
+                    f"   Duration: {duration_minutes} minutes\n"
+                    f"   Attendees: {', '.join(attendee_emails)}\n\n"
+                    f"You can now create the meeting using create_event with start_time=\"{slot_start.strftime('%Y-%m-%d %H:%M')}\"."
+                )
+                return result
+            else:
+                return (
+                    f"❌ No available slot found in the next 7 days for all attendees: {', '.join(attendee_emails)}.\n"
+                    f"Consider:\n"
+                    f"- Extending the search period\n"
+                    f"- Reducing meeting duration (requested: {duration_minutes} min)\n"
+                    f"- Checking individual calendars with get_calendar_events"
+                )
             
         except Exception as e:
             raise ToolExecutionError(
@@ -504,6 +534,242 @@ class GetCalendarEventsTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
+class DeleteCalendarEventsInput(BaseModel):
+    """Input schema for delete_calendar_events tool."""
+    
+    start_time: str = Field(description="Start of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), ISO 8601 format, or 'YYYY-MM-DD HH:MM'")
+    end_time: Optional[str] = Field(default=None, description="End of time range. If not provided, defaults to end of day for 'сегодня'/'завтра' or +24h for specific time")
+    title_filter: Optional[str] = Field(default=None, description="Optional filter to match event titles (case-insensitive substring match)")
+    event_ids: Optional[List[str]] = Field(default=None, description="Specific event IDs to delete. If provided, deletes only these events (used after user confirmation)")
+    confirmed: bool = Field(default=False, description="Must be True to actually delete events. If False, returns list of events that would be deleted for user confirmation")
+
+
+class DeleteCalendarEventsTool(BaseTool):
+    """
+    Tool for deleting calendar events with mandatory user confirmation.
+    
+    IMPORTANT: This tool requires explicit user confirmation before deleting events.
+    On first call (confirmed=False), it returns a list of events that match the criteria.
+    On second call (confirmed=True with event_ids), it performs the actual deletion.
+    """
+    
+    name: str = "delete_calendar_events"
+    description: str = """
+    Delete calendar events with mandatory user confirmation.
+    
+    ⚠️ ВАЖНО: Этот инструмент ТРЕБУЕТ подтверждения пользователя перед удалением!
+    
+    ПРОЦЕСС ИСПОЛЬЗОВАНИЯ (ОБЯЗАТЕЛЬНЫЙ ДВУХШАГОВЫЙ ПРОЦЕСС):
+    
+    1️⃣ ПЕРВЫЙ ВЫЗОВ (поиск событий для удаления):
+       - Вызови с confirmed=False (по умолчанию)
+       - Укажи временной диапазон (start_time, end_time) и опционально title_filter
+       - Инструмент вернет список найденных событий с их ID
+       - ПОКАЖИ ПОЛЬЗОВАТЕЛЮ список событий и СПРОСИ подтверждение: "Найдено N встреч. Удалить все?"
+    
+    2️⃣ ОЖИДАНИЕ ПОДТВЕРЖДЕНИЯ:
+       - Дождись явного подтверждения от пользователя ("да", "удаляй", "подтверждаю" и т.п.)
+       - Если пользователь отказывается - НЕ вызывай инструмент повторно
+    
+    3️⃣ ВТОРОЙ ВЫЗОВ (удаление после подтверждения):
+       - Вызови с confirmed=True и передай event_ids из первого вызова
+       - Инструмент удалит указанные события
+    
+    Параметры:
+    - start_time: Начало временного диапазона ('сегодня', 'завтра', ISO 8601, 'YYYY-MM-DD HH:MM')
+    - end_time: Конец временного диапазона (опционально)
+    - title_filter: Фильтр по названию события (опционально, поиск подстроки)
+    - event_ids: Список ID событий для удаления (для второго вызова)
+    - confirmed: Флаг подтверждения (False для поиска, True для удаления)
+    
+    Примеры использования:
+    
+    Пример 1: "Удали все встречи за сегодня"
+    - 1-й вызов: delete_calendar_events(start_time="сегодня", confirmed=False)
+    - Показать пользователю: "Найдено 5 встреч: [список]. Удалить все?"
+    - После "Да": delete_calendar_events(event_ids=["id1", "id2", ...], confirmed=True)
+    
+    Пример 2: "Удали все встречи с названием 'Планерка' на этой неделе"
+    - 1-й вызов: delete_calendar_events(start_time="на неделе", title_filter="Планерка", confirmed=False)
+    - Показать пользователю список и запросить подтверждение
+    - После подтверждения: удалить с confirmed=True
+    """
+    args_schema: type = DeleteCalendarEventsInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        start_time: str,
+        end_time: Optional[str] = None,
+        title_filter: Optional[str] = None,
+        event_ids: Optional[List[str]] = None,
+        confirmed: bool = False
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            mcp_manager = get_mcp_manager()
+            timezone = get_config().timezone
+            tz = pytz.timezone(timezone)
+            now = datetime.now(tz)
+            
+            # If confirmed=True and event_ids provided, delete the events
+            if confirmed and event_ids:
+                deleted_count = 0
+                errors = []
+                
+                for event_id in event_ids:
+                    try:
+                        await mcp_manager.call_tool(
+                            "delete_event",
+                            {"eventId": event_id, "calendarId": "primary"},
+                            server_name="calendar"
+                        )
+                        deleted_count += 1
+                    except Exception as e:
+                        errors.append(f"Ошибка при удалении события {event_id}: {str(e)}")
+                
+                if errors:
+                    return f"✅ Удалено {deleted_count} из {len(event_ids)} событий.\n⚠️ Ошибки:\n" + "\n".join(errors)
+                else:
+                    return f"✅ Успешно удалено {deleted_count} событий из календаря."
+            
+            # Otherwise, search for events to show user for confirmation
+            args = {"maxResults": 100}  # Get more events for deletion
+            
+            # Parse start_time
+            start_lower = start_time.lower()
+            
+            # Handle "на неделе" / "this week"
+            if "на неделе" in start_lower or "на этой неделе" in start_lower or "this week" in start_lower:
+                days_since_monday = now.weekday()
+                week_start = now - timedelta(days=days_since_monday)
+                week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
+                week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+                args["timeMin"] = week_start.isoformat()
+                args["timeMax"] = week_end.isoformat()
+            elif "сегодня" in start_lower or "today" in start_lower:
+                day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                day_end = now.replace(hour=23, minute=59, second=59, microsecond=0)
+                args["timeMin"] = day_start.isoformat()
+                if not end_time:
+                    args["timeMax"] = day_end.isoformat()
+            elif "завтра" in start_lower or "tomorrow" in start_lower:
+                tomorrow = now + timedelta(days=1)
+                day_start = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
+                day_end = tomorrow.replace(hour=23, minute=59, second=59, microsecond=0)
+                args["timeMin"] = day_start.isoformat()
+                if not end_time:
+                    args["timeMax"] = day_end.isoformat()
+            else:
+                start_dt = parse_datetime(start_time, timezone)
+                args["timeMin"] = start_dt.isoformat()
+                if not end_time:
+                    # Default to +24h if no end time specified
+                    end_dt = start_dt + timedelta(hours=24)
+                    args["timeMax"] = end_dt.isoformat()
+            
+            if end_time:
+                end_dt = parse_datetime(end_time, timezone)
+                args["timeMax"] = end_dt.isoformat()
+            
+            # Get events from MCP
+            result = await mcp_manager.call_tool("list_events", args, server_name="calendar")
+            
+            # Parse result
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result_text = first_item.text
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result_text = first_item['text']
+                else:
+                    result_text = str(first_item)
+                
+                try:
+                    result = json.loads(result_text)
+                except:
+                    result = {"items": [], "count": 0}
+            elif isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except:
+                    result = {"items": [], "count": 0}
+            
+            events = result.get("items", []) if isinstance(result, dict) else []
+            
+            # Apply title filter if provided
+            if title_filter:
+                title_filter_lower = title_filter.lower()
+                events = [
+                    e for e in events
+                    if title_filter_lower in e.get("summary", "").lower()
+                ]
+            
+            if not events:
+                return "❌ Не найдено событий для удаления за указанный период" + (f" с фильтром '{title_filter}'" if title_filter else "")
+            
+            # Build response with events list for user confirmation
+            response_parts = [
+                f"🔍 Найдено {len(events)} событий для удаления:",
+                ""
+            ]
+            
+            event_ids_for_deletion = []
+            
+            for i, event in enumerate(events, 1):
+                event_id = event.get("id")
+                summary = event.get("summary", "Без названия")
+                start = event.get("start", {})
+                end = event.get("end", {})
+                
+                start_time_str = start.get("dateTime") or start.get("date", "Unknown")
+                end_time_str = end.get("dateTime") or end.get("date", "Unknown")
+                
+                # Format time
+                try:
+                    if "T" in str(start_time_str):
+                        dt = datetime.fromisoformat(start_time_str.replace("Z", "+00:00"))
+                        formatted_start = dt.strftime("%Y-%m-%d %H:%M")
+                    else:
+                        formatted_start = start_time_str
+                except:
+                    formatted_start = start_time_str
+                
+                try:
+                    if "T" in str(end_time_str):
+                        dt = datetime.fromisoformat(end_time_str.replace("Z", "+00:00"))
+                        formatted_end = dt.strftime("%H:%M")
+                    else:
+                        formatted_end = end_time_str
+                except:
+                    formatted_end = end_time_str
+                
+                response_parts.append(f"{i}. **{summary}** ({formatted_start} - {formatted_end})")
+                event_ids_for_deletion.append(event_id)
+            
+            response_parts.extend([
+                "",
+                "⚠️ **ТРЕБУЕТСЯ ПОДТВЕРЖДЕНИЕ**",
+                "",
+                f"Удалить все {len(events)} событий?",
+                "",
+                "Для удаления вызовите инструмент повторно с параметрами:",
+                f"- confirmed=True",
+                f"- event_ids={json.dumps(event_ids_for_deletion)}"
+            ])
+            
+            return "\n".join(response_parts)
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Ошибка при работе с событиями календаря: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
 class ScheduleGroupMeetingInput(BaseModel):
     """Input schema for schedule_group_meeting tool."""
     
@@ -698,5 +964,6 @@ def get_calendar_tools() -> List[BaseTool]:
         GetNextAvailabilityTool(),
         GetCalendarEventsTool(),
         ScheduleGroupMeetingTool(),
+        DeleteCalendarEventsTool(),
     ]
 

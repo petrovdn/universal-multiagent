@@ -1,0 +1,74 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - generic [ref=e5]:
+        - generic [ref=e7] [cursor=pointer]:
+          - img [ref=e8]
+          - generic [ref=e13]: GPTzator 2.0
+        - generic [ref=e14]:
+          - button "Приложения" [ref=e16] [cursor=pointer]:
+            - img [ref=e17]
+          - button "Настройки" [ref=e20] [cursor=pointer]:
+            - img [ref=e21]
+          - button "Помощь" [ref=e25] [cursor=pointer]:
+            - img [ref=e26]
+          - button "Профиль" [ref=e30] [cursor=pointer]:
+            - img [ref=e31]
+            - img [ref=e34]
+    - generic [ref=e37]:
+      - generic [ref=e39]:
+        - generic [ref=e41]:
+          - generic [ref=e44]: назначь встречу на завтра в 15:00 с bsn@lad24.ru длительностью 30 минут на тему "Обсуждение проекта"
+          - generic [ref=e45]:
+            - generic [ref=e47]:
+              - img [ref=e49]
+              - generic [ref=e51]:
+                - generic [ref=e52]: Анализирую параметры встречи...
+                - generic [ref=e53]: 2с / 3с
+            - generic [ref=e57]:
+              - generic [ref=e58]:
+                - text: Создание встречи с bsn@lad24.ru
+                - generic [ref=e59]: ...
+              - generic [ref=e60]:
+                - generic [ref=e61] [cursor=pointer]:
+                  - img [ref=e62]
+                  - generic [ref=e64]: 1 результат
+                - generic [ref=e66]:
+                  - img [ref=e67]
+                  - generic [ref=e69]: Краткий анализ ситуации:1.Пользователь попросил назначить встречу назавтрав15:00сbsn@lad24.ruдлительностью30минут натему "Обсуждениепроекта".2.
+        - generic [ref=e70]:
+          - generic [ref=e71]:
+            - textbox "Текст" [disabled] [ref=e72]
+            - generic [ref=e73]:
+              - button "Агент" [ref=e75] [cursor=pointer]:
+                - generic [ref=e76]: Агент
+                - img [ref=e77]
+              - button "GPT-4o" [ref=e80] [cursor=pointer]:
+                - img [ref=e82]
+                - generic [ref=e85]: GPT-4o
+                - img [ref=e86]
+              - button "Новый диалог" [ref=e88] [cursor=pointer]:
+                - img [ref=e89]
+              - button "Прикрепить файл (изображение, PDF или Word)" [ref=e90] [cursor=pointer]:
+                - img [ref=e91]
+              - button "Остановить генерацию" [active] [ref=e93] [cursor=pointer]:
+                - img [ref=e94]
+          - paragraph [ref=e96]: Enter отправить • Shift + Enter новая строка
+      - separator [ref=e97]
+      - generic [ref=e99]:
+        - generic [ref=e100]:
+          - generic [ref=e101] [cursor=pointer]:
+            - img [ref=e102]
+            - generic [ref=e104]: Начало работы
+            - button "Close tab" [ref=e105]:
+              - img [ref=e106]
+          - button "Добавить файл из рабочей области" [ref=e109] [cursor=pointer]:
+            - img [ref=e110]
+        - generic [ref=e113]:
+          - img [ref=e116]
+          - heading "AI that works. Not talks." [level=2] [ref=e118]
+  - img
+```

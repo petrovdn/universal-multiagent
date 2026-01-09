@@ -200,7 +200,7 @@ def _generate_capabilities_description(
     if "calendar" in enabled_servers:
         calendar_tools = tools_by_category.get("calendar", [])
         if calendar_tools:
-            descriptions.append("- Calendar operations: создание событий, просмотр календаря, проверка доступности")
+            descriptions.append("- Calendar operations: создание событий, просмотр календаря, проверка доступности, удаление событий (с подтверждением)")
     
     # Spreadsheets capabilities
     if "sheets" in enabled_servers:
