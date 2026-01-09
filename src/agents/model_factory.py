@@ -31,7 +31,17 @@ MODELS: Dict[str, Dict[str, Any]] = {
         "supports_reasoning": False,
         "reasoning_type": None,
         "supports_vision": True,
-        "display_name": "Claude 3 Haiku"
+        "display_name": "Claude 3 Haiku",
+        "speed_class": "fast"
+    },
+    "claude-3-5-sonnet": {
+        "provider": "anthropic",
+        "model_id": "claude-3-5-sonnet-20241022",
+        "supports_reasoning": False,
+        "reasoning_type": None,
+        "supports_vision": True,
+        "display_name": "Claude 3.5 Sonnet",
+        "speed_class": "medium"
     },
     
     # OpenAI models
@@ -42,6 +52,15 @@ MODELS: Dict[str, Dict[str, Any]] = {
         "reasoning_type": None,
         "supports_vision": True,
         "display_name": "GPT-4o"
+    },
+    "gpt-4o-mini": {
+        "provider": "openai",
+        "model_id": "gpt-4o-mini",
+        "supports_reasoning": False,
+        "reasoning_type": None,
+        "supports_vision": True,
+        "display_name": "GPT-4o Mini",
+        "speed_class": "fast"
     },
     "o1": {
         "provider": "openai",

@@ -144,7 +144,20 @@ class CreateEventTool(BaseTool):
             open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "create_event:after_mcp_call", "message": "After MCP call_tool", "data": {"mcp_duration_ms": int((_mcp_call_end - _mcp_call_start)*1000), "result": str(result)[:200]}, "timestamp": int(_mcp_call_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
             # #endregion
             
-            event_id = result.get("id", "unknown")
+            # Parse result - MCP returns list of TextContent objects
+            event_id = "unknown"
+            if isinstance(result, list) and len(result) > 0:
+                # Extract text from TextContent and parse JSON
+                text_content = result[0]
+                if hasattr(text_content, 'text'):
+                    try:
+                        parsed = json.loads(text_content.text)
+                        event_id = parsed.get("id", "unknown")
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+            elif isinstance(result, dict):
+                event_id = result.get("id", "unknown")
+            
             return f"Event '{title}' created successfully. Event ID: {event_id}. Start: {start_dt.strftime('%Y-%m-%d %H:%M')}"
             
         except ValidationError as e:
@@ -331,9 +344,12 @@ class GetCalendarEventsTool(BaseTool):
                 week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
                 args["timeMin"] = week_start.isoformat()
                 
-                # If end_time not specified, set to end of week
-                if not end_time:
-                    week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+                # Calculate end of week (Sunday 23:59:59)
+                week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
+                
+                # If end_time not specified OR end_time also contains "неделе" (LLM sometimes passes same value), use week end
+                end_lower = end_time.lower() if end_time else ""
+                if not end_time or "неделе" in end_lower or "week" in end_lower:
                     args["timeMax"] = week_end.isoformat()
                 else:
                     end_dt = parse_datetime(end_time, timezone)
@@ -353,11 +369,38 @@ class GetCalendarEventsTool(BaseTool):
                         args["timeMax"] = end_dt.isoformat()
             
             if end_time and not ("на неделе" in start_time.lower() if start_time else False):
-                end_dt = parse_datetime(end_time, timezone)
+                end_time_lower = end_time.lower()
+                # Check if end_time is a day-level expression without specific time
+                # If so, set to end of that day (23:59:59) to get full day's events
+                is_day_expression = any(day_word in end_time_lower for day_word in ["сегодня", "today", "завтра", "tomorrow", "послезавтра"])
+                has_specific_time = "в " in end_time_lower or "at " in end_time_lower or ":" in end_time
+                
+                if is_day_expression and not has_specific_time:
+                    # Set end to end of that day
+                    end_dt = parse_datetime(end_time, timezone)
+                    end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=0)
+                else:
+                    end_dt = parse_datetime(end_time, timezone)
                 args["timeMax"] = end_dt.isoformat()
             
+            # #region agent log - H13: Before calling list_events
+            import time as _time
+            import json as _json
+            _list_events_start = _time.time()
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "get_calendar_events:before_list_events", "message": "Before calling list_events MCP tool", "data": {"start_time": start_time, "end_time": end_time, "max_results": max_results, "args": str(args)[:200]}, "timestamp": int(_list_events_start*1000), "sessionId": "debug-session", "hypothesisId": "H13"}) + '\n')
+            # #endregion
+            
             mcp_manager = get_mcp_manager()# Fix: Use "list_events" instead of "get_calendar_events" to match MCP server
-            result = await mcp_manager.call_tool("list_events", args, server_name="calendar")# Handle MCP result format (TextContent list or dict)
+            result = await mcp_manager.call_tool("list_events", args, server_name="calendar")
+            
+            # #region agent log - H13: After calling list_events
+            _list_events_end = _time.time()
+            _result_type = type(result).__name__
+            _result_preview = str(result)[:300] if result else "None"
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "get_calendar_events:after_list_events", "message": "After calling list_events MCP tool", "data": {"duration_ms": int((_list_events_end - _list_events_start)*1000), "result_type": _result_type, "result_preview": _result_preview, "is_list": isinstance(result, list), "list_length": len(result) if isinstance(result, list) else 0}, "timestamp": int(_list_events_end*1000), "sessionId": "debug-session", "hypothesisId": "H13"}) + '\n')
+            # #endregion
+            
+            # Handle MCP result format (TextContent list or dict)
             if isinstance(result, list) and len(result) > 0:
                 first_item = result[0]
                 if hasattr(first_item, 'text'):

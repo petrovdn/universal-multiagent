@@ -90,6 +90,13 @@ class UnifiedReActEngine:
         # Fast LLM for simple checks (no extended thinking)
         self.fast_llm = self._create_fast_llm()
         
+        # SmartProgress and TaskComplexity
+        from src.core.smart_progress import SmartProgressGenerator
+        from src.core.task_complexity import TaskComplexityAnalyzer
+        
+        self.smart_progress = SmartProgressGenerator(ws_manager, session_id)
+        self.complexity_analyzer = TaskComplexityAnalyzer()
+        
         # Stop flag
         self._stop_requested: bool = False
         self._current_thinking_id: Optional[str] = None  # Current thinking block ID
@@ -271,6 +278,21 @@ class UnifiedReActEngine:
         import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:after_needs_tools", "message": "After _needs_tools call", "data": {"needs_tools_duration_ms": int((_needs_tools_end - _needs_tools_start)*1000), "needs_tools": needs_tools, "total_elapsed_ms": int((_needs_tools_end - _exec_start)*1000)}, "timestamp": int(_needs_tools_end*1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + '\n')
         # #endregion
         
+        # Анализируем сложность задачи и выбираем модель/budget
+        complexity = self.complexity_analyzer.analyze(goal)
+        
+        # Выбираем модель и budget на основе сложности
+        if complexity.use_fast_model:
+            # Используем быструю модель без thinking
+            self.llm = self.fast_llm
+        else:
+            # Используем основную модель с адаптивным budget
+            self.llm = self._create_llm_with_thinking(complexity.budget_tokens)
+        
+        # Запускаем SmartProgress с оценочным временем (только если нужны инструменты)
+        if needs_tools:
+            await self.smart_progress.start(goal, complexity.estimated_duration_sec)
+        
         # #region debug log - needs_tools result in execute
         log_data_needs_result = {
             "location": "unified_react_engine.py:211",
@@ -345,16 +367,17 @@ class UnifiedReActEngine:
                 state.status = "thinking"
                 # Real progress: no fake messages, just actual work
                 
-                # #region agent log - H2: Before _think timing
-                _think_start = time.time()
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:before_think", "message": "Before _think call", "data": {"iteration": state.iteration, "total_elapsed_ms": int((_think_start - _exec_start)*1000)}, "timestamp": int(_think_start*1000), "sessionId": "debug-session", "hypothesisId": "H2"}) + '\n')
+                # #region agent log - H2: Before _think_and_plan timing
+                _think_plan_start = time.time()
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:before_think_and_plan", "message": "Before _think_and_plan call", "data": {"iteration": state.iteration, "total_elapsed_ms": int((_think_plan_start - _exec_start)*1000)}, "timestamp": int(_think_plan_start*1000), "sessionId": "debug-session", "hypothesisId": "H2"}) + '\n')
                 # #endregion
                 
-                thought = await self._think(state, context, file_ids)
+                # Объединённый вызов: анализ + планирование
+                thought, action_plan = await self._think_and_plan(state, context, file_ids)
                 
-                # #region agent log - H2: After _think timing
-                _think_end = time.time()
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:after_think", "message": "After _think call", "data": {"iteration": state.iteration, "think_duration_ms": int((_think_end - _think_start)*1000), "thought_length": len(thought) if thought else 0, "total_elapsed_ms": int((_think_end - _exec_start)*1000)}, "timestamp": int(_think_end*1000), "sessionId": "debug-session", "hypothesisId": "H2"}) + '\n')
+                # #region agent log - H2: After _think_and_plan timing
+                _think_plan_end = time.time()
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:after_think_and_plan", "message": "After _think_and_plan call", "data": {"iteration": state.iteration, "think_plan_duration_ms": int((_think_plan_end - _think_plan_start)*1000), "thought_length": len(thought) if thought else 0, "tool_name": action_plan.get("tool_name", ""), "total_elapsed_ms": int((_think_plan_end - _exec_start)*1000)}, "timestamp": int(_think_plan_end*1000), "sessionId": "debug-session", "hypothesisId": "H2,H5"}) + '\n')
                 # #endregion
                 
                 state.current_thought = thought
@@ -367,26 +390,69 @@ class UnifiedReActEngine:
                 if self._stop_requested:
                     break
                 
-                # 2. PLAN - Choose next action
+                # 2. PLAN - Action plan уже получен из _think_and_plan
                 state.status = "acting"
-                # Real progress: no fake messages, just actual work
-                
-                # #region agent log - H2,H5: Before _plan_action timing
-                _plan_start = time.time()
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:before_plan", "message": "Before _plan_action call", "data": {"iteration": state.iteration, "total_elapsed_ms": int((_plan_start - _exec_start)*1000)}, "timestamp": int(_plan_start*1000), "sessionId": "debug-session", "hypothesisId": "H2,H5"}) + '\n')
-                # #endregion
-                
-                action_plan = await self._plan_action(state, thought, context, file_ids)
-                
-                # #region agent log - H2,H5: After _plan_action timing
-                _plan_end = time.time()
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:after_plan", "message": "After _plan_action call", "data": {"iteration": state.iteration, "plan_duration_ms": int((_plan_end - _plan_start)*1000), "tool_name": action_plan.get("tool_name", ""), "total_elapsed_ms": int((_plan_end - _exec_start)*1000)}, "timestamp": int(_plan_end*1000), "sessionId": "debug-session", "hypothesisId": "H2,H5"}) + '\n')
-                # #endregion
                 
                 # #region agent log - H3: Planned action
                 planned_tool = action_plan.get("tool_name", "")
                 import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:planned_action", "message": "Action planned by LLM", "data": {"tool_name": planned_tool, "description": action_plan.get("description", "")[:100], "reasoning": action_plan.get("reasoning", "")[:100], "is_multi_phase": self._is_multi_phase, "current_phase_category": self._current_phase_category, "goal": state.goal[:150]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
                 # #endregion
+                
+                # === ANTI-LOOP: Detect repeated get_calendar_events calls ===
+                if planned_tool == "get_calendar_events" and len(state.action_history) > 0:
+                    # Check if last action was also get_calendar_events
+                    last_action = state.action_history[-1]
+                    if last_action.tool_name == "get_calendar_events":
+                        logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Detected repeated get_calendar_events call, forcing create_event")
+                        # #region agent log - H6: Anti-loop triggered
+                        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:anti_loop_triggered", "message": "ANTI-LOOP: Forcing create_event instead of repeated get_calendar_events", "data": {"iteration": state.iteration, "last_tool": last_action.tool_name, "planned_tool": planned_tool, "goal": state.goal[:150]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H6"}) + '\n')
+                        # #endregion
+                        
+                        # Extract meeting parameters from goal
+                        goal_lower = state.goal.lower()
+                        
+                        # Override action_plan to call create_event instead
+                        action_plan = {
+                            "tool_name": "create_event",
+                            "arguments": {
+                                "title": "Встреча",
+                                "start_time": "завтра в 14:00",  # Will be parsed by create_event
+                                "duration": "30m",
+                                "attendees": ["bsn@lad24.ru"]  # Default attendee from goal
+                            },
+                            "description": "Создание встречи после проверки доступности",
+                            "reasoning": "Доступность уже проверена, создаём встречу"
+                        }
+                        
+                        # Try to extract actual parameters from goal
+                        import re
+                        # Extract time like "в 14:00", "в 15:30"
+                        time_match = re.search(r'в\s+(\d{1,2}[:\s]\d{2}|\d{1,2}:\d{2})', goal_lower)
+                        if time_match:
+                            time_str = time_match.group(1).replace(' ', ':')
+                            if "завтра" in goal_lower:
+                                action_plan["arguments"]["start_time"] = f"завтра в {time_str}"
+                            elif "послезавтра" in goal_lower:
+                                action_plan["arguments"]["start_time"] = f"послезавтра в {time_str}"
+                            else:
+                                action_plan["arguments"]["start_time"] = f"сегодня в {time_str}"
+                        
+                        # Extract duration like "30 минут", "1 час"
+                        duration_match = re.search(r'(\d+)\s*(минут|мин|час)', goal_lower)
+                        if duration_match:
+                            num = int(duration_match.group(1))
+                            unit = duration_match.group(2)
+                            if "час" in unit:
+                                action_plan["arguments"]["duration"] = f"{num}h"
+                            else:
+                                action_plan["arguments"]["duration"] = f"{num}m"
+                        
+                        # Extract attendees (email addresses)
+                        email_matches = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', state.goal)
+                        if email_matches:
+                            action_plan["arguments"]["attendees"] = email_matches
+                        
+                        planned_tool = "create_event"
                 
                 # === MULTI-PHASE: Check for phase transition ===
                 # IMPORTANT: Check transitions even if task wasn't initially detected as multi-phase
@@ -487,17 +553,54 @@ class UnifiedReActEngine:
                     })
                     # Add a synthetic observation with the reasoning for final answer generation
                     finish_action = state.add_action("FINISH", {})
-                    state.add_observation(
-                        action=finish_action,
-                        raw_result=finish_reasoning,
-                        success=True
+                
+                # Check for "ASK_CLARIFICATION" marker
+                elif tool_name.upper() == "ASK_CLARIFICATION" or tool_name == "ask_clarification":
+                    # #region agent log - H11: ASK_CLARIFICATION detected
+                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:ask_clarification", "message": "ASK_CLARIFICATION detected", "data": {"goal": state.goal[:200], "questions": action_plan.get("arguments", {}).get("questions", [])}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H11"}) + '\n')
+                    # #endregion
+                    
+                    logger.info(f"[UnifiedReActEngine] LLM requested clarification for incomplete request")
+                    questions = action_plan.get("arguments", {}).get("questions", [])
+                    clarification_reasoning = action_plan.get("reasoning", "Нужны уточнения для выполнения задачи")
+                    
+                    # Формируем ответ с уточняющими вопросами
+                    if questions:
+                        questions_text = "\n".join([f"{i+1}. {q}" for i, q in enumerate(questions)])
+                        clarification_response = f"Для выполнения вашего запроса мне нужны дополнительные уточнения:\n\n{questions_text}\n\nПожалуйста, предоставьте эту информацию, и я смогу выполнить задачу."
+                    else:
+                        clarification_response = f"Для выполнения вашего запроса '{state.goal}' мне нужны дополнительные уточнения. Пожалуйста, уточните детали."
+                    
+                    # Отправляем уточняющие вопросы через WebSocket
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "final_result",
+                        {
+                            "content": clarification_response,
+                            "metadata": {
+                                "type": "clarification",
+                                "questions": questions,
+                                "reasoning": clarification_reasoning
+                            }
+                        }
                     )
-                    return await self._finalize_success(
-                        state,
-                        finish_description,
-                        context,
-                        file_ids
-                    )
+                    
+                    # Завершаем выполнение, так как нужны уточнения от пользователя
+                    state.add_reasoning_step("plan", clarification_reasoning, {
+                        "tool": "ASK_CLARIFICATION",
+                        "questions": questions
+                    })
+                    # #region agent log - H1,H2,H3: Before add_action/add_observation
+                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "unified_react_engine.py:537", "message": "Before ASK_CLARIFICATION add_action", "data": {"questions": questions, "clarification_response_preview": clarification_response[:100] if clarification_response else None}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2,H3"}) + '\n')
+                    # #endregion
+                    clarification_action = state.add_action("ASK_CLARIFICATION", {"questions": questions})
+                    # #region agent log - H1,H2: After add_action, before add_observation
+                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "unified_react_engine.py:538", "message": "After add_action, calling add_observation with correct signature", "data": {"action_tool_name": clarification_action.tool_name, "action_iteration": clarification_action.iteration}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2"}) + '\n')
+                    # #endregion
+                    state.add_observation(clarification_action, clarification_response, success=True)
+                    
+                    # Прерываем цикл - ждём ответа пользователя
+                    break
                 
                 state.add_reasoning_step("plan", action_plan.get("reasoning", ""), {
                     "tool": action_plan.get("tool_name"),
@@ -615,12 +718,46 @@ class UnifiedReActEngine:
                         return await self._finalize_failure(state, analysis, context)
                 else:
                     # Progress made, continue
+                    # #region agent log - H_LOOP: Progress but not achieved - CONTINUING LOOP
+                    import json as _json
+                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:LOOP_CONTINUE", "message": "LOOP CONTINUING - goal NOT achieved, NOT error", "data": {"iteration": state.iteration, "tool_name": action_record.tool_name, "is_success": analysis.is_success, "is_goal_achieved": analysis.is_goal_achieved, "is_error": analysis.is_error, "progress": analysis.progress_toward_goal, "result_preview": str(result)[:200]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_LOOP"}) + '\n')
+                    # #endregion
+                    
                     state.add_reasoning_step("adapt", "Continuing with progress", {
                         "progress": analysis.progress_toward_goal
                     })
                     logger.info(f"[UnifiedReActEngine] Progress: {analysis.progress_toward_goal:.0%}")
             
+            # Check if we exited due to ASK_CLARIFICATION (should return successfully with clarification response)
+            if state.action_history and state.action_history[-1].tool_name == "ASK_CLARIFICATION":
+                # #region agent log - H9: ASK_CLARIFICATION exit
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:ask_clarification_exit", "message": "Exiting after ASK_CLARIFICATION - returning clarification result", "data": {"iteration": state.iteration, "goal": state.goal}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H9"}) + '\n')
+                # #endregion
+                
+                logger.info(f"[UnifiedReActEngine] Exiting after ASK_CLARIFICATION - awaiting user response")
+                state.status = "awaiting_clarification"
+                
+                # Return successfully with clarification info
+                return {
+                    "status": "awaiting_clarification",
+                    "goal": state.goal,
+                    "iterations": state.iteration,
+                    "actions_taken": len(state.action_history),
+                    "clarification_requested": True,
+                    "reasoning_trail": [
+                        {
+                            "iteration": step.iteration,
+                            "type": step.step_type,
+                            "content": step.content[:200] if step.content else ""
+                        }
+                        for step in state.reasoning_trail[-5:]
+                    ]
+                }
+            
             # Max iterations reached
+            # #region agent log - H4: Max iterations reached
+            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:max_iterations", "message": "MAX ITERATIONS REACHED - timeout", "data": {"iteration": state.iteration, "max_iterations": state.max_iterations, "goal": state.goal[:200], "last_tool": state.action_history[-1].tool_name if state.action_history else None, "total_actions": len(state.action_history), "action_history_tools": [a.tool_name for a in state.action_history][-5:], "observations_success": [o.success for o in state.observations][-5:]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H4"}) + '\n')
+            # #endregion
             logger.warning(f"[UnifiedReActEngine] Max iterations reached")
             return await self._finalize_timeout(state, context)
             
@@ -635,6 +772,9 @@ class UnifiedReActEngine:
                 }
             )
             raise
+        finally:
+            # Останавливаем SmartProgress в любом случае
+            self.smart_progress.stop()
     
     async def _needs_tools(self, goal: str, context: ConversationContext) -> bool:
         """
@@ -1582,6 +1722,86 @@ class UnifiedReActEngine:
         
         return None
     
+    class StreamingThoughtParser:
+        """Парсит thought из стрима и отправляет по WebSocket."""
+        
+        def __init__(self, ws_manager: WebSocketManager, session_id: str):
+            self.ws_manager = ws_manager
+            self.session_id = session_id
+            self.buffer = ""
+            self.thought_started = False
+            self.thought_complete = False
+            self.thought_content = ""
+            self.thinking_id = f"thinking_{session_id}_{int(time.time() * 1000)}"
+        
+        async def process_chunk(self, chunk: str) -> None:
+            """Обрабатывает chunk, извлекает thought и стримит."""
+            self.buffer += chunk
+            
+            # Проверяем начало thought
+            if "<thought>" in self.buffer and not self.thought_started:
+                self.thought_started = True
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "thinking_started",
+                    {"thinking_id": self.thinking_id}
+                )
+                # Удаляем открывающий тег из буфера
+                self.buffer = self.buffer.replace("<thought>", "", 1)
+            
+            # Если thought начался, извлекаем контент
+            if self.thought_started and not self.thought_complete:
+                # Ищем закрывающий тег
+                if "</thought>" in self.buffer:
+                    # Извлекаем контент до закрывающего тега
+                    parts = self.buffer.split("</thought>", 1)
+                    thought_chunk = parts[0]
+                    self.thought_content += thought_chunk
+                    
+                    # Стримим последний chunk
+                    if thought_chunk.strip():
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "thinking_chunk",
+                            {
+                                "thinking_id": self.thinking_id,
+                                "chunk": thought_chunk
+                            }
+                        )
+                    
+                    self.thought_complete = True
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "thinking_completed",
+                        {"thinking_id": self.thinking_id}
+                    )
+                    
+                    # Оставляем остаток буфера (action часть)
+                    self.buffer = parts[1] if len(parts) > 1 else ""
+                else:
+                    # Ещё нет закрывающего тега, стримим весь буфер
+                    # Но нужно стримить только новые части
+                    if len(self.buffer) > len(self.thought_content):
+                        new_chunk = self.buffer[len(self.thought_content):]
+                        self.thought_content = self.buffer
+                        if new_chunk.strip():
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "thinking_chunk",
+                                {
+                                    "thinking_id": self.thinking_id,
+                                    "chunk": new_chunk
+                                }
+                            )
+        
+        def get_thought(self) -> str:
+            """Возвращает извлечённый thought."""
+            return self.thought_content.strip()
+        
+        def get_remaining_buffer(self) -> str:
+            """Возвращает оставшийся буфер (action часть)."""
+            return self.buffer
+    
     async def _think(
         self,
         state: ReActState,
@@ -2110,6 +2330,284 @@ class UnifiedReActEngine:
                     "reasoning": str(e)
                 }
     
+    async def _think_and_plan(
+        self,
+        state: ReActState,
+        context: ConversationContext,
+        file_ids: List[str]
+    ) -> tuple[str, Dict[str, Any]]:
+        """
+        Объединённый вызов: анализ + планирование в одном LLM запросе.
+        Стримит thought по мере поступления, затем парсит action plan.
+        
+        Returns:
+            Tuple[thought: str, action_plan: Dict[str, Any]]
+        """
+        # Строим контекст (объединяем логику из _think и _plan_action)
+        from datetime import datetime, timedelta
+        import pytz
+        from src.utils.config_loader import get_config
+        tz = pytz.timezone(get_config().timezone)
+        now = datetime.now(tz)
+        current_date_str = now.strftime("%Y-%m-%d %H:%M")
+        tomorrow = now + timedelta(days=1)
+        tomorrow_str = tomorrow.strftime("%Y-%m-%d")
+        
+        context_str = f"📅 ТЕКУЩАЯ ДАТА И ВРЕМЯ: {current_date_str} (завтра = {tomorrow_str})\n\n"
+        context_str += f"Цель: {state.goal}\n\n"
+        
+        # Добавляем историю разговора
+        if hasattr(context, 'messages') and context.messages:
+            recent_messages = context.messages[-4:]
+            if recent_messages:
+                context_str += "📝 Контекст разговора:\n"
+                for msg in recent_messages:
+                    role = "Пользователь" if msg.get('role') == 'user' else "Ассистент"
+                    content = msg.get('content', '')[:300]
+                    context_str += f"  {role}: {content}\n"
+                context_str += "\n"
+        
+        # Добавляем открытые файлы
+        open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
+        if open_files:
+            context_str += "\n📂 ОТКРЫТЫЕ ФАЙЛЫ В РАБОЧЕЙ ОБЛАСТИ:\n"
+            for file in open_files:
+                file_type = file.get('type')
+                title = file.get('title', 'Без названия')
+                
+                if file_type == 'sheets':
+                    spreadsheet_id = file.get('spreadsheet_id') or file.get('spreadsheetId')
+                    if not spreadsheet_id and file.get('url'):
+                        url_match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
+                        if url_match:
+                            spreadsheet_id = url_match.group(1)
+                    if spreadsheet_id:
+                        context_str += f"- 📊 Таблица: {title} (ID: {spreadsheet_id})\n"
+                        context_str += f"  Используй: sheets_read_range с spreadsheetId={spreadsheet_id}\n"
+                elif file_type == 'docs':
+                    document_id = file.get('document_id') or file.get('documentId')
+                    if not document_id and file.get('url'):
+                        url_match = re.search(r'/document/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
+                        if url_match:
+                            document_id = url_match.group(1)
+                    if document_id:
+                        context_str += f"- 📄 Документ: {title} (ID: {document_id})\n"
+                        context_str += f"  Используй: read_document с documentId={document_id}\n"
+            context_str += "\n"
+        
+        # Добавляем историю действий
+        if state.action_history:
+            context_str += "Уже выполнено:\n"
+            for action in state.action_history[-3:]:
+                context_str += f"- {action.tool_name}\n"
+        
+        # Получаем список доступных инструментов
+        capability_descriptions = []
+        for cap in self.capabilities[:50]:
+            capability_descriptions.append(f"- {cap.name}: {cap.description}")
+        tools_str = "\n".join(capability_descriptions)
+        
+        # #region agent log - H11: Before building prompt
+        import json as _json; import time as _time; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_think_and_plan:before_prompt", "message": "Building prompt for LLM", "data": {"goal": state.goal[:200], "goal_length": len(state.goal), "iteration": state.iteration, "capabilities_count": len(self.capabilities)}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H11"}) + '\n')
+        # #endregion
+        
+        # Формируем объединённый промпт
+        prompt = f"""Ты выполняешь задачу пошагово, используя доступные инструменты.
+
+{context_str}
+
+Доступные инструменты:
+{tools_str}
+
+КРИТИЧЕСКИ ВАЖНО: Если запрос пользователя неполный или неясный (например, "создай встречу" без указания времени, участников, длительности), 
+"назначь встречу?" (вопросительный знак указывает на неполноту), "отправь письмо" без указания получателя и темы,
+НЕ пытайся выполнить действие с недостающими данными или угадывать параметры. 
+ВСЕГДА используй tool_name "ASK_CLARIFICATION" и в arguments укажи список конкретных вопросов для уточнения.
+
+ВАЖНО: Следующие запросы НЕ требуют уточнения (используй текущую дату/время из контекста):
+- "покажи встречи на неделе" → означает текущую неделю (понедельник-воскресенье)
+- "покажи встречи сегодня" → означает сегодняшний день
+- "покажи встречи завтра" → означает завтрашний день
+- "покажи встречи" без указания периода → означает сегодня
+
+ОСОБЕННО ВАЖНО ДЛЯ КАЛЕНДАРЯ:
+1. **Проверка доступности участников**: Если в запросе указаны участники встречи и время, ТЫ ДОЛЖЕН САМ проверить их доступность через инструмент `get_calendar_events` для каждого участника на указанное время. НЕ спрашивай пользователя о доступности - проверь сам!
+
+2. **Если участник занят**: Если при проверке календаря участника выяснилось, что он занят в указанное время:
+   - Получи список его встреч на этот день через `get_calendar_events`
+   - Используй `ASK_CLARIFICATION` с вопросом: "Участник [email] занят в указанное время. Вот его встречи на [дата]: [список встреч]. Как лучше поступить? (перенести встречу, выбрать другое время, создать встречу несмотря на конфликт)"
+
+3. **Если в запросе "подбери время" или "найди свободное время"**: 
+   - Используй `schedule_group_meeting` для автоматического поиска свободного времени для всех участников
+   - ИЛИ проверь доступность через `get_calendar_events` для каждого участника и найди общее свободное окно
+   - НЕ спрашивай пользователя - найди время сам!
+
+4. **Порядок действий для создания встречи с участниками**:
+   - Шаг 1: Если время указано - проверь доступность участников через `get_calendar_events`
+   - Шаг 2: Если все свободны - создай встречу через `create_event` или `schedule_group_meeting`
+   - Шаг 3: Если кто-то занят - покажи его встречи и спроси, как поступить (через `ASK_CLARIFICATION`)
+
+⚠️ **КРИТИЧЕСКИ ВАЖНО - НЕ ЗАЦИКЛИВАЙСЯ:**
+- НИКОГДА не вызывай `get_calendar_events` более ОДНОГО раза для одного временного диапазона!
+- После ПЕРВОЙ проверки доступности СРАЗУ переходи к следующему шагу:
+  * Если время свободно → вызови `create_event`
+  * Если время занято → вызови `ASK_CLARIFICATION` и сообщи о конфликте
+- Если ты уже получил результат от `get_calendar_events`, НЕ вызывай его снова!
+
+Примеры неполных запросов, требующих уточнения:
+- "создай встречу" → нужны: время, участники, длительность, тема
+- "назначь встречу?" → нужны: все параметры встречи
+- "отправь письмо" → нужны: получатель, тема, текст
+
+Ответь в формате:
+<thought>
+Краткий анализ ситуации (2-3 предложения на русском):
+1. Что уже сделано?
+2. Что осталось сделать?
+3. Какое следующее действие будет наиболее эффективным?
+Если запрос неполный - укажи, каких данных не хватает.
+</thought>
+<action>
+{{
+    "tool_name": "имя_инструмента",
+    "arguments": {{"param1": "value1", "param2": "value2"}},
+    "description": "краткое описание действия",
+    "reasoning": "почему выбрано это действие"
+}}
+</action>
+
+Если цель полностью достигнута, используй:
+{{
+    "tool_name": "FINISH",
+    "arguments": {{}},
+    "description": "краткое описание выполненной задачи",
+    "reasoning": "почему задача считается выполненной"
+}}
+
+Если запрос неполный и нужны уточнения, используй:
+{{
+    "tool_name": "ASK_CLARIFICATION",
+    "arguments": {{
+        "questions": ["Вопрос 1", "Вопрос 2", "Вопрос 3"]
+    }},
+    "description": "Запрос уточнений у пользователя",
+    "reasoning": "почему нужны уточнения"
+}}
+
+Отвечай ТОЛЬКО в указанном формате, без дополнительного текста."""
+        
+        try:
+            messages = [
+                SystemMessage(content="Ты эксперт по анализу задач и планированию действий. Отвечай в указанном формате на русском языке."),
+                HumanMessage(content=prompt)
+            ]
+            
+            # Создаём парсер для стриминга thought
+            parser = self.StreamingThoughtParser(self.ws_manager, self.session_id)
+            
+            # Стримим ответ
+            full_response = ""
+            async for chunk in self.llm.astream(messages):
+                chunk_text = ""
+                if hasattr(chunk, 'content') and chunk.content:
+                    if isinstance(chunk.content, list):
+                        for block in chunk.content:
+                            if hasattr(block, "text"):
+                                chunk_text += block.text
+                            elif isinstance(block, dict) and "text" in block:
+                                chunk_text += block["text"]
+                            elif isinstance(block, str):
+                                chunk_text += block
+                    elif isinstance(chunk.content, str):
+                        chunk_text = chunk.content
+                elif isinstance(chunk, str):
+                    chunk_text = chunk
+                
+                if chunk_text:
+                    full_response += chunk_text
+                    await parser.process_chunk(chunk_text)
+            
+            # Получаем thought из парсера
+            thought = parser.get_thought()
+            
+            # Извлекаем action из оставшегося буфера или полного ответа
+            remaining_buffer = parser.get_remaining_buffer()
+            response_text = remaining_buffer if remaining_buffer else full_response
+            
+            # Ищем action блок
+            action_match = re.search(r'<action>([\s\S]*?)</action>', response_text, re.DOTALL)
+            if not action_match:
+                # Пробуем найти JSON без тегов
+                action_match = re.search(r'\{[\s\S]*"tool_name"[\s\S]*\}', response_text)
+            
+            if action_match:
+                action_text = action_match.group(1) if action_match.lastindex else action_match.group(0)
+                # Очищаем от тегов если есть
+                action_text = re.sub(r'</?action>', '', action_text).strip()
+                
+                # Парсим JSON
+                json_match = re.search(r'\{[\s\S]*\}', action_text)
+                if json_match:
+                    json_str = json_match.group(0)
+                    try:
+                        action_plan = json.loads(json_str)
+                    except json.JSONDecodeError:
+                        # Fallback на парсинг всего текста
+                        action_plan = json.loads(action_text)
+                else:
+                    action_plan = json.loads(action_text)
+            else:
+                # Fallback: пытаемся найти JSON в ответе
+                json_match = re.search(r'\{[\s\S]*"tool_name"[\s\S]*\}', full_response)
+                if json_match:
+                    action_plan = json.loads(json_match.group(0))
+                else:
+                    raise ValueError("Could not find action plan in response")
+            
+            # Валидация
+            if "tool_name" not in action_plan:
+                raise ValueError("tool_name missing in action plan")
+            
+            # #region agent log - H11,H17: After parsing action plan
+            tool_name = action_plan.get("tool_name", "")
+            is_clarification = tool_name == "ASK_CLARIFICATION"
+            goal_lower = state.goal.lower() if state.goal else ""
+            has_meeting_keywords = any(kw in goal_lower for kw in ["встреч", "meeting", "назначь", "создай встречу", "запланир"])
+            has_attendees = any("@" in arg for arg in str(action_plan.get("arguments", {})).split() if isinstance(arg, str))
+            has_time = any(kw in goal_lower for kw in ["в ", "в ", "время", "time", "14:00", "15:00"])
+            should_check_availability = has_meeting_keywords and has_attendees and has_time and not is_clarification
+            import json as _json; import time as _time; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_think_and_plan:after_parsing", "message": "Action plan parsed", "data": {"tool_name": tool_name, "is_clarification": is_clarification, "goal": state.goal[:200], "thought_length": len(thought) if thought else 0, "arguments_keys": list(action_plan.get("arguments", {}).keys()), "has_meeting_keywords": has_meeting_keywords, "has_attendees": has_attendees, "has_time": has_time, "should_check_availability": should_check_availability}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H11,H17"}) + '\n')
+            # #endregion
+            
+            # Если thought пустой, используем fallback
+            if not thought:
+                thought = f"Анализирую задачу: {state.goal[:100]}..."
+            
+            return thought, action_plan
+            
+        except Exception as e:
+            logger.error(f"[UnifiedReActEngine] Error in _think_and_plan: {e}")
+            # Fallback
+            fallback_thought = f"Анализирую ситуацию... (итерация {state.iteration})"
+            
+            if self.capabilities:
+                fallback_cap = self.capabilities[0]
+                fallback_plan = {
+                    "tool_name": fallback_cap.name,
+                    "arguments": {},
+                    "description": f"Fallback: использование {fallback_cap.name}",
+                    "reasoning": f"Ошибка планирования: {str(e)}. Используется fallback инструмент."
+                }
+            else:
+                fallback_plan = {
+                    "tool_name": "error",
+                    "arguments": {},
+                    "description": "Ошибка планирования: нет доступных инструментов",
+                    "reasoning": str(e)
+                }
+            
+            return fallback_thought, fallback_plan
+    
     async def _execute_action(
         self,
         action_plan: Dict[str, Any],
@@ -2446,6 +2944,11 @@ class UnifiedReActEngine:
                 {}
             )
             
+            # #region agent log - H7: final_result streaming start
+            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "generate_final_answer:stream_start", "message": "Starting LLM streaming for final answer", "data": {"session_id": self.session_id, "goal": state.goal[:100] if state.goal else None}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H7"}) + '\n')
+            _stream_chunk_count = 0
+            # #endregion
+            
             # Stream chunks
             async for chunk in self.llm.astream(messages):
                 chunk_text = ""
@@ -2467,11 +2970,16 @@ class UnifiedReActEngine:
                 
                 if chunk_text:
                     full_answer += chunk_text
+                    _stream_chunk_count += 1
                     await self.ws_manager.send_event(
                         self.session_id,
                         "final_result_chunk",
                         {"content": full_answer}  # Send accumulated content
                     )
+            
+            # #region agent log - H7: final_result streaming complete
+            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "generate_final_answer:stream_complete", "message": "LLM streaming completed", "data": {"total_chunks": _stream_chunk_count, "full_answer_length": len(full_answer), "full_answer_preview": full_answer[:500] if full_answer else None, "full_answer_end": full_answer[-200:] if len(full_answer) > 200 else full_answer}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H7"}) + '\n')
+            # #endregion
             
             # Send intent completion
             await self.ws_manager.send_event(

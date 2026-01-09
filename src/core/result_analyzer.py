@@ -128,8 +128,38 @@ class ResultAnalyzer:
             "создано", "обновлено", "отправлено", "completed"
         ]
         
+        # Strong success indicators that mean goal is fully achieved
+        goal_achieved_indicators = [
+            "created successfully", "запланирована", "✅",
+            "event id:", "событие создано", "встреча запланирована",
+            "отправлено успешно", "sent successfully"
+        ]
+        
+        # Check for goal achieved first
+        for indicator in goal_achieved_indicators:
+            if indicator in result_str:
+                # #region agent log - H_LOOP: Goal achieved detected
+                import time as _time
+                import json as _json
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "result_analyzer:GOAL_ACHIEVED", "message": "GOAL ACHIEVED detected", "data": {"tool_name": action.tool_name, "indicator": indicator, "result_preview": result_str[:200]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_LOOP"}) + '\n')
+                # #endregion
+                
+                return Analysis(
+                    is_success=True,
+                    is_goal_achieved=True,  # Goal is fully achieved!
+                    is_error=False,
+                    progress_toward_goal=1.0,
+                    confidence=0.95
+                )
+        
         for indicator in success_indicators:
             if indicator in result_str and len(result_str) < 500:  # Short, clear success messages
+                # #region agent log - H_LOOP: Success but not goal achieved
+                import time as _time
+                import json as _json
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "result_analyzer:success_not_achieved", "message": "Success but NOT goal achieved", "data": {"tool_name": action.tool_name, "indicator": indicator, "result_preview": result_str[:200]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_LOOP"}) + '\n')
+                # #endregion
+                
                 return Analysis(
                     is_success=True,
                     is_goal_achieved=False,  # Don't assume goal achieved from single action

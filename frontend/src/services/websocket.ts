@@ -1124,8 +1124,51 @@ export class WebSocketClient {
         break
       }
 
+      // SmartProgress events
+      case 'smart_progress_start': {
+        console.log('[WebSocket] SmartProgress started:', event.data)
+        const estimatedSec = event.data.estimated_duration_sec || 5
+        const goal = event.data.goal || ''
+        chatStore.startSmartProgress(estimatedSec, goal)
+        break
+      }
+      
+      case 'smart_progress_message': {
+        console.log('[WebSocket] SmartProgress message:', event.data)
+        const state = useChatStore.getState()
+        if (state.smartProgress) {
+          const message = event.data.message || 'Обрабатываю...'
+          chatStore.updateSmartProgress(
+            message,
+            state.smartProgress.elapsedSec,
+            state.smartProgress.estimatedSec,
+            state.smartProgress.progressPercent
+          )
+        }
+        break
+      }
+      
+      case 'smart_progress_timer': {
+        const elapsedSec = event.data.elapsed_sec || 0
+        const estimatedSec = event.data.estimated_sec || 5
+        const progressPercent = event.data.progress_percent || 0
+        const state = useChatStore.getState()
+        if (state.smartProgress) {
+          chatStore.updateSmartProgress(
+            state.smartProgress.message,
+            elapsedSec,
+            estimatedSec,
+            progressPercent
+          )
+        }
+        break
+      }
+      
       case 'intent_complete': {
         console.log('[WebSocket] Intent completed:', event.data)
+        // Останавливаем SmartProgress при завершении intent
+        chatStore.stopSmartProgress()
+        
         const state = useChatStore.getState()
         const workflowId = state.activeWorkflowId
         const intentId = event.data.intent_id || state.activeIntentId

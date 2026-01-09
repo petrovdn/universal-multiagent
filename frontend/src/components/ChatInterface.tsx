@@ -19,6 +19,7 @@ import { QuestionForm } from './QuestionForm'
 import { ResultSummary } from './ResultSummary'
 // ThinkingMessage removed - using IntentMessage instead
 import { IntentMessage } from './IntentMessage'
+import { SmartProgressIndicator } from './SmartProgressIndicator'
 
 interface AttachedFile {
   id: string
@@ -71,6 +72,7 @@ export function ChatInterface() {
     toggleIntentCollapse,
     showThinkingIndicator,
     setShowThinkingIndicator,
+    smartProgress,
   } = useChatStore()
   
   const { executionMode, setExecutionMode, showReasoning } = useSettingsStore()
@@ -837,6 +839,20 @@ export function ChatInterface() {
                     const workflowIntentBlocks = intentBlocks[workflowId] || []
                     // isLastUserMessage уже вычислен выше
                     const shouldShowThinking = isLastUserMessage && showThinkingIndicator && workflowIntentBlocks.length === 0
+                    
+                    // Показываем SmartProgress если активен
+                    if (smartProgress && smartProgress.isActive) {
+                      return (
+                        <div className="intent-blocks-section">
+                          <SmartProgressIndicator
+                            message={smartProgress.message}
+                            elapsedSec={smartProgress.elapsedSec}
+                            estimatedSec={smartProgress.estimatedSec}
+                            progressPercent={smartProgress.progressPercent}
+                          />
+                        </div>
+                      )
+                    }
                     
                     // Показываем либо "Думаю...", либо intent блоки
                     if (shouldShowThinking) {

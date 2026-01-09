@@ -4492,3 +4492,81 @@ div[style*="padding: '10px'"] .prose li {
     cursor: row-resize;
   }
 }
+
+/* ============================================
+   SMART PROGRESS INDICATOR
+   ============================================ */
+.smart-progress-indicator {
+  padding: 12px 16px;
+  margin: 8px 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.smart-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.smart-progress-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.smart-progress-icon .spinner {
+  animation: spin 1s linear infinite;
+  color: var(--accent-primary);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.smart-progress-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.smart-progress-message {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  transition: opacity 0.15s ease;
+}
+
+.smart-progress-timer {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.smart-progress-bar-container {
+  margin-top: 8px;
+}
+
+.smart-progress-bar {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.smart-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}

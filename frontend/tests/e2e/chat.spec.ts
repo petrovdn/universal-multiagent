@@ -37,6 +37,65 @@ async function logDebug(location: string, message: string, data: Record<string, 
   }
 }
 
+/**
+ * Helper функция для входа в систему.
+ */
+async function loginIfNeeded(page: any) {
+  // Проверяем наличие окна входа несколькими способами для надёжности
+  const loginDialogOverlay = page.locator('.login-dialog-overlay');
+  const loginDialog = page.locator('.login-dialog');
+  const loginTitle = page.locator('.login-dialog-title, h2:has-text("Вход в систему")');
+  const usernameField = page.locator('#username');
+  
+  const hasOverlay = await loginDialogOverlay.isVisible({ timeout: 3000 }).catch(() => false);
+  const hasDialog = await loginDialog.isVisible({ timeout: 3000 }).catch(() => false);
+  const hasTitle = await loginTitle.isVisible({ timeout: 3000 }).catch(() => false);
+  const hasUsernameField = await usernameField.isVisible({ timeout: 3000 }).catch(() => false);
+  
+  const needsLogin = hasOverlay || hasDialog || hasTitle || hasUsernameField;
+  
+  await logDebug('playwright:login:check', 'Login check result', { needsLogin, hasOverlay, hasDialog, hasTitle, hasUsernameField });
+  
+  if (needsLogin) {
+    await logDebug('playwright:login', 'Login dialog found, attempting login', {});
+    
+    // Используем точные селекторы из LoginDialog компонента
+    const usernameInput = page.locator('#username');
+    const passwordInput = page.locator('#password');
+    const loginButton = page.locator('.login-button');
+    
+    await expect(usernameInput).toBeVisible({ timeout: 10000 });
+    await expect(passwordInput).toBeVisible({ timeout: 10000 });
+    await expect(loginButton).toBeVisible({ timeout: 10000 });
+    
+    // Очищаем поля перед заполнением
+    await usernameInput.clear();
+    await passwordInput.clear();
+    
+    await usernameInput.fill('admin');
+    await passwordInput.fill('admin');
+    await loginButton.click();
+    
+    // Ждём исчезновения всех элементов окна входа
+    await expect(loginDialogOverlay).not.toBeVisible({ timeout: 15000 });
+    await expect(loginDialog).not.toBeVisible({ timeout: 15000 });
+    await expect(usernameField).not.toBeVisible({ timeout: 15000 });
+    
+    // Используем селектор, который НЕ найдёт поля входа
+    // Chat input имеет класс "chat-input" и находится в форме "input-form", НЕ в "login-form"
+    const chatInput = page.locator('textarea.chat-input, .input-form textarea').first();
+    await expect(chatInput).toBeVisible({ timeout: 10000 });
+    await page.waitForLoadState('networkidle');
+    await logDebug('playwright:login', 'Login successful', {});
+  } else {
+    await logDebug('playwright:login', 'No login dialog, already authenticated', {});
+    // Проверяем, что интерфейс загружен
+    // Chat input имеет класс "chat-input" и находится в форме "input-form"
+    const chatInput = page.locator('textarea.chat-input, .input-form textarea').first();
+    await expect(chatInput).toBeVisible({ timeout: 10000 });
+  }
+}
+
 test.describe('Chat Interface', () => {
   
   test.beforeEach(async ({ page }) => {
@@ -46,13 +105,16 @@ test.describe('Chat Interface', () => {
     // Wait for the page to load
     await page.waitForLoadState('networkidle');
     await logDebug('playwright:beforeEach', 'Page loaded', {});
+    
+    // Выполняем вход, если нужно
+    await loginIfNeeded(page);
   });
 
   test('should display response for simple message', async ({ page }) => {
     await logDebug('playwright:test:start', 'Starting simple message test', {});
     
-    // Find the chat input
-    const chatInput = page.locator('textarea[placeholder*="сообщение"], input[placeholder*="сообщение"], textarea, input[type="text"]').first();
+    // Find the chat input - используем специфичный селектор, который не найдёт поля входа
+    const chatInput = page.locator('textarea.chat-input, .input-form textarea').first();
     await expect(chatInput).toBeVisible({ timeout: 10000 });
     await logDebug('playwright:test', 'Found chat input', {});
     
@@ -62,9 +124,17 @@ test.describe('Chat Interface', () => {
     await logDebug('playwright:test', 'Filled message', { message: testMessage });
     
     // Find and click send button (or press Enter)
-    const sendButton = page.locator('button[type="submit"], button:has-text("Отправить"), button:has(svg)').last();
+    // ВАЖНО: Используем специфичный селектор для кнопки отправки, чтобы не найти кнопку выбора файлов
+    // Кнопка отправки имеет type="submit" и класс "send-button", НЕ имеет класс "input-icon-button"
+    const sendButton = page.locator('button[type="submit"].send-button, button.send-button:not(.input-icon-button):not(.stop-button)').last();
     
-    if (await sendButton.isVisible()) {
+    // #region agent log - H9: Checking send button in chat test
+    const sendButtonVisible = await sendButton.isVisible({ timeout: 2000 }).catch(() => false);
+    const sendButtonCount = await sendButton.count();
+    await logDebug('playwright:test:send-button', 'Send button check', { sendButtonVisible, sendButtonCount });
+    // #endregion
+    
+    if (sendButtonVisible) {
       await sendButton.click();
       await logDebug('playwright:test', 'Clicked send button', {});
     } else {
@@ -109,7 +179,8 @@ test.describe('Chat Interface', () => {
   test('should show typing indicator while processing', async ({ page }) => {
     await logDebug('playwright:test:typing:start', 'Starting typing indicator test', {});
     
-    const chatInput = page.locator('textarea, input[type="text"]').first();
+    // Используем специфичный селектор для chat input
+    const chatInput = page.locator('textarea.chat-input, .input-form textarea').first();
     await expect(chatInput).toBeVisible({ timeout: 10000 });
     
     await chatInput.fill('расскажи о погоде');
@@ -131,7 +202,8 @@ test.describe('Chat Interface', () => {
   test('should maintain conversation history', async ({ page }) => {
     await logDebug('playwright:test:history:start', 'Starting history test', {});
     
-    const chatInput = page.locator('textarea, input[type="text"]').first();
+    // Используем специфичный селектор для chat input
+    const chatInput = page.locator('textarea.chat-input, .input-form textarea').first();
     await expect(chatInput).toBeVisible({ timeout: 10000 });
     
     // Send first message
@@ -168,7 +240,8 @@ test.describe('Debug: Check UI State', () => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
     
-    const chatInput = page.locator('textarea, input[type="text"]').first();
+    // Используем специфичный селектор для chat input
+    const chatInput = page.locator('textarea.chat-input, .input-form textarea').first();
     await chatInput.fill('тест');
     await chatInput.press('Enter');
     

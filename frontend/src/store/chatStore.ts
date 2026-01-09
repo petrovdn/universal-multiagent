@@ -178,6 +178,15 @@ interface ChatState {
   isAgentTyping: boolean
   showThinkingIndicator: boolean // Показывать "Думаю..." перед первым intent
   
+  // SmartProgress state - контекстные progress-сообщения
+  smartProgress: {
+    isActive: boolean
+    message: string
+    elapsedSec: number
+    estimatedSec: number
+    progressPercent: number
+  } | null
+  
   // Workflow state - stored per user message (keyed by message timestamp)
   workflows: Record<string, {
     plan: WorkflowPlan
@@ -227,6 +236,11 @@ interface ChatState {
   setConnectionStatus: (connected: boolean) => void
   setAgentTyping: (typing: boolean) => void
   setShowThinkingIndicator: (show: boolean) => void
+  
+  // SmartProgress methods
+  startSmartProgress: (estimatedSec: number, goal: string) => void
+  updateSmartProgress: (message: string, elapsedSec: number, estimatedSec: number, progressPercent: number) => void
+  stopSmartProgress: () => void
   
   // New methods for reasoning/answer blocks
   startReasoningBlock: (messageId: string, blockId: string) => void
@@ -324,6 +338,7 @@ export const useChatStore = create<ChatState>()(
       isConnected: false,
       isAgentTyping: false,
       showThinkingIndicator: false,
+      smartProgress: null,
       workflows: {},
       activeWorkflowId: null,
       userAssistanceRequest: null,
@@ -372,6 +387,7 @@ export const useChatStore = create<ChatState>()(
           currentSession: null,
           isAgentTyping: false,
           showThinkingIndicator: false,
+          smartProgress: null,
           reasoningSteps: [],
           reasoningStartTime: null,
           workflows: {},
@@ -403,6 +419,40 @@ export const useChatStore = create<ChatState>()(
       
       setShowThinkingIndicator: (show) => {
         set({ showThinkingIndicator: show })
+      },
+      
+      // SmartProgress methods
+      startSmartProgress: (estimatedSec: number, goal: string) => {
+        set({
+          smartProgress: {
+            isActive: true,
+            message: 'Анализирую задачу...',
+            elapsedSec: 0,
+            estimatedSec: estimatedSec,
+            progressPercent: 0
+          }
+        })
+      },
+      
+      updateSmartProgress: (message: string, elapsedSec: number, estimatedSec: number, progressPercent: number) => {
+        set((state) => {
+          if (state.smartProgress) {
+            return {
+              smartProgress: {
+                ...state.smartProgress,
+                message,
+                elapsedSec,
+                estimatedSec,
+                progressPercent
+              }
+            }
+          }
+          return state
+        })
+      },
+      
+      stopSmartProgress: () => {
+        set({ smartProgress: null })
       },
       
       // Start a new reasoning block
