@@ -560,6 +560,11 @@ class UnifiedReActEngine:
                     state.observations[:-1]
                 )
                 
+                # #region agent log - H3,H4: Analysis result
+                import json as _json
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:analysis_result", "message": "Result analysis completed", "data": {"iteration": state.iteration, "tool_name": action_record.tool_name, "is_success": analysis.is_success, "is_error": analysis.is_error, "is_goal_achieved": analysis.is_goal_achieved, "error_message": analysis.error_message, "progress": analysis.progress_toward_goal, "total_elapsed_ms": int((time.time() - _exec_start)*1000)}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+                # #endregion
+                
                 # Update observation with analysis
                 observation.success = analysis.is_success
                 observation.error_message = analysis.error_message
@@ -579,9 +584,19 @@ class UnifiedReActEngine:
                     return await self._finalize_success(state, result, context, file_ids)
                 
                 elif analysis.is_error:
+                    # #region agent log - H4: Error detected, looking for alternative
+                    import json as _json
+                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:error_detected", "message": "ERROR DETECTED - looking for alternative", "data": {"iteration": state.iteration, "tool_name": action_record.tool_name, "error_message": analysis.error_message, "enable_alternatives": self.config.enable_alternatives, "total_elapsed_ms": int((time.time() - _exec_start)*1000)}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H4"}) + '\n')
+                    # #endregion
+                    
                     if self.config.enable_alternatives:
                         alternative = await self._find_alternative(state, analysis, context, file_ids)
                         if alternative:
+                            # #region agent log - H4: Alternative found
+                            import json as _json
+                            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:alternative_found", "message": "Alternative found", "data": {"iteration": state.iteration, "alternative_tool": alternative.get("tool_name", ""), "alternative_description": alternative.get("description", "")[:100]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H4"}) + '\n')
+                            # #endregion
+                            
                             logger.info(f"[UnifiedReActEngine] Trying alternative: {alternative.get('description', '')}")
                             state.alternatives_tried.append(alternative.get("description", ""))
                             state.add_reasoning_step("adapt", f"Trying alternative: {alternative.get('description', '')}", {

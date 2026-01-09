@@ -73,6 +73,13 @@ class ResultAnalyzer:
         quick_analysis = self._quick_analysis(result, action)
         if quick_analysis:
             logger.info(f"[ResultAnalyzer] Quick analysis: success={quick_analysis.is_success}, error={quick_analysis.is_error}")
+            
+            # #region agent log - H3,H4: ResultAnalyzer quick analysis
+            import time as _time
+            import json as _json
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "result_analyzer:quick_analysis", "message": "Quick analysis result", "data": {"tool_name": action.tool_name, "is_success": quick_analysis.is_success, "is_error": quick_analysis.is_error, "is_goal_achieved": quick_analysis.is_goal_achieved, "error_message": quick_analysis.error_message, "result_preview": str(result)[:300]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+            # #endregion
+            
             return quick_analysis
         
         # Use LLM for deeper analysis
@@ -100,6 +107,12 @@ class ResultAnalyzer:
         
         for indicator in error_indicators:
             if indicator in result_str:
+                # #region agent log - H4: Error indicator detected
+                import time as _time
+                import json as _json
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "result_analyzer:error_indicator", "message": "ERROR INDICATOR DETECTED", "data": {"tool_name": action.tool_name, "indicator": indicator, "result_preview": result_str[:500]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H4"}) + '\n')
+                # #endregion
+                
                 return Analysis(
                     is_success=False,
                     is_goal_achieved=False,

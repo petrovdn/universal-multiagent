@@ -516,9 +516,26 @@ class MCPConnection:
         
         try:
             if self.config.transport == "stdio" and self.session:
+                # #region agent log - H3: Before session.call_tool
+                import time as _time
+                import json as _json
+                _session_call_start = _time.time()
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp_loader:before_session_call", "message": "Before session.call_tool", "data": {"tool_name": tool_name, "server": self.config.name, "arguments": str(arguments)[:200]}, "timestamp": int(_session_call_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+                # #endregion
+                
                 try:
                     result = await self.session.call_tool(tool_name, arguments)
+                    
+                    # #region agent log - H3: After session.call_tool SUCCESS
+                    _session_call_end = _time.time()
+                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp_loader:after_session_call_SUCCESS", "message": "After session.call_tool SUCCESS", "data": {"tool_name": tool_name, "server": self.config.name, "duration_ms": int((_session_call_end - _session_call_start)*1000), "result_type": type(result).__name__}, "timestamp": int(_session_call_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+                    # #endregion
+                    
                 except Exception as mcp_exception:
+                    # #region agent log - H3,H4: session.call_tool ERROR
+                    _session_call_end = _time.time()
+                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp_loader:session_call_ERROR", "message": "SESSION CALL ERROR", "data": {"tool_name": tool_name, "server": self.config.name, "duration_ms": int((_session_call_end - _session_call_start)*1000), "error": str(mcp_exception), "error_type": type(mcp_exception).__name__}, "timestamp": int(_session_call_end*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+                    # #endregion
                     # MCP call raised an exception
                     error_msg = str(mcp_exception) if str(mcp_exception) else f"MCP call failed: {type(mcp_exception).__name__}"
                     logger.error(
