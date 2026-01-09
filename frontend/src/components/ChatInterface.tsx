@@ -19,7 +19,6 @@ import { QuestionForm } from './QuestionForm'
 import { ResultSummary } from './ResultSummary'
 // ThinkingMessage removed - using IntentMessage instead
 import { IntentMessage } from './IntentMessage'
-import { SmartProgressIndicator } from './SmartProgressIndicator'
 
 interface AttachedFile {
   id: string
@@ -70,9 +69,9 @@ export function ChatInterface() {
     clearCurrentAction,
     intentBlocks,
     toggleIntentCollapse,
+    collapseIntentPhase,
     showThinkingIndicator,
     setShowThinkingIndicator,
-    smartProgress,
   } = useChatStore()
   
   const { executionMode, setExecutionMode, showReasoning } = useSettingsStore()
@@ -835,45 +834,36 @@ export function ChatInterface() {
                   </div>
                   
                   {/* Intent blocks section (Cursor-style) - renders independently of plan */}
-                  {/* UPDATED: SmartProgress и IntentBlocks показываются ВМЕСТЕ */}
+                  {/* Intent Blocks с фазами Планирую/Выполняю */}
                   {(() => {
                     const workflowIntentBlocks = intentBlocks[workflowId] || []
                     // isLastUserMessage уже вычислен выше
                     const shouldShowThinking = isLastUserMessage && showThinkingIndicator && workflowIntentBlocks.length === 0
-                    const hasSmartProgress = smartProgress && smartProgress.isActive
                     const hasIntentBlocks = workflowIntentBlocks.length > 0
                     
-                    // Ничего не показываем если нет ни прогресса, ни блоков, ни thinking
-                    if (!hasSmartProgress && !hasIntentBlocks && !shouldShowThinking) {
+                    // Ничего не показываем если нет блоков и не нужно показывать thinking
+                    if (!hasIntentBlocks && !shouldShowThinking) {
                       return null
                     }
                     
                     return (
                       <div className="intent-blocks-section">
-                        {/* SmartProgress как заголовок с таймером */}
-                        {hasSmartProgress && (
-                          <SmartProgressIndicator
-                            message={smartProgress.message}
-                            elapsedSec={smartProgress.elapsedSec}
-                            estimatedSec={smartProgress.estimatedSec}
-                            progressPercent={smartProgress.progressPercent}
-                          />
-                        )}
-                        
-                        {/* Показываем "Думаю..." только если нет ни прогресса, ни блоков */}
-                        {shouldShowThinking && !hasSmartProgress && (
+                        {/* Показываем "Думаю..." только если нет блоков */}
+                        {shouldShowThinking && !hasIntentBlocks && (
                           <div className="thinking-indicator">
                             <span className="thinking-indicator-text">Думаю</span>
                             <span className="thinking-indicator-dots" />
                           </div>
                         )}
                         
-                        {/* Intent блоки с деталями - показываются ПОД SmartProgress */}
+                        {/* Intent блоки с фазами Планирую/Выполняю */}
                         {hasIntentBlocks && workflowIntentBlocks.map((intentBlock) => (
                           <IntentMessage
                             key={intentBlock.id}
                             block={intentBlock}
                             onToggleCollapse={() => toggleIntentCollapse(workflowId, intentBlock.id)}
+                            onTogglePlanningCollapse={() => collapseIntentPhase(workflowId, intentBlock.id, 'planning')}
+                            onToggleExecutingCollapse={() => collapseIntentPhase(workflowId, intentBlock.id, 'executing')}
                           />
                         ))}
                       </div>

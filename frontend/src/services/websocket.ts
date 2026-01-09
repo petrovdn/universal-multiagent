@@ -1077,15 +1077,19 @@ export class WebSocketClient {
             }
           }
         }
+        
+        // Переключаем intent фазу на 'executing'
+        const state = useChatStore.getState()
+        const workflowId = state.activeWorkflowId
+        const intentId = state.activeIntentId
+        if (workflowId && intentId) {
+          chatStore.setIntentPhase(workflowId, intentId, 'executing')
+        }
         break
       }
 
       // Intent events (Cursor-style)
       case 'intent_start': {
-        // #region agent log - H1: Frontend receives intent_start
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_start',message:'Frontend received intent_start',data:{intent_id:event.data.intent_id,text:event.data.text?.substring(0,50)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
-        
         console.log('[WebSocket] Intent started:', event.data)
         // Скрываем индикатор "Думаю..." при появлении первого intent
         chatStore.setShowThinkingIndicator(false)
@@ -1119,6 +1123,8 @@ export class WebSocketClient {
         const intentId = event.data.intent_id || state.activeIntentId
         
         if (workflowId && intentId) {
+          // Переключаем на фазу executing при получении detail
+          chatStore.setIntentPhase(workflowId, intentId, 'executing')
           chatStore.addIntentDetail(workflowId, intentId, {
             type: event.data.type || 'execute',
             description: event.data.description || '',
@@ -1129,10 +1135,6 @@ export class WebSocketClient {
       }
 
       case 'intent_thinking_append': {
-        // #region agent log - H3,H4: Frontend receives intent_thinking_append
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_thinking_append',message:'Frontend received intent_thinking_append',data:{text_length:event.data.text?.length,text_preview:event.data.text?.substring(0,30),intent_id:event.data.intent_id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3,H4'})}).catch(()=>{});
-        // #endregion
-        
         // Streaming thinking text - append to existing thinkingText
         const state = useChatStore.getState()
         const workflowId = state.activeWorkflowId
@@ -1180,6 +1182,12 @@ export class WebSocketClient {
             estimatedSec,
             progressPercent
           )
+        }
+        // Также обновляем progress в активном intent
+        const workflowId = state.activeWorkflowId
+        const intentId = state.activeIntentId
+        if (workflowId && intentId) {
+          chatStore.setIntentProgress(workflowId, intentId, progressPercent, elapsedSec, estimatedSec)
         }
         break
       }
