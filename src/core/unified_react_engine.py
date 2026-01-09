@@ -197,6 +197,11 @@ class UnifiedReActEngine:
         """
         file_ids = file_ids or []
         
+        # #region agent log - H1,H2,H5: Execute start with timing
+        _exec_start = time.time()
+        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:START", "message": "Execute started", "data": {"goal": goal[:150], "session_id": self.session_id, "start_time": _exec_start}, "timestamp": int(_exec_start*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2,H5"}) + '\n')
+        # #endregion
+        
         # Initialize state
         state = ReActState(goal=goal)
         state.context = {
@@ -206,57 +211,8 @@ class UnifiedReActEngine:
         }
         self._stop_requested = False
         
-        # Check if query needs tools or can be answered directly (like Cursor does)
-        needs_tools = await self._needs_tools(goal, context)
-        
-        # #region debug log - needs_tools result in execute
-        log_data_needs_result = {
-            "location": "unified_react_engine.py:211",
-            "message": "execute: needs_tools result",
-            "data": {
-                "goal": goal,
-                "needs_tools": needs_tools,
-                "will_use_react": needs_tools,
-                "will_answer_directly": not needs_tools
-            },
-            "timestamp": time.time() * 1000,
-            "sessionId": self.session_id,
-            "runId": "run1",
-            "hypothesisId": "H_NEEDS_TOOLS"
-        }
-        try:
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                f.write(json.dumps(log_data_needs_result, default=str) + "\n")
-        except Exception:
-            pass
-        # #endregion
-        
-        if not needs_tools:
-            # Simple query - answer directly without tools
-            logger.info(f"[UnifiedReActEngine] Simple query detected, answering directly without tools")
-            try:
-                return await self._answer_directly(goal, context, state)
-            except Exception as e:
-                logger.warning(f"[UnifiedReActEngine] Direct answer failed, falling back to ReAct: {e}")
-                # Continue with normal ReAct loop if direct answer fails
-        
-        # Send start event (legacy)
-        await self.ws_manager.send_event(
-            self.session_id,
-            "react_start",
-            {"goal": goal, "mode": self.config.mode}
-        )
-        
-        # Send thinking_started event (new Cursor-style)
-        self._current_thinking_id = f"thinking-{int(time.time() * 1000)}"
-        self._thinking_start_time = time.time()  # Сохраняем время старта
-        await self.ws_manager.send_event(
-            self.session_id,
-            "thinking_started",
-            {"thinking_id": self._current_thinking_id, "started_at": int(time.time() * 1000)}
-        )
-        
-        # === MULTI-PHASE ARCHITECTURE: Analyze if task has multiple logical phases ===
+        # === OPTIMIZATION: Send intent_start IMMEDIATELY for instant feedback ===
+        # Analyze task phases (fast - regex only, no LLM)
         task_phases = self._analyze_task_phases(goal)
         self._is_multi_phase = len(task_phases) >= 2
         self._task_phases = task_phases
@@ -267,6 +223,7 @@ class UnifiedReActEngine:
         import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:intent_creation", "message": "Intent creation decision", "data": {"is_multi_phase": self._is_multi_phase, "phases_count": len(task_phases), "phases": [{"name": p['name'], "category": p['category'], "description": p['description']} for p in task_phases[:3]]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2,H3"}) + '\n')
         # #endregion
         
+        # Create intent_start IMMEDIATELY (before any LLM calls)
         if self._is_multi_phase:
             logger.info(f"[UnifiedReActEngine] Multi-phase task detected: {len(task_phases)} phases")
             # Create the FIRST phase intent
@@ -300,6 +257,77 @@ class UnifiedReActEngine:
         
         self._task_intent_id = self._current_intent_id  # Store for the entire execution
         
+        # #region agent log - H1: Before _needs_tools timing
+        _needs_tools_start = time.time()
+        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:before_needs_tools", "message": "Before _needs_tools call", "data": {"elapsed_since_start_ms": int((_needs_tools_start - _exec_start)*1000), "goal": goal[:100]}, "timestamp": int(_needs_tools_start*1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + '\n')
+        # #endregion
+        
+        # NOW check if query needs tools (may take 500-2000ms with LLM)
+        # Check if query needs tools or can be answered directly (like Cursor does)
+        needs_tools = await self._needs_tools(goal, context)
+        
+        # #region agent log - H1: After _needs_tools timing
+        _needs_tools_end = time.time()
+        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:after_needs_tools", "message": "After _needs_tools call", "data": {"needs_tools_duration_ms": int((_needs_tools_end - _needs_tools_start)*1000), "needs_tools": needs_tools, "total_elapsed_ms": int((_needs_tools_end - _exec_start)*1000)}, "timestamp": int(_needs_tools_end*1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + '\n')
+        # #endregion
+        
+        # #region debug log - needs_tools result in execute
+        log_data_needs_result = {
+            "location": "unified_react_engine.py:211",
+            "message": "execute: needs_tools result",
+            "data": {
+                "goal": goal,
+                "needs_tools": needs_tools,
+                "will_use_react": needs_tools,
+                "will_answer_directly": not needs_tools
+            },
+            "timestamp": time.time() * 1000,
+            "sessionId": self.session_id,
+            "runId": "run1",
+            "hypothesisId": "H_NEEDS_TOOLS"
+        }
+        try:
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                f.write(json.dumps(log_data_needs_result, default=str) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
+        if not needs_tools:
+            # Simple query - answer directly without tools
+            logger.info(f"[UnifiedReActEngine] Simple query detected, answering directly without tools")
+            # Complete the intent since we're finishing early
+            if self._current_intent_id:
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "intent_complete",
+                    {
+                        "intent_id": self._current_intent_id,
+                        "summary": "Завершено"
+                    }
+                )
+            try:
+                return await self._answer_directly(goal, context, state)
+            except Exception as e:
+                logger.warning(f"[UnifiedReActEngine] Direct answer failed, falling back to ReAct: {e}")
+                # Continue with normal ReAct loop if direct answer fails
+        
+        # Send start event (legacy)
+        await self.ws_manager.send_event(
+            self.session_id,
+            "react_start",
+            {"goal": goal, "mode": self.config.mode}
+        )
+        
+        # Send thinking_started event (new Cursor-style)
+        self._current_thinking_id = f"thinking-{int(time.time() * 1000)}"
+        self._thinking_start_time = time.time()  # Сохраняем время старта
+        await self.ws_manager.send_event(
+            self.session_id,
+            "thinking_started",
+            {"thinking_id": self._current_thinking_id, "started_at": int(time.time() * 1000)}
+        )
+        
         try:
             # Main ReAct loop
             while state.iteration < state.max_iterations:
@@ -317,7 +345,17 @@ class UnifiedReActEngine:
                 state.status = "thinking"
                 # Real progress: no fake messages, just actual work
                 
+                # #region agent log - H2: Before _think timing
+                _think_start = time.time()
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:before_think", "message": "Before _think call", "data": {"iteration": state.iteration, "total_elapsed_ms": int((_think_start - _exec_start)*1000)}, "timestamp": int(_think_start*1000), "sessionId": "debug-session", "hypothesisId": "H2"}) + '\n')
+                # #endregion
+                
                 thought = await self._think(state, context, file_ids)
+                
+                # #region agent log - H2: After _think timing
+                _think_end = time.time()
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:after_think", "message": "After _think call", "data": {"iteration": state.iteration, "think_duration_ms": int((_think_end - _think_start)*1000), "thought_length": len(thought) if thought else 0, "total_elapsed_ms": int((_think_end - _exec_start)*1000)}, "timestamp": int(_think_end*1000), "sessionId": "debug-session", "hypothesisId": "H2"}) + '\n')
+                # #endregion
                 
                 state.current_thought = thought
                 state.add_reasoning_step("think", thought)
@@ -333,7 +371,17 @@ class UnifiedReActEngine:
                 state.status = "acting"
                 # Real progress: no fake messages, just actual work
                 
+                # #region agent log - H2,H5: Before _plan_action timing
+                _plan_start = time.time()
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:before_plan", "message": "Before _plan_action call", "data": {"iteration": state.iteration, "total_elapsed_ms": int((_plan_start - _exec_start)*1000)}, "timestamp": int(_plan_start*1000), "sessionId": "debug-session", "hypothesisId": "H2,H5"}) + '\n')
+                # #endregion
+                
                 action_plan = await self._plan_action(state, thought, context, file_ids)
+                
+                # #region agent log - H2,H5: After _plan_action timing
+                _plan_end = time.time()
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:after_plan", "message": "After _plan_action call", "data": {"iteration": state.iteration, "plan_duration_ms": int((_plan_end - _plan_start)*1000), "tool_name": action_plan.get("tool_name", ""), "total_elapsed_ms": int((_plan_end - _exec_start)*1000)}, "timestamp": int(_plan_end*1000), "sessionId": "debug-session", "hypothesisId": "H2,H5"}) + '\n')
+                # #endregion
                 
                 # #region agent log - H3: Planned action
                 planned_tool = action_plan.get("tool_name", "")
@@ -471,9 +519,23 @@ class UnifiedReActEngine:
                     action_plan.get("arguments", {})
                 )
                 
+                # #region agent log - H3,H4: Before _execute_action timing
+                _exec_action_start = time.time()
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:before_execute_action", "message": "Before _execute_action call", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "arguments": str(action_plan.get("arguments", {}))[:200], "total_elapsed_ms": int((_exec_action_start - _exec_start)*1000)}, "timestamp": int(_exec_action_start*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+                # #endregion
+                
                 try:
                     result = await self._execute_action(action_plan, context)
+                    
+                    # #region agent log - H3: After _execute_action SUCCESS
+                    _exec_action_end = time.time()
+                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:after_execute_action_success", "message": "After _execute_action SUCCESS", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "exec_duration_ms": int((_exec_action_end - _exec_action_start)*1000), "result_preview": str(result)[:300], "total_elapsed_ms": int((_exec_action_end - _exec_start)*1000)}, "timestamp": int(_exec_action_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+                    # #endregion
                 except Exception as e:
+                    # #region agent log - H3,H4: _execute_action ERROR
+                    _exec_action_end = time.time()
+                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:execute_action_ERROR", "message": "EXECUTE ACTION ERROR", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "exec_duration_ms": int((_exec_action_end - _exec_action_start)*1000), "error": str(e), "error_type": type(e).__name__, "total_elapsed_ms": int((_exec_action_end - _exec_start)*1000)}, "timestamp": int(_exec_action_end*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+                    # #endregion
                     logger.error(f"[UnifiedReActEngine] Action execution failed: {e}")
                     result = f"Error: {str(e)}"
                 
@@ -590,12 +652,63 @@ class UnifiedReActEngine:
             pass
         # #endregion
         
+        # IMPORTANT: Check tool keywords FIRST before simple patterns
+        # This prevents false matches like "пока" matching "покажи"
+        # First, check if query contains tool keywords - if yes, it needs tools
+        tool_keywords_early = [
+            'найди', 'find', 'получи', 'get', 'выведи', 'show', 'покажи', 'открой', 'open',
+            'возьми', 'take', 'прочитай', 'read', 'читай', 'посмотри', 'look',
+            'создай', 'create', 'отправь', 'send', 'сохрани', 'save', 'запиши', 'write',
+            'календарь', 'calendar', 
+            # Russian word forms for "встреча" (meeting) - all cases
+            'встречи', 'встреч', 'встреча', 'встречу', 'встречей', 'встречам', 'встречами', 'встречах',
+            'events', 'meetings', 'event', 'meeting',
+            'письма', 'emails', 'почта', 'mail',
+            'таблица', 'table', 'sheets', 'документ', 'document', 'файл', 'file',
+            'данные', 'data', 'текст', 'text',  # "текст" in context of files/documents needs tools
+            'список', 'list', 'действий', 'actions', 'персонаж', 'character', 'персонажей', 'characters',
+            # 1C / Accounting keywords
+            'проводк', '1с', '1c', 'бухгалтер', 'выручк', 'остатк', 'склад',
+            # Project Lad keywords
+            'проект', 'портфел', 'гант', 'вех', 'работ', 'project lad', 'projectlad',
+            # NEW - расширенные ключевые слова для покрытия 80% запросов
+            'статистик', 'отчет', 'отчёт', 'report', 'статистика',
+            'сравни', 'compare', 'сравнение', 'comparison',
+            'проанализируй', 'analyze', 'анализ', 'analysis',
+            'подготовь', 'prepare', 'составь', 'составить',
+            'выгрузи', 'export', 'импортируй', 'import', 'импорт',
+            'обнови', 'update', 'измени', 'change', 'изменение',
+            'удали', 'delete', 'очисти', 'clear', 'удаление',
+            'скопируй', 'copy', 'перенеси', 'move', 'перемести',
+        ]
+        
+        for keyword in tool_keywords_early:
+            if keyword in goal_lower:
+                # #region debug log - tool keyword found BEFORE generative pattern check
+                log_data = {
+                    "location": "unified_react_engine.py:624",
+                    "message": "_needs_tools: tool keyword found early - returning True",
+                    "data": {"keyword": keyword, "goal": goal, "matched_position": goal_lower.find(keyword)},
+                    "timestamp": time.time() * 1000,
+                    "sessionId": self.session_id,
+                    "runId": "run1",
+                    "hypothesisId": "H_NEEDS_TOOLS"
+                }
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps(log_data, default=str) + "\n")
+                except Exception:
+                    pass
+                # #endregion
+                return True
+        
         # Simple greetings and basic questions - no tools needed
+        # Check AFTER tool keywords to avoid false matches (e.g., "пока" in "покажи")
         simple_patterns = [
             r'^(привет|hello|hi|здравствуй|здравствуйте|добрый\s+(день|вечер|утро))',
             r'^(спасибо|thanks|thank\s+you|благодарю)',
             r'^(как\s+дела|how\s+are\s+you|что\s+ты|who\s+are\s+you|что\s+умеешь)',
-            r'^(пока|bye|goodbye|до\s+свидания)',
+            r'^(пока|bye|goodbye|до\s+свидания)$',  # Use $ to match end of string, not just start
         ]
         
         for pattern in simple_patterns:
@@ -621,50 +734,6 @@ class UnifiedReActEngine:
         # Check for simple generative patterns (poems, jokes, greetings, etc.) - no tools needed
         # IMPORTANT: Only match if these are CREATIVE tasks WITHOUT external data requirements
         # Patterns that mention files, documents, tables should NOT match here
-        # Also, check tool_keywords FIRST before matching generative patterns
-        # This ensures queries with file/table keywords are handled correctly
-        
-        # First, check if query contains tool keywords - if yes, it needs tools
-        # This prevents false matches for queries like "Возьми текст Сказки, создай..."
-        # IMPORTANT: Check tool keywords BEFORE generative patterns to avoid false negatives
-        tool_keywords_early = [
-            'найди', 'find', 'получи', 'get', 'выведи', 'show', 'открой', 'open',
-            'возьми', 'take', 'прочитай', 'read', 'читай', 'посмотри', 'look',
-            'создай', 'create', 'отправь', 'send', 'сохрани', 'save', 'запиши', 'write',
-            'календарь', 'calendar', 
-            # Russian word forms for "встреча" (meeting) - all cases
-            'встречи', 'встреч', 'встреча', 'встречу', 'встречей', 'встречам', 'встречами', 'встречах',
-            'events', 'meetings', 'event', 'meeting',
-            'письма', 'emails', 'почта', 'mail',
-            'таблица', 'table', 'sheets', 'документ', 'document', 'файл', 'file',
-            'данные', 'data', 'текст', 'text',  # "текст" in context of files/documents needs tools
-            'список', 'list', 'действий', 'actions', 'персонаж', 'character', 'персонажей', 'characters',
-            # 1C / Accounting keywords
-            'проводк', '1с', '1c', 'бухгалтер', 'выручк', 'остатк', 'склад',
-            # Project Lad keywords
-            'проект', 'портфел', 'гант', 'вех', 'работ', 'project lad', 'projectlad'
-        ]
-        
-        for keyword in tool_keywords_early:
-            if keyword in goal_lower:
-                # #region debug log - tool keyword found BEFORE generative pattern check
-                log_data = {
-                    "location": "unified_react_engine.py:624",
-                    "message": "_needs_tools: tool keyword found early - returning True",
-                    "data": {"keyword": keyword, "goal": goal, "matched_position": goal_lower.find(keyword)},
-                    "timestamp": time.time() * 1000,
-                    "sessionId": self.session_id,
-                    "runId": "run1",
-                    "hypothesisId": "H_NEEDS_TOOLS"
-                }
-                try:
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                        f.write(json.dumps(log_data, default=str) + "\n")
-                except Exception:
-                    pass
-                # #endregion
-                return True
-        
         simple_generative_patterns = [
             # Only match standalone creative requests WITHOUT file/table context
             r"(напиши|составь|сочини|придумай)\s+(мне\s+)?(краткое\s+)?(поздравление|стих|стихотворение|шутку|анекдот|письмо|хокку|хайку|haiku|рассказ|историю|песню)(?!.*(файл|документ|таблиц|текст\s+файл|текст\s+документ|из\s+файл|из\s+документ|в\s+таблиц|возьми|прочитай|открой|найди))",
@@ -674,6 +743,12 @@ class UnifiedReActEngine:
             r"^(хокку|хайку|haiku|стих|анекдот|шутка)$",
             # Only match very short creative requests like "напиши хокку" without any file/table context
             r"^(напиши|составь|сочини|придумай)\s+(хокку|хайку|haiku|стих|анекдот|шутку|рассказ|историю|песню)$",
+            # NEW - творческие задачи без инструментов
+            r"^(объясни|explain)\s+(?!.*(файл|документ|таблиц|из\s+файл|из\s+документ))",
+            r"^(переведи|translate)\s+(?!.*(файл|документ|таблиц|из\s+файл|из\s+документ))",
+            r"^(перефразируй|rephrase)\s+(?!.*(файл|документ|таблиц|из\s+файл|из\s+документ))",
+            r"^(суммируй|summarize)\s+(?!.*(файл|документ|таблиц|из\s+файл|из\s+документ))",
+            r"^(ответь|answer)\s+на\s+вопрос(?!.*(файл|документ|таблиц|из\s+файл|из\s+документ))",
         ]
         
         for pattern in simple_generative_patterns:
@@ -701,8 +776,9 @@ class UnifiedReActEngine:
         calendar_patterns = [
             r'список\s+встреч',  # "список встреч" (list of meetings)
             r'встреч[аи]?\s+на\s+(этой|следующей|прошлой)\s+неделе',  # "встречи на этой неделе"
-            r'встреч[аи]?\s+(сегодня|завтра|послезавтра)',  # "встречи сегодня"
+            r'встреч[аи]?\s+(на\s+)?(сегодня|завтра|послезавтра)',  # "встречи сегодня", "встречи на завтра"
             r'расписание\s+(на|на\s+этой)',  # "расписание на этой неделе"
+            r'покажи\s+встреч',  # "покажи встречи"
         ]
         
         for pattern in calendar_patterns:
@@ -2028,6 +2104,11 @@ class UnifiedReActEngine:
         capability_name = action_plan.get("tool_name")
         arguments = action_plan.get("arguments", {})
         
+        # #region agent log - H3: _execute_action entry
+        _action_entry_time = time.time()
+        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_execute_action:ENTRY", "message": "Entering _execute_action", "data": {"capability_name": capability_name, "arguments": str(arguments)[:200]}, "timestamp": int(_action_entry_time*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+        # #endregion
+        
         # Send real progress event BEFORE tool execution
         if self.ws_manager and self.session_id:
             display_name = self._get_tool_display_name(capability_name, arguments)
@@ -2045,8 +2126,18 @@ class UnifiedReActEngine:
                     }
                 )
         
+        # #region agent log - H3: Before registry.execute
+        _registry_start = time.time()
+        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_execute_action:before_registry", "message": "Before registry.execute", "data": {"capability_name": capability_name, "time_in_execute_action_ms": int((_registry_start - _action_entry_time)*1000)}, "timestamp": int(_registry_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+        # #endregion
+        
         # Registry routes to appropriate provider (MCP or A2A)
         result = await self.registry.execute(capability_name, arguments)
+        
+        # #region agent log - H3: After registry.execute
+        _registry_end = time.time()
+        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_execute_action:after_registry", "message": "After registry.execute", "data": {"capability_name": capability_name, "registry_duration_ms": int((_registry_end - _registry_start)*1000), "result_type": type(result).__name__, "result_preview": str(result)[:200]}, "timestamp": int(_registry_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+        # #endregion
         
         # Send intent_detail AFTER tool execution with result summary
         if self.ws_manager and self.session_id:

@@ -142,10 +142,28 @@ class CapabilityRegistry:
             f"via {provider.provider_type.value} provider"
         )
         
+        # #region agent log - H3: Registry execute entry
+        import time as _time
+        import json as _json
+        _reg_exec_start = _time.time()
+        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "registry:execute_ENTRY", "message": "Registry executing capability", "data": {"capability_name": capability_name, "provider_type": provider.provider_type.value, "arguments": str(arguments)[:200]}, "timestamp": int(_reg_exec_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+        # #endregion
+        
         try:
             result = await provider.execute(capability_name, arguments, context)
+            
+            # #region agent log - H3: Registry execute SUCCESS
+            _reg_exec_end = _time.time()
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "registry:execute_SUCCESS", "message": "Registry execute completed", "data": {"capability_name": capability_name, "duration_ms": int((_reg_exec_end - _reg_exec_start)*1000), "result_preview": str(result)[:200]}, "timestamp": int(_reg_exec_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+            # #endregion
+            
             return result
         except Exception as e:
+            # #region agent log - H3,H4: Registry execute ERROR
+            _reg_exec_end = _time.time()
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "registry:execute_ERROR", "message": "REGISTRY EXECUTE ERROR", "data": {"capability_name": capability_name, "duration_ms": int((_reg_exec_end - _reg_exec_start)*1000), "error": str(e), "error_type": type(e).__name__}, "timestamp": int(_reg_exec_end*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+            # #endregion
+            
             logger.error(
                 f"[CapabilityRegistry] Execution failed for '{capability_name}': {e}",
                 exc_info=True
