@@ -1723,19 +1723,30 @@ class UnifiedReActEngine:
         return None
     
     class StreamingThoughtParser:
-        """Парсит thought из стрима и отправляет по WebSocket."""
+        """Парсит thought из стрима и отправляет по WebSocket.
         
-        def __init__(self, ws_manager: WebSocketManager, session_id: str):
+        Также отправляет intent_detail события если передан intent_id,
+        что позволяет показывать thinking в UI как часть intent блока.
+        """
+        
+        def __init__(self, ws_manager: WebSocketManager, session_id: str, intent_id: Optional[str] = None):
             self.ws_manager = ws_manager
             self.session_id = session_id
+            self.intent_id = intent_id  # NEW: для отправки intent_detail
             self.buffer = ""
             self.thought_started = False
             self.thought_complete = False
             self.thought_content = ""
             self.thinking_id = f"thinking_{session_id}_{int(time.time() * 1000)}"
+            self._last_sent_length = 0  # Для отслеживания что уже отправили
         
         async def process_chunk(self, chunk: str) -> None:
-            """Обрабатывает chunk, извлекает thought и стримит."""
+            """Обрабатывает chunk, извлекает thought и стримит.
+            
+            Отправляет:
+            - thinking_chunk: legacy событие для ThinkingMessage
+            - intent_detail: новое событие для IntentMessage (если есть intent_id)
+            """
             self.buffer += chunk
             
             # Проверяем начало thought
@@ -1768,6 +1779,8 @@ class UnifiedReActEngine:
                                 "chunk": thought_chunk
                             }
                         )
+                        # NEW: Отправляем как intent_detail для UI
+                        await self._send_intent_detail(thought_chunk.strip())
                     
                     self.thought_complete = True
                     await self.ws_manager.send_event(
@@ -1793,6 +1806,34 @@ class UnifiedReActEngine:
                                     "chunk": new_chunk
                                 }
                             )
+                            # NEW: Отправляем как intent_detail для UI
+                            await self._send_intent_detail(new_chunk.strip())
+        
+        async def _send_intent_detail(self, text: str) -> None:
+            """Отправляет intent_detail с текстом thinking если есть intent_id."""
+            if not self.intent_id or not text:
+                return
+            
+            # Форматируем текст для отображения
+            # Берём последнее предложение или весь текст если короткий
+            display_text = text
+            if len(text) > 100:
+                # Ищем последнее предложение
+                sentences = text.replace('\n', '. ').split('. ')
+                if sentences:
+                    display_text = sentences[-1].strip()
+                    if len(display_text) < 20 and len(sentences) > 1:
+                        display_text = sentences[-2].strip() + ". " + display_text
+            
+            await self.ws_manager.send_event(
+                self.session_id,
+                "intent_detail",
+                {
+                    "intent_id": self.intent_id,
+                    "type": "analyze",
+                    "description": f"🤔 {display_text}"
+                }
+            )
         
         def get_thought(self) -> str:
             """Возвращает извлечённый thought."""
@@ -2503,7 +2544,13 @@ class UnifiedReActEngine:
             ]
             
             # Создаём парсер для стриминга thought
-            parser = self.StreamingThoughtParser(self.ws_manager, self.session_id)
+            # Передаём intent_id для отправки intent_detail событий
+            current_intent_id = getattr(self, '_current_intent_id', None)
+            parser = self.StreamingThoughtParser(
+                self.ws_manager, 
+                self.session_id,
+                intent_id=current_intent_id
+            )
             
             # Стримим ответ
             full_response = ""

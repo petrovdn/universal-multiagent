@@ -835,42 +835,41 @@ export function ChatInterface() {
                   </div>
                   
                   {/* Intent blocks section (Cursor-style) - renders independently of plan */}
+                  {/* UPDATED: SmartProgress и IntentBlocks показываются ВМЕСТЕ */}
                   {(() => {
                     const workflowIntentBlocks = intentBlocks[workflowId] || []
                     // isLastUserMessage уже вычислен выше
                     const shouldShowThinking = isLastUserMessage && showThinkingIndicator && workflowIntentBlocks.length === 0
+                    const hasSmartProgress = smartProgress && smartProgress.isActive
+                    const hasIntentBlocks = workflowIntentBlocks.length > 0
                     
-                    // Показываем SmartProgress если активен
-                    if (smartProgress && smartProgress.isActive) {
-                      return (
-                        <div className="intent-blocks-section">
+                    // Ничего не показываем если нет ни прогресса, ни блоков, ни thinking
+                    if (!hasSmartProgress && !hasIntentBlocks && !shouldShowThinking) {
+                      return null
+                    }
+                    
+                    return (
+                      <div className="intent-blocks-section">
+                        {/* SmartProgress как заголовок с таймером */}
+                        {hasSmartProgress && (
                           <SmartProgressIndicator
                             message={smartProgress.message}
                             elapsedSec={smartProgress.elapsedSec}
                             estimatedSec={smartProgress.estimatedSec}
                             progressPercent={smartProgress.progressPercent}
                           />
-                        </div>
-                      )
-                    }
-                    
-                    // Показываем либо "Думаю...", либо intent блоки
-                    if (shouldShowThinking) {
-                      return (
-                        <div className="intent-blocks-section">
+                        )}
+                        
+                        {/* Показываем "Думаю..." только если нет ни прогресса, ни блоков */}
+                        {shouldShowThinking && !hasSmartProgress && (
                           <div className="thinking-indicator">
                             <span className="thinking-indicator-text">Думаю</span>
                             <span className="thinking-indicator-dots" />
                           </div>
-                        </div>
-                      )
-                    }
-                    
-                    if (workflowIntentBlocks.length === 0) return null
-                    
-                    return (
-                      <div className="intent-blocks-section">
-                        {workflowIntentBlocks.map((intentBlock) => (
+                        )}
+                        
+                        {/* Intent блоки с деталями - показываются ПОД SmartProgress */}
+                        {hasIntentBlocks && workflowIntentBlocks.map((intentBlock) => (
                           <IntentMessage
                             key={intentBlock.id}
                             block={intentBlock}

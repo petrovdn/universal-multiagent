@@ -74,9 +74,9 @@ async function sendMessageAndWaitForResponse(page: Page, message: string, timeou
     await chatInput.press('Enter');
   }
   
-  // Ждём появления ответа
+  // Ждём появления ответа (в assistant-message-wrapper или final-result-prose для workflow)
   await page.waitForSelector(
-    '[class*="assistant-message"], [class*="final-result"], .markdown, [class*="response"]',
+    '.assistant-message-wrapper, .final-result-prose, .sticky-result-section, .markdown',
     { timeout }
   );
   
@@ -88,7 +88,7 @@ async function sendMessageAndWaitForResponse(page: Page, message: string, timeou
  * Helper: проверяет, что система запросила уточнение
  */
 async function expectClarificationRequested(page: Page): Promise<boolean> {
-  const clarificationText = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+  const clarificationText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
   return clarificationText?.includes('уточнен') || 
          clarificationText?.includes('укажите') || 
          clarificationText?.includes('какое время') ||
@@ -100,7 +100,7 @@ async function expectClarificationRequested(page: Page): Promise<boolean> {
  * Helper: проверяет успешное создание встречи
  */
 async function expectMeetingCreated(page: Page): Promise<boolean> {
-  const responseText = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+  const responseText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
   return responseText?.includes('создан') || 
          responseText?.includes('запланирован') || 
          responseText?.includes('назначен') ||
@@ -111,7 +111,7 @@ async function expectMeetingCreated(page: Page): Promise<boolean> {
  * Helper: проверяет отображение событий
  */
 async function expectEventsDisplayed(page: Page): Promise<boolean> {
-  const responseText = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+  const responseText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
   return responseText?.includes('событи') || 
          responseText?.includes('встреч') || 
          responseText?.includes('Found') ||
@@ -163,7 +163,7 @@ test.describe('Calendar Extended Tests', () => {
       await sendMessageAndWaitForResponse(page, 'покажи встречи');
       
       // Система должна либо запросить уточнение, либо показать за текущую неделю
-      const responseText = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const responseText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       const hasClarificationOrEvents = 
         await expectClarificationRequested(page) || 
         await expectEventsDisplayed(page);
@@ -182,7 +182,7 @@ test.describe('Calendar Extended Tests', () => {
       await sendMessageAndWaitForResponse(page, message, 90000);
       
       // Должна создаться встреча или показать ошибку валидации (если время в прошлом)
-      const responseText = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const responseText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       const isSuccess = await expectMeetingCreated(page);
       const hasError = responseText?.includes('прошлом') || responseText?.includes('ошибка');
       
@@ -194,7 +194,7 @@ test.describe('Calendar Extended Tests', () => {
       await sendMessageAndWaitForResponse(page, message, 90000);
       
       // Система должна найти слот и создать встречу или предложить варианты
-      const responseText = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const responseText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       expect(responseText && responseText.length > 10).toBeTruthy();
     });
 
@@ -203,7 +203,7 @@ test.describe('Calendar Extended Tests', () => {
       await sendMessageAndWaitForResponse(page, message, 90000);
       
       // Система должна обработать сложное условие
-      const responseText = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const responseText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       expect(responseText && responseText.length > 10).toBeTruthy();
     });
 
@@ -219,7 +219,7 @@ test.describe('Calendar Extended Tests', () => {
       await sendMessageAndWaitForResponse(page, `с ${PARTICIPANT_BSN} на завтра в 11:00 на 30 минут`);
       
       // Теперь должна создаться встреча или ещё уточнения
-      const finalResponse = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const finalResponse = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       expect(finalResponse && finalResponse.length > 10).toBeTruthy();
     });
 
@@ -233,7 +233,7 @@ test.describe('Calendar Extended Tests', () => {
       // Шаг 2: добавляем время
       await sendMessageAndWaitForResponse(page, 'завтра в 14:00 на 1 час');
       
-      const finalResponse = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const finalResponse = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       expect(finalResponse && finalResponse.length > 10).toBeTruthy();
     });
 
@@ -247,7 +247,7 @@ test.describe('Calendar Extended Tests', () => {
       const message = `назначь встречу на послезавтра в 10:00 с ${PARTICIPANT_BSN} и ${PARTICIPANT_ARV} длительностью 1 час на тему "Планирование спринта"`;
       await sendMessageAndWaitForResponse(page, message, 90000);
       
-      const responseText = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const responseText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       expect(responseText && responseText.length > 10).toBeTruthy();
     });
 
@@ -255,7 +255,7 @@ test.describe('Calendar Extended Tests', () => {
       const message = `найди свободное время для встречи с ${PARTICIPANT_BSN} и ${PARTICIPANT_ARV} на 50 минут в ближайшие 5 дней`;
       await sendMessageAndWaitForResponse(page, message, 120000);
       
-      const responseText = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const responseText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       expect(responseText && responseText.length > 10).toBeTruthy();
     });
 
@@ -269,7 +269,7 @@ test.describe('Calendar Extended Tests', () => {
       // Шаг 2: указываем время
       await sendMessageAndWaitForResponse(page, 'в понедельник в 15:00 на 45 минут');
       
-      const finalResponse = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const finalResponse = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       expect(finalResponse && finalResponse.length > 10).toBeTruthy();
     });
 
@@ -277,7 +277,7 @@ test.describe('Calendar Extended Tests', () => {
       const message = `организуй встречу команды с ${PARTICIPANT_BSN} и ${PARTICIPANT_ARV} на этой неделе, утром, на 1.5 часа`;
       await sendMessageAndWaitForResponse(page, message, 120000);
       
-      const responseText = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const responseText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       expect(responseText && responseText.length > 10).toBeTruthy();
     });
 
@@ -299,7 +299,7 @@ test.describe('Calendar Extended Tests', () => {
         90000
       );
       
-      const finalResponse = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const finalResponse = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       expect(finalResponse && finalResponse.length > 10).toBeTruthy();
     });
 
@@ -321,7 +321,7 @@ test.describe('Calendar Extended Tests', () => {
       }
       
       // В конце должен быть результат
-      const finalResponse = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const finalResponse = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       expect(finalResponse && finalResponse.length > 10).toBeTruthy();
     });
 
@@ -330,7 +330,7 @@ test.describe('Calendar Extended Tests', () => {
       await sendMessageAndWaitForResponse(page, message, 90000);
       
       // Система должна либо уточнить, либо выбрать разумное время
-      const responseText = await page.locator('.markdown, [class*="assistant"]').last().textContent().catch(() => '');
+      const responseText = await page.locator('.final-result-prose, .markdown, .assistant-message-wrapper').last().textContent().catch(() => '');
       expect(responseText && responseText.length > 10).toBeTruthy();
     });
 
