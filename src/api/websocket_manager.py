@@ -137,9 +137,7 @@ class WebSocketManager:
             "data": data
         }
         
-        # Log event sending
         connection_count = self.get_connection_count(session_id)
-        self.logger.info(f"Sending event '{event_type}' to session {session_id} (connections: {connection_count})")
         
         if connection_count == 0:
             self.logger.warning(f"No active connections for session {session_id} when sending event '{event_type}'")

@@ -209,6 +209,28 @@ class UnifiedReActEngine:
         # Check if query needs tools or can be answered directly (like Cursor does)
         needs_tools = await self._needs_tools(goal, context)
         
+        # #region debug log - needs_tools result in execute
+        log_data_needs_result = {
+            "location": "unified_react_engine.py:211",
+            "message": "execute: needs_tools result",
+            "data": {
+                "goal": goal,
+                "needs_tools": needs_tools,
+                "will_use_react": needs_tools,
+                "will_answer_directly": not needs_tools
+            },
+            "timestamp": time.time() * 1000,
+            "sessionId": self.session_id,
+            "runId": "run1",
+            "hypothesisId": "H_NEEDS_TOOLS"
+        }
+        try:
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                f.write(json.dumps(log_data_needs_result, default=str) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         if not needs_tools:
             # Simple query - answer directly without tools
             logger.info(f"[UnifiedReActEngine] Simple query detected, answering directly without tools")
@@ -234,6 +256,50 @@ class UnifiedReActEngine:
             {"thinking_id": self._current_thinking_id, "started_at": int(time.time() * 1000)}
         )
         
+        # === MULTI-PHASE ARCHITECTURE: Analyze if task has multiple logical phases ===
+        task_phases = self._analyze_task_phases(goal)
+        self._is_multi_phase = len(task_phases) >= 2
+        self._task_phases = task_phases
+        self._current_phase_category = None
+        self._phase_intent_ids = {}  # category -> intent_id mapping
+        
+        # #region agent log - H1,H2,H3: Intent creation decision
+        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:intent_creation", "message": "Intent creation decision", "data": {"is_multi_phase": self._is_multi_phase, "phases_count": len(task_phases), "phases": [{"name": p['name'], "category": p['category'], "description": p['description']} for p in task_phases[:3]]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2,H3"}) + '\n')
+        # #endregion
+        
+        if self._is_multi_phase:
+            logger.info(f"[UnifiedReActEngine] Multi-phase task detected: {len(task_phases)} phases")
+            # Create the FIRST phase intent
+            first_phase = task_phases[0]
+            task_intent_id = f"phase-{int(time.time() * 1000)}"
+            self._current_intent_id = task_intent_id
+            self._current_phase_category = first_phase['category']
+            self._phase_intent_ids[first_phase['category']] = task_intent_id
+            
+            # #region agent log - H1,H2: First intent created
+            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:first_intent", "message": "Creating first phase intent", "data": {"intent_id": task_intent_id, "phase_name": first_phase['name'], "phase_category": first_phase['category'], "phase_description": first_phase['description'], "goal_context": goal[:100]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2"}) + '\n')
+            # #endregion
+            
+            await self.ws_manager.send_event(
+                self.session_id,
+                "intent_start",
+                {"intent_id": task_intent_id, "text": first_phase['description']}
+            )
+        else:
+            # Single-phase task: Create ONE task-level intent for the entire goal
+            task_intent_id = f"task-{int(time.time() * 1000)}"
+            self._current_intent_id = task_intent_id
+            
+            # Generate meaningful task description from goal
+            task_description = self._generate_task_description(goal)
+            await self.ws_manager.send_event(
+                self.session_id,
+                "intent_start",
+                {"intent_id": task_intent_id, "text": task_description}
+            )
+        
+        self._task_intent_id = self._current_intent_id  # Store for the entire execution
+        
         try:
             # Main ReAct loop
             while state.iteration < state.max_iterations:
@@ -244,53 +310,14 @@ class UnifiedReActEngine:
                 state.iteration += 1
                 logger.info(f"[UnifiedReActEngine] Starting iteration {state.iteration}")
                 
-                # === EARLY INTENT: Start of iteration ===
-                iteration_intent_id = f"intent-iter-{state.iteration}-{int(time.time() * 1000)}"
-                files_info = ""
-                if file_ids:
-                    file_count = len(file_ids)
-                    image_count = sum(1 for fid in file_ids if context.get_file(fid) and context.get_file(fid).get('type', '').startswith('image/'))
-                    pdf_count = sum(1 for fid in file_ids if context.get_file(fid) and context.get_file(fid).get('type', '') == 'application/pdf')
-                    doc_count = sum(1 for fid in file_ids if context.get_file(fid) and context.get_file(fid).get('type', '') in ('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'application/msword'))
-                    parts = []
-                    if pdf_count: parts.append(f"{pdf_count} PDF")
-                    if doc_count: parts.append(f"{doc_count} документ")
-                    if image_count: parts.append(f"{image_count} изображение")
-                    if parts:
-                        files_info = f" ({', '.join(parts)})"
-                
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "intent_start",
-                    {
-                        "intent_id": iteration_intent_id,
-                        "text": f"Итерация {state.iteration}: Анализирую запрос{files_info}..."
-                    }
-                )
+                # === NEW ARCHITECTURE: No per-iteration intent, use task-level intent ===
+                # Intent details will be added for each tool call
                 
                 # 1. THINK - Analyze current situation
                 state.status = "thinking"
-                # NOTE: Removed static message - progress updates will show progress
+                # Real progress: no fake messages, just actual work
                 
-                # Start progress updates while LLM thinks
-                think_progress_messages = [
-                    "Изучаю контекст запроса...",
-                    "Анализирую структуру задачи...",
-                    "Извлекаю ключевую информацию...",
-                    "Определяю требуемые действия...",
-                ]
-                think_progress_task = asyncio.create_task(
-                    self._send_progress_updates(iteration_intent_id, think_progress_messages, interval=5.0)
-                )
-                
-                try:
-                    thought = await self._think(state, context, file_ids)
-                finally:
-                    think_progress_task.cancel()
-                    try:
-                        await think_progress_task
-                    except asyncio.CancelledError:
-                        pass
+                thought = await self._think(state, context, file_ids)
                 
                 state.current_thought = thought
                 state.add_reasoning_step("think", thought)
@@ -304,33 +331,95 @@ class UnifiedReActEngine:
                 
                 # 2. PLAN - Choose next action
                 state.status = "acting"
-                # NOTE: Removed static message - progress updates will show progress
+                # Real progress: no fake messages, just actual work
                 
-                # Start progress updates while LLM plans
-                plan_progress_messages = [
-                    "Оцениваю возможные подходы...",
-                    "Выбираю оптимальную стратегию...",
-                    "Подготавливаю параметры действия...",
-                ]
-                plan_progress_task = asyncio.create_task(
-                    self._send_progress_updates(iteration_intent_id, plan_progress_messages, interval=5.0)
-                )
+                action_plan = await self._plan_action(state, thought, context, file_ids)
                 
-                try:
-                    action_plan = await self._plan_action(state, thought, context, file_ids)
-                finally:
-                    plan_progress_task.cancel()
-                    try:
-                        await plan_progress_task
-                    except asyncio.CancelledError:
-                        pass
+                # #region agent log - H3: Planned action
+                planned_tool = action_plan.get("tool_name", "")
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:planned_action", "message": "Action planned by LLM", "data": {"tool_name": planned_tool, "description": action_plan.get("description", "")[:100], "reasoning": action_plan.get("reasoning", "")[:100], "is_multi_phase": self._is_multi_phase, "current_phase_category": self._current_phase_category, "goal": state.goal[:150]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+                # #endregion
                 
-                # Complete iteration intent
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "intent_complete",
-                    {"intent_id": iteration_intent_id, "summary": f"Итерация {state.iteration} завершена"}
-                )
+                # === MULTI-PHASE: Check for phase transition ===
+                # IMPORTANT: Check transitions even if task wasn't initially detected as multi-phase
+                # This allows dynamic detection when different tool categories are used
+                if planned_tool.upper() != "FINISH":
+                    new_category = self._get_tool_category(planned_tool)
+                    
+                    # #region agent log - H3,H4: Tool category classification
+                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:tool_category", "message": "Tool category classification", "data": {"tool_name": planned_tool, "detected_category": new_category, "current_phase_category": self._current_phase_category, "is_multi_phase": self._is_multi_phase, "will_transition": new_category != self._current_phase_category and new_category != 'general'}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+                    # #endregion
+                    
+                    # Check if we're transitioning to a new phase
+                    # Allow transition if:
+                    # 1. Task was detected as multi-phase initially, OR
+                    # 2. We're using a different category than current (dynamic detection)
+                    should_transition = (
+                        new_category != self._current_phase_category and 
+                        new_category != 'general' and
+                        (self._is_multi_phase or self._current_phase_category is not None)
+                    )
+                    
+                    if should_transition:
+                        # #region debug log - phase transition detected
+                        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:phase_transition", "message": "Phase transition detected", "data": {"from_category": self._current_phase_category, "to_category": new_category, "tool_name": planned_tool, "is_multi_phase": self._is_multi_phase, "current_intent_id": self._current_intent_id}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_PHASE_TRANSITION"}) + '\n')
+                        # #endregion
+                        
+                        # Complete current intent before starting new one
+                        if self._current_intent_id:
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "intent_complete",
+                                {
+                                    "intent_id": self._current_intent_id,
+                                    "summary": "Завершено"
+                                }
+                            )
+                        
+                        # Find or create intent for new phase
+                        if new_category in self._phase_intent_ids:
+                            # Reusing existing phase intent
+                            self._current_intent_id = self._phase_intent_ids[new_category]
+                            # #region debug log - reusing existing intent
+                            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:reuse_intent", "message": "Reusing existing phase intent", "data": {"category": new_category, "intent_id": self._current_intent_id}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_PHASE_TRANSITION"}) + '\n')
+                            # #endregion
+                        else:
+                            # Create new phase intent
+                            new_intent_id = f"phase-{int(time.time() * 1000)}"
+                            self._phase_intent_ids[new_category] = new_intent_id
+                            self._current_intent_id = new_intent_id
+                            
+                            phase_description = self._get_phase_description_for_category(new_category)
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "intent_start",
+                                {"intent_id": new_intent_id, "text": phase_description}
+                            )
+                            logger.info(f"[UnifiedReActEngine] Phase transition: {self._current_phase_category} -> {new_category}")
+                            
+                            # #region debug log - new intent created
+                            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:new_intent_created", "message": "New phase intent created", "data": {"category": new_category, "intent_id": new_intent_id, "description": phase_description}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_PHASE_TRANSITION"}) + '\n')
+                            # #endregion
+                        
+                        self._current_phase_category = new_category
+                        self._task_intent_id = self._current_intent_id
+                    elif self._current_phase_category is None:
+                        # First tool usage - set initial category
+                        self._current_phase_category = new_category
+                
+                # === Add intent_detail for planned action ===
+                if planned_tool.upper() != "FINISH":
+                    # Add detail about what we're going to do
+                    action_description = action_plan.get("description", "")[:80]
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "intent_detail",
+                        {
+                            "intent_id": self._current_intent_id,
+                            "type": "execute",
+                            "description": f"🎯 {action_description}" if action_description else f"🔧 {self._get_tool_display_name(planned_tool, action_plan.get('arguments', {}))}"
+                        }
+                    )
                 
                 # Check for special "FINISH" marker
                 tool_name = action_plan.get("tool_name", "")
@@ -480,6 +569,27 @@ class UnifiedReActEngine:
         """
         goal_lower = goal.lower().strip()
         
+        # #region debug log - проверка определения необходимости инструментов
+        log_data_needs_tools = {
+            "location": "unified_react_engine.py:515",
+            "message": "_needs_tools: checking if tools needed",
+            "data": {
+                "goal": goal,
+                "goal_lower": goal_lower,
+                "goal_length": len(goal)
+            },
+            "timestamp": time.time() * 1000,
+            "sessionId": self.session_id,
+            "runId": "run1",
+            "hypothesisId": "H_NEEDS_TOOLS"
+        }
+        try:
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                f.write(json.dumps(log_data_needs_tools, default=str) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         # Simple greetings and basic questions - no tools needed
         simple_patterns = [
             r'^(привет|hello|hi|здравствуй|здравствуйте|добрый\s+(день|вечер|утро))',
@@ -490,38 +600,102 @@ class UnifiedReActEngine:
         
         for pattern in simple_patterns:
             if re.match(pattern, goal_lower):
+                # #region debug log - simple pattern matched
+                log_data = {
+                    "location": "unified_react_engine.py:535",
+                    "message": "_needs_tools: simple pattern matched - returning False",
+                    "data": {"pattern": pattern, "goal": goal},
+                    "timestamp": time.time() * 1000,
+                    "sessionId": self.session_id,
+                    "runId": "run1",
+                    "hypothesisId": "H_NEEDS_TOOLS"
+                }
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps(log_data, default=str) + "\n")
+                except Exception:
+                    pass
+                # #endregion
                 return False
         
         # Check for simple generative patterns (poems, jokes, greetings, etc.) - no tools needed
-        simple_generative_patterns = [
-            r"(напиши|составь|сочини|придумай|создай)\s+(мне\s+)?(краткое\s+)?(поздравление|стих|стихотворение|шутку|анекдот|сообщение|текст|письмо|хокку|хайку|haiku|рассказ|историю|сказку|песню)",
-            r"(напиши|составь|сочини|придумай)\s+\w*\s*(хокку|хайку|haiku)",
-            r"write\s+(me\s+)?(a\s+)?(greeting|poem|joke|message|story|haiku)",
-            # Direct creative requests
-            r"^(хокку|хайку|haiku|стих|анекдот|шутка)$",
-            r"^(напиши|составь|сочини|придумай)\s+\w{2,}$",  # "напиши хокку", "составь рассказ"
-        ]
+        # IMPORTANT: Only match if these are CREATIVE tasks WITHOUT external data requirements
+        # Patterns that mention files, documents, tables should NOT match here
+        # Also, check tool_keywords FIRST before matching generative patterns
+        # This ensures queries with file/table keywords are handled correctly
         
-        for pattern in simple_generative_patterns:
-            if re.search(pattern, goal_lower):
-                return False
-        
-        # Check if query mentions specific actions that require tools
-        tool_keywords = [
+        # First, check if query contains tool keywords - if yes, it needs tools
+        # This prevents false matches for queries like "Возьми текст Сказки, создай..."
+        # IMPORTANT: Check tool keywords BEFORE generative patterns to avoid false negatives
+        tool_keywords_early = [
             'найди', 'find', 'получи', 'get', 'выведи', 'show', 'открой', 'open',
-            'создай', 'create', 'отправь', 'send', 'сохрани', 'save',
+            'возьми', 'take', 'прочитай', 'read', 'читай', 'посмотри', 'look',
+            'создай', 'create', 'отправь', 'send', 'сохрани', 'save', 'запиши', 'write',
             'календарь', 'calendar', 
             # Russian word forms for "встреча" (meeting) - all cases
             'встречи', 'встреч', 'встреча', 'встречу', 'встречей', 'встречам', 'встречами', 'встречах',
             'events', 'meetings', 'event', 'meeting',
             'письма', 'emails', 'почта', 'mail',
-            'таблица', 'table', 'sheets', 'документ', 'document',
-            'файл', 'file', 'данные', 'data',
+            'таблица', 'table', 'sheets', 'документ', 'document', 'файл', 'file',
+            'данные', 'data', 'текст', 'text',  # "текст" in context of files/documents needs tools
+            'список', 'list', 'действий', 'actions', 'персонаж', 'character', 'персонажей', 'characters',
             # 1C / Accounting keywords
             'проводк', '1с', '1c', 'бухгалтер', 'выручк', 'остатк', 'склад',
             # Project Lad keywords
             'проект', 'портфел', 'гант', 'вех', 'работ', 'project lad', 'projectlad'
         ]
+        
+        for keyword in tool_keywords_early:
+            if keyword in goal_lower:
+                # #region debug log - tool keyword found BEFORE generative pattern check
+                log_data = {
+                    "location": "unified_react_engine.py:624",
+                    "message": "_needs_tools: tool keyword found early - returning True",
+                    "data": {"keyword": keyword, "goal": goal, "matched_position": goal_lower.find(keyword)},
+                    "timestamp": time.time() * 1000,
+                    "sessionId": self.session_id,
+                    "runId": "run1",
+                    "hypothesisId": "H_NEEDS_TOOLS"
+                }
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps(log_data, default=str) + "\n")
+                except Exception:
+                    pass
+                # #endregion
+                return True
+        
+        simple_generative_patterns = [
+            # Only match standalone creative requests WITHOUT file/table context
+            r"(напиши|составь|сочини|придумай)\s+(мне\s+)?(краткое\s+)?(поздравление|стих|стихотворение|шутку|анекдот|письмо|хокку|хайку|haiku|рассказ|историю|песню)(?!.*(файл|документ|таблиц|текст\s+файл|текст\s+документ|из\s+файл|из\s+документ|в\s+таблиц|возьми|прочитай|открой|найди))",
+            r"(напиши|составь|сочини|придумай)\s+\w*\s*(хокку|хайку|haiku)(?!.*(файл|документ|таблиц|из\s+файл|из\s+документ|возьми|прочитай))",
+            r"write\s+(me\s+)?(a\s+)?(greeting|poem|joke|message|story|haiku)(?!.*(file|document|table|from\s+file|from\s+document|in\s+table|read|open|find|take))",
+            # Direct creative requests (standalone, no context)
+            r"^(хокку|хайку|haiku|стих|анекдот|шутка)$",
+            # Only match very short creative requests like "напиши хокку" without any file/table context
+            r"^(напиши|составь|сочини|придумай)\s+(хокку|хайку|haiku|стих|анекдот|шутку|рассказ|историю|песню)$",
+        ]
+        
+        for pattern in simple_generative_patterns:
+            match = re.search(pattern, goal_lower)
+            if match:
+                # #region debug log - generative pattern matched
+                log_data = {
+                    "location": "unified_react_engine.py:588",
+                    "message": "_needs_tools: generative pattern matched - returning False",
+                    "data": {"pattern": pattern, "goal": goal, "matched_text": match.group(0)},
+                    "timestamp": time.time() * 1000,
+                    "sessionId": self.session_id,
+                    "runId": "run1",
+                    "hypothesisId": "H_NEEDS_TOOLS"
+                }
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps(log_data, default=str) + "\n")
+                except Exception:
+                    pass
+                # #endregion
+                return False
         
         # Check for specific calendar-related patterns
         calendar_patterns = [
@@ -533,10 +707,22 @@ class UnifiedReActEngine:
         
         for pattern in calendar_patterns:
             if re.search(pattern, goal_lower):
-                return True
-        
-        for keyword in tool_keywords:
-            if keyword in goal_lower:
+                # #region debug log - calendar pattern matched
+                log_data = {
+                    "location": "unified_react_engine.py:578",
+                    "message": "_needs_tools: calendar pattern matched - returning True",
+                    "data": {"pattern": pattern, "goal": goal},
+                    "timestamp": time.time() * 1000,
+                    "sessionId": self.session_id,
+                    "runId": "run1",
+                    "hypothesisId": "H_NEEDS_TOOLS"
+                }
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps(log_data, default=str) + "\n")
+                except Exception:
+                    pass
+                # #endregion
                 return True
         
         # === NEW: Check for follow-up/clarification queries that reference previous context ===
@@ -624,9 +810,47 @@ class UnifiedReActEngine:
             response_text = str(response.content).strip().upper()
             
             llm_result = "ДА" in response_text or "YES" in response_text
+            
+            # #region debug log - LLM decision
+            log_data = {
+                "location": "unified_react_engine.py:669",
+                "message": "_needs_tools: LLM decision",
+                "data": {
+                    "goal": goal,
+                    "llm_response": response_text,
+                    "llm_result": llm_result
+                },
+                "timestamp": time.time() * 1000,
+                "sessionId": self.session_id,
+                "runId": "run1",
+                "hypothesisId": "H_NEEDS_TOOLS"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    f.write(json.dumps(log_data, default=str) + "\n")
+            except Exception:
+                pass
+            # #endregion
+            
             return llm_result
         except Exception as e:
             logger.error(f"[UnifiedReActEngine] Error checking if tools needed: {e}")
+            # #region debug log - error in needs_tools check
+            log_data = {
+                "location": "unified_react_engine.py:673",
+                "message": "_needs_tools: error occurred, defaulting to True",
+                "data": {"goal": goal, "error": str(e)},
+                "timestamp": time.time() * 1000,
+                "sessionId": self.session_id,
+                "runId": "run1",
+                "hypothesisId": "H_NEEDS_TOOLS"
+            }
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    f.write(json.dumps(log_data, default=str) + "\n")
+            except Exception:
+                pass
+            # #endregion
             # Default to using tools if check fails
             return True
     
@@ -793,6 +1017,480 @@ class UnifiedReActEngine:
             # Task was cancelled, this is expected
             pass
     
+    def _get_task_intents(self, goal: str) -> List[str]:
+        """
+        Generate context-dependent intent messages based on task type.
+        
+        Instead of generic fake messages like "Изучаю контекст запроса...",
+        returns relevant intents for the specific task.
+        
+        Args:
+            goal: User's request/goal
+            
+        Returns:
+            List of relevant intent descriptions
+        """
+        goal_lower = goal.lower()
+        
+        # Calendar / Meetings
+        if any(w in goal_lower for w in ['встреч', 'событ', 'календар', 'meeting', 'schedule', 'запланир']):
+            if any(w in goal_lower for w in ['создай', 'запланир', 'сделай', 'назначь', 'добавь']):
+                return ["Определяю участников", "Проверяю календарь", "Создаю встречу"]
+            return ["Получаю события из календаря"]
+        
+        # Email / Gmail
+        elif any(w in goal_lower for w in ['письм', 'почт', 'email', 'gmail', 'mail']):
+            if any(w in goal_lower for w in ['отправ', 'напиш', 'написать']):
+                return ["Составляю письмо", "Отправляю"]
+            return ["Ищу письма"]
+        
+        # Sheets / Data
+        elif any(w in goal_lower for w in ['таблиц', 'sheet', 'excel', 'данны']):
+            if any(w in goal_lower for w in ['запиш', 'добав', 'измен', 'обнов']):
+                return ["Подготавливаю данные", "Записываю в таблицу"]
+            return ["Запрашиваю данные из таблицы"]
+        
+        # Files / Documents
+        elif any(w in goal_lower for w in ['файл', 'документ', 'открой', 'найди файл']):
+            return ["Ищу файлы"]
+        
+        # 1C / Accounting
+        elif any(w in goal_lower for w in ['1с', '1c', 'проводк', 'остатк', 'бухгалтер', 'склад']):
+            return ["Запрашиваю данные из 1С"]
+        
+        # Project management
+        elif any(w in goal_lower for w in ['проект', 'задач', 'project', 'task']):
+            return ["Получаю информацию о проекте"]
+        
+        # Default - simple intent without fake progress
+        return ["Обрабатываю запрос"]
+    
+    def _generate_task_description(self, goal: str) -> str:
+        """
+        Generate a high-level task description for the task-level intent.
+        
+        This is shown as the main intent header (Cursor-style).
+        Unlike per-iteration intents, this describes the entire task goal.
+        
+        Args:
+            goal: User's request/goal
+            
+        Returns:
+            Human-readable task description
+        """
+        goal_lower = goal.lower()
+        
+        # Calendar / Meetings - use goal directly if it's specific
+        if any(w in goal_lower for w in ['встреч', 'событ', 'календар', 'meeting']):
+            if any(w in goal_lower for w in ['создай', 'запланир', 'назначь']):
+                # Extract email if present
+                import re
+                email_match = re.search(r'[\w\.-]+@[\w\.-]+', goal)
+                if email_match:
+                    return f"Создание встречи с {email_match.group()}"
+                return "Создание встречи"
+            return "Получение событий календаря"
+        
+        # Email
+        elif any(w in goal_lower for w in ['письм', 'почт', 'email', 'gmail']):
+            if any(w in goal_lower for w in ['отправ', 'напиш']):
+                return "Отправка письма"
+            return "Поиск писем"
+        
+        # Data / Sheets
+        elif any(w in goal_lower for w in ['таблиц', 'sheet', 'данны']):
+            return "Работа с таблицей"
+        
+        # Files
+        elif any(w in goal_lower for w in ['файл', 'документ']):
+            return "Поиск файлов"
+        
+        # 1C
+        elif any(w in goal_lower for w in ['1с', '1c']):
+            return "Запрос к 1С"
+        
+        # Default - truncate goal if too long
+        if len(goal) > 60:
+            return goal[:57] + "..."
+        return goal
+    
+    def _analyze_task_phases(self, goal: str) -> List[Dict[str, Any]]:
+        """
+        Analyze goal to identify multiple logical phases.
+        
+        Returns list of phases if task is multi-step, or empty list for single-step.
+        Each phase has: {name, description, keywords, category}
+        
+        Args:
+            goal: User's request/goal
+            
+        Returns:
+            List of phases or empty list if single-step task
+        """
+        # #region agent log - H1,H2: Analyze task phases entry
+        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_analyze_task_phases:entry", "message": "Analyzing task phases", "data": {"goal": goal[:200], "goal_length": len(goal)}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2"}) + '\n')
+        # #endregion
+        
+        goal_lower = goal.lower()
+        phases = []
+        
+        # Define phase categories with their detection keywords
+        # IMPORTANT: Order matters - more specific patterns should come first
+        phase_definitions = [
+            {
+                'name': 'data_1c',
+                # REMOVED 'зарплат' and 'сотрудник' - too ambiguous, can appear in table names
+                # Only detect 1C when explicitly mentioned or with accounting context
+                'keywords': ['1с', '1c', 'бухгалтер', 'odata'],
+                'description': '📊 Получение данных из 1С',
+                'category': 'accounting',
+                'context_exclude': ['запиш', 'запиши', 'создай', 'таблиц', 'в таблиц']  # If these words present, NOT 1C read
+            },
+            {
+                'name': 'email_read',
+                'keywords': ['письм', 'почт', 'email', 'gmail', 'inbox', 'найди письм'],
+                'description': '📧 Поиск и чтение писем',
+                'category': 'email_read'
+            },
+            {
+                'name': 'email_send',
+                'keywords': ['отправ', 'напиш', 'send', 'подтвержд'],
+                'description': '📧 Отправка письма',
+                'category': 'email_send'
+            },
+            {
+                'name': 'calendar_read',
+                'keywords': ['покажи встреч', 'событ', 'свободн', 'занят', 'calendar'],
+                'description': '📅 Проверка календаря',
+                'category': 'calendar_read'
+            },
+            {
+                'name': 'calendar_create',
+                'keywords': ['создай встреч', 'запланир', 'назначь', 'забронир', 'создай задач'],
+                'description': '📅 Создание события',
+                'category': 'calendar_create'
+            },
+            {
+                'name': 'sheets_write',
+                'keywords': ['запиш', 'запиши', 'записать', 'запиш', 'запись в', 'в таблиц', 'записать в таблиц'],
+                'description': '📋 Запись в таблицу',
+                'category': 'sheets_write'
+            },
+            {
+                'name': 'sheets_create',
+                'keywords': ['создай таблиц', 'новую таблиц', 'create sheet'],
+                'description': '📋 Создание таблицы',
+                'category': 'sheets_create'
+            },
+            {
+                'name': 'sheets_read',
+                'keywords': ['таблиц', 'sheet', 'получи данны', 'читай таблиц', 'читай sheet'],
+                'description': '📋 Чтение таблицы',
+                'category': 'sheets_read'
+            },
+            {
+                'name': 'code_execute',
+                'keywords': ['код', 'python', 'питон', 'script', 'расчет', 'вычисл', 'скрипт'],
+                'description': '🐍 Выполнение кода',
+                'category': 'code'
+            },
+            {
+                'name': 'chart_create',
+                'keywords': ['диаграмм', 'график', 'chart', 'graph', 'визуализ', 'постро'],
+                'description': '📈 Создание графика',
+                'category': 'visualization'
+            },
+            {
+                'name': 'file_search',
+                'keywords': ['файл', 'документ', 'найди', 'открой', 'текст', 'сказк', 'возьми текст', 'читай документ', 'read_document'],
+                'description': '📁 Поиск и чтение файлов',
+                'category': 'files'
+            },
+        ]
+        
+        # Detect which phases are present in the goal
+        matched_keywords = {}
+        for phase_def in phase_definitions:
+            matched_kw = [kw for kw in phase_def['keywords'] if kw in goal_lower]
+            if matched_kw:
+                # Context exclusion check: if phase has context_exclude and any of those words present, skip
+                if 'context_exclude' in phase_def:
+                    if any(exclude_kw in goal_lower for exclude_kw in phase_def['context_exclude']):
+                        # Skip this phase - context indicates it's not applicable
+                        continue
+                
+                phases.append({
+                    'name': phase_def['name'],
+                    'description': phase_def['description'],
+                    'category': phase_def['category'],
+                    'keywords': phase_def['keywords']
+                })
+                matched_keywords[phase_def['name']] = matched_kw
+        
+        # #region agent log - H1,H2: Phase detection results
+        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_analyze_task_phases:matched", "message": "Phase detection results", "data": {"phases_count": len(phases), "phases": [{"name": p['name'], "category": p['category'], "description": p['description']} for p in phases], "matched_keywords": matched_keywords}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2"}) + '\n')
+        # #endregion
+        
+        # Check for explicit multi-step patterns
+        explicit_multi_step = any(pattern in goal_lower for pattern in [
+            'по очереди', 'потом', 'затем', 'далее', 'после этого',
+            'шаг 1', 'шаг 2', '1.', '2.', '1)', '2)',
+            'сначала', 'в первую очередь', 'во-первых',
+        ])
+        
+        # Only return phases if:
+        # 1. Multiple different categories detected, OR
+        # 2. Explicit multi-step pattern found
+        unique_categories = set(p['category'] for p in phases)
+        if len(unique_categories) >= 2 or (explicit_multi_step and len(phases) >= 1):
+            # Remove duplicates within same category, keep first
+            seen_categories = set()
+            unique_phases = []
+            for phase in phases:
+                if phase['category'] not in seen_categories:
+                    seen_categories.add(phase['category'])
+                    unique_phases.append(phase)
+            
+            # Sort phases by order of appearance in goal (earliest keyword first)
+            def get_first_keyword_position(phase):
+                positions = []
+                for kw in phase['keywords']:
+                    pos = goal_lower.find(kw)
+                    if pos >= 0:
+                        positions.append(pos)
+                return min(positions) if positions else 9999
+            
+            unique_phases.sort(key=get_first_keyword_position)
+            
+            return unique_phases
+        
+        return []  # Single-step task
+    
+    def _get_tool_category(self, tool_name: str) -> str:
+        """
+        Get category of a tool for phase tracking.
+        
+        Args:
+            tool_name: Internal tool name
+            
+        Returns:
+            Category string (e.g., 'email', 'calendar', 'sheets', 'accounting', 'code')
+        """
+        tool_categories = {
+            # 1C / Accounting
+            'onec_get_data': 'accounting',
+            'onec_execute_query': 'accounting',
+            'onec_list_catalogs': 'accounting',
+            
+            # Email
+            'gmail_search': 'email_read',
+            'gmail_get_message': 'email_read',
+            'gmail_list_messages': 'email_read',
+            'gmail_send_email': 'email_send',
+            
+            # Calendar
+            'calendar_list_events': 'calendar_read',
+            'calendar_get_event': 'calendar_read',
+            'calendar_create_event': 'calendar_create',
+            'calendar_update_event': 'calendar_create',
+            'calendar_delete_event': 'calendar_create',
+            
+            # Sheets - MCP tool names
+            'sheets_create': 'sheets_create',
+            'sheets_read_range': 'sheets_read',
+            'sheets_write_range': 'sheets_write',
+            'sheets_batch_update': 'sheets_write',
+            # Sheets - LangChain tool names (actual names used by LLM)
+            'get_sheet_data': 'sheets_read',
+            'add_rows': 'sheets_write',
+            'update_cells': 'sheets_write',
+            'create_spreadsheet': 'sheets_create',
+            'get_spreadsheet_info': 'sheets_read',
+            'format_cells': 'sheets_write',
+            'auto_resize_columns': 'sheets_write',
+            'merge_cells': 'sheets_write',
+            
+            # Code execution
+            'code_execute': 'code',
+            'python_execute': 'code',
+            'execute_python': 'code',
+            
+            # Files / Documents
+            'workspace_search_files': 'files',
+            'drive_search': 'files',
+            'drive_get_file': 'files',
+            'find_and_open_file': 'files',
+            'file_search': 'files',
+            'read_document': 'files',  # Google Docs reading
+            'docs_read': 'files',
+            
+            # Charts / Visualization
+            'create_chart': 'visualization',
+            'slides_create': 'visualization',
+        }
+        
+        # Normalize tool name and check
+        tool_lower = tool_name.lower()
+        
+        # Direct match
+        if tool_lower in tool_categories:
+            return tool_categories[tool_lower]
+        
+        # Prefix match
+        for key, category in tool_categories.items():
+            if tool_lower.startswith(key.split('_')[0]):
+                return category
+        
+        return 'general'
+    
+    def _get_phase_description_for_category(self, category: str) -> str:
+        """Get human-readable phase description for a tool category."""
+        category_descriptions = {
+            'accounting': '📊 Получение данных из 1С',
+            'email_read': '📧 Поиск и чтение писем',
+            'email_send': '📧 Отправка письма',
+            'calendar_read': '📅 Проверка календаря',
+            'calendar_create': '📅 Создание события',
+            'sheets_create': '📋 Создание таблицы',
+            'sheets_read': '📋 Чтение таблицы',
+            'sheets_write': '📋 Запись в таблицу',
+            'files': '📁 Поиск и чтение файлов',
+            'code': '🐍 Выполнение кода',
+            'visualization': '📈 Создание графика',
+            'files': '📁 Поиск файлов',
+        }
+        return category_descriptions.get(category, '⚙️ Выполнение действия')
+    
+    def _get_tool_display_name(self, tool_name: str, args: Dict[str, Any]) -> str:
+        """
+        Get human-readable display name for tool execution.
+        
+        Converts internal tool names to user-friendly descriptions.
+        
+        Args:
+            tool_name: Internal tool name (e.g., "calendar_list_events")
+            args: Tool arguments
+            
+        Returns:
+            Human-readable description (e.g., "📅 Получаю события из календаря")
+        """
+        tool_map = {
+            # Calendar
+            'calendar_list_events': '📅 Получаю события из календаря',
+            'calendar_create_event': '📅 Создаю встречу',
+            'calendar_update_event': '📅 Обновляю событие',
+            'calendar_delete_event': '📅 Удаляю событие',
+            'calendar_get_event': '📅 Получаю информацию о событии',
+            
+            # Gmail
+            'gmail_search': '📧 Ищу письма',
+            'gmail_send_email': '📧 Отправляю письмо',
+            'gmail_get_message': '📧 Читаю письмо',
+            'gmail_list_messages': '📧 Получаю список писем',
+            
+            # Sheets
+            'sheets_read_range': '📊 Читаю данные из таблицы',
+            'sheets_write_range': '📊 Записываю данные в таблицу',
+            'sheets_append_rows': '📊 Добавляю строки в таблицу',
+            'sheets_get_spreadsheet': '📊 Получаю информацию о таблице',
+            
+            # Docs
+            'docs_read': '📄 Читаю документ',
+            'docs_create': '📄 Создаю документ',
+            'docs_update': '📄 Обновляю документ',
+            
+            # Files / Workspace
+            'workspace_search_files': '📁 Ищу файлы',
+            'workspace_find_and_open_file': '📁 Открываю файл',
+            'workspace_get_file_info': '📁 Получаю информацию о файле',
+            
+            # Slides
+            'slides_create': '🎨 Создаю презентацию',
+            'slides_create_slide': '🎨 Добавляю слайд',
+            
+            # 1C
+            'onec_get_data': '🏢 Запрашиваю данные из 1С',
+            'onec_query': '🏢 Выполняю запрос к 1С',
+        }
+        
+        # Get base action name
+        base_name = tool_map.get(tool_name)
+        
+        if not base_name:
+            # Fallback: convert snake_case to readable format
+            readable = tool_name.replace('_', ' ').title()
+            base_name = f"🔧 {readable}"
+        
+        # Add context from arguments if available
+        if 'query' in args:
+            query = str(args['query'])
+            if len(query) < 40:
+                return f"{base_name} «{query}»"
+        elif 'summary' in args:
+            summary = str(args['summary'])
+            if len(summary) < 40:
+                return f"{base_name} «{summary}»"
+        elif 'title' in args:
+            title = str(args['title'])
+            if len(title) < 40:
+                return f"{base_name} «{title}»"
+        elif 'attendees' in args:
+            attendees = args['attendees']
+            if isinstance(attendees, list) and attendees:
+                first_attendee = str(attendees[0])
+                if '@' in first_attendee:
+                    return f"{base_name} с {first_attendee}"
+        
+        return base_name
+    
+    def _get_result_summary(self, tool_name: str, result: Any) -> Optional[str]:
+        """
+        Generate human-readable summary of tool execution result.
+        
+        Args:
+            tool_name: Name of the executed tool
+            result: Result from tool execution
+            
+        Returns:
+            Summary string or None if no meaningful summary
+        """
+        if result is None:
+            return None
+            
+        result_str = str(result)
+        
+        # Check for error indicators
+        if any(err in result_str.lower() for err in ['error', 'ошибка', 'не удалось', 'failed', 'не найден']):
+            # Extract first line of error
+            first_line = result_str.split('\n')[0][:80]
+            return f"❌ {first_line}"
+        
+        # Check for success indicators
+        if any(ok in result_str.lower() for ok in ['создан', 'created', 'успешно', 'success', 'найден', 'found']):
+            first_line = result_str.split('\n')[0][:80]
+            return f"✅ {first_line}"
+        
+        # Tool-specific summaries
+        if 'calendar' in tool_name:
+            if 'events' in result_str.lower() or 'событий' in result_str.lower():
+                return f"✅ Получены данные календаря"
+            if 'slot' in result_str.lower() or 'слот' in result_str.lower():
+                return f"✅ Найден свободный слот"
+        
+        if 'gmail' in tool_name or 'email' in tool_name:
+            if 'отправлено' in result_str.lower() or 'sent' in result_str.lower():
+                return f"✅ Письмо отправлено"
+            return f"✅ Получены данные почты"
+        
+        if 'sheets' in tool_name:
+            return f"✅ Данные таблицы получены"
+        
+        # Generic success for non-empty result
+        if len(result_str) > 10:
+            return f"✅ Выполнено"
+        
+        return None
+    
     async def _think(
         self,
         state: ReActState,
@@ -842,12 +1540,93 @@ class UnifiedReActEngine:
                         context_str += f"- {filename}\n"
         
         # Add open files context (PRIORITY #2)
+        # #region debug log - hypothesis H2, H4: проверка контекста открытых файлов в _think
+        import json
+        import time
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
+        log_data_think = {
+            "location": "unified_react_engine.py:1350",
+            "message": "H2,H4: _think - open_files from context",
+            "data": {
+                "has_get_open_files": hasattr(context, 'get_open_files'),
+                "open_files_count": len(open_files),
+                "open_files": open_files,
+                "open_files_details": [
+                    {
+                        "type": f.get('type'),
+                        "title": f.get('title'),
+                        "document_id": f.get('document_id'),
+                        "spreadsheet_id": f.get('spreadsheet_id'),
+                        "url": f.get('url')
+                    }
+                    for f in open_files
+                ]
+            },
+            "timestamp": time.time() * 1000,
+            "sessionId": self.session_id,
+            "runId": "run1",
+            "hypothesisId": "H2,H4"
+        }
+        try:
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                f.write(json.dumps(log_data_think, default=str) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         if open_files:
-            context_str += "📂 Открытые файлы в рабочей области:\n"
+            context_str += "\n📂 ОТКРЫТЫЕ ФАЙЛЫ В РАБОЧЕЙ ОБЛАСТИ:\n"
             for file in open_files:
+                file_type = file.get('type')
                 title = file.get('title', 'Без названия')
-                context_str += f"- {title}\n"
+                
+                if file_type == 'sheets':
+                    spreadsheet_id = file.get('spreadsheet_id') or file.get('spreadsheetId')
+                    # Извлекаем ID из URL, если нет в данных
+                    if not spreadsheet_id and file.get('url'):
+                        url_match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
+                        if url_match:
+                            spreadsheet_id = url_match.group(1)
+                    
+                    if spreadsheet_id:
+                        context_str += f"- 📊 Таблица: {title} (ID: {spreadsheet_id})\n"
+                        context_str += f"  Используй: sheets_read_range с spreadsheetId={spreadsheet_id}\n"
+                elif file_type == 'docs':
+                    document_id = file.get('document_id') or file.get('documentId')
+                    # Извлекаем ID из URL, если нет в данных
+                    if not document_id and file.get('url'):
+                        url_match = re.search(r'/document/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
+                        if url_match:
+                            document_id = url_match.group(1)
+                    
+                    if document_id:
+                        context_str += f"- 📄 Документ: {title} (ID: {document_id})\n"
+                        context_str += f"  Используй: read_document с documentId={document_id}\n"
+            
+            context_str += "\n⚠️ ВАЖНО: Файлы УЖЕ открыты, используй их ID напрямую, НЕ ищи через search!\n"
+        
+        # #region debug log - hypothesis H2: проверка что добавляется в промпт _think
+        open_files_context_added_think = "📂 Открытые файлы" in context_str if open_files else False
+        log_data_think_prompt = {
+            "location": "unified_react_engine.py:1380",
+            "message": "H2: _think - context added to prompt",
+            "data": {
+                "open_files_in_context": open_files_context_added_think,
+                "context_str_length": len(context_str),
+                "context_str_snippet": context_str[-500:] if len(context_str) > 500 else context_str,
+                "open_files_count_in_prompt": context_str.count("📂 Открытые файлы") if open_files else 0
+            },
+            "timestamp": time.time() * 1000,
+            "sessionId": self.session_id,
+            "runId": "run1",
+            "hypothesisId": "H2"
+        }
+        try:
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                f.write(json.dumps(log_data_think_prompt, default=str) + "\n")
+        except Exception:
+            pass
+        # #endregion
         
         if state.action_history:
             context_str += "\nВыполненные действия:\n"
@@ -1012,15 +1791,102 @@ class UnifiedReActEngine:
                     context_str += "⚠️ НЕ ищи эти файлы в Google Drive - их содержимое УЖЕ ВЫШЕ!\n"
         
         # Add open files context (PRIORITY #2)
+        # #region debug log - hypothesis H1, H2, H4: проверка контекста открытых файлов в _plan_action
+        import json
+        import time
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
+        log_data_plan = {
+            "location": "unified_react_engine.py:1520",
+            "message": "H1,H2,H4: _plan_action - open_files from context",
+            "data": {
+                "has_get_open_files": hasattr(context, 'get_open_files'),
+                "open_files_count": len(open_files),
+                "open_files": open_files,
+                "open_files_details": [
+                    {
+                        "type": f.get('type'),
+                        "title": f.get('title'),
+                        "document_id": f.get('document_id'),
+                        "spreadsheet_id": f.get('spreadsheet_id'),
+                        "url": f.get('url')
+                    }
+                    for f in open_files
+                ]
+            },
+            "timestamp": time.time() * 1000,
+            "sessionId": self.session_id,
+            "runId": "run1",
+            "hypothesisId": "H1,H2,H4"
+        }
+        try:
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                f.write(json.dumps(log_data_plan, default=str) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         if open_files:
-            context_str += "\n📂 Открытые файлы в рабочей области (ПРИОРИТЕТ #2):\n"
+            context_str += "\n📂 ОТКРЫТЫЕ ФАЙЛЫ В РАБОЧЕЙ ОБЛАСТИ (ПРИОРИТЕТ #2):\n"
             for file in open_files:
-                if file.get('type') == 'sheets':
-                    context_str += f"- Таблица: {file.get('title')} (ID: {file.get('spreadsheet_id')})\n"
-                elif file.get('type') == 'docs':
-                    context_str += f"- Документ: {file.get('title')} (ID: {file.get('document_id')})\n"
-            context_str += "⚠️ Используй document_id/spreadsheet_id напрямую, НЕ ищи через search!\n"
+                file_type = file.get('type')
+                title = file.get('title', 'Без названия')
+                
+                if file_type == 'sheets':
+                    spreadsheet_id = file.get('spreadsheet_id') or file.get('spreadsheetId')
+                    # Извлекаем ID из URL, если нет в данных
+                    if not spreadsheet_id and file.get('url'):
+                        url_match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
+                        if url_match:
+                            spreadsheet_id = url_match.group(1)
+                    
+                    if spreadsheet_id:
+                        context_str += f"- 📊 Таблица: {title}\n"
+                        context_str += f"  ID: {spreadsheet_id}\n"
+                        context_str += f"  URL: {file.get('url', 'N/A')}\n"
+                        context_str += f"  ⚠️ ИСПОЛЬЗУЙ: sheets_read_range с параметрами spreadsheetId={spreadsheet_id}, range='A1:Z100'\n"
+                elif file_type == 'docs':
+                    document_id = file.get('document_id') or file.get('documentId')
+                    # Извлекаем ID из URL, если нет в данных
+                    if not document_id and file.get('url'):
+                        url_match = re.search(r'/document/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
+                        if url_match:
+                            document_id = url_match.group(1)
+                    
+                    if document_id:
+                        context_str += f"- 📄 Документ: {title}\n"
+                        context_str += f"  ID: {document_id}\n"
+                        context_str += f"  URL: {file.get('url', 'N/A')}\n"
+                        context_str += f"  ⚠️ ИСПОЛЬЗУЙ: read_document с параметром documentId={document_id}\n"
+            
+            context_str += "\n🚫 КРИТИЧЕСКИ ВАЖНО:\n"
+            context_str += "1. НИКОГДА не используй find_and_open_file, workspace_find_and_open_file, workspace_search_files для файлов из этого списка!\n"
+            context_str += "2. Если пользователь упоминает название файла из этого списка (например, 'Сказка', 'Зарплаты сотрудников', 'документ', 'таблица'), используй ПРЯМО ID из списка выше!\n"
+            context_str += "3. НЕ создавай шаг 'Найти файл' в плане - файл УЖЕ открыт, просто используй его ID напрямую!\n"
+            context_str += "4. Для ДОКУМЕНТОВ используй инструмент read_document с параметром documentId=<ID из списка выше>\n"
+            context_str += "5. Для ТАБЛИЦ используй инструмент sheets_read_range с параметрами spreadsheetId=<ID из списка выше>, range='A1:Z100'\n"
+        
+        # #region debug log - hypothesis H1: проверка что добавляется в промпт _plan_action
+        open_files_context_added = "📂 Открытые файлы" in context_str if open_files else False
+        log_data_prompt = {
+            "location": "unified_react_engine.py:1540",
+            "message": "H1: _plan_action - context added to prompt",
+            "data": {
+                "open_files_in_context": open_files_context_added,
+                "context_str_length": len(context_str),
+                "context_str_snippet": context_str[-500:] if len(context_str) > 500 else context_str,
+                "open_files_count_in_prompt": context_str.count("📂 Открытые файлы") if open_files else 0
+            },
+            "timestamp": time.time() * 1000,
+            "sessionId": self.session_id,
+            "runId": "run1",
+            "hypothesisId": "H1"
+        }
+        try:
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                f.write(json.dumps(log_data_prompt, default=str) + "\n")
+        except Exception:
+            pass
+        # #endregion
         
         prompt = f"""Ты планируешь следующее действие для достижения цели.
 
@@ -1162,8 +2028,44 @@ class UnifiedReActEngine:
         capability_name = action_plan.get("tool_name")
         arguments = action_plan.get("arguments", {})
         
+        # Send real progress event BEFORE tool execution
+        if self.ws_manager and self.session_id:
+            display_name = self._get_tool_display_name(capability_name, arguments)
+            
+            # Get current intent_id if available
+            intent_id = getattr(self, '_current_intent_id', None)
+            if intent_id:
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "intent_detail",
+                    {
+                        "intent_id": intent_id,
+                        "type": "execute",
+                        "description": f"{display_name}..."
+                    }
+                )
+        
         # Registry routes to appropriate provider (MCP or A2A)
-        return await self.registry.execute(capability_name, arguments)
+        result = await self.registry.execute(capability_name, arguments)
+        
+        # Send intent_detail AFTER tool execution with result summary
+        if self.ws_manager and self.session_id:
+            intent_id = getattr(self, '_current_intent_id', None)
+            if intent_id:
+                # Generate result summary
+                result_summary = self._get_result_summary(capability_name, result)
+                if result_summary:
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "intent_detail",
+                        {
+                            "intent_id": intent_id,
+                            "type": "analyze",
+                            "description": result_summary
+                        }
+                    )
+        
+        return result
     
     async def _find_alternative(
         self,
@@ -1498,6 +2400,19 @@ class UnifiedReActEngine:
         """Finalize successful execution."""
         state.status = "done"
         
+        # === NEW ARCHITECTURE: Complete the task-level intent ===
+        task_intent_id = getattr(self, '_task_intent_id', None)
+        if task_intent_id and self.ws_manager and self.session_id:
+            await self.ws_manager.send_event(
+                self.session_id,
+                "intent_complete",
+                {
+                    "intent_id": task_intent_id,
+                    "summary": f"✅ Задача выполнена за {state.iteration} шаг(ов)",
+                    "auto_collapse": False  # Keep expanded to show result
+                }
+            )
+        
         # Generate human-friendly final answer instead of raw result
         human_answer = await self._generate_final_answer(state, context, file_ids)
         
@@ -1586,6 +2501,20 @@ class UnifiedReActEngine:
         """Finalize failed execution with report."""
         state.status = "failed"
         
+        # === NEW ARCHITECTURE: Complete the task-level intent with failure status ===
+        task_intent_id = getattr(self, '_task_intent_id', None)
+        if task_intent_id and self.ws_manager and self.session_id:
+            error_msg = analysis.error_message or "Не удалось выполнить"
+            await self.ws_manager.send_event(
+                self.session_id,
+                "intent_complete",
+                {
+                    "intent_id": task_intent_id,
+                    "summary": f"❌ {error_msg[:50]}",
+                    "auto_collapse": False
+                }
+            )
+        
         failure_report = {
             "status": "failed",
             "goal": state.goal,
@@ -1654,6 +2583,19 @@ class UnifiedReActEngine:
     ) -> Dict[str, Any]:
         """Finalize execution that reached max iterations."""
         state.status = "failed"
+        
+        # === NEW ARCHITECTURE: Complete the task-level intent with timeout status ===
+        task_intent_id = getattr(self, '_task_intent_id', None)
+        if task_intent_id and self.ws_manager and self.session_id:
+            await self.ws_manager.send_event(
+                self.session_id,
+                "intent_complete",
+                {
+                    "intent_id": task_intent_id,
+                    "summary": f"⏱️ Достигнут лимит ({state.iteration} итераций)",
+                    "auto_collapse": False
+                }
+            )
         
         timeout_report = {
             "status": "timeout",
@@ -1943,60 +2885,53 @@ class UnifiedReActEngine:
                     pass
                 
                 elif event_type == "react_action":
-                    # Start NEW intent with action description
+                    # === NEW ARCHITECTURE: Don't create new intent, just track tool ===
                     tool = data.get("tool", "unknown")
                     action = data.get("action", "")
                     
                     # Save tool for later use in observation
                     self._last_tool = tool
                     
-                    # Create human-readable description for the intent
-                    description = self._transform_to_human_readable(action, tool)
-                    
-                    # Start new intent for this action
-                    self._current_intent_id = f"intent-{int(time.time() * 1000)}"
-                    await self.ws_manager.send_event(
-                        self.session_id,
-                        "intent_start",
-                        {
-                            "intent_id": self._current_intent_id,
-                            "text": description
-                        }
-                    )
+                    # Don't create new intent - details are added in main loop
+                    # Keep using task-level intent
+                    pass
                 
                 elif event_type == "react_observation":
-                    # Add result details and complete the intent
-                    if hasattr(self, '_current_intent_id') and self._current_intent_id:
+                    # === NEW ARCHITECTURE: Add result as intent_detail, don't complete yet ===
+                    task_intent_id = getattr(self, '_task_intent_id', None)
+                    if task_intent_id:
                         result = str(data.get("result", ""))
                         tool = getattr(self, '_last_tool', 'unknown')
                         
                         # Format result into human-readable Russian summary
                         summary = self._format_result_summary(result, tool)
                         
-                        # Extract and send result details (e.g., meeting names, file names)
-                        details = self._extract_result_details(result)
-                        for detail in details:
+                        # Send summary as intent_detail
+                        if summary:
                             await self.ws_manager.send_event(
                                 self.session_id,
                                 "intent_detail",
                                 {
-                                    "intent_id": self._current_intent_id,
+                                    "intent_id": task_intent_id,
+                                    "type": "analyze",
+                                    "description": summary
+                                }
+                            )
+                        
+                        # Extract and send result details (e.g., meeting names, file names)
+                        details = self._extract_result_details(result)
+                        for detail in details[:5]:  # Limit to 5 details per observation
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "intent_detail",
+                                {
+                                    "intent_id": task_intent_id,
                                     "type": "analyze",
                                     "description": detail
                                 }
                             )
                         
-                        # Complete intent with summary (for collapsed header)
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "intent_complete",
-                            {
-                                "intent_id": self._current_intent_id,
-                                "summary": summary,
-                                "auto_collapse": True
-                            }
-                        )
-                        self._current_intent_id = None
+                        # Don't complete intent here - only in _finalize_success
                 
             else:
                 logger.debug(f"[UnifiedReActEngine] Skipping event {event_type} - no WebSocket connection")

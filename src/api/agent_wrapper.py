@@ -109,8 +109,53 @@ Initialize agent wrapper."""
         file_ids = file_ids or []
         open_files = open_files or []
         
+        # #region debug log - hypothesis H3, H4: проверка получения open_files на backend
+        import json
+        log_data = {
+            "location": "agent_wrapper.py:113",
+            "message": "H3,H4: Backend received open_files",
+            "data": {
+                "open_files_count": len(open_files),
+                "open_files": open_files,
+                "file_ids_count": len(file_ids),
+                "file_ids": file_ids,
+                "context_has_set_open_files": hasattr(context, 'set_open_files')
+            },
+            "timestamp": time.time() * 1000,
+            "sessionId": session_id,
+            "runId": "run1",
+            "hypothesisId": "H3,H4"
+        }
+        try:
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                f.write(json.dumps(log_data) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         # Store open files in context
         context.set_open_files(open_files)
+        
+        # #region debug log - hypothesis H4: проверка сохранения open_files в context
+        log_data2 = {
+            "location": "agent_wrapper.py:133",
+            "message": "H4: Context after set_open_files",
+            "data": {
+                "context_has_get_open_files": hasattr(context, 'get_open_files'),
+                "stored_open_files": context.get_open_files() if hasattr(context, 'get_open_files') else None,
+                "stored_count": len(context.get_open_files()) if hasattr(context, 'get_open_files') else 0
+            },
+            "timestamp": time.time() * 1000,
+            "sessionId": session_id,
+            "runId": "run1",
+            "hypothesisId": "H4"
+        }
+        try:
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                f.write(json.dumps(log_data2) + "\n")
+        except Exception:
+            pass
+        # #endregion
         
         # Wait for WebSocket connection BEFORE sending any events
         # This ensures events can be sent to the frontend

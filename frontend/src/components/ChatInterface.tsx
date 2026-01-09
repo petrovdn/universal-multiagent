@@ -471,13 +471,54 @@ export function ChatInterface() {
     // Collect open files from workspace tabs (excluding placeholder)
     const openFiles = tabs
       .filter(tab => tab.type !== 'placeholder')
-      .map(tab => ({
-        type: tab.type,
-        title: tab.title,
-        url: tab.url,
-        spreadsheet_id: tab.data?.spreadsheet_id,
-        document_id: tab.data?.document_id,
-      }))
+      .map(tab => {
+        // Extract IDs from tab.data (camelCase) or from URL if not available
+        let documentId = tab.data?.documentId || tab.data?.document_id
+        let spreadsheetId = tab.data?.spreadsheetId || tab.data?.spreadsheet_id
+        
+        // If IDs not in data, try to extract from URL
+        if (!documentId && tab.type === 'docs' && tab.url) {
+          const docMatch = tab.url.match(/\/document\/d\/([a-zA-Z0-9-_]+)/)
+          if (docMatch) {
+            documentId = docMatch[1]
+          }
+        }
+        if (!spreadsheetId && tab.type === 'sheets' && tab.url) {
+          const sheetMatch = tab.url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/)
+          if (sheetMatch) {
+            spreadsheetId = sheetMatch[1]
+          }
+        }
+        
+        return {
+          type: tab.type,
+          title: tab.title,
+          url: tab.url,
+          spreadsheet_id: spreadsheetId,
+          document_id: documentId,
+        }
+      })
+    
+    // #region debug log - hypothesis H3: проверка передачи open_files с фронтенда
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        location: 'ChatInterface.tsx:481',
+        message: 'H3: Frontend sending open_files',
+        data: {
+          openFilesCount: openFiles.length,
+          openFiles: openFiles,
+          tabsCount: tabs.length,
+          tabs: tabs.map(t => ({ type: t.type, title: t.title, hasData: !!t.data }))
+        },
+        timestamp: Date.now(),
+        sessionId: 'debug-session',
+        runId: 'run1',
+        hypothesisId: 'H3'
+      })
+    }).catch(() => {});
+    // #endregion
     
     console.log('[ChatInterface] Sending message:', userMessage, 'with files:', fileIds, 'open files:', openFiles)
     console.log('[ChatInterface] Current session:', currentSession)
@@ -491,10 +532,11 @@ export function ChatInterface() {
 
     // Add user message immediately to show it in UI
     // Save files in metadata before clearing attachedFiles
+    const userMsgTimestamp = new Date().toISOString()
     addMessage({
       role: 'user',
       content: userMessage,
-      timestamp: new Date().toISOString(),
+      timestamp: userMsgTimestamp,
       metadata: {
         attachedFiles: attachedFiles.map(f => ({
           id: f.id,
