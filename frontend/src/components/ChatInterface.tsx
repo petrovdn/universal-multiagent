@@ -69,7 +69,7 @@ export function ChatInterface() {
     clearCurrentAction,
     intentBlocks,
     toggleIntentCollapse,
-    collapseIntentPhase,
+    toggleIntentPhase,
     showThinkingIndicator,
     setShowThinkingIndicator,
   } = useChatStore()
@@ -862,8 +862,8 @@ export function ChatInterface() {
                             key={intentBlock.id}
                             block={intentBlock}
                             onToggleCollapse={() => toggleIntentCollapse(workflowId, intentBlock.id)}
-                            onTogglePlanningCollapse={() => collapseIntentPhase(workflowId, intentBlock.id, 'planning')}
-                            onToggleExecutingCollapse={() => collapseIntentPhase(workflowId, intentBlock.id, 'executing')}
+                            onTogglePlanningCollapse={() => toggleIntentPhase(workflowId, intentBlock.id, 'planning')}
+                            onToggleExecutingCollapse={() => toggleIntentPhase(workflowId, intentBlock.id, 'executing')}
                           />
                         ))}
                       </div>

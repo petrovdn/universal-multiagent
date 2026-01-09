@@ -325,7 +325,7 @@ interface ChatState {
   appendIntentThinking: (workflowId: string, intentId: string, text: string) => void
   setIntentPhase: (workflowId: string, intentId: string, phase: IntentPhase) => void
   setIntentProgress: (workflowId: string, intentId: string, percent: number, elapsed: number, estimated: number) => void
-  collapseIntentPhase: (workflowId: string, intentId: string, phase: 'planning' | 'executing') => void
+  toggleIntentPhase: (workflowId: string, intentId: string, phase: 'planning' | 'executing') => void
   completeIntent: (workflowId: string, intentId: string, autoCollapse: boolean, summary?: string) => void
   toggleIntentCollapse: (workflowId: string, intentId: string) => void
   collapseIntent: (workflowId: string, intentId: string) => void
@@ -1577,15 +1577,15 @@ export const useChatStore = create<ChatState>()(
           }
         }),
       
-      collapseIntentPhase: (workflowId: string, intentId: string, phase: 'planning' | 'executing') =>
+      toggleIntentPhase: (workflowId: string, intentId: string, phase: 'planning' | 'executing') =>
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
               return {
                 ...intent,
-                planningCollapsed: phase === 'planning' ? true : intent.planningCollapsed,
-                executingCollapsed: phase === 'executing' ? true : intent.executingCollapsed,
+                planningCollapsed: phase === 'planning' ? !intent.planningCollapsed : intent.planningCollapsed,
+                executingCollapsed: phase === 'executing' ? !intent.executingCollapsed : intent.executingCollapsed,
               }
             }
             return intent

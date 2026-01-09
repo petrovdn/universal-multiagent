@@ -71,7 +71,7 @@ export function IntentMessage({
           >
             <CircularProgress 
               percent={isPlanning ? block.progressPercent : 100} 
-              size={14}
+              size={10}
               strokeWidth={2}
               className="intent-phase-progress"
             />
@@ -105,7 +105,7 @@ export function IntentMessage({
           >
             <CircularProgress 
               percent={isExecuting ? block.progressPercent : (isCompleted ? 100 : 0)} 
-              size={14}
+              size={10}
               strokeWidth={2}
               className="intent-phase-progress"
             />

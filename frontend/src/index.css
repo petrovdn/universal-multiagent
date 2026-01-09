@@ -1597,13 +1597,8 @@ div[style*="padding: '10px'"] .prose li {
 
 .intent-phase-section {
   margin-top: 4px;
-  border-left: 2px solid var(--border-secondary, #e5e7eb);
-  padding-left: 8px;
+  padding-left: 0;
   transition: all 0.2s ease;
-}
-
-.intent-phase-section.collapsed {
-  border-left-color: var(--text-success, #22c55e);
 }
 
 .intent-phase-header {
@@ -1612,30 +1607,23 @@ div[style*="padding: '10px'"] .prose li {
   gap: 6px;
   padding: 4px 0;
   cursor: pointer;
-  color: var(--text-secondary, #6b7280);
+  color: #374151;
   font-size: 12px;
   transition: color 0.15s ease;
 }
 
 .intent-phase-header:hover {
-  color: var(--text-primary, #1f2937);
+  color: #000000;
 }
 
 .intent-phase-progress {
   flex-shrink: 0;
-  color: var(--accent-primary, #6366f1);
-}
-
-.intent-phase-section.collapsed .intent-phase-progress {
-  color: var(--text-success, #22c55e);
+  color: #374151;
 }
 
 .intent-phase-title {
   font-weight: 500;
-}
-
-.intent-phase-section.collapsed .intent-phase-title {
-  color: var(--text-success, #22c55e);
+  color: #374151;
 }
 
 /* Phase Content - ограничение высоты 100px */
