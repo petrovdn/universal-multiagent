@@ -186,6 +186,20 @@ Initialize services on startup."""
     print(f"[DEBUG]   Pillow (Image): {Image is not None}", flush=True)
     print(f"[DEBUG]   python-docx (DOCX_AVAILABLE): {DOCX_AVAILABLE}", flush=True)
     logger.info(f"File processing: PyPDF2={PyPDF2 is not None}, Pillow={Image is not None}, DOCX={DOCX_AVAILABLE}")
+    
+    # Debug: Log API keys status
+    import os
+    anthropic_key_from_env = os.getenv("ANTHROPIC_API_KEY")
+    openai_key_from_env = os.getenv("OPENAI_API_KEY")
+    print(f"[DEBUG] API Keys status:", flush=True)
+    print(f"[DEBUG]   ANTHROPIC_API_KEY from env: {'SET' if anthropic_key_from_env and anthropic_key_from_env.strip() else 'MISSING'} (len={len(anthropic_key_from_env) if anthropic_key_from_env else 0})", flush=True)
+    print(f"[DEBUG]   OPENAI_API_KEY from env: {'SET' if openai_key_from_env and openai_key_from_env.strip() else 'MISSING'} (len={len(openai_key_from_env) if openai_key_from_env else 0})", flush=True)
+    print(f"[DEBUG]   Config.anthropic_api_key: {'SET' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'MISSING'} (len={len(config.anthropic_api_key) if config.anthropic_api_key else 0})", flush=True)
+    print(f"[DEBUG]   Config.openai_api_key: {'SET' if config.openai_api_key and config.openai_api_key.strip() else 'MISSING'} (len={len(config.openai_api_key) if config.openai_api_key else 0})", flush=True)
+    
+    available_models_startup = get_available_models()
+    print(f"[DEBUG]   Available models at startup: {len(available_models_startup)} - {list(available_models_startup.keys())}", flush=True)
+    logger.info(f"API Keys - Anthropic: {'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI: {'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}, Available models: {len(available_models_startup)}")
     # #endregion
     
     # Connect to MCP servers
