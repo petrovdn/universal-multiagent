@@ -48,7 +48,7 @@ RUN python -m pip install --upgrade pip && \
 # Эти пакеты редко меняются и будут кешироваться Docker
 # BUILD_DATE и FORCE_REBUILD используются для форсирования пересборки слоя
 COPY requirements-core.txt ./
-RUN echo "Building dependencies layer at ${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" && \
+RUN echo "Building dependencies layer, BUILD_DATE=${BUILD_DATE:-not-set}" && \
     pip install --no-cache-dir --timeout=300 --retries=3 -r requirements-core.txt
 
 # Этап 2: MCP зависимости (легкие, устанавливаются быстро)
