@@ -27,6 +27,10 @@ RUN npm run build
 # Stage 2: Backend setup
 FROM python:3.10-slim AS backend-setup
 
+# Build arg для форсирования пересборки (можно установить через Railway переменные окружения)
+ARG BUILD_DATE=""
+ARG FORCE_REBUILD=""
+
 WORKDIR /app
 
 # Устанавливаем системные зависимости
@@ -42,8 +46,10 @@ RUN python -m pip install --upgrade pip && \
 
 # Этап 1: Основные зависимости (быстрые, кешируются)
 # Эти пакеты редко меняются и будут кешироваться Docker
+# BUILD_DATE и FORCE_REBUILD используются для форсирования пересборки слоя
 COPY requirements-core.txt ./
-RUN pip install --no-cache-dir --timeout=300 --retries=3 -r requirements-core.txt
+RUN echo "Building dependencies layer at ${BUILD_DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" && \
+    pip install --no-cache-dir --timeout=300 --retries=3 -r requirements-core.txt
 
 # Этап 2: MCP зависимости (легкие, устанавливаются быстро)
 COPY requirements-mcp.txt ./
