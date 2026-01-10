@@ -19,6 +19,8 @@ from src.core.react_state import ReActState, ActionRecord, Observation
 from src.core.result_analyzer import ResultAnalyzer, Analysis
 from src.core.capability_registry import CapabilityRegistry
 from src.core.action_provider import CapabilityCategory
+from src.core.file_context_resolver import FileContextResolver
+from src.core.action_filter import ActionFilter
 from src.api.websocket_manager import WebSocketManager
 from src.agents.model_factory import create_llm, supports_vision
 from src.utils.logging_config import get_logger
@@ -86,6 +88,10 @@ class UnifiedReActEngine:
         
         # Result analyzer
         self.result_analyzer = ResultAnalyzer(model_name=model_name)
+        
+        # File context resolver and action filter for smart file handling
+        self.file_context_resolver = FileContextResolver()
+        self.action_filter = ActionFilter()
         
         # Fast LLM for simple checks (no extended thinking)
         self.fast_llm = self._create_fast_llm()
@@ -207,6 +213,11 @@ class UnifiedReActEngine:
         # #region agent log - H1,H2,H5: Execute start with timing
         _exec_start = time.time()
         import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:START", "message": "Execute started", "data": {"goal": goal[:150], "session_id": self.session_id, "start_time": _exec_start}, "timestamp": int(_exec_start*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2,H5"}) + '\n')
+        # #endregion
+        
+        # #region agent log - H4: Available capabilities check
+        _calendar_caps = [c.name for c in self.capabilities if 'calendar' in c.name.lower() or 'event' in c.name.lower()]
+        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:capabilities_check", "message": "Available calendar capabilities", "data": {"calendar_capabilities": _calendar_caps, "total_capabilities": len(self.capabilities), "all_capability_names": [c.name for c in self.capabilities[:30]]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H4"}) + '\n')
         # #endregion
         
         # Initialize state
@@ -365,6 +376,10 @@ class UnifiedReActEngine:
                 state.iteration += 1
                 logger.info(f"[UnifiedReActEngine] Starting iteration {state.iteration}")
                 
+                # #region agent log - H_ITER: Iteration start with full context
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:iteration_start", "message": f"ITERATION {state.iteration} STARTED", "data": {"iteration": state.iteration, "max_iterations": state.max_iterations, "goal": state.goal[:300], "previous_tools": [a.tool_name for a in state.action_history], "previous_observations_success": [o.success for o in state.observations], "total_elapsed_ms": int((time.time() - _exec_start)*1000)}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_ITER"}) + '\n')
+                # #endregion
+                
                 # === NEW ARCHITECTURE: No per-iteration intent, use task-level intent ===
                 # Intent details will be added for each tool call
                 
@@ -398,9 +413,27 @@ class UnifiedReActEngine:
                 # 2. PLAN - Action plan уже получен из _think_and_plan
                 state.status = "acting"
                 
-                # #region agent log - H3: Planned action
+                # #region agent log - H3: Planned action with FULL ARGUMENTS
                 planned_tool = action_plan.get("tool_name", "")
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:planned_action", "message": "Action planned by LLM", "data": {"tool_name": planned_tool, "description": action_plan.get("description", "")[:100], "reasoning": action_plan.get("reasoning", "")[:100], "is_multi_phase": self._is_multi_phase, "current_phase_category": self._current_phase_category, "goal": state.goal[:150]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+                import json as _json
+                _args_preview = {}
+                if action_plan.get("arguments"):
+                    for k, v in action_plan.get("arguments", {}).items():
+                        _args_preview[k] = str(v)[:100] if v else None
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                    "location": "execute:planned_action",
+                    "message": f"LLM decided: {planned_tool}",
+                    "data": {
+                        "iteration": state.iteration,
+                        "tool_name": planned_tool,
+                        "arguments": _args_preview,
+                        "reasoning": action_plan.get("reasoning", "")[:200],
+                        "thought_preview": thought[:300] if thought else ""
+                    },
+                    "timestamp": int(time.time()*1000),
+                    "sessionId": "debug-session",
+                    "hypothesisId": "H3_DECISION"
+                }) + '\n')
                 # #endregion
                 
                 # === ANTI-LOOP: Detect repeated get_calendar_events calls ===
@@ -458,6 +491,76 @@ class UnifiedReActEngine:
                             action_plan["arguments"]["attendees"] = email_matches
                         
                         planned_tool = "create_event"
+                
+                # === UNIVERSAL ANTI-LOOP: Detect repeated failed tool calls ===
+                # If same tool failed 2+ times (not necessarily consecutive), block it
+                if planned_tool.upper() != "FINISH" and len(state.observations) >= 2:
+                    # Count ALL failures of the same tool (not just consecutive)
+                    failed_same_tool_count = sum(
+                        1 for obs in state.observations 
+                        if obs.action.tool_name == planned_tool and not obs.success
+                    )
+                    
+                    if failed_same_tool_count >= 2:
+                        # Tool failed 2+ times, we need to try something different
+                        logger.warning(f"[UnifiedReActEngine] UNIVERSAL ANTI-LOOP: Tool {planned_tool} failed {failed_same_tool_count} times in a row!")
+                        
+                        # #region agent log - H_ANTILOOP: Universal anti-loop triggered
+                        import json as _json
+                        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                            "location": "execute:universal_anti_loop",
+                            "message": f"ANTI-LOOP: Tool {planned_tool} blocked after {failed_same_tool_count} failures",
+                            "data": {
+                                "iteration": state.iteration,
+                                "blocked_tool": planned_tool,
+                                "failed_count": failed_same_tool_count,
+                                "last_error": str(state.observations[-1].raw_result)[:200] if state.observations else ""
+                            },
+                            "timestamp": int(time.time()*1000),
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H_ANTILOOP"
+                        }) + '\n')
+                        # #endregion
+                        
+                        # Map blocked tool to alternative
+                        tool_alternatives = {
+                            "find_and_open_file": "read_document",  # Google Docs
+                            "open_file": "read_document",
+                            "search_files": "list_workspace_files",
+                        }
+                        
+                        alternative = tool_alternatives.get(planned_tool)
+                        if alternative:
+                            logger.info(f"[UnifiedReActEngine] Switching from {planned_tool} to {alternative}")
+                            
+                            # Get document ID from previous attempts if available
+                            doc_id = None
+                            for obs in state.observations:
+                                if "Сказка" in str(obs.raw_result) or "сказка" in str(obs.raw_result):
+                                    # Try to extract document ID
+                                    import re
+                                    id_match = re.search(r'ID[:\s]+([a-zA-Z0-9_-]{20,})', str(obs.raw_result))
+                                    if id_match:
+                                        doc_id = id_match.group(1)
+                                        break
+                            
+                            # Override action_plan
+                            action_plan = {
+                                "tool_name": alternative,
+                                "arguments": {"query": "сказка"} if not doc_id else {"document_id": doc_id},
+                                "description": f"Автоматическое переключение с {planned_tool} на {alternative}",
+                                "reasoning": f"Инструмент {planned_tool} не работает, пробуем {alternative}"
+                            }
+                            planned_tool = alternative
+                        else:
+                            # No known alternative, force FINISH with explanation
+                            logger.warning(f"[UnifiedReActEngine] No alternative for {planned_tool}, forcing FINISH")
+                            action_plan = {
+                                "tool_name": "FINISH",
+                                "arguments": {},
+                                "final_answer": f"Не удалось выполнить задачу: инструмент {planned_tool} недоступен или не работает корректно. Ошибка: {str(state.observations[-1].result)[:200] if state.observations else 'неизвестная'}"
+                            }
+                            planned_tool = "FINISH"
                 
                 # === MULTI-PHASE: Check for phase transition ===
                 # IMPORTANT: Check transitions even if task wasn't initially detected as multi-phase
@@ -544,6 +647,9 @@ class UnifiedReActEngine:
                 tool_name = action_plan.get("tool_name", "")
                 if tool_name.upper() == "FINISH" or tool_name == "finish":
                     logger.info(f"[UnifiedReActEngine] LLM indicated task completion")
+                    # #region agent log - H3: FINISH marker detected - WHY did agent decide to finish?
+                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:FINISH_DETECTED", "message": "FINISH marker detected - agent decided task is complete", "data": {"iteration": state.iteration, "goal": state.goal[:200], "finish_reasoning": action_plan.get("reasoning", "")[:500], "finish_description": action_plan.get("description", "")[:300], "action_history_count": len(state.action_history), "actions_executed": [a.tool_name for a in state.action_history]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+                    # #endregion
                     finish_reasoning = action_plan.get("reasoning", "Задача выполнена")
                     finish_description = action_plan.get("description", "Задача выполнена")
                     state.add_reasoning_step("plan", finish_reasoning, {
@@ -558,6 +664,10 @@ class UnifiedReActEngine:
                     })
                     # Add a synthetic observation with the reasoning for final answer generation
                     finish_action = state.add_action("FINISH", {})
+                    
+                    # FIX: Break the loop and finalize when FINISH marker is detected
+                    # Previously, code continued to execute FINISH as a tool, causing errors and infinite loop
+                    return await self._finalize_success(state, finish_reasoning, context, file_ids)
                 
                 # Check for "ASK_CLARIFICATION" marker
                 elif tool_name.upper() == "ASK_CLARIFICATION" or tool_name == "ask_clarification":
@@ -607,6 +717,10 @@ class UnifiedReActEngine:
                     # Прерываем цикл - ждём ответа пользователя
                     break
                 
+                # #region agent log - H2_EXECUTE_ACTION: About to execute tool (including FINISH if no break above)
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:ABOUT_TO_EXECUTE_TOOL", "message": f"About to execute tool: {action_plan.get('tool_name', 'unknown')}", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "is_finish": action_plan.get("tool_name", "").upper() == "FINISH"}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H2_EXECUTE_ACTION"}) + '\n')
+                # #endregion
+                
                 state.add_reasoning_step("plan", action_plan.get("reasoning", ""), {
                     "tool": action_plan.get("tool_name"),
                     "arguments": action_plan.get("arguments", {})
@@ -622,6 +736,51 @@ class UnifiedReActEngine:
                     break
                 
                 # 3. ACT - Execute action through registry
+                
+                # #region agent log - H1,H3,H5: action_plan before validation
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:action_plan_before_validation", "message": "Action plan BEFORE ActionFilter validation", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "arguments": str(action_plan.get("arguments", {}))[:300], "description": action_plan.get("description", "")[:200], "reasoning": action_plan.get("reasoning", "")[:200]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H3,H5"}) + '\n')
+                # #endregion
+                
+                # Validate action through ActionFilter (blocks redundant file searches)
+                validation_result = self.action_filter.validate(action_plan, context, file_ids)
+                
+                # #region agent log - H5: ActionFilter validation result
+                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:action_filter_result", "message": "ActionFilter validation result", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "allowed": validation_result.allowed, "reason": validation_result.reason, "has_alternative": validation_result.alternative is not None}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H5"}) + '\n')
+                # #endregion
+                
+                if not validation_result.allowed:
+                    # Action blocked - use alternative or skip
+                    logger.info(f"[UnifiedReActEngine] Action blocked: {validation_result.reason}")
+                    
+                    if validation_result.alternative:
+                        alt = validation_result.alternative
+                        
+                        # If alternative is "use_attached_content", we have the content already
+                        if alt.get("action") == "use_attached_content":
+                            # Skip the tool call, use content directly
+                            action_record = state.add_action(
+                                "use_attached_content",
+                                {"filename": alt.get("filename", ""), "content_available": True}
+                            )
+                            result = alt.get("content", "")
+                            
+                            # Add observation and continue
+                            observation = state.add_observation(action_record, result, success=True)
+                            await self._stream_reasoning("react_observation", {
+                                "result": f"Используется содержимое прикреплённого файла: {alt.get('filename', '')}",
+                                "iteration": state.iteration
+                            })
+                            continue
+                        else:
+                            # Use alternative tool
+                            action_plan = {
+                                "tool_name": alt.get("tool_name", action_plan.get("tool_name")),
+                                "arguments": alt.get("arguments", action_plan.get("arguments", {})),
+                                "description": f"Заменено: {validation_result.reason}",
+                                "reasoning": validation_result.reason
+                            }
+                            logger.info(f"[UnifiedReActEngine] Using alternative: {action_plan['tool_name']}")
+                
                 action_record = state.add_action(
                     action_plan.get("tool_name", "unknown"),
                     action_plan.get("arguments", {})
@@ -654,6 +813,25 @@ class UnifiedReActEngine:
                     result,
                     success=True  # Will be updated by analyzer
                 )
+                
+                # #region agent log - H2_OBSERVATION: Tool result saved
+                import json as _json
+                _result_str = str(result) if result else ""
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                    "location": "execute:observation_saved",
+                    "message": f"Tool result saved: {action_record.tool_name}",
+                    "data": {
+                        "iteration": state.iteration,
+                        "tool_name": action_record.tool_name,
+                        "result_length": len(_result_str),
+                        "result_preview": _result_str[:500],
+                        "observations_count_after": len(state.observations)
+                    },
+                    "timestamp": int(time.time()*1000),
+                    "sessionId": "debug-session",
+                    "hypothesisId": "H2_OBSERVATION"
+                }) + '\n')
+                # #endregion
                 
                 await self._stream_reasoning("react_observation", {
                     "result": str(result),  # Full result - no truncation
@@ -819,9 +997,10 @@ class UnifiedReActEngine:
             'найди', 'find', 'получи', 'get', 'выведи', 'show', 'покажи', 'открой', 'open',
             'возьми', 'take', 'прочитай', 'read', 'читай', 'посмотри', 'look',
             'создай', 'create', 'отправь', 'send', 'сохрани', 'save', 'запиши', 'write',
-            'календарь', 'calendar', 
+            'календар', 'calendar',  # Use stem 'календар' to match all Russian cases: календарь, календаря, календаре, etc.
             # Russian word forms for "встреча" (meeting) - all cases
-            'встречи', 'встреч', 'встреча', 'встречу', 'встречей', 'встречам', 'встречами', 'встречах',
+            'встреч',  # Stem covers all forms: встреча, встречи, встречу, встречей, встречам, встречами, встречах
+            'событи',  # Stem covers: события, событий, событие, etc.
             'events', 'meetings', 'event', 'meeting',
             'письма', 'emails', 'почта', 'mail',
             'таблица', 'table', 'sheets', 'документ', 'document', 'файл', 'file',
@@ -939,6 +1118,9 @@ class UnifiedReActEngine:
             r'встреч[аи]?\s+(на\s+)?(сегодня|завтра|послезавтра)',  # "встречи сегодня", "встречи на завтра"
             r'расписание\s+(на|на\s+этой)',  # "расписание на этой неделе"
             r'покажи\s+встреч',  # "покажи встречи"
+            r'(в|на)\s+календар',  # "в календаре", "на календаре" - all cases
+            r'(что|какие|сколько).*(на\s+)?(этой|следующей|прошлой)\s+неделе.*(в\s+)?календар',  # "что на этой неделе в календаре"
+            r'событи.*(на\s+)?(этой|следующей|прошлой)\s+неделе',  # "события на этой неделе"
         ]
         
         for pattern in calendar_patterns:
@@ -1770,25 +1952,30 @@ class UnifiedReActEngine:
                 if "</thought>" in self.buffer:
                     # Извлекаем контент до закрывающего тега
                     parts = self.buffer.split("</thought>", 1)
-                    thought_chunk = parts[0]
-                    self.thought_content += thought_chunk
+                    full_thought = parts[0]
                     
-                    # Стримим последний chunk
-                    if thought_chunk.strip():
+                    # FIX: Вычисляем только НОВУЮ часть (то, что ещё не было в thought_content)
+                    # Это исправляет баг дублирования!
+                    final_new_part = full_thought[len(self.thought_content):] if self.thought_content else full_thought
+                    
+                    # Стримим только новую часть (если есть)
+                    if final_new_part.strip():
                         await self.ws_manager.send_event(
                             self.session_id,
                             "thinking_chunk",
                             {
                                 "thinking_id": self.thinking_id,
-                                "chunk": thought_chunk
+                                "chunk": final_new_part
                             }
                         )
-                        # NEW: Отправляем как intent_detail для UI
-                        # force_flush=True чтобы отправить весь оставшийся буфер
-                        await self._send_intent_detail(thought_chunk.strip(), force_flush=True)
+                        # Отправляем как intent_detail для UI
+                        await self._send_intent_detail(final_new_part.strip(), force_flush=True)
                     else:
                         # Даже если chunk пустой, flush буфер
                         await self._send_intent_detail("", force_flush=True)
+                    
+                    # FIX: Присваиваем, а не добавляем (было: self.thought_content += thought_chunk)
+                    self.thought_content = full_thought
                     
                     self.thought_complete = True
                     await self.ws_manager.send_event(
@@ -1953,7 +2140,7 @@ class UnifiedReActEngine:
                     
                     if spreadsheet_id:
                         context_str += f"- 📊 Таблица: {title} (ID: {spreadsheet_id})\n"
-                        context_str += f"  Используй: sheets_read_range с spreadsheetId={spreadsheet_id}\n"
+                        context_str += f"  Используй: sheets_read_range с spreadsheet_id={spreadsheet_id}\n"
                 elif file_type == 'docs':
                     document_id = file.get('document_id') or file.get('documentId')
                     # Извлекаем ID из URL, если нет в данных
@@ -1964,7 +2151,7 @@ class UnifiedReActEngine:
                     
                     if document_id:
                         context_str += f"- 📄 Документ: {title} (ID: {document_id})\n"
-                        context_str += f"  Используй: read_document с documentId={document_id}\n"
+                        context_str += f"  Используй: read_document с document_id={document_id}\n"
             
             context_str += "\n⚠️ ВАЖНО: Файлы УЖЕ открыты, используй их ID напрямую, НЕ ищи через search!\n"
         
@@ -2206,7 +2393,7 @@ class UnifiedReActEngine:
                         context_str += f"- 📊 Таблица: {title}\n"
                         context_str += f"  ID: {spreadsheet_id}\n"
                         context_str += f"  URL: {file.get('url', 'N/A')}\n"
-                        context_str += f"  ⚠️ ИСПОЛЬЗУЙ: sheets_read_range с параметрами spreadsheetId={spreadsheet_id}, range='A1:Z100'\n"
+                        context_str += f"  ⚠️ ИСПОЛЬЗУЙ: sheets_read_range с параметрами spreadsheet_id={spreadsheet_id}, range='A1:Z100'\n"
                 elif file_type == 'docs':
                     document_id = file.get('document_id') or file.get('documentId')
                     # Извлекаем ID из URL, если нет в данных
@@ -2219,14 +2406,14 @@ class UnifiedReActEngine:
                         context_str += f"- 📄 Документ: {title}\n"
                         context_str += f"  ID: {document_id}\n"
                         context_str += f"  URL: {file.get('url', 'N/A')}\n"
-                        context_str += f"  ⚠️ ИСПОЛЬЗУЙ: read_document с параметром documentId={document_id}\n"
+                        context_str += f"  ⚠️ ИСПОЛЬЗУЙ: read_document с параметром document_id={document_id}\n"
             
             context_str += "\n🚫 КРИТИЧЕСКИ ВАЖНО:\n"
             context_str += "1. НИКОГДА не используй find_and_open_file, workspace_find_and_open_file, workspace_search_files для файлов из этого списка!\n"
             context_str += "2. Если пользователь упоминает название файла из этого списка (например, 'Сказка', 'Зарплаты сотрудников', 'документ', 'таблица'), используй ПРЯМО ID из списка выше!\n"
             context_str += "3. НЕ создавай шаг 'Найти файл' в плане - файл УЖЕ открыт, просто используй его ID напрямую!\n"
-            context_str += "4. Для ДОКУМЕНТОВ используй инструмент read_document с параметром documentId=<ID из списка выше>\n"
-            context_str += "5. Для ТАБЛИЦ используй инструмент sheets_read_range с параметрами spreadsheetId=<ID из списка выше>, range='A1:Z100'\n"
+            context_str += "4. Для ДОКУМЕНТОВ используй инструмент read_document с параметром document_id=<ID из списка выше>\n"
+            context_str += "5. Для ТАБЛИЦ используй инструмент sheets_read_range с параметрами spreadsheet_id=<ID из списка выше>, range='A1:Z100'\n"
         
         # #region debug log - hypothesis H1: проверка что добавляется в промпт _plan_action
         open_files_context_added = "📂 Открытые файлы" in context_str if open_files else False
@@ -2258,21 +2445,28 @@ class UnifiedReActEngine:
 Доступные инструменты:
 {tools_str}
 
-ВАЖНО:
-- Если получен результат с количеством событий/данных, но БЕЗ деталей (например, "Found 10 events" без списка), 
-  это означает, что нужно получить ДЕТАЛИ этих данных
-- НЕ завершай задачу, пока не получены все необходимые детали для ответа пользователю
-- Для календаря: если получено только количество событий, нужно получить детали каждого события
-- Для файлов: если получен список файлов, но нужно содержимое - получи содержимое
-- Для писем: если получен список писем, но нужно содержимое - получи содержимое
+═══════════════════════════════════════════════════════════════
+🎯 ПРИОРИТЕТЫ ИСТОЧНИКОВ ФАЙЛОВ (КРИТИЧЕСКИ ВАЖНО!)
+═══════════════════════════════════════════════════════════════
 
-КРИТИЧНО ДЛЯ ПРИКРЕПЛЕННЫХ ФАЙЛОВ:
-- Если в прикрепленных файлах есть ИЗОБРАЖЕНИЯ - они УЖЕ ПЕРЕДАНЫ в этом сообщении через Vision API! 
-  Ты видишь их прямо сейчас! НЕ используй инструменты типа "vision-api" или "analyze_image" - просто опиши что видишь!
-- Если в прикрепленных файлах есть PDF или DOCX - их ТЕКСТ УЖЕ ПРЕДСТАВЛЕН ВЫШЕ в контексте!
-- Если пользователь спрашивает "что в файле" или "что в файлах" и содержимое файлов УЖЕ ВИДНО (текст PDF/DOCX в контексте выше, изображение через Vision API), 
-  то задача УЖЕ ВЫПОЛНЕНА - используй FINISH и опиши содержимое файлов в ответе!
-- НЕ ищи файлы в Google Drive или рабочей области, если они уже прикреплены и их содержимое уже видно!
+ПРИОРИТЕТ #1 - ПРИКРЕПЛЁННЫЕ ФАЙЛЫ:
+• Их содержимое УЖЕ в контексте выше (текст PDF/DOCX, изображения через Vision)
+• НЕ вызывай find_and_open_file или search - используй контент напрямую!
+• Если спрашивают "что в файле" и текст виден выше → FINISH сразу!
+
+ПРИОРИТЕТ #2 - ОТКРЫТЫЕ ВКЛАДКИ:
+• Используй document_id/spreadsheet_id из списка выше НАПРЯМУЮ
+• НЕ ищи эти файлы - вызывай read_document или sheets_read_range с ID
+• Поиск файла запрещён если он уже в списке открытых!
+
+ПРИОРИТЕТ #3 - РАБОЧАЯ ПАПКА (только если #1 и #2 не применимы):
+• Поиск разрешён ТОЛЬКО для файлов которых НЕТ в прикреплённых/открытых
+
+═══════════════════════════════════════════════════════════════
+
+ВАЖНО для данных:
+- Если получен результат с количеством событий/данных, но БЕЗ деталей - получи ДЕТАЛИ
+- НЕ завершай задачу, пока не получены все необходимые детали для ответа пользователю
 
 Выбери ОДИН инструмент и укажи параметры для его вызова. Ответь в формате JSON:
 {{
@@ -2435,7 +2629,7 @@ class UnifiedReActEngine:
                             spreadsheet_id = url_match.group(1)
                     if spreadsheet_id:
                         context_str += f"- 📊 Таблица: {title} (ID: {spreadsheet_id})\n"
-                        context_str += f"  Используй: sheets_read_range с spreadsheetId={spreadsheet_id}\n"
+                        context_str += f"  Используй: sheets_read_range с spreadsheet_id={spreadsheet_id}\n"
                 elif file_type == 'docs':
                     document_id = file.get('document_id') or file.get('documentId')
                     if not document_id and file.get('url'):
@@ -2444,14 +2638,45 @@ class UnifiedReActEngine:
                             document_id = url_match.group(1)
                     if document_id:
                         context_str += f"- 📄 Документ: {title} (ID: {document_id})\n"
-                        context_str += f"  Используй: read_document с documentId={document_id}\n"
+                        context_str += f"  Используй: read_document с document_id={document_id}\n"
             context_str += "\n"
         
-        # Добавляем историю действий
-        if state.action_history:
-            context_str += "Уже выполнено:\n"
-            for action in state.action_history[-3:]:
-                context_str += f"- {action.tool_name}\n"
+        # Добавляем историю действий С РЕЗУЛЬТАТАМИ
+        if state.action_history and state.observations:
+            context_str += "Уже выполнено (ИСПОЛЬЗУЙ ID и данные из результатов!):\n"
+            # Берём последние 5 действий с их результатами
+            start_idx = max(0, len(state.action_history) - 5)
+            last_written_data = None  # Для оптимизации: запоминаем записанные данные
+            for i in range(start_idx, len(state.action_history)):
+                action = state.action_history[i]
+                context_str += f"- {action.tool_name}"
+                
+                # Для add_rows/update_cells - показываем САМИ ДАННЫЕ, которые были записаны
+                if action.tool_name in ["add_rows", "update_cells"] and action.arguments:
+                    values = action.arguments.get("values")
+                    if values:
+                        # Сохраняем данные для последующего использования
+                        last_written_data = values
+                        context_str += f"\n  📊 ЗАПИСАННЫЕ ДАННЫЕ (используй их напрямую!):\n"
+                        if isinstance(values, list):
+                            for row_idx, row in enumerate(values[:10]):  # Показываем до 10 строк
+                                context_str += f"    {row}\n"
+                            if len(values) > 10:
+                                context_str += f"    ... и ещё {len(values) - 10} строк\n"
+                        else:
+                            context_str += f"    {str(values)[:500]}\n"
+                
+                # Получаем соответствующий observation
+                if i < len(state.observations):
+                    obs = state.observations[i]
+                    if obs and obs.raw_result:
+                        result_str = str(obs.raw_result)[:600]  # Ограничиваем длину
+                        context_str += f"\n  📋 Результат: {result_str}"
+                context_str += "\n"
+            
+            # Если были записаны данные, явно указываем НЕ читать таблицу
+            if last_written_data:
+                context_str += "\n⚠️ ВАЖНО: Ты только что записал данные в таблицу. НЕ вызывай sheets_read_range - используй ЗАПИСАННЫЕ ДАННЫЕ выше!\n"
         
         # Получаем список доступных инструментов
         capability_descriptions = []
@@ -2459,8 +2684,32 @@ class UnifiedReActEngine:
             capability_descriptions.append(f"- {cap.name}: {cap.description}")
         tools_str = "\n".join(capability_descriptions)
         
-        # #region agent log - H11: Before building prompt
-        import json as _json; import time as _time; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_think_and_plan:before_prompt", "message": "Building prompt for LLM", "data": {"goal": state.goal[:200], "goal_length": len(state.goal), "iteration": state.iteration, "capabilities_count": len(self.capabilities)}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H11"}) + '\n')
+        # #region agent log - H1_CONTEXT: Full context sent to LLM
+        import json as _json; import time as _time
+        _action_history_tools = [a.tool_name for a in state.action_history] if state.action_history else []
+        _observations_preview = []
+        if state.observations:
+            for obs in state.observations[-5:]:
+                _observations_preview.append({
+                    "success": obs.success if obs else None,
+                    "result_preview": str(obs.raw_result)[:200] if obs and obs.raw_result else None
+                })
+        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+            "location": "_think_and_plan:context_to_llm",
+            "message": "FULL CONTEXT sent to LLM",
+            "data": {
+                "iteration": state.iteration,
+                "action_history_tools": _action_history_tools,
+                "action_history_count": len(state.action_history) if state.action_history else 0,
+                "observations_count": len(state.observations) if state.observations else 0,
+                "observations_preview": _observations_preview,
+                "context_str_length": len(context_str),
+                "context_str_preview": context_str[:800] if context_str else ""
+            },
+            "timestamp": int(_time.time()*1000),
+            "sessionId": "debug-session",
+            "hypothesisId": "H1_CONTEXT"
+        }) + '\n')
         # #endregion
         
         # Формируем объединённый промпт
@@ -2511,6 +2760,12 @@ class UnifiedReActEngine:
 - "назначь встречу?" → нужны: все параметры встречи
 - "отправь письмо" → нужны: получатель, тема, текст
 
+⚡ **ОПТИМИЗАЦИЯ - НЕ ЧИТАЙ ДАННЫЕ, КОТОРЫЕ ТОЛЬКО ЧТО ЗАПИСАЛ:**
+- Если ты только что вызвал `add_rows` или `update_cells` для записи данных в таблицу, ты УЖЕ ЗНАЕШЬ эти данные!
+- НЕ вызывай `sheets_read_range` или `get_sheet_data` для чтения данных, которые ты сам только что записал.
+- Используй данные напрямую из предыдущего шага для создания документа или отчёта.
+- Читай таблицу ТОЛЬКО если тебе нужны данные, которые были там ДО твоих изменений.
+
 Ответь в формате:
 <thought>
 Краткий анализ ситуации (2-3 предложения на русском):
@@ -2554,9 +2809,46 @@ class UnifiedReActEngine:
                 HumanMessage(content=prompt)
             ]
             
+            # #region agent log - H_LOOP: Log full prompt to detect duplication source
+            import json as _json; import time as _time
+            # Extract "Уже выполнено" section for analysis
+            already_done_section = ""
+            if "Уже выполнено" in context_str:
+                start = context_str.find("Уже выполнено")
+                end = context_str.find("\n\n", start)
+                already_done_section = context_str[start:end] if end > start else context_str[start:start+500]
+            
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                "location": "_think_and_plan:PROMPT_CHECK",
+                "message": f"ITERATION {state.iteration}: Full prompt being sent to LLM",
+                "data": {
+                    "iteration": state.iteration,
+                    "action_history_count": len(state.action_history) if state.action_history else 0,
+                    "observations_count": len(state.observations) if state.observations else 0,
+                    "action_history_tools": [f"{i+1}:{a.tool_name}" for i, a in enumerate(state.action_history)] if state.action_history else [],
+                    "already_done_section": already_done_section[:1000],
+                    "prompt_length": len(prompt),
+                    "unique_tools_used": list(set(a.tool_name for a in state.action_history)) if state.action_history else []
+                },
+                "timestamp": int(_time.time()*1000),
+                "sessionId": "debug-session",
+                "hypothesisId": "H_LOOP"
+            }) + '\n')
+            # #endregion
+            
             # Создаём парсер для стриминга thought
             # Передаём intent_id для отправки intent_detail событий
             current_intent_id = getattr(self, '_current_intent_id', None)
+            
+            # FIX: Очищаем thinkingText перед каждой новой итерацией
+            # чтобы не накапливался текст от предыдущих итераций
+            if current_intent_id:
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "intent_thinking_clear",
+                    {"intent_id": current_intent_id}
+                )
+            
             parser = self.StreamingThoughtParser(
                 self.ws_manager, 
                 self.session_id,
@@ -2587,6 +2879,121 @@ class UnifiedReActEngine:
             
             # Получаем thought из парсера
             thought = parser.get_thought()
+            
+            # #region agent log - H_DUP_SOURCE: Raw LLM response to identify duplication source
+            import json as _json; import time as _time
+            # Check if LLM itself generated duplicates
+            full_response_lower = full_response.lower()
+            llm_generated_duplicates = (
+                full_response_lower.count("анализ ситуации") > 1 or
+                full_response_lower.count("анализирую ситуацию") > 1 or  
+                full_response_lower.count("проанализиру") > 1 or
+                full_response_lower.count("уже сделано") > 1 or
+                full_response_lower.count("осталось сделать") > 1
+            )
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                "location": "_think_and_plan:RAW_LLM_RESPONSE",
+                "message": f"ITERATION {state.iteration}: RAW LLM response (duplication check)",
+                "data": {
+                    "iteration": state.iteration,
+                    "llm_generated_duplicates": llm_generated_duplicates,
+                    "full_response_length": len(full_response),
+                    "thought_tag_count": full_response.count("<thought>"),
+                    "анализ_ситуации_count": full_response_lower.count("анализ ситуации"),
+                    "проанализиру_count": full_response_lower.count("проанализиру"),
+                    "уже_сделано_count": full_response_lower.count("уже сделано"),
+                    "full_response_preview": full_response[:1500]
+                },
+                "timestamp": int(_time.time()*1000),
+                "sessionId": "debug-session",
+                "hypothesisId": "H_DUP_SOURCE"
+            }) + '\n')
+            # #endregion
+            
+            # #region FIX: Remove duplicate patterns from thought
+            # Some LLMs (especially Claude 3 Haiku) tend to repeat their analysis
+            # Detect and remove duplicated analysis blocks
+            thought_lower = thought.lower() if thought else ""
+            has_analysis_markers = (
+                "анализ" in thought_lower or 
+                "уже выполнено" in thought_lower or
+                "что уже сделано" in thought_lower or
+                "пользователь просит" in thought_lower
+            )
+            
+            if thought and has_analysis_markers:
+                lines = thought.split('\n')
+                seen_starts = set()
+                filtered_lines = []
+                skip_mode = False
+                
+                for line in lines:
+                    line_lower = line.lower().strip()
+                    
+                    # Check if this is a section/analysis start marker
+                    is_analysis_start = (
+                        line_lower.startswith("анализ ситуации") or
+                        line_lower.startswith("анализирую ситуацию") or
+                        line_lower.startswith("анализирую текущу") or
+                        line_lower.startswith("проанализиру") or
+                        line_lower.startswith("пользователь просит") or
+                        (line_lower.startswith("1.") and ("уже" in line_lower or "что уже" in line_lower))
+                    )
+                    
+                    if is_analysis_start:
+                        # Normalize the key - take significant part
+                        section_key = line_lower[:40].replace(" ", "")
+                        if section_key in seen_starts:
+                            # This is a duplicate section, skip it and all following lines until next unique section
+                            skip_mode = True
+                            continue
+                        else:
+                            seen_starts.add(section_key)
+                            skip_mode = False
+                    
+                    if not skip_mode:
+                        filtered_lines.append(line)
+                
+                thought = '\n'.join(filtered_lines).strip()
+            # #endregion
+            
+            # #region agent log - H_LOOP: Log full LLM response to detect duplication
+            import json as _json; import time as _time
+            # Check for repeated patterns in thought AFTER filtering
+            thought_lower_check = thought.lower() if thought else ""
+            has_duplicate_patterns = (
+                thought_lower_check.count("анализ ситуации") > 1 or
+                thought_lower_check.count("анализирую ситуацию") > 1 or
+                thought_lower_check.count("уже выполнено") > 1 or
+                thought_lower_check.count("что осталось") > 1 or
+                thought_lower_check.count("пользователь просит") > 1
+            )
+            # Also check raw parser thought BEFORE filtering for comparison
+            raw_thought = parser.get_thought() if hasattr(parser, 'thought_content') else ""
+            raw_thought_lower = raw_thought.lower() if raw_thought else full_response.lower()
+            raw_had_duplicates = (
+                raw_thought_lower.count("анализ ситуации") > 1 or
+                raw_thought_lower.count("анализирую ситуацию") > 1 or
+                raw_thought_lower.count("уже выполнено") > 1 or
+                raw_thought_lower.count("пользователь просит") > 1
+            )
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                "location": "_think_and_plan:LLM_RESPONSE",
+                "message": f"ITERATION {state.iteration}: LLM response received",
+                "data": {
+                    "iteration": state.iteration,
+                    "thought_length": len(thought) if thought else 0,
+                    "thought_preview": thought[:500] if thought else "",
+                    "has_duplicate_patterns_after_filter": has_duplicate_patterns,
+                    "raw_had_duplicates": raw_had_duplicates,
+                    "duplicates_removed": raw_had_duplicates and not has_duplicate_patterns,
+                    "full_response_length": len(full_response)
+                },
+                "timestamp": int(_time.time()*1000),
+                "sessionId": "debug-session",
+                "hypothesisId": "H_LOOP"
+            }) + '\n')
+            # #endregion
             
             # Извлекаем action из оставшегося буфера или полного ответа
             remaining_buffer = parser.get_remaining_buffer()

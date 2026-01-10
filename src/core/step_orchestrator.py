@@ -18,6 +18,7 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from src.core.context_manager import ConversationContext
+from src.core.file_context_resolver import FileContextResolver
 from src.api.websocket_manager import WebSocketManager
 from src.agents.model_factory import create_llm
 from src.utils.logging_config import get_logger
@@ -178,7 +179,7 @@ class StepOrchestrator:
     def _build_open_files_context(self, context: ConversationContext) -> Optional[str]:
         """
         Build context string for currently open files in workspace panel.
-        Similar to BaseAgent._build_open_files_context but adapted for StepOrchestrator.
+        Uses FileContextResolver for unified priority handling.
         
         Args:
             context: Conversation context
@@ -191,53 +192,29 @@ class StepOrchestrator:
         if not open_files:
             return None
         
-        # Extract document_id/spreadsheet_id from URL if missing
-        for file in open_files:
-            if file.get('type') == 'docs' and not file.get('document_id') and file.get('url'):
-                # Extract document ID from URL: /document/d/{ID}/
-                match = re.search(r'/document/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
-                if match:
-                    file['document_id'] = match.group(1)
-            elif file.get('type') == 'sheets' and not file.get('spreadsheet_id') and file.get('url'):
-                # Extract spreadsheet ID from URL: /spreadsheets/d/{ID}/
-                match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
-                if match:
-                    file['spreadsheet_id'] = match.group(1)
+        # Use FileContextResolver for consistent context building
+        resolver = FileContextResolver()
         
-        context_lines = ["## Открытые файлы в рабочей области:\n"]
-        for i, file in enumerate(open_files, 1):
-            file_type = file.get('type', 'unknown')
-            title = file.get('title', 'Без названия')
-            
-            if file_type == 'sheets':
-                spreadsheet_id = file.get('spreadsheet_id', 'N/A')
-                url = file.get('url', '')
-                context_lines.append(f"{i}. 📊 Таблица: {title}")
-                context_lines.append(f"   ID: {spreadsheet_id}")
-                if url:
-                    context_lines.append(f"   URL: {url}")
-            elif file_type == 'docs':
-                document_id = file.get('document_id', 'N/A')
-                url = file.get('url', '')
-                context_lines.append(f"{i}. 📄 Документ: {title}")
-                context_lines.append(f"   ID: {document_id}")
-                if url:
-                    context_lines.append(f"   URL: {url}")
-            else:
-                context_lines.append(f"{i}. {title} ({file_type})")
-                if file.get('url'):
-                    context_lines.append(f"   URL: {file.get('url')}")
+        # Get attached files from context
+        attached_files = getattr(context, 'uploaded_files', {}) or {}
         
-        context_lines.append("\n🚫 КРИТИЧЕСКИ ВАЖНО:")
-        context_lines.append("1. НИКОГДА не используй инструменты find_and_open_file, workspace_find_and_open_file, workspace_search_files или workspace_open_file для файлов из этого списка")
-        context_lines.append("2. Если пользователь упоминает название файла из этого списка (например, 'Сказка', 'документ', 'таблица', 'этот файл'), используй ПРЯМО document_id/spreadsheet_id из списка выше")
-        context_lines.append("3. НЕ создавай шаг 'Найти файл' в плане - файл УЖЕ открыт, просто используй его ID напрямую")
-        context_lines.append("4. Для ДОКУМЕНТОВ используй инструмент docs_read с параметром documentId=<ID из списка выше>")
-        context_lines.append("5. Для ТАБЛИЦ используй инструмент sheets_read_range с параметрами: spreadsheetId=<ID из списка выше>, range='A1:Z100' (БЕЗ имени листа, или 'Sheet1!A1:Z100')")
-        context_lines.append("6. ВАЖНО: НЕ используй название файла как имя листа! Первый лист обычно называется 'Sheet1' или 'Лист1'")
-        context_lines.append("7. Шаг поиска файла должен отображаться ТОЛЬКО если файла НЕТ в этом списке открытых файлов")
+        # Get workspace folder config
+        workspace_folder = None
+        try:
+            from src.utils.config_loader import get_config
+            config = get_config()
+            workspace_config_path = config.config_dir / "workspace_config.json"
+            if workspace_config_path.exists():
+                workspace_config = json.loads(workspace_config_path.read_text())
+                folder_id = workspace_config.get("folder_id")
+                folder_name = workspace_config.get("folder_name")
+                if folder_id:
+                    workspace_folder = {"folder_id": folder_id, "folder_name": folder_name}
+        except Exception:
+            pass
         
-        return "\n".join(context_lines)
+        # Build unified context with priorities
+        return resolver.build_context_string(attached_files, open_files, workspace_folder)
     
     def _is_simple_generative_task(self, user_request: str) -> bool:
         """
