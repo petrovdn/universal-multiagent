@@ -129,28 +129,39 @@ class ResultAnalyzer:
         ]
         
         # Strong success indicators that mean goal is fully achieved
+        # NOTE: "created successfully" removed because creating a file/spreadsheet 
+        # is usually an intermediate step, not the final goal.
+        # Only final actions like sending emails or scheduling meetings should be here.
         goal_achieved_indicators = [
-            "created successfully", "запланирована", "✅",
+            "запланирована", "✅",
             "event id:", "событие создано", "встреча запланирована",
-            "отправлено успешно", "sent successfully"
+            "отправлено успешно", "sent successfully", "email sent"
         ]
         
-        # Check for goal achieved first
-        for indicator in goal_achieved_indicators:
-            if indicator in result_str:
-                # #region agent log - H_LOOP: Goal achieved detected
-                import time as _time
-                import json as _json
-                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "result_analyzer:GOAL_ACHIEVED", "message": "GOAL ACHIEVED detected", "data": {"tool_name": action.tool_name, "indicator": indicator, "result_preview": result_str[:200]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_LOOP"}) + '\n')
-                # #endregion
-                
-                return Analysis(
-                    is_success=True,
-                    is_goal_achieved=True,  # Goal is fully achieved!
-                    is_error=False,
-                    progress_toward_goal=1.0,
-                    confidence=0.95
-                )
+        # Tools that are typically intermediate steps - never mark as goal achieved
+        intermediate_tools = [
+            "create_spreadsheet", "create_document", "sheets_create_spreadsheet",
+            "list_workspace_files", "search_workspace_files", "find_and_open_file",
+            "read_document", "sheets_read_range", "sheets_write_range"
+        ]
+        
+        # Check for goal achieved first (but not for intermediate tools)
+        if action.tool_name not in intermediate_tools:
+            for indicator in goal_achieved_indicators:
+                if indicator in result_str:
+                    # #region agent log - H_LOOP: Goal achieved detected
+                    import time as _time
+                    import json as _json
+                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "result_analyzer:GOAL_ACHIEVED", "message": "GOAL ACHIEVED detected", "data": {"tool_name": action.tool_name, "indicator": indicator, "result_preview": result_str[:200]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_LOOP"}) + '\n')
+                    # #endregion
+                    
+                    return Analysis(
+                        is_success=True,
+                        is_goal_achieved=True,  # Goal is fully achieved!
+                        is_error=False,
+                        progress_toward_goal=1.0,
+                        confidence=0.95
+                    )
         
         for indicator in success_indicators:
             if indicator in result_str and len(result_str) < 500:  # Short, clear success messages
@@ -256,6 +267,11 @@ class ResultAnalyzer:
             else:
                 # Fallback: try parsing entire response
                 analysis_data = json.loads(response_text)
+            
+            # #region agent log - H_LLM_ANALYZE: LLM analysis result
+            import time as _time
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(json.dumps({"location": "result_analyzer:llm_analyze_result", "message": "LLM analysis completed", "data": {"tool_name": action.tool_name, "goal": goal[:200], "is_success": analysis_data.get("is_success", False), "is_goal_achieved": analysis_data.get("is_goal_achieved", False), "is_error": analysis_data.get("is_error", False), "progress": analysis_data.get("progress_toward_goal", 0.0), "next_action": analysis_data.get("next_action_suggestion", "")[:100], "result_preview": result_str[:300]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_LLM_ANALYZE"}) + '\n')
+            # #endregion
             
             return Analysis(
                 is_success=analysis_data.get("is_success", False),

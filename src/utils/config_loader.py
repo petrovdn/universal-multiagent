@@ -244,7 +244,7 @@ Main application configuration."""
     openai_api_key: Optional[str] = Field(default="", alias="OPENAI_API_KEY")
     
     # Model settings (новое)
-    default_model: str = Field(default="gpt-4o", alias="DEFAULT_MODEL")
+    default_model: str = Field(default="claude-3-haiku", alias="DEFAULT_MODEL")
     
     # Application settings
     timezone: str = Field(default="Europe/Moscow", alias="APP_TIMEZONE")

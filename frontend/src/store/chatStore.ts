@@ -322,6 +322,7 @@ interface ChatState {
   // Intent block methods (Cursor-style)
   startIntent: (workflowId: string, intentId: string, intentText: string) => void
   addIntentDetail: (workflowId: string, intentId: string, detail: IntentDetail) => void
+  clearIntentThinking: (workflowId: string, intentId: string) => void
   appendIntentThinking: (workflowId: string, intentId: string, text: string) => void
   setIntentPhase: (workflowId: string, intentId: string, phase: IntentPhase) => void
   setIntentProgress: (workflowId: string, intentId: string, percent: number, elapsed: number, estimated: number) => void
@@ -1510,6 +1511,26 @@ export const useChatStore = create<ChatState>()(
           }
         }),
       
+      clearIntentThinking: (workflowId: string, intentId: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              return {
+                ...intent,
+                thinkingText: '', // Clear thinking text for new iteration
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+
       appendIntentThinking: (workflowId: string, intentId: string, text: string) =>
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []

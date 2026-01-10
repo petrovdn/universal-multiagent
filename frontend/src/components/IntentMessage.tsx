@@ -85,11 +85,11 @@ export function IntentMessage({
             </span>
           </div>
           
-          {!block.planningCollapsed && hasThinkingText && (
+          {!block.planningCollapsed && isPlanning && (
             <div ref={thinkingRef} className="intent-phase-content">
               <div className="intent-thinking-text">
-                {block.thinkingText}
-                {isPlanning && <span className="intent-thinking-cursor" />}
+                {hasThinkingText ? block.thinkingText : 'Анализирую...'}
+                <span className="intent-thinking-cursor" />
               </div>
             </div>
           )}
