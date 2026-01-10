@@ -210,6 +210,15 @@ class UnifiedReActEngine:
         """
         file_ids = file_ids or []
         
+        # #region agent log
+        logger.info(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}, file_ids count: {len(file_ids)}")
+        print(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}", flush=True)
+        if hasattr(context, 'uploaded_files'):
+            total_files = len(context.uploaded_files)
+            logger.info(f"[execute] Context has {total_files} uploaded files: {list(context.uploaded_files.keys())}")
+            print(f"[execute] Context has {total_files} uploaded files: {list(context.uploaded_files.keys())}", flush=True)
+        # #endregion
+        
         # #region agent log - H1,H2,H5: Execute start with timing
         _exec_start = time.time()
         # #endregion
@@ -1959,13 +1968,31 @@ class UnifiedReActEngine:
                 context_str += "\n"
         
         # Add file context (uploaded files have PRIORITY #1)
+        # #region agent log
+        logger.info(f"[_think] Processing file_ids: {file_ids}, count: {len(file_ids) if file_ids else 0}")
+        print(f"[_think] Processing file_ids: {file_ids}", flush=True)
+        if hasattr(context, 'uploaded_files'):
+            total_files_in_context = len(context.uploaded_files)
+            logger.info(f"[_think] Total files in context.uploaded_files: {total_files_in_context}")
+            print(f"[_think] Total files in context.uploaded_files: {total_files_in_context}, keys: {list(context.uploaded_files.keys())}", flush=True)
+        # #endregion
         if file_ids:
             uploaded_files_found = []
             for file_id in file_ids:
                 file_data = context.get_file(file_id)
+                # #region agent log
+                if file_data:
+                    logger.info(f"[_think] Found file {file_id}: {file_data.get('filename')}, type: {file_data.get('type')}, has_text: {'text' in file_data}")
+                    print(f"[_think] Found file {file_id}: {file_data.get('filename')}, has_text: {'text' in file_data}, text_length: {len(file_data.get('text', ''))}", flush=True)
+                else:
+                    logger.warning(f"[_think] File {file_id} NOT found in context!")
+                    print(f"[_think] WARNING: File {file_id} NOT found in context! Available files: {list(context.uploaded_files.keys()) if hasattr(context, 'uploaded_files') else 'N/A'}", flush=True)
+                # #endregion
                 if file_data:
                     uploaded_files_found.append(file_data)
             if uploaded_files_found:
+                logger.info(f"[_think] Adding {len(uploaded_files_found)} files to context_str")
+                print(f"[_think] Adding {len(uploaded_files_found)} files to context_str", flush=True)
                 context_str += "📎 Прикрепленные файлы:\n"
                 for file_data in uploaded_files_found:
                     filename = file_data.get('filename', 'unknown')
@@ -1985,6 +2012,12 @@ class UnifiedReActEngine:
                         context_str += f"- Word документ: {filename}\n{docx_text}\n"
                     else:
                         context_str += f"- {filename}\n"
+            else:
+                logger.warning(f"[_think] file_ids provided ({file_ids}) but no files found in context!")
+                print(f"[_think] WARNING: file_ids provided but no files found!", flush=True)
+        else:
+            logger.info(f"[_think] No file_ids provided")
+            print(f"[_think] No file_ids provided", flush=True)
         
         # Add open files context (PRIORITY #2)
         import json
@@ -2502,7 +2535,64 @@ class UnifiedReActEngine:
                     context_str += f"  {role}: {content}\n"
                 context_str += "\n"
         
-        # Добавляем открытые файлы
+        # Добавляем ПРИКРЕПЛЕННЫЕ ФАЙЛЫ (PRIORITY #1 - должны быть ПЕРВЫМИ!)
+        # #region agent log
+        logger.info(f"[_think_and_plan] Processing file_ids: {file_ids}, count: {len(file_ids) if file_ids else 0}")
+        print(f"[_think_and_plan] Processing file_ids: {file_ids}", flush=True)
+        if hasattr(context, 'uploaded_files'):
+            total_files = len(context.uploaded_files)
+            logger.info(f"[_think_and_plan] Context has {total_files} uploaded files: {list(context.uploaded_files.keys())}")
+            print(f"[_think_and_plan] Context has {total_files} uploaded files: {list(context.uploaded_files.keys())}", flush=True)
+        # #endregion
+        if file_ids:
+            uploaded_files_found = []
+            for file_id in file_ids:
+                file_data = context.get_file(file_id)
+                # #region agent log
+                if file_data:
+                    logger.info(f"[_think_and_plan] Found file {file_id}: {file_data.get('filename')}, type: {file_data.get('type')}, has_text: {'text' in file_data}")
+                    print(f"[_think_and_plan] Found file {file_id}: {file_data.get('filename')}, has_text: {'text' in file_data}, text_length: {len(file_data.get('text', ''))}", flush=True)
+                else:
+                    logger.warning(f"[_think_and_plan] File {file_id} NOT found in context!")
+                    print(f"[_think_and_plan] WARNING: File {file_id} NOT found! Available: {list(context.uploaded_files.keys()) if hasattr(context, 'uploaded_files') else 'N/A'}", flush=True)
+                # #endregion
+                if file_data:
+                    uploaded_files_found.append(file_data)
+            
+            if uploaded_files_found:
+                logger.info(f"[_think_and_plan] Adding {len(uploaded_files_found)} uploaded files to context_str")
+                print(f"[_think_and_plan] Adding {len(uploaded_files_found)} uploaded files to context_str", flush=True)
+                context_str += "\n📎 ПРИКРЕПЛЕННЫЕ ФАЙЛЫ (ПРИОРИТЕТ #1 - используй их ПЕРВЫМ!):\n"
+                context_str += "⚠️ НЕ ищи эти файлы в Google Drive - их содержимое УЖЕ здесь!\n\n"
+                for file_data in uploaded_files_found:
+                    filename = file_data.get('filename', 'unknown')
+                    file_type = file_data.get('type', '')
+                    if file_type == 'application/pdf' and 'text' in file_data:
+                        pdf_text = file_data.get('text', '')
+                        max_len = 8000
+                        if len(pdf_text) > max_len:
+                            pdf_text = pdf_text[:max_len] + f"\n... (обрезано, полный текст {len(file_data.get('text', ''))} символов)"
+                        context_str += f"- PDF: {filename}\n{pdf_text}\n\n"
+                    elif file_type in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                      "application/msword") and 'text' in file_data:
+                        docx_text = file_data.get('text', '')
+                        max_len = 8000
+                        if len(docx_text) > max_len:
+                            docx_text = docx_text[:max_len] + f"\n... (обрезано, полный текст {len(file_data.get('text', ''))} символов)"
+                        context_str += f"- Word документ: {filename}\n{docx_text}\n\n"
+                    elif file_type.startswith('image/'):
+                        context_str += f"- Изображение: {filename} (содержимое уже в сообщении)\n\n"
+                    else:
+                        context_str += f"- Файл: {filename} (тип: {file_type})\n\n"
+                context_str += "⚠️ ВАЖНО: Используй содержимое этих файлов напрямую, НЕ ищи их в Google Drive!\n\n"
+            else:
+                logger.warning(f"[_think_and_plan] file_ids provided ({file_ids}) but no files found in context!")
+                print(f"[_think_and_plan] WARNING: file_ids provided but no files found!", flush=True)
+        else:
+            logger.info(f"[_think_and_plan] No file_ids provided")
+            print(f"[_think_and_plan] No file_ids provided", flush=True)
+        
+        # Добавляем открытые файлы (PRIORITY #2)
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
         if open_files:
             context_str += "\n📂 ОТКРЫТЫЕ ФАЙЛЫ В РАБОЧЕЙ ОБЛАСТИ:\n"
