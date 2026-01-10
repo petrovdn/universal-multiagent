@@ -18,6 +18,11 @@ pytz==2024.1
 # Logging
 structlog==24.1.0
 
+# File Processing (для загрузки документов)
+PyPDF2>=3.0.0
+Pillow>=10.0.0
+python-docx>=1.1.0
+
 
 
 
