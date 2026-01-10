@@ -340,6 +340,22 @@ interface ChatState {
   clearIntents: (workflowId: string) => void
   setActiveIntent: (intentId: string | null) => void
   
+  // Operation methods (for streaming operations inside intents)
+  startOperation: (
+    workflowId: string,
+    operationId: string,
+    intentId: string,
+    title: string,
+    streamingTitle: string,
+    operationType: OperationType,
+    fileId?: string,
+    fileUrl?: string,
+    fileType?: FileType
+  ) => void
+  addOperationData: (workflowId: string, intentId: string, operationId: string, data: string) => void
+  completeOperation: (workflowId: string, intentId: string, operationId: string, summary: string) => void
+  toggleOperationCollapse: (workflowId: string, intentId: string, operationId: string) => void
+  
   // Legacy methods (for compatibility during transition)
   startStreamingMessage: (messageId: string, message: Message) => void
   updateStreamingMessage: (messageId: string, content: string) => void
@@ -1726,7 +1742,7 @@ export const useChatStore = create<ChatState>()(
                   [operationId]: newOperation,
                 },
                 details: [], // Очищаем старые details при создании операции, чтобы избежать дублирования
-                phase: 'executing', // Переключаем на фазу выполнения
+                phase: 'executing' as const, // Переключаем на фазу выполнения
               }
             }
             return intent
@@ -1751,7 +1767,7 @@ export const useChatStore = create<ChatState>()(
                   ...intent.operations,
                   [operationId]: {
                     ...operation,
-                    status: 'streaming',
+                    status: 'streaming' as const,
                     data: [...operation.data, data],
                   },
                 },
@@ -1779,7 +1795,7 @@ export const useChatStore = create<ChatState>()(
                   ...intent.operations,
                   [operationId]: {
                     ...operation,
-                    status: 'completed',
+                    status: 'completed' as const,
                     summary: summary,
                   },
                 },

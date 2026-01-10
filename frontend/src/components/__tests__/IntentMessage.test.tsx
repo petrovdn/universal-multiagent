@@ -10,6 +10,7 @@ const createMockIntentBlock = (overrides: Partial<IntentBlock> = {}): IntentBloc
   status: 'started',
   phase: 'planning',
   details: [],
+  operations: {},
   thinkingText: '',
   isCollapsed: false,
   planningCollapsed: false,
@@ -32,6 +33,7 @@ describe('IntentMessage', () => {
       render(
         <IntentMessage
           block={block}
+          workflowId="test-workflow-1"
           onToggleCollapse={vi.fn()}
           onTogglePlanningCollapse={vi.fn()}
           onToggleExecutingCollapse={vi.fn()}
@@ -51,6 +53,7 @@ describe('IntentMessage', () => {
       render(
         <IntentMessage
           block={block}
+          workflowId="test-workflow-1"
           onToggleCollapse={vi.fn()}
           onTogglePlanningCollapse={vi.fn()}
           onToggleExecutingCollapse={vi.fn()}
@@ -72,6 +75,7 @@ describe('IntentMessage', () => {
       const { container } = render(
         <IntentMessage
           block={block}
+          workflowId="test-workflow-1"
           onToggleCollapse={vi.fn()}
           onTogglePlanningCollapse={vi.fn()}
           onToggleExecutingCollapse={vi.fn()}
