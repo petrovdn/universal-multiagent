@@ -505,10 +505,19 @@ class UnifiedReActEngine:
                         else:
                             # No known alternative, force FINISH with explanation
                             logger.warning(f"[UnifiedReActEngine] No alternative for {planned_tool}, forcing FINISH")
+                            # #region agent log
+                            _last_obs = state.observations[-1] if state.observations else None
+                            _error_msg = "неизвестная"
+                            if _last_obs:
+                                if _last_obs.error_message:
+                                    _error_msg = _last_obs.error_message[:200]
+                                elif _last_obs.raw_result:
+                                    _error_msg = str(_last_obs.raw_result)[:200]
+                            # #endregion
                             action_plan = {
                                 "tool_name": "FINISH",
                                 "arguments": {},
-                                "final_answer": f"Не удалось выполнить задачу: инструмент {planned_tool} недоступен или не работает корректно. Ошибка: {str(state.observations[-1].result)[:200] if state.observations else 'неизвестная'}"
+                                "final_answer": f"Не удалось выполнить задачу: инструмент {planned_tool} недоступен или не работает корректно. Ошибка: {_error_msg}"
                             }
                             planned_tool = "FINISH"
                 

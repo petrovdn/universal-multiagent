@@ -143,7 +143,10 @@ class MCPToolProvider(ActionProvider):
         import time as _time
         import json as _json
         _mcp_exec_start = _time.time()
-        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp:execute_ENTRY", "message": "MCP executing tool", "data": {"capability_name": capability_name, "tool_class": type(tool).__name__, "arguments": str(arguments)[:200]}, "timestamp": int(_mcp_exec_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+        try:
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp:execute_ENTRY", "message": "MCP executing tool", "data": {"capability_name": capability_name, "tool_class": type(tool).__name__, "arguments": str(arguments)[:200]}, "timestamp": int(_mcp_exec_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+        except Exception:
+            pass
         # #endregion
         
         try:
@@ -151,14 +154,20 @@ class MCPToolProvider(ActionProvider):
             
             # #region agent log - H3: MCP execute SUCCESS
             _mcp_exec_end = _time.time()
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp:execute_SUCCESS", "message": "MCP execute completed", "data": {"capability_name": capability_name, "duration_ms": int((_mcp_exec_end - _mcp_exec_start)*1000), "result_preview": str(result)[:200]}, "timestamp": int(_mcp_exec_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+            try:
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp:execute_SUCCESS", "message": "MCP execute completed", "data": {"capability_name": capability_name, "duration_ms": int((_mcp_exec_end - _mcp_exec_start)*1000), "result_preview": str(result)[:200]}, "timestamp": int(_mcp_exec_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+            except Exception:
+                pass
             # #endregion
             
             return result
         except Exception as e:
             # #region agent log - H3,H4: MCP execute ERROR
             _mcp_exec_end = _time.time()
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp:execute_ERROR", "message": "MCP EXECUTE ERROR", "data": {"capability_name": capability_name, "duration_ms": int((_mcp_exec_end - _mcp_exec_start)*1000), "error": str(e), "error_type": type(e).__name__}, "timestamp": int(_mcp_exec_end*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+            try:
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp:execute_ERROR", "message": "MCP EXECUTE ERROR", "data": {"capability_name": capability_name, "duration_ms": int((_mcp_exec_end - _mcp_exec_start)*1000), "error": str(e), "error_type": type(e).__name__}, "timestamp": int(_mcp_exec_end*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+            except Exception:
+                pass
             # #endregion
             
             logger.error(f"[MCPToolProvider] Execution failed for {capability_name}: {e}")

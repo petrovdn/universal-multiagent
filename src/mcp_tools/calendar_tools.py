@@ -77,7 +77,10 @@ class CreateEventTool(BaseTool):
         import time as _time
         import json as _json
         _tool_start = _time.time()
-        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "create_event:ENTRY", "message": "CreateEventTool._arun entry", "data": {"title": title, "start_time": start_time, "duration": duration, "attendees": str(attendees)[:100] if attendees else None}, "timestamp": int(_tool_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+        try:
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "create_event:ENTRY", "message": "CreateEventTool._arun entry", "data": {"title": title, "start_time": start_time, "duration": duration, "attendees": str(attendees)[:100] if attendees else None}, "timestamp": int(_tool_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+        except Exception:
+            pass
         # #endregion
         
         try:
@@ -134,14 +137,20 @@ class CreateEventTool(BaseTool):
             
             # #region agent log - H3: Before MCP call_tool
             _mcp_call_start = _time.time()
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "create_event:before_mcp_call", "message": "Before MCP call_tool", "data": {"args": str(args)[:300], "time_since_tool_start_ms": int((_mcp_call_start - _tool_start)*1000)}, "timestamp": int(_mcp_call_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+            try:
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "create_event:before_mcp_call", "message": "Before MCP call_tool", "data": {"args": str(args)[:300], "time_since_tool_start_ms": int((_mcp_call_start - _tool_start)*1000)}, "timestamp": int(_mcp_call_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+            except Exception:
+                pass
             # #endregion
             
             result = await mcp_manager.call_tool("create_event", args, server_name="calendar")
             
             # #region agent log - H3: After MCP call_tool
             _mcp_call_end = _time.time()
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "create_event:after_mcp_call", "message": "After MCP call_tool", "data": {"mcp_duration_ms": int((_mcp_call_end - _mcp_call_start)*1000), "result": str(result)[:200]}, "timestamp": int(_mcp_call_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+            try:
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "create_event:after_mcp_call", "message": "After MCP call_tool", "data": {"mcp_duration_ms": int((_mcp_call_end - _mcp_call_start)*1000), "result": str(result)[:200]}, "timestamp": int(_mcp_call_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+            except Exception:
+                pass
             # #endregion
             
             # Parse result - MCP returns list of TextContent objects
@@ -163,7 +172,10 @@ class CreateEventTool(BaseTool):
         except ValidationError as e:
             # #region agent log - H3,H4: CreateEventTool ValidationError
             _err_time = _time.time()
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "create_event:VALIDATION_ERROR", "message": "CreateEventTool ValidationError", "data": {"error": str(e), "title": title, "start_time": start_time}, "timestamp": int(_err_time*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+            try:
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "create_event:VALIDATION_ERROR", "message": "CreateEventTool ValidationError", "data": {"error": str(e), "title": title, "start_time": start_time}, "timestamp": int(_err_time*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+            except Exception:
+                pass
             # #endregion
             raise ToolExecutionError(
                 f"Validation failed: {e.message}",
@@ -173,7 +185,10 @@ class CreateEventTool(BaseTool):
         except Exception as e:
             # #region agent log - H3,H4: CreateEventTool Exception
             _err_time = _time.time()
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "create_event:EXCEPTION", "message": "CreateEventTool Exception", "data": {"error": str(e), "error_type": type(e).__name__, "title": title, "start_time": start_time}, "timestamp": int(_err_time*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+            try:
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "create_event:EXCEPTION", "message": "CreateEventTool Exception", "data": {"error": str(e), "error_type": type(e).__name__, "title": title, "start_time": start_time}, "timestamp": int(_err_time*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+            except Exception:
+                pass
             # #endregion
             raise ToolExecutionError(
                 f"Failed to create event: {e}",
@@ -417,7 +432,10 @@ class GetCalendarEventsTool(BaseTool):
             import time as _time
             import json as _json
             _list_events_start = _time.time()
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "get_calendar_events:before_list_events", "message": "Before calling list_events MCP tool", "data": {"start_time": start_time, "end_time": end_time, "max_results": max_results, "args": str(args)[:200]}, "timestamp": int(_list_events_start*1000), "sessionId": "debug-session", "hypothesisId": "H13"}) + '\n')
+            try:
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "get_calendar_events:before_list_events", "message": "Before calling list_events MCP tool", "data": {"start_time": start_time, "end_time": end_time, "max_results": max_results, "args": str(args)[:200]}, "timestamp": int(_list_events_start*1000), "sessionId": "debug-session", "hypothesisId": "H13"}) + '\n')
+            except Exception:
+                pass
             # #endregion
             
             mcp_manager = get_mcp_manager()# Fix: Use "list_events" instead of "get_calendar_events" to match MCP server
@@ -427,7 +445,10 @@ class GetCalendarEventsTool(BaseTool):
             _list_events_end = _time.time()
             _result_type = type(result).__name__
             _result_preview = str(result)[:300] if result else "None"
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "get_calendar_events:after_list_events", "message": "After calling list_events MCP tool", "data": {"duration_ms": int((_list_events_end - _list_events_start)*1000), "result_type": _result_type, "result_preview": _result_preview, "is_list": isinstance(result, list), "list_length": len(result) if isinstance(result, list) else 0}, "timestamp": int(_list_events_end*1000), "sessionId": "debug-session", "hypothesisId": "H13"}) + '\n')
+            try:
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "get_calendar_events:after_list_events", "message": "After calling list_events MCP tool", "data": {"duration_ms": int((_list_events_end - _list_events_start)*1000), "result_type": _result_type, "result_preview": _result_preview, "is_list": isinstance(result, list), "list_length": len(result) if isinstance(result, list) else 0}, "timestamp": int(_list_events_end*1000), "sessionId": "debug-session", "hypothesisId": "H13"}) + '\n')
+            except Exception:
+                pass
             # #endregion
             
             # Handle MCP result format (TextContent list or dict)

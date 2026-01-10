@@ -573,6 +573,9 @@ async def upload_file(
     logger.info(f"Upload endpoint called: filename={file.filename}, session_id={session_id}")
     try:
         file_type = file.content_type
+        # #region agent log
+        logger.info(f"[UPLOAD] File type detected: {file_type}, DOCX_AVAILABLE={DOCX_AVAILABLE}")
+        # #endregion
         if not file_type:
             raise HTTPException(status_code=400, detail="Could not determine file type")
         
@@ -665,7 +668,12 @@ async def upload_file(
         elif file_type in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
                           "application/msword"):
             # For .docx and .doc files
+            # #region agent log
+            logger.info(f"[UPLOAD] Processing Word document: {file.filename}, DOCX_AVAILABLE={DOCX_AVAILABLE}, file_size={len(content)}")
+            print(f"[DEBUG] Upload Word doc: {file.filename}, DOCX_AVAILABLE={DOCX_AVAILABLE}", flush=True)
+            # #endregion
             if not DOCX_AVAILABLE:
+                logger.error(f"[UPLOAD] python-docx not available for file: {file.filename}")
                 raise HTTPException(
                     status_code=500,
                     detail="Word document processing not available. Please install python-docx."
@@ -674,9 +682,15 @@ async def upload_file(
             try:
                 # For .docx
                 if file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+                    # #region agent log
+                    logger.info(f"[UPLOAD] Attempting to parse .docx file: {file.filename}")
+                    # #endregion
                     doc_file = io.BytesIO(content)
                     doc = Document(doc_file)
                     text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+                    # #region agent log
+                    logger.info(f"[UPLOAD] Extracted {len(text)} chars from .docx file: {file.filename}")
+                    # #endregion
                 else:
                     # For .doc (old format) - not directly supported by python-docx
                     raise HTTPException(
