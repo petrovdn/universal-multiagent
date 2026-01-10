@@ -537,6 +537,8 @@ async def list_models():
     Returns:
         List of available models with metadata
     """
+    logger.info("[API] /api/models endpoint called")
+    print(f"[API] /api/models endpoint called", flush=True)
     try:
         config = get_config()
         available_models = get_available_models()
