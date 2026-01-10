@@ -27,8 +27,11 @@ except ImportError:
 try:
     from docx import Document
     DOCX_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     DOCX_AVAILABLE = False
+    # #region agent log
+    print(f"[DEBUG] python-docx import failed: {e}")
+    # #endregion
 
 from src.utils.config_loader import get_config, reload_config
 from src.utils.logging_config import setup_logging, get_logger
@@ -175,6 +178,15 @@ Initialize services on startup."""
     print(f"[🚀 SERVER STARTUP] Instance ID: {server_instance_id}, Timestamp: {startup_timestamp}", flush=True)
     
     logger.info("Starting up Multi-Agent API...")
+    
+    # #region agent log
+    # Debug: Log optional dependencies status
+    print(f"[DEBUG] File processing dependencies status:", flush=True)
+    print(f"[DEBUG]   PyPDF2: {PyPDF2 is not None}", flush=True)
+    print(f"[DEBUG]   Pillow (Image): {Image is not None}", flush=True)
+    print(f"[DEBUG]   python-docx (DOCX_AVAILABLE): {DOCX_AVAILABLE}", flush=True)
+    logger.info(f"File processing: PyPDF2={PyPDF2 is not None}, Pillow={Image is not None}, DOCX={DOCX_AVAILABLE}")
+    # #endregion
     
     # Connect to MCP servers
     try:
