@@ -644,8 +644,14 @@ async def upload_file(
         # Get or create session
         context = session_manager.get_session(session_id)
         if not context:
+            logger.warning(f"[UPLOAD] Context not found for session {session_id}, creating new one")
+            print(f"[UPLOAD] Context not found for session {session_id}, creating new one", flush=True)
             context = ConversationContext(session_id)
             session_manager.update_session(session_id, context)
+        else:
+            existing_files = len(context.uploaded_files) if hasattr(context, 'uploaded_files') else 0
+            logger.info(f"[UPLOAD] Context found for session {session_id}, existing files: {existing_files}")
+            print(f"[UPLOAD] Context found for session {session_id}, existing files: {existing_files}", flush=True)
         
         # Process based on file type
         if file_type.startswith("image/"):
@@ -774,7 +780,17 @@ async def upload_file(
         
         # Update session
         session_manager.update_session(session_id, context)
-        logger.info(f"File uploaded successfully: {file.filename} ({file_type}, {len(content)} bytes) for session {session_id}")
+        files_after_upload = len(context.uploaded_files) if hasattr(context, 'uploaded_files') else 0
+        logger.info(f"[UPLOAD] File uploaded successfully: {file.filename} ({file_type}, {len(content)} bytes) for session {session_id}, file_id: {file_id}, total files in context: {files_after_upload}")
+        print(f"[UPLOAD] File uploaded - file_id: {file_id}, filename: {file.filename}, session: {session_id}, total files: {files_after_upload}", flush=True)
+        # Verify file was saved
+        saved_file = context.get_file(file_id)
+        if saved_file:
+            logger.info(f"[UPLOAD] Verified file {file_id} saved in context")
+            print(f"[UPLOAD] Verified file {file_id} saved - has text: {'text' in saved_file}, has data: {'data' in saved_file}", flush=True)
+        else:
+            logger.error(f"[UPLOAD] ERROR: File {file_id} NOT found in context after save!")
+            print(f"[UPLOAD] ERROR: File {file_id} NOT found in context after save!", flush=True)
         
         return result
         
@@ -847,7 +863,29 @@ WebSocket endpoint for real-time communication."""
                 user_message = data.get("content")
                 file_ids = data.get("file_ids", [])
                 open_files = data.get("open_files", [])
+                
+                # #region agent log
+                logger.info(f"[WS] Received message - session_id: {session_id}, file_ids: {file_ids}, open_files count: {len(open_files) if open_files else 0}")
+                print(f"[WS] Received message - session_id: {session_id}, file_ids: {file_ids}, user_message length: {len(user_message) if user_message else 0}", flush=True)
+                # #endregion
+                
                 context = session_manager.get_session(session_id)
+                
+                # #region agent log
+                if context:
+                    files_in_context = len(context.uploaded_files) if hasattr(context, 'uploaded_files') else 0
+                    logger.info(f"[WS] Context found - uploaded_files count: {files_in_context}")
+                    print(f"[WS] Context found - uploaded_files count: {files_in_context}", flush=True)
+                    # Check if file_ids exist in context
+                    if file_ids:
+                        for file_id in file_ids:
+                            file_data = context.get_file(file_id)
+                            logger.info(f"[WS] File {file_id} in context: {file_data is not None}")
+                            print(f"[WS] File {file_id} in context: {file_data is not None}, filename: {file_data.get('filename') if file_data else 'N/A'}", flush=True)
+                else:
+                    logger.warning(f"[WS] Context NOT found for session {session_id} - creating new one (this will lose uploaded files!)")
+                    print(f"[WS] WARNING: Context NOT found for session {session_id} - creating new one!", flush=True)
+                # #endregion
                 
                 if not context:
                     context = ConversationContext(session_id)
