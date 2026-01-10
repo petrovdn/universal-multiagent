@@ -754,8 +754,24 @@ class UnifiedReActEngine:
                     # #region agent log - H3,H4: _execute_action ERROR
                     _exec_action_end = time.time()
                     # #endregion
-                    logger.error(f"[UnifiedReActEngine] Action execution failed: {e}")
-                    result = f"Error: {str(e)}"
+                    error_msg = str(e)
+                    logger.error(f"[UnifiedReActEngine] Action execution failed: {error_msg}")
+                    
+                    # Проверяем, не пытается ли инструмент открыть уже загруженный файл
+                    if planned_tool in ["open_file", "find_and_open_file", "workspace_open_file", "workspace_find_and_open_file"]:
+                        # Проверяем, есть ли загруженные файлы
+                        if file_ids and hasattr(context, 'uploaded_files') and context.uploaded_files:
+                            attached_files = {fid: context.get_file(fid) for fid in file_ids if context.get_file(fid)}
+                            if attached_files:
+                                logger.warning(f"[UnifiedReActEngine] Tool {planned_tool} failed, but files are already attached: {list(attached_files.keys())}")
+                                print(f"[UnifiedReActEngine] Tool {planned_tool} failed, but files are attached: {list(attached_files.keys())}", flush=True)
+                                result = f"Ошибка: Файл уже прикреплён к запросу. Используй содержимое файла из секции 'ПРИКРЕПЛЕННЫЕ ФАЙЛЫ' выше. Не нужно открывать файл через инструменты - его текст уже доступен в контексте."
+                            else:
+                                result = f"Error: {error_msg}"
+                        else:
+                            result = f"Error: {error_msg}"
+                    else:
+                        result = f"Error: {error_msg}"
                 
                 # 4. OBSERVE - Analyze result
                 state.status = "observing"
@@ -2563,7 +2579,9 @@ class UnifiedReActEngine:
                 logger.info(f"[_think_and_plan] Adding {len(uploaded_files_found)} uploaded files to context_str")
                 print(f"[_think_and_plan] Adding {len(uploaded_files_found)} uploaded files to context_str", flush=True)
                 context_str += "\n📎 ПРИКРЕПЛЕННЫЕ ФАЙЛЫ (ПРИОРИТЕТ #1 - используй их ПЕРВЫМ!):\n"
-                context_str += "⚠️ НЕ ищи эти файлы в Google Drive - их содержимое УЖЕ здесь!\n\n"
+                context_str += "🚫 КРИТИЧЕСКИ ВАЖНО: НЕ используй инструменты open_file, find_and_open_file, workspace_open_file для этих файлов!\n"
+                context_str += "🚫 Их содержимое УЖЕ здесь ниже - используй текст напрямую!\n"
+                context_str += "🚫 НЕ ищи эти файлы в Google Drive или Workspace - их там нет!\n\n"
                 for file_data in uploaded_files_found:
                     filename = file_data.get('filename', 'unknown')
                     file_type = file_data.get('type', '')
@@ -2584,7 +2602,8 @@ class UnifiedReActEngine:
                         context_str += f"- Изображение: {filename} (содержимое уже в сообщении)\n\n"
                     else:
                         context_str += f"- Файл: {filename} (тип: {file_type})\n\n"
-                context_str += "⚠️ ВАЖНО: Используй содержимое этих файлов напрямую, НЕ ищи их в Google Drive!\n\n"
+                context_str += "🚫 ЗАПРЕЩЕНО: НЕ вызывай open_file, find_and_open_file, workspace_open_file для файлов выше!\n"
+                context_str += "✅ ПРАВИЛЬНО: Используй текст файлов напрямую из секции выше для ответа на вопросы пользователя!\n\n"
             else:
                 logger.warning(f"[_think_and_plan] file_ids provided ({file_ids}) but no files found in context!")
                 print(f"[_think_and_plan] WARNING: file_ids provided but no files found!", flush=True)
@@ -2670,6 +2689,20 @@ class UnifiedReActEngine:
 
 Доступные инструменты:
 {tools_str}
+
+🚫 КРИТИЧЕСКИ ВАЖНО ДЛЯ ПРИКРЕПЛЕННЫХ ФАЙЛОВ:
+- Если в секции "ПРИКРЕПЛЕННЫЕ ФАЙЛЫ" выше есть файлы с их содержимым, НИКОГДА не используй инструменты:
+  * open_file
+  * find_and_open_file
+  * workspace_open_file
+  * workspace_find_and_open_file
+  * search_files
+  * drive_search_files
+- Содержимое этих файлов УЖЕ в контексте выше - используй его напрямую для ответа на вопросы!
+- Если пользователь спрашивает "что в файле", "что в документе", "а этот файл ты видишь" - отвечай используя текст из секции "ПРИКРЕПЛЕННЫЕ ФАЙЛЫ"!
+- НЕ пытайся открыть эти файлы через инструменты - они уже загружены и их содержимое показано выше!
+- Если в секции "ПРИКРЕПЛЕННЫЕ ФАЙЛЫ" есть Word документ или PDF - весь текст уже там, просто используй его для ответа!
+- НЕ используй инструменты для открытия файлов, если их содержимое уже показано выше - это приведет к ошибке!
 
 КРИТИЧЕСКИ ВАЖНО: Если запрос пользователя неполный или неясный (например, "создай встречу" без указания времени, участников, длительности), 
 "назначь встречу?" (вопросительный знак указывает на неполноту), "отправь письмо" без указания получателя и темы,

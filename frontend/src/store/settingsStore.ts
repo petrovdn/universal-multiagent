@@ -27,7 +27,6 @@ interface SettingsState {
   executionMode: ExecutionMode
   timezone: string
   theme: Theme
-  debugMode: boolean
   showReasoning: boolean // Show reasoning blocks in Query mode
   integrations: IntegrationsState
   thinkingPreferences: {
@@ -37,7 +36,6 @@ interface SettingsState {
   setExecutionMode: (mode: ExecutionMode) => void
   setTimezone: (tz: string) => void
   setTheme: (theme: Theme) => void
-  setDebugMode: (enabled: boolean) => void
   setShowReasoning: (enabled: boolean) => void
   setIntegrationStatus: (integration: keyof IntegrationsState, status: Partial<IntegrationsState[keyof IntegrationsState]>) => void
   addPinnedThinkingId: (thinkingId: string) => void
@@ -66,7 +64,6 @@ export const useSettingsStore = create<SettingsState>()(
       executionMode: 'agent',
       timezone: 'Europe/Moscow',
       theme: 'light',
-      debugMode: false,
       showReasoning: false, // Hide reasoning by default in Query mode
       thinkingPreferences: {
         defaultCollapsed: true,  // По умолчанию свёрнуто
@@ -108,9 +105,6 @@ export const useSettingsStore = create<SettingsState>()(
       
       setTheme: (theme) =>
         set({ theme }),
-      
-      setDebugMode: (enabled) =>
-        set({ debugMode: enabled }),
       
       setShowReasoning: (enabled) =>
         set({ showReasoning: enabled }),

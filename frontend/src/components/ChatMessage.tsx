@@ -2,59 +2,15 @@ import React, { useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Brain } from 'lucide-react'
-import { AssistantMessage, DebugChunkType, useChatStore } from '../store/chatStore'
+import { AssistantMessage, useChatStore } from '../store/chatStore'
 import { ReasoningBlock } from './ReasoningBlock'
 import { CollapsibleBlock } from './CollapsibleBlock'
 import { AnswerBlock } from './AnswerBlock'
 import { PlanBlock } from './PlanBlock'
 import { StepProgress } from './StepProgress'
-import { useSettingsStore } from '../store/settingsStore'
 
 interface ChatMessageProps {
   message: AssistantMessage
-}
-
-// Colors for different chunk types in debug mode
-const getChunkColor = (type: DebugChunkType): string => {
-  switch (type) {
-    case 'thinking':
-      return '#22c55e' // green
-    case 'message_chunk':
-      return '#000000' // black
-    case 'tool_call':
-      return '#3b82f6' // blue
-    case 'tool_result':
-      return '#2563eb' // darker blue
-    case 'error':
-      return '#ef4444' // red
-    case 'message_start':
-      return '#6b7280' // gray
-    case 'message_complete':
-      return '#6b7280' // gray
-    default:
-      return '#000000' // black
-  }
-}
-
-const getChunkTypeLabel = (type: DebugChunkType): string => {
-  switch (type) {
-    case 'thinking':
-      return 'Ризонинг'
-    case 'message_chunk':
-      return 'Ответ'
-    case 'tool_call':
-      return 'Вызов инструмента'
-    case 'tool_result':
-      return 'Результат инструмента'
-    case 'error':
-      return 'Ошибка'
-    case 'message_start':
-      return 'Начало сообщения'
-    case 'message_complete':
-      return 'Завершение сообщения'
-    default:
-      return type
-  }
 }
 
 // Тип для reasoning-answer пары (подход B как в Cursor)
@@ -66,61 +22,7 @@ type ReasoningAnswerPair = {
 }
 
 export function ChatMessage({ message }: ChatMessageProps) {
-  const { debugMode } = useSettingsStore()
   // Note: workflowPlan is no longer used here as workflows are now per user message
-  
-  // В отладочном режиме показываем все чанки последовательно
-  if (debugMode && message.debugChunks && message.debugChunks.length > 0) {
-    return (
-      <div className="chat-message debug-mode">
-        {message.debugChunks.map((chunk) => (
-          <div
-            key={chunk.id}
-            className="debug-chunk"
-            style={{
-              color: getChunkColor(chunk.type),
-              borderLeft: `3px solid ${getChunkColor(chunk.type)}`,
-              padding: '8px 12px',
-              marginBottom: '4px',
-              backgroundColor: 'rgba(0, 0, 0, 0.02)',
-              borderRadius: '4px',
-            }}
-          >
-            <div
-              style={{
-                fontSize: '11px',
-                fontWeight: 600,
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                marginBottom: '4px',
-                opacity: 0.7,
-              }}
-            >
-              {getChunkTypeLabel(chunk.type)}
-            </div>
-            <div
-              style={{
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                fontSize: '14px',
-              }}
-            >
-              {chunk.content}
-            </div>
-            {chunk.metadata && Object.keys(chunk.metadata).length > 0 && (
-              <details style={{ marginTop: '8px', fontSize: '12px', opacity: 0.6 }}>
-                <summary style={{ cursor: 'pointer' }}>Метаданные</summary>
-                <pre style={{ marginTop: '4px', overflow: 'auto', maxHeight: '200px' }}>
-                  {JSON.stringify(chunk.metadata, null, 2)}
-                </pre>
-              </details>
-            )}
-          </div>
-        ))}
-      </div>
-    )
-  }
-  
 
   // Группируем reasoning и answer блоки в пары (подход B) - улучшенный алгоритм
   const reasoningAnswerPairs = useMemo<ReasoningAnswerPair[]>(() => {

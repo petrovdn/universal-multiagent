@@ -120,30 +120,52 @@ class FileContextResolver:
         if not attached_files:
             return None
         
-        # Сначала ищем точное совпадение
-        exact_match = None
-        partial_match = None
+        # #region agent log
+        import logging
+        _logger = logging.getLogger(__name__)
+        _logger.info(f"[_find_in_attached] Searching for query: '{query_lower}' in {len(attached_files)} attached files")
+        print(f"[_find_in_attached] Searching query: '{query_lower}' in files: {[f.get('filename') for f in attached_files.values()]}", flush=True)
+        # #endregion
         
-        for file_id, file_data in attached_files.items():
-            filename = file_data.get("filename", "")
-            filename_lower = filename.lower()
-            
-            # Убираем расширение для сравнения
-            filename_no_ext = re.sub(r'\.[^.]+$', '', filename_lower)
-            
-            # Точное совпадение (без расширения)
-            if filename_no_ext == query_lower or filename_lower == query_lower:
-                exact_match = (file_id, file_data)
-                break
-            
-            # Частичное совпадение
-            if query_lower in filename_lower or filename_no_ext.startswith(query_lower):
-                if partial_match is None:
-                    partial_match = (file_id, file_data)
+        # Ключевые слова, которые указывают на прикрепленный файл (если есть только один файл)
+        generic_file_keywords = ["файл", "file", "документ", "document", "word", "pdf", "изображение", "image"]
+        has_generic_keyword = any(keyword in query_lower for keyword in generic_file_keywords)
         
-        match = exact_match or partial_match
-        if not match:
-            return None
+        # Если есть только один прикрепленный файл и query содержит общее слово - считаем что это он
+        if len(attached_files) == 1 and has_generic_keyword:
+            file_id, file_data = list(attached_files.items())[0]
+            _logger.info(f"[_find_in_attached] Found match via generic keyword (single file): {file_data.get('filename')}")
+            print(f"[_find_in_attached] Match via generic keyword: {file_data.get('filename')}", flush=True)
+            match = (file_id, file_data)
+        else:
+            # Сначала ищем точное совпадение
+            exact_match = None
+            partial_match = None
+            
+            for file_id, file_data in attached_files.items():
+                filename = file_data.get("filename", "")
+                filename_lower = filename.lower()
+                
+                # Убираем расширение для сравнения
+                filename_no_ext = re.sub(r'\.[^.]+$', '', filename_lower)
+                
+                # Точное совпадение (без расширения)
+                if filename_no_ext == query_lower or filename_lower == query_lower:
+                    exact_match = (file_id, file_data)
+                    break
+                
+                # Частичное совпадение
+                if query_lower in filename_lower or filename_no_ext.startswith(query_lower):
+                    if partial_match is None:
+                        partial_match = (file_id, file_data)
+            
+            match = exact_match or partial_match
+            if not match:
+                # #region agent log
+                _logger.warning(f"[_find_in_attached] No match found for query: '{query_lower}'")
+                print(f"[_find_in_attached] No match found for query: '{query_lower}'", flush=True)
+                # #endregion
+                return None
         
         file_id, file_data = match
         file_type = file_data.get("type", "")
@@ -151,6 +173,11 @@ class FileContextResolver:
         # Определяем тип файла
         is_image = file_type.startswith("image/")
         has_text = "text" in file_data and file_data["text"]
+        
+        # #region agent log
+        _logger.info(f"[_find_in_attached] Found match: {file_data.get('filename')}, type: {file_type}, has_text: {has_text}")
+        print(f"[_find_in_attached] Found match: {file_data.get('filename')}, has_text: {has_text}", flush=True)
+        # #endregion
         
         return FileResolution(
             source=FileSource.ATTACHED,
