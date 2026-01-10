@@ -39,20 +39,28 @@ export const useModelStore = create<ModelState>()(
           const result = await apiFetchModels()
           const models: Model[] = result.models || []
           console.log('[ModelStore] Models fetched successfully:', models)
+          console.log('[ModelStore] Models count:', models.length)
           
+          if (models.length === 0) {
+            console.warn('[ModelStore] No models returned from API')
+            set({ error: 'Нет доступных моделей. Проверьте, что API ключи установлены на сервере.', isLoading: false, models: [] })
+            return
+          }
+          
+          // Clear error on success and set models
           // Set default model if none selected
           const currentSelected = get().selectedModel
           if (!currentSelected && models.length > 0) {
             const defaultModel = models.find(m => m.default) || models[0]
             console.log('[ModelStore] Setting default model:', defaultModel.id)
-            set({ models, selectedModel: defaultModel.id })
+            set({ models, selectedModel: defaultModel.id, error: null })
           } else {
-            set({ models })
+            set({ models, error: null })
           }
         } catch (error) {
           console.error('[ModelStore] Error fetching models:', error)
           const errorMessage = error instanceof Error ? error.message : 'Failed to fetch models'
-          set({ error: errorMessage, isLoading: false })
+          set({ error: errorMessage, isLoading: false, models: [] })
         } finally {
           set({ isLoading: false })
         }
@@ -60,6 +68,10 @@ export const useModelStore = create<ModelState>()(
     }),
     {
       name: 'model-storage',
+      partialize: (state) => ({
+        // Only persist selectedModel, not error or loading state
+        selectedModel: state.selectedModel,
+      }),
     }
   )
 )
