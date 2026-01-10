@@ -91,7 +91,13 @@ from starlette.requests import Request as StarletteRequest
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: StarletteRequest, call_next):
+        if request.url.path == "/api/models":
+            logger.info(f"[Middleware] Request to /api/models from {request.client.host if request.client else 'unknown'}")
+            print(f"[Middleware] Request to /api/models - method: {request.method}, path: {request.url.path}", flush=True)
         response = await call_next(request)
+        if request.url.path == "/api/models":
+            logger.info(f"[Middleware] Response for /api/models - status: {response.status_code}")
+            print(f"[Middleware] Response for /api/models - status: {response.status_code}", flush=True)
         return response
 
 app.add_middleware(RequestLoggingMiddleware)
@@ -130,6 +136,65 @@ app.include_router(integration_router)
 # Log registered routes for debugging
 print(f"[DEBUG] Integration router registered with {len(list(integration_router.routes))} routes", flush=True)
 
+# Register API endpoints BEFORE catch-all route to ensure they are processed first
+@app.get("/api/models")
+async def list_models():
+    """
+    List all available models with their capabilities.
+    
+    Returns:
+        List of available models with metadata
+    """
+    logger.info("[API] /api/models endpoint called")
+    print(f"[API] /api/models endpoint called", flush=True)
+    try:
+        # #region agent log
+        import os
+        _anthropic_env = os.getenv("ANTHROPIC_API_KEY")
+        _openai_env = os.getenv("OPENAI_API_KEY")
+        print(f"[API] Environment variables check - ANTHROPIC_API_KEY: {'SET' if _anthropic_env and _anthropic_env.strip() else 'MISSING'} (len={len(_anthropic_env) if _anthropic_env else 0}), OPENAI_API_KEY: {'SET' if _openai_env and _openai_env.strip() else 'MISSING'} (len={len(_openai_env) if _openai_env else 0})", flush=True)
+        # #endregion
+        config = get_config()
+        # #region agent log
+        print(f"[API] Config after get_config() - Anthropic key: {'SET' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'MISSING'} (len={len(config.anthropic_api_key) if config.anthropic_api_key else 0}), OpenAI key: {'SET' if config.openai_api_key and config.openai_api_key.strip() else 'MISSING'} (len={len(config.openai_api_key) if config.openai_api_key else 0})", flush=True)
+        # #endregion
+        available_models = get_available_models()
+        # Log for debugging
+        logger.info(f"[DEBUG] Available models count: {len(available_models)}, IDs: {list(available_models.keys())}")
+        logger.info(f"[DEBUG] API keys status: Anthropic={'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI={'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}")
+        logger.info(f"[DEBUG] Anthropic key length: {len(config.anthropic_api_key) if config.anthropic_api_key else 0}, OpenAI key length: {len(config.openai_api_key) if config.openai_api_key else 0}")
+        print(f"[DEBUG] Available models count: {len(available_models)}, IDs: {list(available_models.keys())}", flush=True)
+        print(f"[DEBUG] API keys - Anthropic: {'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'} (len={len(config.anthropic_api_key) if config.anthropic_api_key else 0}), OpenAI: {'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'} (len={len(config.openai_api_key) if config.openai_api_key else 0})", flush=True)
+        
+        models_list = []
+        for model_id, model_config in MODELS.items():
+            if model_id in available_models:
+                model_info = get_model_info(model_id)
+                models_list.append({
+                    "id": model_id,
+                    "name": model_info.get("display_name", model_id),
+                    "provider": model_config["provider"],
+                    "supports_reasoning": model_config.get("supports_reasoning", False),
+                    "reasoning_type": model_config.get("reasoning_type"),
+                    "default": model_id == config.default_model
+                })
+        
+        logger.info(f"[DEBUG] Returning {len(models_list)} models to client: {[m['id'] for m in models_list]}")
+        print(f"[DEBUG] Returning {len(models_list)} models to client: {[m['id'] for m in models_list]}", flush=True)
+        
+        if len(models_list) == 0:
+            logger.warning("[API] /api/models returning EMPTY list - this should not happen if API keys are set!")
+            print("[API] WARNING: /api/models returning EMPTY list!", flush=True)
+        
+        return {"models": models_list}
+    except Exception as e:
+        logger.error(f"[DEBUG] Error listing models: {e}", exc_info=True)
+        print(f"[API] ERROR in /api/models: {e}", flush=True)
+        import traceback
+        print(f"[API] Traceback: {traceback.format_exc()}", flush=True)
+        # Return empty list instead of failing
+        return {"models": []}
+
 # Serve static files in production
 if config.is_production:
     frontend_dist = Path(__file__).parent.parent.parent / "frontend" / "dist"
@@ -148,6 +213,11 @@ if config.is_production:
         async def serve_frontend(full_path: str):
             """
 Serve frontend files, fallback to index.html for SPA routing."""
+            # #region agent log
+            if full_path.startswith("api/"):
+                logger.warning(f"[serve_frontend] Catch-all caught API path: {full_path} - this should not happen!")
+                print(f"[serve_frontend] WARNING: Catch-all caught API path: {full_path}", flush=True)
+            # #endregion
             file_path = frontend_dist / full_path
             if file_path.exists() and file_path.is_file():
                 # Set correct MIME type for common files
@@ -527,65 +597,6 @@ List all available tools."""
             for name, tool in tools.items()
         ]
     }
-
-
-@app.get("/api/models")
-async def list_models():
-    """
-    List all available models with their capabilities.
-    
-    Returns:
-        List of available models with metadata
-    """
-    logger.info("[API] /api/models endpoint called")
-    print(f"[API] /api/models endpoint called", flush=True)
-    try:
-        # #region agent log
-        import os
-        _anthropic_env = os.getenv("ANTHROPIC_API_KEY")
-        _openai_env = os.getenv("OPENAI_API_KEY")
-        print(f"[API] Environment variables check - ANTHROPIC_API_KEY: {'SET' if _anthropic_env and _anthropic_env.strip() else 'MISSING'} (len={len(_anthropic_env) if _anthropic_env else 0}), OPENAI_API_KEY: {'SET' if _openai_env and _openai_env.strip() else 'MISSING'} (len={len(_openai_env) if _openai_env else 0})", flush=True)
-        # #endregion
-        config = get_config()
-        # #region agent log
-        print(f"[API] Config after get_config() - Anthropic key: {'SET' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'MISSING'} (len={len(config.anthropic_api_key) if config.anthropic_api_key else 0}), OpenAI key: {'SET' if config.openai_api_key and config.openai_api_key.strip() else 'MISSING'} (len={len(config.openai_api_key) if config.openai_api_key else 0})", flush=True)
-        # #endregion
-        available_models = get_available_models()
-        # Log for debugging
-        logger.info(f"[DEBUG] Available models count: {len(available_models)}, IDs: {list(available_models.keys())}")
-        logger.info(f"[DEBUG] API keys status: Anthropic={'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI={'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}")
-        logger.info(f"[DEBUG] Anthropic key length: {len(config.anthropic_api_key) if config.anthropic_api_key else 0}, OpenAI key length: {len(config.openai_api_key) if config.openai_api_key else 0}")
-        print(f"[DEBUG] Available models count: {len(available_models)}, IDs: {list(available_models.keys())}", flush=True)
-        print(f"[DEBUG] API keys - Anthropic: {'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'} (len={len(config.anthropic_api_key) if config.anthropic_api_key else 0}), OpenAI: {'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'} (len={len(config.openai_api_key) if config.openai_api_key else 0})", flush=True)
-        
-        models_list = []
-        for model_id, model_config in MODELS.items():
-            if model_id in available_models:
-                model_info = get_model_info(model_id)
-                models_list.append({
-                    "id": model_id,
-                    "name": model_info.get("display_name", model_id),
-                    "provider": model_config["provider"],
-                    "supports_reasoning": model_config.get("supports_reasoning", False),
-                    "reasoning_type": model_config.get("reasoning_type"),
-                    "default": model_id == config.default_model
-                })
-        
-        logger.info(f"[DEBUG] Returning {len(models_list)} models to client: {[m['id'] for m in models_list]}")
-        print(f"[DEBUG] Returning {len(models_list)} models to client: {[m['id'] for m in models_list]}", flush=True)
-        
-        if len(models_list) == 0:
-            logger.warning("[API] /api/models returning EMPTY list - this should not happen if API keys are set!")
-            print("[API] WARNING: /api/models returning EMPTY list!", flush=True)
-        
-        return {"models": models_list}
-    except Exception as e:
-        logger.error(f"[DEBUG] Error listing models: {e}", exc_info=True)
-        print(f"[API] ERROR in /api/models: {e}", flush=True)
-        import traceback
-        print(f"[API] Traceback: {traceback.format_exc()}", flush=True)
-        # Return empty list instead of failing
-        return {"models": []}
 
 
 @app.post("/api/upload")
