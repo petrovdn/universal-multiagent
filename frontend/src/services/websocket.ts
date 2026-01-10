@@ -1,4 +1,5 @@
 import { useChatStore } from '../store/chatStore'
+import { useSettingsStore } from '../store/settingsStore'
 
 export interface WebSocketEvent {
   type: string
