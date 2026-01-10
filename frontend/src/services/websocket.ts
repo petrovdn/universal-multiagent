@@ -453,9 +453,6 @@ export class WebSocketClient {
         break
 
       case 'message_complete':
-        // #region agent log - H_UI_message_complete
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:message_complete',message:'UI received message_complete - will set isAgentTyping=false',data:{content_preview:(event.data?.content || '').slice(0,100),message_id:event.data?.message_id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H_UI'})}).catch(()=>{});
-        // #endregion
         // Cancel thinking delay timer if response completed quickly
         if (this.thinkingDelayTimer) {
           clearTimeout(this.thinkingDelayTimer)
@@ -708,9 +705,6 @@ export class WebSocketClient {
         break
 
       case 'workflow_complete':
-        // #region agent log - H_UI_workflow_complete
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:workflow_complete',message:'UI received workflow_complete - will set isAgentTyping=false',data:{event_type:'workflow_complete'},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H_UI'})}).catch(()=>{});
-        // #endregion
         // Complete the entire workflow - use getState() to get fresh state
         const finalState = useChatStore.getState()
         finalState.completeWorkflow()
@@ -741,9 +735,6 @@ export class WebSocketClient {
         break
 
       case 'final_result_complete':
-        // #region agent log - H_UI_final_result_complete
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result_complete',message:'UI received final_result_complete - will set isAgentTyping=false',data:{content_length:event.data?.content?.length || 0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H_UI'})}).catch(()=>{});
-        // #endregion
         // Cancel thinking delay timer if response completed quickly
         if (this.thinkingDelayTimer) {
           clearTimeout(this.thinkingDelayTimer)
@@ -771,9 +762,6 @@ export class WebSocketClient {
         break
 
       case 'final_result': {
-        // #region agent log - H_UI_final_result
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:final_result',message:'UI received final_result - will set isAgentTyping=false',data:{content_length:event.data?.content?.length || 0,content_preview:(event.data?.content || '').slice(0,100)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H_UI'})}).catch(()=>{});
-        // #endregion
         // Legacy: Set final result for the active workflow
         // This is used for:
         // 1. Simple queries (_answer_directly) - no streaming
@@ -1102,9 +1090,6 @@ export class WebSocketClient {
 
       // Intent events (Cursor-style)
       case 'intent_start': {
-        // #region agent log - H_UI_intent_start
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_start',message:'UI received intent_start - will set isAgentTyping=true',data:{intent_id:event.data?.intent_id,text:event.data?.text},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H_UI'})}).catch(()=>{});
-        // #endregion
         console.log('[WebSocket] Intent started:', event.data)
         // Скрываем индикатор "Думаю..." при появлении первого intent
         chatStore.setShowThinkingIndicator(false)
@@ -1220,9 +1205,6 @@ export class WebSocketClient {
       }
       
       case 'intent_complete': {
-        // #region agent log - H_UI_intent_complete
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_complete',message:'UI received intent_complete',data:{intent_id:event.data?.intent_id,summary:event.data?.summary},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H_UI'})}).catch(()=>{});
-        // #endregion
         console.log('[WebSocket] Intent completed:', event.data)
         // Останавливаем SmartProgress при завершении intent
         chatStore.stopSmartProgress()

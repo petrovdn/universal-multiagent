@@ -73,13 +73,6 @@ class ResultAnalyzer:
         quick_analysis = self._quick_analysis(result, action)
         if quick_analysis:
             logger.info(f"[ResultAnalyzer] Quick analysis: success={quick_analysis.is_success}, error={quick_analysis.is_error}")
-            
-            # #region agent log - H3,H4: ResultAnalyzer quick analysis
-            import time as _time
-            import json as _json
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "result_analyzer:quick_analysis", "message": "Quick analysis result", "data": {"tool_name": action.tool_name, "is_success": quick_analysis.is_success, "is_error": quick_analysis.is_error, "is_goal_achieved": quick_analysis.is_goal_achieved, "error_message": quick_analysis.error_message, "result_preview": str(result)[:300]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
-            # #endregion
-            
             return quick_analysis
         
         # Use LLM for deeper analysis
@@ -107,12 +100,6 @@ class ResultAnalyzer:
         
         for indicator in error_indicators:
             if indicator in result_str:
-                # #region agent log - H4: Error indicator detected
-                import time as _time
-                import json as _json
-                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "result_analyzer:error_indicator", "message": "ERROR INDICATOR DETECTED", "data": {"tool_name": action.tool_name, "indicator": indicator, "result_preview": result_str[:500]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H4"}) + '\n')
-                # #endregion
-                
                 return Analysis(
                     is_success=False,
                     is_goal_achieved=False,
@@ -149,12 +136,6 @@ class ResultAnalyzer:
         if action.tool_name not in intermediate_tools:
             for indicator in goal_achieved_indicators:
                 if indicator in result_str:
-                    # #region agent log - H_LOOP: Goal achieved detected
-                    import time as _time
-                    import json as _json
-                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "result_analyzer:GOAL_ACHIEVED", "message": "GOAL ACHIEVED detected", "data": {"tool_name": action.tool_name, "indicator": indicator, "result_preview": result_str[:200]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_LOOP"}) + '\n')
-                    # #endregion
-                    
                     return Analysis(
                         is_success=True,
                         is_goal_achieved=True,  # Goal is fully achieved!
@@ -165,12 +146,6 @@ class ResultAnalyzer:
         
         for indicator in success_indicators:
             if indicator in result_str and len(result_str) < 500:  # Short, clear success messages
-                # #region agent log - H_LOOP: Success but not goal achieved
-                import time as _time
-                import json as _json
-                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "result_analyzer:success_not_achieved", "message": "Success but NOT goal achieved", "data": {"tool_name": action.tool_name, "indicator": indicator, "result_preview": result_str[:200]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_LOOP"}) + '\n')
-                # #endregion
-                
                 return Analysis(
                     is_success=True,
                     is_goal_achieved=False,  # Don't assume goal achieved from single action
@@ -268,11 +243,6 @@ class ResultAnalyzer:
                 # Fallback: try parsing entire response
                 analysis_data = json.loads(response_text)
             
-            # #region agent log - H_LLM_ANALYZE: LLM analysis result
-            import time as _time
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(json.dumps({"location": "result_analyzer:llm_analyze_result", "message": "LLM analysis completed", "data": {"tool_name": action.tool_name, "goal": goal[:200], "is_success": analysis_data.get("is_success", False), "is_goal_achieved": analysis_data.get("is_goal_achieved", False), "is_error": analysis_data.get("is_error", False), "progress": analysis_data.get("progress_toward_goal", 0.0), "next_action": analysis_data.get("next_action_suggestion", "")[:100], "result_preview": result_str[:300]}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_LLM_ANALYZE"}) + '\n')
-            # #endregion
-            
             return Analysis(
                 is_success=analysis_data.get("is_success", False),
                 is_goal_achieved=analysis_data.get("is_goal_achieved", False),
@@ -294,4 +264,3 @@ class ResultAnalyzer:
                 error_message=f"Ошибка анализа: {str(e)}",
                 confidence=0.3
             )
-

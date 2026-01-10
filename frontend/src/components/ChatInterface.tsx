@@ -500,27 +500,6 @@ export function ChatInterface() {
         }
       })
     
-    // #region debug log - hypothesis H3: проверка передачи open_files с фронтенда
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        location: 'ChatInterface.tsx:481',
-        message: 'H3: Frontend sending open_files',
-        data: {
-          openFilesCount: openFiles.length,
-          openFiles: openFiles,
-          tabsCount: tabs.length,
-          tabs: tabs.map(t => ({ type: t.type, title: t.title, hasData: !!t.data }))
-        },
-        timestamp: Date.now(),
-        sessionId: 'debug-session',
-        runId: 'run1',
-        hypothesisId: 'H3'
-      })
-    }).catch(() => {});
-    // #endregion
-    
     console.log('[ChatInterface] Sending message:', userMessage, 'with files:', fileIds, 'open files:', openFiles)
     console.log('[ChatInterface] Current session:', currentSession)
     console.log('[ChatInterface] WebSocket connected:', wsClient.isConnected())

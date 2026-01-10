@@ -212,12 +212,10 @@ class UnifiedReActEngine:
         
         # #region agent log - H1,H2,H5: Execute start with timing
         _exec_start = time.time()
-        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:START", "message": "Execute started", "data": {"goal": goal[:150], "session_id": self.session_id, "start_time": _exec_start}, "timestamp": int(_exec_start*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2,H5"}) + '\n')
         # #endregion
         
         # #region agent log - H4: Available capabilities check
         _calendar_caps = [c.name for c in self.capabilities if 'calendar' in c.name.lower() or 'event' in c.name.lower()]
-        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:capabilities_check", "message": "Available calendar capabilities", "data": {"calendar_capabilities": _calendar_caps, "total_capabilities": len(self.capabilities), "all_capability_names": [c.name for c in self.capabilities[:30]]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H4"}) + '\n')
         # #endregion
         
         # Initialize state
@@ -238,7 +236,6 @@ class UnifiedReActEngine:
         self._phase_intent_ids = {}  # category -> intent_id mapping
         
         # #region agent log - H1,H2,H3: Intent creation decision
-        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:intent_creation", "message": "Intent creation decision", "data": {"is_multi_phase": self._is_multi_phase, "phases_count": len(task_phases), "phases": [{"name": p['name'], "category": p['category'], "description": p['description']} for p in task_phases[:3]]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2,H3"}) + '\n')
         # #endregion
         
         # Create intent_start IMMEDIATELY (before any LLM calls)
@@ -252,7 +249,6 @@ class UnifiedReActEngine:
             self._phase_intent_ids[first_phase['category']] = task_intent_id
             
             # #region agent log - H1,H2: First intent created
-            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:first_intent", "message": "Creating first phase intent", "data": {"intent_id": task_intent_id, "phase_name": first_phase['name'], "phase_category": first_phase['category'], "phase_description": first_phase['description'], "goal_context": goal[:100]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2"}) + '\n')
             # #endregion
             
             await self.ws_manager.send_event(
@@ -269,7 +265,6 @@ class UnifiedReActEngine:
             task_description = self._generate_task_description(goal)
             
             # #region agent log - H1: Single-phase intent_start timing
-            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:single_phase_intent", "message": "Creating single-phase intent", "data": {"intent_id": task_intent_id, "description": task_description, "goal": goal[:100]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + '\n')
             # #endregion
             
             await self.ws_manager.send_event(
@@ -282,7 +277,6 @@ class UnifiedReActEngine:
         
         # #region agent log - H1: Before _needs_tools timing
         _needs_tools_start = time.time()
-        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:before_needs_tools", "message": "Before _needs_tools call", "data": {"elapsed_since_start_ms": int((_needs_tools_start - _exec_start)*1000), "goal": goal[:100]}, "timestamp": int(_needs_tools_start*1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + '\n')
         # #endregion
         
         # NOW check if query needs tools (may take 500-2000ms with LLM)
@@ -291,7 +285,6 @@ class UnifiedReActEngine:
         
         # #region agent log - H1: After _needs_tools timing
         _needs_tools_end = time.time()
-        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:after_needs_tools", "message": "After _needs_tools call", "data": {"needs_tools_duration_ms": int((_needs_tools_end - _needs_tools_start)*1000), "needs_tools": needs_tools, "total_elapsed_ms": int((_needs_tools_end - _exec_start)*1000)}, "timestamp": int(_needs_tools_end*1000), "sessionId": "debug-session", "hypothesisId": "H1"}) + '\n')
         # #endregion
         
         # Анализируем сложность задачи и выбираем модель/budget
@@ -309,7 +302,6 @@ class UnifiedReActEngine:
         if needs_tools:
             await self.smart_progress.start(goal, complexity.estimated_duration_sec)
         
-        # #region debug log - needs_tools result in execute
         log_data_needs_result = {
             "location": "unified_react_engine.py:211",
             "message": "execute: needs_tools result",
@@ -325,7 +317,6 @@ class UnifiedReActEngine:
             "hypothesisId": "H_NEEDS_TOOLS"
         }
         try:
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                 f.write(json.dumps(log_data_needs_result, default=str) + "\n")
         except Exception:
             pass
@@ -377,7 +368,6 @@ class UnifiedReActEngine:
                 logger.info(f"[UnifiedReActEngine] Starting iteration {state.iteration}")
                 
                 # #region agent log - H_ITER: Iteration start with full context
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:iteration_start", "message": f"ITERATION {state.iteration} STARTED", "data": {"iteration": state.iteration, "max_iterations": state.max_iterations, "goal": state.goal[:300], "previous_tools": [a.tool_name for a in state.action_history], "previous_observations_success": [o.success for o in state.observations], "total_elapsed_ms": int((time.time() - _exec_start)*1000)}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_ITER"}) + '\n')
                 # #endregion
                 
                 # === NEW ARCHITECTURE: No per-iteration intent, use task-level intent ===
@@ -389,7 +379,6 @@ class UnifiedReActEngine:
                 
                 # #region agent log - H2: Before _think_and_plan timing
                 _think_plan_start = time.time()
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:before_think_and_plan", "message": "Before _think_and_plan call", "data": {"iteration": state.iteration, "total_elapsed_ms": int((_think_plan_start - _exec_start)*1000)}, "timestamp": int(_think_plan_start*1000), "sessionId": "debug-session", "hypothesisId": "H2"}) + '\n')
                 # #endregion
                 
                 # Объединённый вызов: анализ + планирование
@@ -397,7 +386,6 @@ class UnifiedReActEngine:
                 
                 # #region agent log - H2: After _think_and_plan timing
                 _think_plan_end = time.time()
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:after_think_and_plan", "message": "After _think_and_plan call", "data": {"iteration": state.iteration, "think_plan_duration_ms": int((_think_plan_end - _think_plan_start)*1000), "thought_length": len(thought) if thought else 0, "tool_name": action_plan.get("tool_name", ""), "total_elapsed_ms": int((_think_plan_end - _exec_start)*1000)}, "timestamp": int(_think_plan_end*1000), "sessionId": "debug-session", "hypothesisId": "H2,H5"}) + '\n')
                 # #endregion
                 
                 state.current_thought = thought
@@ -416,26 +404,6 @@ class UnifiedReActEngine:
                 # #region agent log - H3: Planned action with FULL ARGUMENTS
                 planned_tool = action_plan.get("tool_name", "")
                 import json as _json
-                _args_preview = {}
-                if action_plan.get("arguments"):
-                    for k, v in action_plan.get("arguments", {}).items():
-                        _args_preview[k] = str(v)[:100] if v else None
-                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
-                    "location": "execute:planned_action",
-                    "message": f"LLM decided: {planned_tool}",
-                    "data": {
-                        "iteration": state.iteration,
-                        "tool_name": planned_tool,
-                        "arguments": _args_preview,
-                        "reasoning": action_plan.get("reasoning", "")[:200],
-                        "thought_preview": thought[:300] if thought else ""
-                    },
-                    "timestamp": int(time.time()*1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H3_DECISION"
-                }) + '\n')
-                # #endregion
-                
                 # === ANTI-LOOP: Detect repeated get_calendar_events calls ===
                 if planned_tool == "get_calendar_events" and len(state.action_history) > 0:
                     # Check if last action was also get_calendar_events
@@ -443,7 +411,6 @@ class UnifiedReActEngine:
                     if last_action.tool_name == "get_calendar_events":
                         logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Detected repeated get_calendar_events call, forcing create_event")
                         # #region agent log - H6: Anti-loop triggered
-                        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:anti_loop_triggered", "message": "ANTI-LOOP: Forcing create_event instead of repeated get_calendar_events", "data": {"iteration": state.iteration, "last_tool": last_action.tool_name, "planned_tool": planned_tool, "goal": state.goal[:150]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H6"}) + '\n')
                         # #endregion
                         
                         # Extract meeting parameters from goal
@@ -505,23 +472,6 @@ class UnifiedReActEngine:
                         # Tool failed 2+ times, we need to try something different
                         logger.warning(f"[UnifiedReActEngine] UNIVERSAL ANTI-LOOP: Tool {planned_tool} failed {failed_same_tool_count} times in a row!")
                         
-                        # #region agent log - H_ANTILOOP: Universal anti-loop triggered
-                        import json as _json
-                        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
-                            "location": "execute:universal_anti_loop",
-                            "message": f"ANTI-LOOP: Tool {planned_tool} blocked after {failed_same_tool_count} failures",
-                            "data": {
-                                "iteration": state.iteration,
-                                "blocked_tool": planned_tool,
-                                "failed_count": failed_same_tool_count,
-                                "last_error": str(state.observations[-1].raw_result)[:200] if state.observations else ""
-                            },
-                            "timestamp": int(time.time()*1000),
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H_ANTILOOP"
-                        }) + '\n')
-                        # #endregion
-                        
                         # Map blocked tool to alternative
                         tool_alternatives = {
                             "find_and_open_file": "read_document",  # Google Docs
@@ -569,7 +519,6 @@ class UnifiedReActEngine:
                     new_category = self._get_tool_category(planned_tool)
                     
                     # #region agent log - H3,H4: Tool category classification
-                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:tool_category", "message": "Tool category classification", "data": {"tool_name": planned_tool, "detected_category": new_category, "current_phase_category": self._current_phase_category, "is_multi_phase": self._is_multi_phase, "will_transition": new_category != self._current_phase_category and new_category != 'general'}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
                     # #endregion
                     
                     # Check if we're transitioning to a new phase
@@ -583,8 +532,6 @@ class UnifiedReActEngine:
                     )
                     
                     if should_transition:
-                        # #region debug log - phase transition detected
-                        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:phase_transition", "message": "Phase transition detected", "data": {"from_category": self._current_phase_category, "to_category": new_category, "tool_name": planned_tool, "is_multi_phase": self._is_multi_phase, "current_intent_id": self._current_intent_id}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_PHASE_TRANSITION"}) + '\n')
                         # #endregion
                         
                         # Complete current intent before starting new one
@@ -602,8 +549,6 @@ class UnifiedReActEngine:
                         if new_category in self._phase_intent_ids:
                             # Reusing existing phase intent
                             self._current_intent_id = self._phase_intent_ids[new_category]
-                            # #region debug log - reusing existing intent
-                            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:reuse_intent", "message": "Reusing existing phase intent", "data": {"category": new_category, "intent_id": self._current_intent_id}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_PHASE_TRANSITION"}) + '\n')
                             # #endregion
                         else:
                             # Create new phase intent
@@ -619,8 +564,6 @@ class UnifiedReActEngine:
                             )
                             logger.info(f"[UnifiedReActEngine] Phase transition: {self._current_phase_category} -> {new_category}")
                             
-                            # #region debug log - new intent created
-                            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:new_intent_created", "message": "New phase intent created", "data": {"category": new_category, "intent_id": new_intent_id, "description": phase_description}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_PHASE_TRANSITION"}) + '\n')
                             # #endregion
                         
                         self._current_phase_category = new_category
@@ -648,7 +591,6 @@ class UnifiedReActEngine:
                 if tool_name.upper() == "FINISH" or tool_name == "finish":
                     logger.info(f"[UnifiedReActEngine] LLM indicated task completion")
                     # #region agent log - H3: FINISH marker detected - WHY did agent decide to finish?
-                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:FINISH_DETECTED", "message": "FINISH marker detected - agent decided task is complete", "data": {"iteration": state.iteration, "goal": state.goal[:200], "finish_reasoning": action_plan.get("reasoning", "")[:500], "finish_description": action_plan.get("description", "")[:300], "action_history_count": len(state.action_history), "actions_executed": [a.tool_name for a in state.action_history]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
                     # #endregion
                     finish_reasoning = action_plan.get("reasoning", "Задача выполнена")
                     finish_description = action_plan.get("description", "Задача выполнена")
@@ -672,7 +614,6 @@ class UnifiedReActEngine:
                 # Check for "ASK_CLARIFICATION" marker
                 elif tool_name.upper() == "ASK_CLARIFICATION" or tool_name == "ask_clarification":
                     # #region agent log - H11: ASK_CLARIFICATION detected
-                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:ask_clarification", "message": "ASK_CLARIFICATION detected", "data": {"goal": state.goal[:200], "questions": action_plan.get("arguments", {}).get("questions", [])}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H11"}) + '\n')
                     # #endregion
                     
                     logger.info(f"[UnifiedReActEngine] LLM requested clarification for incomplete request")
@@ -706,11 +647,9 @@ class UnifiedReActEngine:
                         "questions": questions
                     })
                     # #region agent log - H1,H2,H3: Before add_action/add_observation
-                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "unified_react_engine.py:537", "message": "Before ASK_CLARIFICATION add_action", "data": {"questions": questions, "clarification_response_preview": clarification_response[:100] if clarification_response else None}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2,H3"}) + '\n')
                     # #endregion
                     clarification_action = state.add_action("ASK_CLARIFICATION", {"questions": questions})
                     # #region agent log - H1,H2: After add_action, before add_observation
-                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "unified_react_engine.py:538", "message": "After add_action, calling add_observation with correct signature", "data": {"action_tool_name": clarification_action.tool_name, "action_iteration": clarification_action.iteration}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2"}) + '\n')
                     # #endregion
                     state.add_observation(clarification_action, clarification_response, success=True)
                     
@@ -718,7 +657,6 @@ class UnifiedReActEngine:
                     break
                 
                 # #region agent log - H2_EXECUTE_ACTION: About to execute tool (including FINISH if no break above)
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:ABOUT_TO_EXECUTE_TOOL", "message": f"About to execute tool: {action_plan.get('tool_name', 'unknown')}", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "is_finish": action_plan.get("tool_name", "").upper() == "FINISH"}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H2_EXECUTE_ACTION"}) + '\n')
                 # #endregion
                 
                 state.add_reasoning_step("plan", action_plan.get("reasoning", ""), {
@@ -738,14 +676,12 @@ class UnifiedReActEngine:
                 # 3. ACT - Execute action through registry
                 
                 # #region agent log - H1,H3,H5: action_plan before validation
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:action_plan_before_validation", "message": "Action plan BEFORE ActionFilter validation", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "arguments": str(action_plan.get("arguments", {}))[:300], "description": action_plan.get("description", "")[:200], "reasoning": action_plan.get("reasoning", "")[:200]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H3,H5"}) + '\n')
                 # #endregion
                 
                 # Validate action through ActionFilter (blocks redundant file searches)
                 validation_result = self.action_filter.validate(action_plan, context, file_ids)
                 
                 # #region agent log - H5: ActionFilter validation result
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:action_filter_result", "message": "ActionFilter validation result", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "allowed": validation_result.allowed, "reason": validation_result.reason, "has_alternative": validation_result.alternative is not None}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H5"}) + '\n')
                 # #endregion
                 
                 if not validation_result.allowed:
@@ -788,7 +724,6 @@ class UnifiedReActEngine:
                 
                 # #region agent log - H3,H4: Before _execute_action timing
                 _exec_action_start = time.time()
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:before_execute_action", "message": "Before _execute_action call", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "arguments": str(action_plan.get("arguments", {}))[:200], "total_elapsed_ms": int((_exec_action_start - _exec_start)*1000)}, "timestamp": int(_exec_action_start*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
                 # #endregion
                 
                 try:
@@ -796,12 +731,10 @@ class UnifiedReActEngine:
                     
                     # #region agent log - H3: After _execute_action SUCCESS
                     _exec_action_end = time.time()
-                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:after_execute_action_success", "message": "After _execute_action SUCCESS", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "exec_duration_ms": int((_exec_action_end - _exec_action_start)*1000), "result_preview": str(result)[:300], "total_elapsed_ms": int((_exec_action_end - _exec_start)*1000)}, "timestamp": int(_exec_action_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
                     # #endregion
                 except Exception as e:
                     # #region agent log - H3,H4: _execute_action ERROR
                     _exec_action_end = time.time()
-                    import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:execute_action_ERROR", "message": "EXECUTE ACTION ERROR", "data": {"iteration": state.iteration, "tool_name": action_plan.get("tool_name", ""), "exec_duration_ms": int((_exec_action_end - _exec_action_start)*1000), "error": str(e), "error_type": type(e).__name__, "total_elapsed_ms": int((_exec_action_end - _exec_start)*1000)}, "timestamp": int(_exec_action_end*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
                     # #endregion
                     logger.error(f"[UnifiedReActEngine] Action execution failed: {e}")
                     result = f"Error: {str(e)}"
@@ -815,24 +748,6 @@ class UnifiedReActEngine:
                 )
                 
                 # #region agent log - H2_OBSERVATION: Tool result saved
-                import json as _json
-                _result_str = str(result) if result else ""
-                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
-                    "location": "execute:observation_saved",
-                    "message": f"Tool result saved: {action_record.tool_name}",
-                    "data": {
-                        "iteration": state.iteration,
-                        "tool_name": action_record.tool_name,
-                        "result_length": len(_result_str),
-                        "result_preview": _result_str[:500],
-                        "observations_count_after": len(state.observations)
-                    },
-                    "timestamp": int(time.time()*1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H2_OBSERVATION"
-                }) + '\n')
-                # #endregion
-                
                 await self._stream_reasoning("react_observation", {
                     "result": str(result),  # Full result - no truncation
                     "iteration": state.iteration
@@ -845,11 +760,6 @@ class UnifiedReActEngine:
                     state.goal,
                     state.observations[:-1]
                 )
-                
-                # #region agent log - H3,H4: Analysis result
-                import json as _json
-                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:analysis_result", "message": "Result analysis completed", "data": {"iteration": state.iteration, "tool_name": action_record.tool_name, "is_success": analysis.is_success, "is_error": analysis.is_error, "is_goal_achieved": analysis.is_goal_achieved, "error_message": analysis.error_message, "progress": analysis.progress_toward_goal, "total_elapsed_ms": int((time.time() - _exec_start)*1000)}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
-                # #endregion
                 
                 # Update observation with analysis
                 observation.success = analysis.is_success
@@ -872,7 +782,6 @@ class UnifiedReActEngine:
                 elif analysis.is_error:
                     # #region agent log - H4: Error detected, looking for alternative
                     import json as _json
-                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:error_detected", "message": "ERROR DETECTED - looking for alternative", "data": {"iteration": state.iteration, "tool_name": action_record.tool_name, "error_message": analysis.error_message, "enable_alternatives": self.config.enable_alternatives, "total_elapsed_ms": int((time.time() - _exec_start)*1000)}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H4"}) + '\n')
                     # #endregion
                     
                     if self.config.enable_alternatives:
@@ -880,7 +789,6 @@ class UnifiedReActEngine:
                         if alternative:
                             # #region agent log - H4: Alternative found
                             import json as _json
-                            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:alternative_found", "message": "Alternative found", "data": {"iteration": state.iteration, "alternative_tool": alternative.get("tool_name", ""), "alternative_description": alternative.get("description", "")[:100]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H4"}) + '\n')
                             # #endregion
                             
                             logger.info(f"[UnifiedReActEngine] Trying alternative: {alternative.get('description', '')}")
@@ -903,7 +811,6 @@ class UnifiedReActEngine:
                     # Progress made, continue
                     # #region agent log - H_LOOP: Progress but not achieved - CONTINUING LOOP
                     import json as _json
-                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:LOOP_CONTINUE", "message": "LOOP CONTINUING - goal NOT achieved, NOT error", "data": {"iteration": state.iteration, "tool_name": action_record.tool_name, "is_success": analysis.is_success, "is_goal_achieved": analysis.is_goal_achieved, "is_error": analysis.is_error, "progress": analysis.progress_toward_goal, "result_preview": str(result)[:200]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H_LOOP"}) + '\n')
                     # #endregion
                     
                     state.add_reasoning_step("adapt", "Continuing with progress", {
@@ -914,7 +821,6 @@ class UnifiedReActEngine:
             # Check if we exited due to ASK_CLARIFICATION (should return successfully with clarification response)
             if state.action_history and state.action_history[-1].tool_name == "ASK_CLARIFICATION":
                 # #region agent log - H9: ASK_CLARIFICATION exit
-                import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:ask_clarification_exit", "message": "Exiting after ASK_CLARIFICATION - returning clarification result", "data": {"iteration": state.iteration, "goal": state.goal}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H9"}) + '\n')
                 # #endregion
                 
                 logger.info(f"[UnifiedReActEngine] Exiting after ASK_CLARIFICATION - awaiting user response")
@@ -939,7 +845,6 @@ class UnifiedReActEngine:
             
             # Max iterations reached
             # #region agent log - H4: Max iterations reached
-            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "execute:max_iterations", "message": "MAX ITERATIONS REACHED - timeout", "data": {"iteration": state.iteration, "max_iterations": state.max_iterations, "goal": state.goal[:200], "last_tool": state.action_history[-1].tool_name if state.action_history else None, "total_actions": len(state.action_history), "action_history_tools": [a.tool_name for a in state.action_history][-5:], "observations_success": [o.success for o in state.observations][-5:]}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H4"}) + '\n')
             # #endregion
             logger.warning(f"[UnifiedReActEngine] Max iterations reached")
             return await self._finalize_timeout(state, context)
@@ -969,7 +874,6 @@ class UnifiedReActEngine:
         """
         goal_lower = goal.lower().strip()
         
-        # #region debug log - проверка определения необходимости инструментов
         log_data_needs_tools = {
             "location": "unified_react_engine.py:515",
             "message": "_needs_tools: checking if tools needed",
@@ -984,7 +888,6 @@ class UnifiedReActEngine:
             "hypothesisId": "H_NEEDS_TOOLS"
         }
         try:
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                 f.write(json.dumps(log_data_needs_tools, default=str) + "\n")
         except Exception:
             pass
@@ -1023,7 +926,6 @@ class UnifiedReActEngine:
         
         for keyword in tool_keywords_early:
             if keyword in goal_lower:
-                # #region debug log - tool keyword found BEFORE generative pattern check
                 log_data = {
                     "location": "unified_react_engine.py:624",
                     "message": "_needs_tools: tool keyword found early - returning True",
@@ -1034,7 +936,6 @@ class UnifiedReActEngine:
                     "hypothesisId": "H_NEEDS_TOOLS"
                 }
                 try:
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                         f.write(json.dumps(log_data, default=str) + "\n")
                 except Exception:
                     pass
@@ -1052,7 +953,6 @@ class UnifiedReActEngine:
         
         for pattern in simple_patterns:
             if re.match(pattern, goal_lower):
-                # #region debug log - simple pattern matched
                 log_data = {
                     "location": "unified_react_engine.py:535",
                     "message": "_needs_tools: simple pattern matched - returning False",
@@ -1063,7 +963,6 @@ class UnifiedReActEngine:
                     "hypothesisId": "H_NEEDS_TOOLS"
                 }
                 try:
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                         f.write(json.dumps(log_data, default=str) + "\n")
                 except Exception:
                     pass
@@ -1093,7 +992,6 @@ class UnifiedReActEngine:
         for pattern in simple_generative_patterns:
             match = re.search(pattern, goal_lower)
             if match:
-                # #region debug log - generative pattern matched
                 log_data = {
                     "location": "unified_react_engine.py:588",
                     "message": "_needs_tools: generative pattern matched - returning False",
@@ -1104,7 +1002,6 @@ class UnifiedReActEngine:
                     "hypothesisId": "H_NEEDS_TOOLS"
                 }
                 try:
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                         f.write(json.dumps(log_data, default=str) + "\n")
                 except Exception:
                     pass
@@ -1125,7 +1022,6 @@ class UnifiedReActEngine:
         
         for pattern in calendar_patterns:
             if re.search(pattern, goal_lower):
-                # #region debug log - calendar pattern matched
                 log_data = {
                     "location": "unified_react_engine.py:578",
                     "message": "_needs_tools: calendar pattern matched - returning True",
@@ -1136,7 +1032,6 @@ class UnifiedReActEngine:
                     "hypothesisId": "H_NEEDS_TOOLS"
                 }
                 try:
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                         f.write(json.dumps(log_data, default=str) + "\n")
                 except Exception:
                     pass
@@ -1229,7 +1124,6 @@ class UnifiedReActEngine:
             
             llm_result = "ДА" in response_text or "YES" in response_text
             
-            # #region debug log - LLM decision
             log_data = {
                 "location": "unified_react_engine.py:669",
                 "message": "_needs_tools: LLM decision",
@@ -1244,7 +1138,6 @@ class UnifiedReActEngine:
                 "hypothesisId": "H_NEEDS_TOOLS"
             }
             try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                     f.write(json.dumps(log_data, default=str) + "\n")
             except Exception:
                 pass
@@ -1253,7 +1146,6 @@ class UnifiedReActEngine:
             return llm_result
         except Exception as e:
             logger.error(f"[UnifiedReActEngine] Error checking if tools needed: {e}")
-            # #region debug log - error in needs_tools check
             log_data = {
                 "location": "unified_react_engine.py:673",
                 "message": "_needs_tools: error occurred, defaulting to True",
@@ -1264,7 +1156,6 @@ class UnifiedReActEngine:
                 "hypothesisId": "H_NEEDS_TOOLS"
             }
             try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                     f.write(json.dumps(log_data, default=str) + "\n")
             except Exception:
                 pass
@@ -1546,7 +1437,6 @@ class UnifiedReActEngine:
             List of phases or empty list if single-step task
         """
         # #region agent log - H1,H2: Analyze task phases entry
-        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_analyze_task_phases:entry", "message": "Analyzing task phases", "data": {"goal": goal[:200], "goal_length": len(goal)}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2"}) + '\n')
         # #endregion
         
         goal_lower = goal.lower()
@@ -1646,7 +1536,6 @@ class UnifiedReActEngine:
                 matched_keywords[phase_def['name']] = matched_kw
         
         # #region agent log - H1,H2: Phase detection results
-        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_analyze_task_phases:matched", "message": "Phase detection results", "data": {"phases_count": len(phases), "phases": [{"name": p['name'], "category": p['category'], "description": p['description']} for p in phases], "matched_keywords": matched_keywords}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2"}) + '\n')
         # #endregion
         
         # Check for explicit multi-step patterns
@@ -2020,7 +1909,6 @@ class UnifiedReActEngine:
             
             # #region agent log - H1,H2: Backend sends intent_thinking_append
             import json as _json
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_send_intent_detail:SEND", "message": "Backend sending intent_thinking_append", "data": {"text_length": len(text), "text_preview": text[:30] if text else "", "intent_id": self.intent_id}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H1,H2"}) + '\n')
             # #endregion
             
             # Просто отправляем текст как есть для append
@@ -2090,7 +1978,6 @@ class UnifiedReActEngine:
                         context_str += f"- {filename}\n"
         
         # Add open files context (PRIORITY #2)
-        # #region debug log - hypothesis H2, H4: проверка контекста открытых файлов в _think
         import json
         import time
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
@@ -2118,7 +2005,6 @@ class UnifiedReActEngine:
             "hypothesisId": "H2,H4"
         }
         try:
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                 f.write(json.dumps(log_data_think, default=str) + "\n")
         except Exception:
             pass
@@ -2155,7 +2041,6 @@ class UnifiedReActEngine:
             
             context_str += "\n⚠️ ВАЖНО: Файлы УЖЕ открыты, используй их ID напрямую, НЕ ищи через search!\n"
         
-        # #region debug log - hypothesis H2: проверка что добавляется в промпт _think
         open_files_context_added_think = "📂 Открытые файлы" in context_str if open_files else False
         log_data_think_prompt = {
             "location": "unified_react_engine.py:1380",
@@ -2172,7 +2057,6 @@ class UnifiedReActEngine:
             "hypothesisId": "H2"
         }
         try:
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                 f.write(json.dumps(log_data_think_prompt, default=str) + "\n")
         except Exception:
             pass
@@ -2341,7 +2225,6 @@ class UnifiedReActEngine:
                     context_str += "⚠️ НЕ ищи эти файлы в Google Drive - их содержимое УЖЕ ВЫШЕ!\n"
         
         # Add open files context (PRIORITY #2)
-        # #region debug log - hypothesis H1, H2, H4: проверка контекста открытых файлов в _plan_action
         import json
         import time
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
@@ -2369,7 +2252,6 @@ class UnifiedReActEngine:
             "hypothesisId": "H1,H2,H4"
         }
         try:
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                 f.write(json.dumps(log_data_plan, default=str) + "\n")
         except Exception:
             pass
@@ -2415,7 +2297,6 @@ class UnifiedReActEngine:
             context_str += "4. Для ДОКУМЕНТОВ используй инструмент read_document с параметром document_id=<ID из списка выше>\n"
             context_str += "5. Для ТАБЛИЦ используй инструмент sheets_read_range с параметрами spreadsheet_id=<ID из списка выше>, range='A1:Z100'\n"
         
-        # #region debug log - hypothesis H1: проверка что добавляется в промпт _plan_action
         open_files_context_added = "📂 Открытые файлы" in context_str if open_files else False
         log_data_prompt = {
             "location": "unified_react_engine.py:1540",
@@ -2432,7 +2313,6 @@ class UnifiedReActEngine:
             "hypothesisId": "H1"
         }
         try:
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                 f.write(json.dumps(log_data_prompt, default=str) + "\n")
         except Exception:
             pass
@@ -2684,34 +2564,6 @@ class UnifiedReActEngine:
             capability_descriptions.append(f"- {cap.name}: {cap.description}")
         tools_str = "\n".join(capability_descriptions)
         
-        # #region agent log - H1_CONTEXT: Full context sent to LLM
-        import json as _json; import time as _time
-        _action_history_tools = [a.tool_name for a in state.action_history] if state.action_history else []
-        _observations_preview = []
-        if state.observations:
-            for obs in state.observations[-5:]:
-                _observations_preview.append({
-                    "success": obs.success if obs else None,
-                    "result_preview": str(obs.raw_result)[:200] if obs and obs.raw_result else None
-                })
-        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
-            "location": "_think_and_plan:context_to_llm",
-            "message": "FULL CONTEXT sent to LLM",
-            "data": {
-                "iteration": state.iteration,
-                "action_history_tools": _action_history_tools,
-                "action_history_count": len(state.action_history) if state.action_history else 0,
-                "observations_count": len(state.observations) if state.observations else 0,
-                "observations_preview": _observations_preview,
-                "context_str_length": len(context_str),
-                "context_str_preview": context_str[:800] if context_str else ""
-            },
-            "timestamp": int(_time.time()*1000),
-            "sessionId": "debug-session",
-            "hypothesisId": "H1_CONTEXT"
-        }) + '\n')
-        # #endregion
-        
         # Формируем объединённый промпт
         prompt = f"""Ты выполняешь задачу пошагово, используя доступные инструменты.
 
@@ -2809,33 +2661,6 @@ class UnifiedReActEngine:
                 HumanMessage(content=prompt)
             ]
             
-            # #region agent log - H_LOOP: Log full prompt to detect duplication source
-            import json as _json; import time as _time
-            # Extract "Уже выполнено" section for analysis
-            already_done_section = ""
-            if "Уже выполнено" in context_str:
-                start = context_str.find("Уже выполнено")
-                end = context_str.find("\n\n", start)
-                already_done_section = context_str[start:end] if end > start else context_str[start:start+500]
-            
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
-                "location": "_think_and_plan:PROMPT_CHECK",
-                "message": f"ITERATION {state.iteration}: Full prompt being sent to LLM",
-                "data": {
-                    "iteration": state.iteration,
-                    "action_history_count": len(state.action_history) if state.action_history else 0,
-                    "observations_count": len(state.observations) if state.observations else 0,
-                    "action_history_tools": [f"{i+1}:{a.tool_name}" for i, a in enumerate(state.action_history)] if state.action_history else [],
-                    "already_done_section": already_done_section[:1000],
-                    "prompt_length": len(prompt),
-                    "unique_tools_used": list(set(a.tool_name for a in state.action_history)) if state.action_history else []
-                },
-                "timestamp": int(_time.time()*1000),
-                "sessionId": "debug-session",
-                "hypothesisId": "H_LOOP"
-            }) + '\n')
-            # #endregion
-            
             # Создаём парсер для стриминга thought
             # Передаём intent_id для отправки intent_detail событий
             current_intent_id = getattr(self, '_current_intent_id', None)
@@ -2880,37 +2705,7 @@ class UnifiedReActEngine:
             # Получаем thought из парсера
             thought = parser.get_thought()
             
-            # #region agent log - H_DUP_SOURCE: Raw LLM response to identify duplication source
-            import json as _json; import time as _time
-            # Check if LLM itself generated duplicates
-            full_response_lower = full_response.lower()
-            llm_generated_duplicates = (
-                full_response_lower.count("анализ ситуации") > 1 or
-                full_response_lower.count("анализирую ситуацию") > 1 or  
-                full_response_lower.count("проанализиру") > 1 or
-                full_response_lower.count("уже сделано") > 1 or
-                full_response_lower.count("осталось сделать") > 1
-            )
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
-                "location": "_think_and_plan:RAW_LLM_RESPONSE",
-                "message": f"ITERATION {state.iteration}: RAW LLM response (duplication check)",
-                "data": {
-                    "iteration": state.iteration,
-                    "llm_generated_duplicates": llm_generated_duplicates,
-                    "full_response_length": len(full_response),
-                    "thought_tag_count": full_response.count("<thought>"),
-                    "анализ_ситуации_count": full_response_lower.count("анализ ситуации"),
-                    "проанализиру_count": full_response_lower.count("проанализиру"),
-                    "уже_сделано_count": full_response_lower.count("уже сделано"),
-                    "full_response_preview": full_response[:1500]
-                },
-                "timestamp": int(_time.time()*1000),
-                "sessionId": "debug-session",
-                "hypothesisId": "H_DUP_SOURCE"
-            }) + '\n')
-            # #endregion
-            
-            # #region FIX: Remove duplicate patterns from thought
+            # Remove duplicate patterns from thought
             # Some LLMs (especially Claude 3 Haiku) tend to repeat their analysis
             # Detect and remove duplicated analysis blocks
             thought_lower = thought.lower() if thought else ""
@@ -2960,41 +2755,6 @@ class UnifiedReActEngine:
             # #region agent log - H_LOOP: Log full LLM response to detect duplication
             import json as _json; import time as _time
             # Check for repeated patterns in thought AFTER filtering
-            thought_lower_check = thought.lower() if thought else ""
-            has_duplicate_patterns = (
-                thought_lower_check.count("анализ ситуации") > 1 or
-                thought_lower_check.count("анализирую ситуацию") > 1 or
-                thought_lower_check.count("уже выполнено") > 1 or
-                thought_lower_check.count("что осталось") > 1 or
-                thought_lower_check.count("пользователь просит") > 1
-            )
-            # Also check raw parser thought BEFORE filtering for comparison
-            raw_thought = parser.get_thought() if hasattr(parser, 'thought_content') else ""
-            raw_thought_lower = raw_thought.lower() if raw_thought else full_response.lower()
-            raw_had_duplicates = (
-                raw_thought_lower.count("анализ ситуации") > 1 or
-                raw_thought_lower.count("анализирую ситуацию") > 1 or
-                raw_thought_lower.count("уже выполнено") > 1 or
-                raw_thought_lower.count("пользователь просит") > 1
-            )
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
-                "location": "_think_and_plan:LLM_RESPONSE",
-                "message": f"ITERATION {state.iteration}: LLM response received",
-                "data": {
-                    "iteration": state.iteration,
-                    "thought_length": len(thought) if thought else 0,
-                    "thought_preview": thought[:500] if thought else "",
-                    "has_duplicate_patterns_after_filter": has_duplicate_patterns,
-                    "raw_had_duplicates": raw_had_duplicates,
-                    "duplicates_removed": raw_had_duplicates and not has_duplicate_patterns,
-                    "full_response_length": len(full_response)
-                },
-                "timestamp": int(_time.time()*1000),
-                "sessionId": "debug-session",
-                "hypothesisId": "H_LOOP"
-            }) + '\n')
-            # #endregion
-            
             # Извлекаем action из оставшегося буфера или полного ответа
             remaining_buffer = parser.get_remaining_buffer()
             response_text = remaining_buffer if remaining_buffer else full_response
@@ -3041,7 +2801,6 @@ class UnifiedReActEngine:
             has_attendees = any("@" in arg for arg in str(action_plan.get("arguments", {})).split() if isinstance(arg, str))
             has_time = any(kw in goal_lower for kw in ["в ", "в ", "время", "time", "14:00", "15:00"])
             should_check_availability = has_meeting_keywords and has_attendees and has_time and not is_clarification
-            import json as _json; import time as _time; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_think_and_plan:after_parsing", "message": "Action plan parsed", "data": {"tool_name": tool_name, "is_clarification": is_clarification, "goal": state.goal[:200], "thought_length": len(thought) if thought else 0, "arguments_keys": list(action_plan.get("arguments", {}).keys()), "has_meeting_keywords": has_meeting_keywords, "has_attendees": has_attendees, "has_time": has_time, "should_check_availability": should_check_availability}, "timestamp": int(_time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H11,H17"}) + '\n')
             # #endregion
             
             # Если thought пустой, используем fallback
@@ -3084,7 +2843,6 @@ class UnifiedReActEngine:
         
         # #region agent log - H3: _execute_action entry
         _action_entry_time = time.time()
-        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_execute_action:ENTRY", "message": "Entering _execute_action", "data": {"capability_name": capability_name, "arguments": str(arguments)[:200]}, "timestamp": int(_action_entry_time*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
         # #endregion
         
         # Send real progress event BEFORE tool execution
@@ -3106,7 +2864,6 @@ class UnifiedReActEngine:
         
         # #region agent log - H3: Before registry.execute
         _registry_start = time.time()
-        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_execute_action:before_registry", "message": "Before registry.execute", "data": {"capability_name": capability_name, "time_in_execute_action_ms": int((_registry_start - _action_entry_time)*1000)}, "timestamp": int(_registry_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
         # #endregion
         
         # Registry routes to appropriate provider (MCP or A2A)
@@ -3114,7 +2871,6 @@ class UnifiedReActEngine:
         
         # #region agent log - H3: After registry.execute
         _registry_end = time.time()
-        import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "_execute_action:after_registry", "message": "After registry.execute", "data": {"capability_name": capability_name, "registry_duration_ms": int((_registry_end - _registry_start)*1000), "result_type": type(result).__name__, "result_preview": str(result)[:200]}, "timestamp": int(_registry_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
         # #endregion
         
         # Send intent_detail AFTER tool execution with result summary
@@ -3410,7 +3166,6 @@ class UnifiedReActEngine:
             )
             
             # #region agent log - H7: final_result streaming start
-            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "generate_final_answer:stream_start", "message": "Starting LLM streaming for final answer", "data": {"session_id": self.session_id, "goal": state.goal[:100] if state.goal else None}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H7"}) + '\n')
             _stream_chunk_count = 0
             # #endregion
             
@@ -3443,7 +3198,6 @@ class UnifiedReActEngine:
                     )
             
             # #region agent log - H7: final_result streaming complete
-            import json as _json; open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "generate_final_answer:stream_complete", "message": "LLM streaming completed", "data": {"total_chunks": _stream_chunk_count, "full_answer_length": len(full_answer), "full_answer_preview": full_answer[:500] if full_answer else None, "full_answer_end": full_answer[-200:] if len(full_answer) > 200 else full_answer}, "timestamp": int(time.time()*1000), "sessionId": "debug-session", "hypothesisId": "H7"}) + '\n')
             # #endregion
             
             # Send intent completion
