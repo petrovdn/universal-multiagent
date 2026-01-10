@@ -540,7 +540,16 @@ async def list_models():
     logger.info("[API] /api/models endpoint called")
     print(f"[API] /api/models endpoint called", flush=True)
     try:
+        # #region agent log
+        import os
+        _anthropic_env = os.getenv("ANTHROPIC_API_KEY")
+        _openai_env = os.getenv("OPENAI_API_KEY")
+        print(f"[API] Environment variables check - ANTHROPIC_API_KEY: {'SET' if _anthropic_env and _anthropic_env.strip() else 'MISSING'} (len={len(_anthropic_env) if _anthropic_env else 0}), OPENAI_API_KEY: {'SET' if _openai_env and _openai_env.strip() else 'MISSING'} (len={len(_openai_env) if _openai_env else 0})", flush=True)
+        # #endregion
         config = get_config()
+        # #region agent log
+        print(f"[API] Config after get_config() - Anthropic key: {'SET' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'MISSING'} (len={len(config.anthropic_api_key) if config.anthropic_api_key else 0}), OpenAI key: {'SET' if config.openai_api_key and config.openai_api_key.strip() else 'MISSING'} (len={len(config.openai_api_key) if config.openai_api_key else 0})", flush=True)
+        # #endregion
         available_models = get_available_models()
         # Log for debugging
         logger.info(f"[DEBUG] Available models count: {len(available_models)}, IDs: {list(available_models.keys())}")
@@ -564,9 +573,17 @@ async def list_models():
         
         logger.info(f"[DEBUG] Returning {len(models_list)} models to client: {[m['id'] for m in models_list]}")
         print(f"[DEBUG] Returning {len(models_list)} models to client: {[m['id'] for m in models_list]}", flush=True)
+        
+        if len(models_list) == 0:
+            logger.warning("[API] /api/models returning EMPTY list - this should not happen if API keys are set!")
+            print("[API] WARNING: /api/models returning EMPTY list!", flush=True)
+        
         return {"models": models_list}
     except Exception as e:
         logger.error(f"[DEBUG] Error listing models: {e}", exc_info=True)
+        print(f"[API] ERROR in /api/models: {e}", flush=True)
+        import traceback
+        print(f"[API] Traceback: {traceback.format_exc()}", flush=True)
         # Return empty list instead of failing
         return {"models": []}
 
