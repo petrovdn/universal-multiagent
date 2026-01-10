@@ -1,9 +1,9 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Brain } from 'lucide-react'
 import { useChatStore, WorkflowStep } from '../store/chatStore'
-import { CollapsibleBlock } from './CollapsibleBlock'
+import { PlanningBlock } from './PlanningBlock'
+import { TextStreamingBlock } from './TextStreamingBlock'
 import { FilePreviewCard } from './FilePreviewCard'
 import { useWorkspaceStore } from '../store/workspaceStore'
 
@@ -574,6 +574,255 @@ function parseActionsFromText(text: string, isStreaming: boolean, fullResponse?:
   return result
 }
 
+// Компонент для отдельного шага (нужен для правильного использования useEffect)
+function StepItem({ 
+  stepNumber, 
+  stepTitle, 
+  stepData, 
+  isStepStreaming,
+  actions,
+  getUpdatedActions,
+  previousActionsRef 
+}: { 
+  stepNumber: number
+  stepTitle: string
+  stepData: WorkflowStep | undefined
+  isStepStreaming: boolean
+  actions: Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean }>
+  getUpdatedActions: (stepNumber: number, newActions: Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean }>) => Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean }>
+  previousActionsRef: React.MutableRefObject<Record<number, Array<{ icon: string, text: string, status: 'done' | 'pending', details?: string, hasText?: boolean }>>>
+}) {
+  const [planningCollapsed, setPlanningCollapsed] = useState(false)
+  const addTab = useWorkspaceStore((state) => state.addTab)
+  
+  const status = stepData?.status || 'pending'
+  const thinking = stepData?.thinking || ''
+  const response = stepData?.response || ''
+  
+  const { actionPreparation, result } = parseStepResponse(response)
+  const fullTextForExtraction = response || (actionPreparation + '\n' + result)
+  
+  // Автосворачивание планирования при появлении действий (только один раз при первом появлении)
+  const hasActions = actions.length > 0
+  const prevHasActionsRef = React.useRef(false)
+  const hasAutoCollapsedRef = React.useRef(false)
+  
+  React.useEffect(() => {
+    // Автосворачиваем только когда действия появились впервые (переход с 0 действий к 1+)
+    // И только если ещё не сворачивали автоматически
+    if (hasActions && isStepStreaming && !planningCollapsed && !prevHasActionsRef.current && !hasAutoCollapsedRef.current) {
+      setPlanningCollapsed(true)
+      hasAutoCollapsedRef.current = true
+    }
+    prevHasActionsRef.current = hasActions
+  }, [hasActions, isStepStreaming, planningCollapsed])
+
+  return (
+    <div className="step-container" style={{ marginBottom: '24px' }}>
+      {/* Заголовок шага */}
+      <div className="step-header">
+        Шаг {stepNumber}: {stepTitle}
+      </div>
+
+      {/* Блок планирования */}
+      {thinking && thinking.trim() && (
+        <div style={{ 
+          maxWidth: '900px',
+          width: '100%',
+          marginLeft: 'auto',
+          marginRight: 'auto',
+          paddingLeft: '14px',
+          paddingRight: '14px',
+          marginTop: '8px',
+          marginBottom: '8px'
+        }}>
+          <PlanningBlock
+            content={thinking}
+            isStreaming={isStepStreaming}
+            estimatedSeconds={10}
+            initialCollapsed={planningCollapsed}
+            onCollapseChange={(collapsed) => {
+              setPlanningCollapsed(collapsed)
+            }}
+          />
+        </div>
+      )}
+
+      {/* Компактный лог действий */}
+      {(actions.length > 0 || (isStepStreaming && !result && !thinking)) && (
+        <div className="execution-log" style={{ 
+          maxWidth: '900px',
+          width: '100%',
+          marginLeft: 'auto',
+          marginRight: 'auto',
+          paddingLeft: '14px',
+          paddingRight: '14px',
+          marginTop: '8px'
+        }}>
+          {actions.map((action, actionIndex) => {
+            // Если hasText=true, то details содержит текст для вставки
+            // Если hasText=false, то details содержит название слайда
+            const isSlideTitle = !action.hasText && action.details
+            const isPending = action.status === 'pending'
+            
+            return (
+              <div key={actionIndex} className="execution-log-item">
+                <span className={`log-icon ${action.status}`}>{action.icon}</span>
+                <div className="log-text-container">
+                  <span className={`log-text-title ${isPending ? 'log-text-pending' : ''}`}>
+                    {action.text}
+                    {isPending && (
+                      <span className="log-text-dots" />
+                    )}
+                    {isSlideTitle && (
+                      <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                        {' '}"{action.details}"
+                      </span>
+                    )}
+                    {!isPending && action.details && !isSlideTitle && (
+                      <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal', marginLeft: '4px' }}>
+                        - {action.details}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+          {isStepStreaming && !result && actions.length === 0 && (
+            <div className="execution-log-item">
+              <span className="log-icon pending">○</span>
+              <span className="log-text log-text-pending">
+                Выполняю действия...
+                <span className="log-text-dots" />
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Блок стриминга текста для файлов */}
+      {actions.some(a => a.hasText && a.details) && (
+        actions.map((action, actionIndex) => {
+          if (action.hasText && action.details) {
+            // Определяем тип файла и ID из контекста (можно расширить логику)
+            const fileName = action.text.includes('документ') || action.text.includes('документ') 
+              ? 'Документ' 
+              : action.text.includes('файл') 
+              ? 'Файл' 
+              : 'Текст'
+            
+            return (
+              <div 
+                key={`text-stream-${actionIndex}`}
+                style={{ 
+                  maxWidth: '900px',
+                  width: '100%',
+                  marginLeft: 'auto',
+                  marginRight: 'auto',
+                  paddingLeft: '14px',
+                  paddingRight: '14px',
+                  marginTop: '12px'
+                }}
+              >
+                <TextStreamingBlock
+                  fileName={fileName}
+                  content={action.details}
+                  isStreaming={action.status === 'pending'}
+                  fileId={stepData?.filePreview?.fileId}
+                  fileUrl={stepData?.filePreview?.fileUrl}
+                  fileType={stepData?.filePreview?.type as 'sheets' | 'docs' | 'slides' | 'code' | 'email' | 'chart' | undefined}
+                  previewData={stepData?.filePreview?.previewData}
+                />
+              </div>
+            )
+          }
+          return null
+        })
+      )}
+
+      {/* File Preview Card - показываем только если нет TextStreamingBlock */}
+      {stepData?.filePreview && !actions.some(a => a.hasText && a.details) && (
+        <div style={{ 
+          maxWidth: '900px',
+          width: '100%',
+          marginTop: '12px',
+          marginLeft: 'auto',
+          marginRight: 'auto',
+          paddingLeft: '14px',
+          paddingRight: '14px'
+        }}>
+          <FilePreviewCard
+            type={stepData.filePreview.type}
+            title={stepData.filePreview.title}
+            subtitle={stepData.filePreview.subtitle}
+            previewData={stepData.filePreview.previewData}
+            fileId={stepData.filePreview.fileId}
+            fileUrl={stepData.filePreview.fileUrl}
+            onOpenInPanel={() => {
+              const preview = stepData.filePreview!
+              addTab({
+                type: preview.type,
+                title: preview.title,
+                url: preview.fileUrl,
+                data: preview.type === 'sheets' ? { spreadsheetId: preview.fileId } :
+                      preview.type === 'docs' ? { documentId: preview.fileId } :
+                      preview.type === 'slides' ? { presentationId: preview.fileId } :
+                      preview.type === 'code' ? preview.previewData :
+                      preview.type === 'email' ? preview.previewData :
+                      preview.type === 'chart' ? preview.previewData :
+                      {},
+                closeable: true
+              })
+            }}
+          />
+        </div>
+      )}
+
+      {/* Результат шага - просто текст без рамок и фона, с маркдауном */}
+      {result && result.trim() && (
+        <div style={{ 
+          maxWidth: '900px',
+          width: '100%',
+          marginTop: '12px',
+          marginLeft: 'auto',
+          marginRight: 'auto',
+          paddingLeft: '14px',
+          paddingRight: '14px'
+        }}>
+          <div className="prose max-w-none 
+            prose-p:text-gray-900 
+            prose-p:leading-6 prose-p:my-3 prose-p:text-[13px]
+            prose-h1:text-gray-900 prose-h1:text-[15px] prose-h1:font-medium prose-h1:mb-2 prose-h1:mt-4 prose-h1:first:mt-0 prose-h1:leading-tight
+            prose-h2:text-gray-900 prose-h2:text-[14px] prose-h2:font-medium prose-h2:mb-2 prose-h2:mt-3 prose-h2:leading-tight
+            prose-h3:text-gray-900 prose-h3:text-[13px] prose-h3:font-medium prose-h3:mb-1 prose-h3:mt-3 prose-h3:leading-tight
+            prose-strong:text-gray-900 prose-strong:font-semibold
+            prose-code:text-gray-900 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[13px] prose-code:border prose-code:border-gray-200
+            prose-pre:bg-gray-100 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200 prose-pre:text-[13px] prose-pre:rounded-lg prose-pre:p-4
+            prose-ul:text-gray-900 prose-ul:my-3 prose-ul:pl-8
+            prose-ol:text-gray-900 prose-ol:my-3 prose-ol:pl-8
+            prose-li:text-gray-900 prose-li:my-1.5 prose-li:text-[13px]
+            prose-a:text-blue-600 prose-a:underline hover:prose-a:text-blue-700
+            prose-blockquote:text-gray-600 prose-blockquote:border-l-gray-300 prose-blockquote:pl-4 prose-blockquote:my-3
+            prose-table:w-full prose-table:border-collapse prose-table:my-4
+            prose-th:border prose-th:border-gray-300 prose-th:bg-gray-50 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
+            prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2
+            prose-tr:hover:bg-gray-50">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
+          </div>
+        </div>
+      )}
+
+      {/* Show placeholder when step is in progress but no content yet */}
+      {status === 'in_progress' && !thinking && !response && (
+        <div style={{ fontSize: '14px', color: '#6c757d', fontStyle: 'italic', maxWidth: '900px', width: '100%', marginLeft: 'auto', marginRight: 'auto', paddingLeft: '14px', paddingRight: '14px' }}>
+          Выполнение шага...
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function StepProgress({ workflowId }: StepProgressProps) {
   // Get workflow by ID from store
   const workflow = useChatStore((state) => state.workflows[workflowId])
@@ -712,145 +961,16 @@ export function StepProgress({ workflowId }: StepProgressProps) {
         const actions = getUpdatedActions(stepNumber, rawActions)
 
         return (
-          <div key={stepNumber} style={{ marginBottom: '6px' }}>
-            {/* Блок ризонинга шага */}
-            {thinking && thinking.trim() && (
-              <CollapsibleBlock
-                title="думаю..."
-                icon={<Brain className="reasoning-block-icon" />}
-                isStreaming={isStepStreaming}
-                isCollapsed={true}
-                autoCollapse={true}
-              >
-                {thinking}
-              </CollapsibleBlock>
-            )}
-
-            {/* Компактный лог действий */}
-            {(actions.length > 0 || (isStepStreaming && !result && !thinking)) && (
-              <div className="execution-log" style={{ 
-                maxWidth: '900px',
-                width: '100%',
-                marginLeft: 'auto',
-                marginRight: 'auto',
-                paddingLeft: '14px',
-                paddingRight: '14px'
-              }}>
-                {actions.map((action, actionIndex) => {
-                  // Если hasText=true, то details содержит текст для вставки
-                  // Если hasText=false, то details содержит название слайда
-                  const isSlideTitle = !action.hasText && action.details
-                  const isTextContent = action.hasText && action.details
-                  
-                  return (
-                    <div key={actionIndex} className="execution-log-item">
-                      <span className={`log-icon ${action.status}`}>{action.icon}</span>
-                      <div className="log-text-container">
-                        <span className="log-text-title">
-                          {action.text}
-                          {isSlideTitle && (
-                            <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}>
-                              {' '}"{action.details}"
-                            </span>
-                          )}
-                        </span>
-                        {isTextContent && (
-                          <div className="log-text-details">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{action.details}</ReactMarkdown>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-                {isStepStreaming && !result && actions.length === 0 && (
-                  <div className="execution-log-item">
-                    <span className="log-icon pending">○</span>
-                    <span className="log-text">Выполняю действия...</span>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* File Preview Card */}
-            {stepData?.filePreview && (
-              <div style={{ 
-                maxWidth: '900px',
-                width: '100%',
-                marginTop: '12px',
-                marginLeft: 'auto',
-                marginRight: 'auto',
-                paddingLeft: '14px',
-                paddingRight: '14px'
-              }}>
-                <FilePreviewCard
-                  type={stepData.filePreview.type}
-                  title={stepData.filePreview.title}
-                  subtitle={stepData.filePreview.subtitle}
-                  previewData={stepData.filePreview.previewData}
-                  fileId={stepData.filePreview.fileId}
-                  fileUrl={stepData.filePreview.fileUrl}
-                  onOpenInPanel={() => {
-                    const preview = stepData.filePreview!
-                    addTab({
-                      type: preview.type,
-                      title: preview.title,
-                      url: preview.fileUrl,
-                      data: preview.type === 'sheets' ? { spreadsheetId: preview.fileId } :
-                            preview.type === 'docs' ? { documentId: preview.fileId } :
-                            preview.type === 'slides' ? { presentationId: preview.fileId } :
-                            preview.type === 'code' ? preview.previewData :
-                            preview.type === 'email' ? preview.previewData :
-                            preview.type === 'chart' ? preview.previewData :
-                            {},
-                      closeable: true
-                    })
-                  }}
-                />
-              </div>
-            )}
-
-            {/* Результат шага - просто текст без рамок и фона, с маркдауном */}
-            {result && result.trim() && (
-              <div style={{ 
-                maxWidth: '900px',
-                width: '100%',
-                marginTop: '12px',
-                marginLeft: 'auto',
-                marginRight: 'auto',
-                paddingLeft: '14px',
-                paddingRight: '14px'
-              }}>
-                <div className="prose max-w-none 
-                  prose-p:text-gray-900 
-                  prose-p:leading-6 prose-p:my-3 prose-p:text-[13px]
-                  prose-h1:text-gray-900 prose-h1:text-[15px] prose-h1:font-medium prose-h1:mb-2 prose-h1:mt-4 prose-h1:first:mt-0 prose-h1:leading-tight
-                  prose-h2:text-gray-900 prose-h2:text-[14px] prose-h2:font-medium prose-h2:mb-2 prose-h2:mt-3 prose-h2:leading-tight
-                  prose-h3:text-gray-900 prose-h3:text-[13px] prose-h3:font-medium prose-h3:mb-1 prose-h3:mt-3 prose-h3:leading-tight
-                  prose-strong:text-gray-900 prose-strong:font-semibold
-                  prose-code:text-gray-900 prose-code:bg-gray-100 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:text-[13px] prose-code:border prose-code:border-gray-200
-                  prose-pre:bg-gray-100 prose-pre:text-gray-900 prose-pre:border prose-pre:border-gray-200 prose-pre:text-[13px] prose-pre:rounded-lg prose-pre:p-4
-                  prose-ul:text-gray-900 prose-ul:my-3 prose-ul:pl-8
-                  prose-ol:text-gray-900 prose-ol:my-3 prose-ol:pl-8
-                  prose-li:text-gray-900 prose-li:my-1.5 prose-li:text-[13px]
-                  prose-a:text-blue-600 prose-a:underline hover:prose-a:text-blue-700
-                  prose-blockquote:text-gray-600 prose-blockquote:border-l-gray-300 prose-blockquote:pl-4 prose-blockquote:my-3
-                  prose-table:w-full prose-table:border-collapse prose-table:my-4
-                  prose-th:border prose-th:border-gray-300 prose-th:bg-gray-50 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
-                  prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2
-                  prose-tr:hover:bg-gray-50">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
-                </div>
-              </div>
-            )}
-
-            {/* Show placeholder when step is in progress but no content yet */}
-            {status === 'in_progress' && !thinking && !response && (
-              <div style={{ fontSize: '14px', color: '#6c757d', fontStyle: 'italic', maxWidth: '900px', width: '100%', marginLeft: 'auto', marginRight: 'auto', paddingLeft: '14px', paddingRight: '14px' }}>
-                Выполнение шага...
-              </div>
-            )}
-          </div>
+          <StepItem
+            key={stepNumber}
+            stepNumber={stepNumber}
+            stepTitle={stepTitle}
+            stepData={stepData}
+            isStepStreaming={isStepStreaming}
+            actions={actions}
+            getUpdatedActions={getUpdatedActions}
+            previousActionsRef={previousActionsRef}
+          />
         )
       })}
     </div>

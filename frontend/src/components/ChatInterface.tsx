@@ -836,15 +836,41 @@ export function ChatInterface() {
                         )}
                         
                         {/* Intent блоки с фазами Планирую/Выполняю */}
-                        {hasIntentBlocks && workflowIntentBlocks.map((intentBlock) => (
-                          <IntentMessage
-                            key={intentBlock.id}
-                            block={intentBlock}
-                            onToggleCollapse={() => toggleIntentCollapse(workflowId, intentBlock.id)}
-                            onTogglePlanningCollapse={() => toggleIntentPhase(workflowId, intentBlock.id, 'planning')}
-                            onToggleExecutingCollapse={() => toggleIntentPhase(workflowId, intentBlock.id, 'executing')}
-                          />
-                        ))}
+                        {hasIntentBlocks && (() => {
+                          // Фильтруем шаги: исключаем "Формирую ответ" (нет reasoning и нет действий)
+                          const filteredBlocks = workflowIntentBlocks.filter((block) => {
+                            const isFormingAnswer = 
+                              block.intent?.toLowerCase().includes('формирую ответ') ||
+                              block.intent?.toLowerCase().includes('forming the answer') ||
+                              block.id?.includes('intent-final') ||
+                              block.id?.includes('final')
+                            const hasNoReasoning = !block.thinkingText || block.thinkingText.trim().length === 0
+                            const hasNoActions = !block.details || block.details.length === 0
+                            
+                            // Исключаем шаг "Формирую ответ", если нет reasoning и нет действий
+                            return !(isFormingAnswer && hasNoReasoning && hasNoActions)
+                          })
+                          
+                          // Считаем количество оставшихся шагов
+                          const validStepCount = filteredBlocks.length
+                          const shouldShowStepNumbers = validStepCount >= 2
+                          
+                          return filteredBlocks.map((intentBlock, index) => {
+                            // Вычисляем номер шага для отображения
+                            const stepNumber = shouldShowStepNumbers ? index + 1 : undefined
+                            
+                            return (
+                              <IntentMessage
+                                key={intentBlock.id}
+                                block={intentBlock}
+                                stepNumber={stepNumber}
+                                onToggleCollapse={() => toggleIntentCollapse(workflowId, intentBlock.id)}
+                                onTogglePlanningCollapse={() => toggleIntentPhase(workflowId, intentBlock.id, 'planning')}
+                                onToggleExecutingCollapse={() => toggleIntentPhase(workflowId, intentBlock.id, 'executing')}
+                              />
+                            )
+                          })
+                        })()}
                       </div>
                     )
                   })()}

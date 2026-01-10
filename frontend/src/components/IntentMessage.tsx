@@ -1,132 +1,95 @@
-import React, { useMemo, useRef, useEffect } from 'react'
-import { ChevronDown, ChevronRight, Search, FileText, Play, Brain, Pencil, Check } from 'lucide-react'
-import { IntentBlock, IntentDetailType } from '../store/chatStore'
-import { CircularProgress } from './CircularProgress'
+import React from 'react'
+import { IntentBlock } from '../store/chatStore'
+import { PlanningBlock } from './PlanningBlock'
 
 interface IntentMessageProps {
   block: IntentBlock
+  stepNumber?: number // Опциональный: если undefined, не показываем номер шага
   onToggleCollapse: () => void
   onTogglePlanningCollapse?: () => void
   onToggleExecutingCollapse?: () => void
 }
 
 export function IntentMessage({ 
-  block, 
+  block,
+  stepNumber,
   onToggleCollapse,
   onTogglePlanningCollapse,
   onToggleExecutingCollapse 
 }: IntentMessageProps) {
   
-  const getIcon = (type: IntentDetailType) => {
-    switch (type) {
-      case 'search': return <Search size={12} className="intent-detail-icon" />
-      case 'read': return <FileText size={12} className="intent-detail-icon" />
-      case 'execute': return <Play size={12} className="intent-detail-icon" />
-      case 'write': return <Pencil size={12} className="intent-detail-icon" />
-      case 'analyze': return <Check size={12} className="intent-detail-icon intent-detail-icon-success" />
-      default: return <Brain size={12} className="intent-detail-icon" />
-    }
-  }
-
   const isPlanning = block.phase === 'planning'
   const isExecuting = block.phase === 'executing'
   const isCompleted = block.phase === 'completed'
   const hasThinkingText = !!block.thinkingText
   const hasDetails = block.details.length > 0
 
-  // Auto-scroll для streaming thinking
-  const thinkingRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (thinkingRef.current && hasThinkingText && isPlanning) {
-      thinkingRef.current.scrollTop = thinkingRef.current.scrollHeight
-    }
-  }, [block.thinkingText, hasThinkingText, isPlanning])
-
-  // Auto-scroll для details
-  const detailsRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (detailsRef.current && hasDetails && isExecuting) {
-      detailsRef.current.scrollTop = detailsRef.current.scrollHeight
-    }
-  }, [block.details.length, hasDetails, isExecuting])
-
   // Показывать секцию "Планирую" если есть thinking или в фазе planning
   const showPlanningSection = hasThinkingText || isPlanning
   // Показывать секцию "Выполняю" если есть details или в фазе executing/completed
   const showExecutingSection = hasDetails || isExecuting || isCompleted
+  
+  // Вычисляем оставшееся время для таймера
+  const estimatedSeconds = block.estimatedSec || 10
+  const elapsedSeconds = block.elapsedSec || 0
+  const remainingTime = Math.max(0, estimatedSeconds - elapsedSeconds)
 
   return (
-    <div className={`intent-message ${isCompleted ? 'intent-message-completed' : ''}`}>
-      {/* Заголовок intent */}
-      <div className="intent-header">
-        <span className="intent-text">{block.intent}</span>
+    <div className={`intent-message ${isCompleted ? 'intent-message-completed' : ''}`} style={{ maxWidth: '900px', width: '100%', margin: '0 auto', padding: '0' }}>
+      {/* Заголовок intent - крупный жирный */}
+      <div className="step-header" style={{ marginBottom: '12px', paddingLeft: '0', paddingRight: '0' }}>
+        {stepNumber !== undefined ? `Шаг ${stepNumber}: ${block.intent}` : block.intent}
       </div>
       
-      {/* Фаза 1: Планирую */}
+      {/* Фаза 1: Планирую - используем PlanningBlock */}
       {showPlanningSection && (
-        <div className={`intent-phase-section ${block.planningCollapsed ? 'collapsed' : ''}`}>
-          <div 
-            className="intent-phase-header"
-            onClick={onTogglePlanningCollapse}
-          >
-            <CircularProgress 
-              percent={isPlanning ? block.progressPercent : 100} 
-              size={10}
-              strokeWidth={2}
-              className="intent-phase-progress"
-            />
-            {block.planningCollapsed ? (
-              <ChevronRight size={14} className="intent-chevron" />
-            ) : (
-              <ChevronDown size={14} className="intent-chevron" />
-            )}
-            <span className="intent-phase-title">
-              {block.planningCollapsed ? 'Анализ проведён' : 'Планирую'}
-            </span>
-          </div>
-          
-          {!block.planningCollapsed && isPlanning && (
-            <div ref={thinkingRef} className="intent-phase-content">
-              <div className="intent-thinking-text">
-                {hasThinkingText ? block.thinkingText : 'Анализирую...'}
-                <span className="intent-thinking-cursor" />
-              </div>
-            </div>
-          )}
+        <div style={{ marginBottom: '8px' }}>
+          <PlanningBlock
+            content={block.thinkingText || ''}
+            isStreaming={isPlanning}
+            estimatedSeconds={estimatedSeconds}
+            initialCollapsed={block.planningCollapsed}
+            onCollapseChange={(collapsed) => {
+              // Только если состояние действительно изменилось
+              if (onTogglePlanningCollapse && collapsed !== block.planningCollapsed) {
+                onTogglePlanningCollapse()
+              }
+            }}
+          />
         </div>
       )}
       
-      {/* Фаза 2: Выполняю */}
+      {/* Фаза 2: Выполняю - лог действий */}
       {showExecutingSection && (
-        <div className={`intent-phase-section ${block.executingCollapsed ? 'collapsed' : ''}`}>
-          <div 
-            className="intent-phase-header"
-            onClick={onToggleExecutingCollapse}
-          >
-            <CircularProgress 
-              percent={isExecuting ? block.progressPercent : (isCompleted ? 100 : 0)} 
-              size={10}
-              strokeWidth={2}
-              className="intent-phase-progress"
-            />
-            {block.executingCollapsed ? (
-              <ChevronRight size={14} className="intent-chevron" />
-            ) : (
-              <ChevronDown size={14} className="intent-chevron" />
-            )}
-            <span className="intent-phase-title">
-              {block.executingCollapsed ? 'Выполнено' : 'Выполняю'}
-            </span>
-          </div>
-          
-          {!block.executingCollapsed && hasDetails && (
-            <div ref={detailsRef} className="intent-phase-content">
-              {block.details.map((detail, i) => (
-                <div key={i} className="intent-detail-item">
-                  {getIcon(detail.type)}
-                  <span className="intent-detail-text">{detail.description}</span>
+        <div className="execution-log" style={{ marginTop: '8px' }}>
+          {block.details.map((detail, i) => {
+            const isLast = i === block.details.length - 1
+            const isPending = isExecuting && isLast
+            const isDone = !isExecuting || !isLast
+            
+            return (
+              <div key={i} className="execution-log-item">
+                <span className={`log-icon ${isDone ? 'done' : 'pending'}`}>
+                  {isDone ? '✓' : '○'}
+                </span>
+                <div className="log-text-container">
+                  <span className={`log-text-title ${isPending ? 'log-text-pending' : ''}`}>
+                    {detail.description}
+                    {isPending && (
+                      <span className="log-text-dots" />
+                    )}
+                  </span>
                 </div>
-              ))}
+              </div>
+            )
+          })}
+          {isExecuting && block.details.length === 0 && (
+            <div className="execution-log-item">
+              <span className="log-icon pending">○</span>
+              <span className="log-text log-text-pending">
+                Выполняю действия...
+                <span className="log-text-dots" />
+              </span>
             </div>
           )}
         </div>
