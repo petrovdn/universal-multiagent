@@ -1220,6 +1220,79 @@ export class WebSocketClient {
         break
       }
 
+      case 'operation_start': {
+        console.log('[WebSocket] Operation started:', event.data)
+        // #region agent log - H2: Track operation title for dots issue
+        const title = event.data.title || 'Выполняем операцию'
+        const logData = {
+          location: 'websocket.ts:1223',
+          message: 'Operation start received',
+          data: { 
+            title, 
+            titleLength: title?.length,
+            titleHasDots: title?.includes('...') || title?.includes('…'),
+            titleHasThreeDots: (title?.match(/\./g) || []).length >= 3
+          },
+          timestamp: Date.now(),
+          sessionId: 'debug-session',
+          runId: 'run1',
+          hypothesisId: 'H2'
+        }
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(logData)
+        }).catch(() => {})
+        // #endregion
+        const state = useChatStore.getState()
+        const workflowId = state.activeWorkflowId
+        const intentId = event.data.intent_id || state.activeIntentId
+        const operationId = event.data.operation_id
+        
+        if (workflowId && intentId && operationId) {
+          chatStore.startOperation(
+            workflowId,
+            operationId,
+            intentId,
+            title,
+            event.data.streaming_title || 'Операция',
+            event.data.operation_type || 'read',
+            event.data.file_id,
+            event.data.file_url,
+            event.data.file_type
+          )
+        }
+        break
+      }
+      
+      case 'operation_data': {
+        console.log('[WebSocket] Operation data:', event.data)
+        const state = useChatStore.getState()
+        const workflowId = state.activeWorkflowId
+        const intentId = state.activeIntentId
+        const operationId = event.data.operation_id
+        const data = event.data.data
+        
+        if (workflowId && intentId && operationId && data) {
+          chatStore.addOperationData(workflowId, intentId, operationId, data)
+        }
+        break
+      }
+      
+      case 'operation_end': {
+        console.log('[WebSocket] Operation ended:', event.data)
+        const state = useChatStore.getState()
+        const workflowId = state.activeWorkflowId
+        const intentId = state.activeIntentId
+        const operationId = event.data.operation_id
+        const summary = event.data.summary
+        
+        if (workflowId && intentId && operationId && summary) {
+          chatStore.completeOperation(workflowId, intentId, operationId, summary)
+        }
+        break
+      }
+      
       case 'react_start': {
         // ReAct cycle started - FALLBACK: create thinking block
         console.log('[WebSocket] ReAct cycle started (fallback to thinking):', event.data)

@@ -2531,25 +2531,56 @@ div[style*="padding: '10px'"] .prose li {
   line-height: 1.5;
 }
 
+/* Предотвращаем перенос для заголовков операций */
+.operation-block .log-text-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .log-text-pending {
   color: var(--text-primary);
 }
 
 .log-text-dots {
   display: inline-block;
-  width: 12px;
+  width: 18px; /* Фиксированная ширина для трех точек */
   margin-left: 2px;
+  text-align: left;
+  position: relative;
+  vertical-align: baseline;
+  font-family: monospace; /* Моноширинный шрифт для стабильной ширины */
+  letter-spacing: 0.1em; /* Расстояние между точками */
+  white-space: nowrap; /* Предотвращаем перенос точек на новую строку */
+  overflow: hidden; /* Скрываем переполнение */
 }
 
-.log-text-dots::after {
-  content: '...';
-  animation: logDots 1.5s steps(3) infinite;
+.log-text-dots > span {
+  display: inline; /* Используем inline вместо inline-block, чтобы точки были на одной строке */
+  animation: logDotsWave 1.4s ease-in-out infinite;
+  opacity: 0.3;
+  will-change: opacity; /* Оптимизация - используем только opacity */
 }
 
-@keyframes logDots {
-  0%, 20% { content: '.'; }
-  40% { content: '..'; }
-  60%, 100% { content: '...'; }
+.log-text-dots .log-dot-1 {
+  animation-delay: 0s;
+}
+
+.log-text-dots .log-dot-2 {
+  animation-delay: 0.2s;
+}
+
+.log-text-dots .log-dot-3 {
+  animation-delay: 0.4s;
+}
+
+@keyframes logDotsWave {
+  0%, 60%, 100% { 
+    opacity: 0.3;
+  }
+  30% { 
+    opacity: 1;
+  }
 }
 
 .log-text-details {
@@ -3255,6 +3286,83 @@ div[style*="padding: '10px'"] .prose li {
 @keyframes textStreamingCursorBlink {
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }
+}
+
+/* ============================================
+   OPERATION STREAMING BLOCK (Блок операций со стримингом)
+   ============================================ */
+.operation-block {
+  margin-top: 8px;
+  padding: 0;
+  background: transparent;
+  overflow: visible;
+}
+
+.operation-block .execution-log-item {
+  padding: 0;
+  margin-bottom: 0;
+  margin-top: 0;
+  border-bottom: none;
+  min-height: 1.5em; /* Фиксированная минимальная высота для предотвращения сдвига */
+  line-height: 1.5; /* Согласованность с log-text-title */
+}
+
+.operation-streaming-block {
+  margin-top: 8px;
+  max-width: 100%;
+  width: 100%;
+  background: var(--bg-primary);
+  overflow: hidden;
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+}
+
+.operation-streaming-header {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+
+.operation-streaming-header:hover {
+  color: var(--text-primary);
+}
+
+.operation-streaming-content {
+  max-height: calc(1.5em * 5);
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6b7280;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  background: var(--bg-primary);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-secondary) transparent;
+}
+
+.operation-streaming-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.operation-streaming-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.operation-streaming-content::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.operation-streaming-content::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.3);
 }
 
 /* ============================================

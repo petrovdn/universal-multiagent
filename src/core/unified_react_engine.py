@@ -9,6 +9,7 @@ import asyncio
 import json
 import re
 import time
+from datetime import datetime
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -590,19 +591,63 @@ class UnifiedReActEngine:
                         # First tool usage - set initial category
                         self._current_phase_category = new_category
                 
-                # === Add intent_detail for planned action ===
+                # === Add intent_detail for planned action (skip for tools with operations) ===
                 if planned_tool.upper() != "FINISH":
-                    # Add detail about what we're going to do
-                    action_description = action_plan.get("description", "")[:80]
-                    await self.ws_manager.send_event(
-                        self.session_id,
-                        "intent_detail",
-                        {
-                            "intent_id": self._current_intent_id,
-                            "type": "execute",
-                            "description": f"🎯 {action_description}" if action_description else f"🔧 {self._get_tool_display_name(planned_tool, action_plan.get('arguments', {}))}"
-                        }
-                    )
+                    # Check if this tool supports operations - if yes, skip intent_detail (will send operation_start instead)
+                    tools_with_operations = {
+                        'get_calendar_events',
+                        # TODO: Add other tools (sheets, docs, etc.)
+                    }
+                    
+                    # #region agent log - H2: Check if planned_tool should skip intent_detail
+                    import json as _json
+                    import time as _time
+                    _check_planned_start = _time.time()
+                    try:
+                        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                            "location": "unified_react_engine:_think_and_plan:before_intent_detail",
+                            "message": "Checking if planned_tool should skip intent_detail",
+                            "data": {
+                                "planned_tool": planned_tool,
+                                "is_in_tools_list": planned_tool in tools_with_operations,
+                                "action_plan_tool_name": action_plan.get("tool_name", "")
+                            },
+                            "timestamp": int(_check_planned_start*1000),
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H2"
+                        }) + '\n')
+                    except Exception:
+                        pass
+                    # #endregion
+                    
+                    if planned_tool not in tools_with_operations:
+                        # Add detail about what we're going to do (only for tools without operations)
+                        action_description = action_plan.get("description", "")[:80]
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "intent_detail",
+                            {
+                                "intent_id": self._current_intent_id,
+                                "type": "execute",
+                                "description": f"🎯 {action_description}" if action_description else f"🔧 {self._get_tool_display_name(planned_tool, action_plan.get('arguments', {}))}"
+                            }
+                        )
+                        # #region agent log - H2: Intent detail sent (planned action)
+                        try:
+                            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                                "location": "unified_react_engine:_think_and_plan:intent_detail_sent",
+                                "message": "Intent detail sent for planned action",
+                                "data": {
+                                    "planned_tool": planned_tool,
+                                    "description": f"🎯 {action_description}" if action_description else f"🔧 {self._get_tool_display_name(planned_tool, action_plan.get('arguments', {}))}"
+                                },
+                                "timestamp": int(_time.time()*1000),
+                                "sessionId": "debug-session",
+                                "hypothesisId": "H2"
+                            }) + '\n')
+                        except Exception:
+                            pass
+                        # #endregion
                 
                 # Check for special "FINISH" marker
                 tool_name = action_plan.get("tool_name", "")
@@ -2971,6 +3016,9 @@ class UnifiedReActEngine:
     ) -> Any:
         """Execute action through CapabilityRegistry (provider-agnostic)."""
         capability_name = action_plan.get("tool_name")
+        if not capability_name:
+            logger.warning("[UnifiedReActEngine] No tool_name in action_plan, skipping execution")
+            return ""
         arguments = action_plan.get("arguments", {})
         
         # #region agent log - H3: _execute_action entry
@@ -2978,25 +3026,112 @@ class UnifiedReActEngine:
         # #endregion
         
         # Send real progress event BEFORE tool execution
+        # For tools that support operations (get_calendar_events, etc.), send operation_start
+        operation_id = None
         if self.ws_manager and self.session_id:
             display_name = self._get_tool_display_name(capability_name, arguments)
-            
-            # Get current intent_id if available
             intent_id = getattr(self, '_current_intent_id', None)
-            if intent_id:
+            
+            # Check if this tool supports operations (returns list of items)
+            tools_with_operations = {
+                'get_calendar_events': {
+                    'title': 'Получаем календарные события',
+                    'streaming_title': 'Календарные события',
+                    'operation_type': 'read',
+                    'file_type': 'calendar'
+                },
+                # TODO: Add other tools (sheets, docs, etc.)
+            }
+            
+            # #region agent log - H3: Check capability_name for operations
+            import json as _json
+            import time as _time
+            _check_op_start = _time.time()
+            try:
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                    "location": "unified_react_engine:_execute_action:before_operation_check",
+                    "message": "Checking if capability supports operations",
+                    "data": {
+                        "capability_name": capability_name,
+                        "is_in_tools_list": capability_name in tools_with_operations,
+                        "display_name": display_name
+                    },
+                    "timestamp": int(_check_op_start*1000),
+                    "sessionId": "debug-session",
+                    "hypothesisId": "H3"
+                }) + '\n')
+            except Exception:
+                pass
+            # #endregion
+            
+            if capability_name in tools_with_operations:
+                operation_id = f"op-{int(time.time() * 1000)}"
+                op_config = tools_with_operations[capability_name]
+                await self.ws_manager.send_operation_start(
+                    self.session_id,
+                    operation_id,
+                    op_config['title'],
+                    op_config['streaming_title'],
+                    op_config['operation_type'],
+                    file_type=op_config.get('file_type'),
+                    intent_id=intent_id
+                )
+                # #region agent log - H3: Operation start sent
+                try:
+                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                        "location": "unified_react_engine:_execute_action:operation_start_sent",
+                        "message": "Operation start sent",
+                        "data": {
+                            "capability_name": capability_name,
+                            "operation_id": operation_id,
+                            "title": op_config['title']
+                        },
+                        "timestamp": int(_time.time()*1000),
+                        "sessionId": "debug-session",
+                        "hypothesisId": "H3"
+                    }) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+            elif intent_id:
+                # Legacy: Send intent_detail for other tools (without dots - they will be added by frontend if needed)
                 await self.ws_manager.send_event(
                     self.session_id,
                     "intent_detail",
                     {
                         "intent_id": intent_id,
                         "type": "execute",
-                        "description": f"{display_name}..."
+                        "description": display_name  # Убрали точки - они не нужны, так как анимация убрана
                     }
                 )
+                # #region agent log - H3: Intent detail sent (legacy)
+                try:
+                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                        "location": "unified_react_engine:_execute_action:intent_detail_sent",
+                        "message": "Intent detail sent (legacy format)",
+                        "data": {
+                            "capability_name": capability_name,
+                            "display_name": display_name
+                        },
+                        "timestamp": int(_time.time()*1000),
+                        "sessionId": "debug-session",
+                        "hypothesisId": "H3"
+                    }) + '\n')
+                except Exception:
+                    pass
+                # #endregion
         
         # #region agent log - H3: Before registry.execute
         _registry_start = time.time()
         # #endregion
+        
+        # Add session_id and intent_id to arguments for tools that support operations
+        # Tools can use these to send operations directly
+        if self.session_id:
+            arguments['_session_id'] = self.session_id
+            intent_id = getattr(self, '_current_intent_id', None)
+            if intent_id:
+                arguments['_intent_id'] = intent_id
         
         # Registry routes to appropriate provider (MCP or A2A)
         result = await self.registry.execute(capability_name, arguments)
@@ -3005,8 +3140,111 @@ class UnifiedReActEngine:
         _registry_end = time.time()
         # #endregion
         
-        # Send intent_detail AFTER tool execution with result summary
-        if self.ws_manager and self.session_id:
+        # Process result for operations (parse and stream data)
+        if operation_id and self.ws_manager and self.session_id:
+            intent_id = getattr(self, '_current_intent_id', None)
+            
+            if capability_name == 'get_calendar_events':
+                # Parse calendar events from result string
+                try:
+                    result_str = str(result) if result else ""
+                    
+                    if 'Found' in result_str and 'event(s)' in result_str:
+                        # Result is formatted string, extract count and events
+                        lines = result_str.split('\n')
+                        count_line = lines[0] if lines else ''
+                        
+                        # Extract count
+                        count_match = re.search(r'Found (\d+) event\(s\)', count_line)
+                        if count_match:
+                            count = int(count_match.group(1))
+                            
+                            # Extract events from formatted string (lines starting with number or emoji)
+                            events_data = []
+                            for line in lines[1:]:
+                                line = line.strip()
+                                if not line:
+                                    continue
+                                # Match lines like "1. Event Name" or "📅 Event Name" or lines with event info
+                                if re.match(r'^\d+\.', line) or line.startswith('📅') or ('Время:' in line and len(events_data) < count):
+                                    # Clean up line
+                                    event_info = re.sub(r'^\d+\.\s*', '', line)  # Remove number prefix
+                                    event_info = event_info.replace('📅', '').strip()
+                                    
+                                    # If line contains "Время:", combine with previous event
+                                    if 'Время:' in event_info and events_data:
+                                        prev_event = events_data[-1]
+                                        # Extract just the time part
+                                        time_match = re.search(r'Время: ([^-\n]+)', event_info)
+                                        if time_match:
+                                            time_str = time_match.group(1).strip()
+                                            events_data[-1] = f"{prev_event} - {time_str}"
+                                    elif event_info and not 'Время:' in event_info:
+                                        if not event_info.startswith('   '):  # Skip indented lines (time info)
+                                            events_data.append(f"📅 {event_info}")
+                            
+                            # If we didn't extract events from formatted string, try to extract from numbered lines
+                            if not events_data:
+                                for line in lines[1:]:
+                                    line = line.strip()
+                                    if re.match(r'^\d+\.', line):
+                                        event_info = re.sub(r'^\d+\.\s*', '', line).strip()
+                                        if event_info and 'Found' not in event_info:
+                                            events_data.append(f"📅 {event_info}")
+                            
+                            # Stream events (or just show count if we can't parse individual events)
+                            if events_data:
+                                for event_data in events_data:
+                                    await self.ws_manager.send_operation_data(
+                                        self.session_id,
+                                        operation_id,
+                                        event_data
+                                    )
+                            
+                            # Send operation_end
+                            await self.ws_manager.send_operation_end(
+                                self.session_id,
+                                operation_id,
+                                f"Получено {count} встреч"
+                            )
+                        else:
+                            # Couldn't parse count, send summary
+                            result_summary = self._get_result_summary(capability_name, result)
+                            if result_summary:
+                                await self.ws_manager.send_operation_end(
+                                    self.session_id,
+                                    operation_id,
+                                    result_summary
+                                )
+                    elif result_str.startswith('Found 0'):
+                        # No events found
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            "Встречи не найдены"
+                        )
+                    else:
+                        # Unknown format, send summary
+                        result_summary = self._get_result_summary(capability_name, result)
+                        if result_summary:
+                            await self.ws_manager.send_operation_end(
+                                self.session_id,
+                                operation_id,
+                                result_summary
+                            )
+                except Exception as e:
+                    logger.warning(f"[UnifiedReActEngine] Failed to process operation for {capability_name}: {e}", exc_info=True)
+                    # Fallback to summary
+                    result_summary = self._get_result_summary(capability_name, result) if capability_name else None
+                    if result_summary:
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            result_summary
+                        )
+            # TODO: Add processing for other tools (sheets, docs, etc.)
+        elif self.ws_manager and self.session_id:
+            # Legacy: Send intent_detail AFTER tool execution with result summary
             intent_id = getattr(self, '_current_intent_id', None)
             if intent_id:
                 # Generate result summary

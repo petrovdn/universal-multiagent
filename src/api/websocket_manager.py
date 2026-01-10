@@ -158,6 +158,81 @@ class WebSocketManager:
             Number of connections
         """
         return len(self.active_connections.get(session_id, set()))
+    
+    async def send_operation_start(
+        self,
+        session_id: str,
+        operation_id: str,
+        title: str,
+        streaming_title: str,
+        operation_type: str = "read",
+        file_id: Optional[str] = None,
+        file_url: Optional[str] = None,
+        file_type: Optional[str] = None,
+        intent_id: Optional[str] = None
+    ) -> None:
+        """
+        Send operation start event.
+        
+        Args:
+            session_id: Session identifier
+            operation_id: Unique operation identifier
+            title: Operation title (e.g., "Записываем послесловие")
+            streaming_title: Title for streaming window (e.g., "Сказка.docx")
+            operation_type: Type of operation (read | search | write | create | update)
+            file_id: Optional file ID for opening in panel
+            file_url: Optional file URL
+            file_type: Optional file type (sheets | docs | slides | calendar | gmail)
+            intent_id: Optional intent ID this operation belongs to
+        """
+        await self.send_event(session_id, "operation_start", {
+            "operation_id": operation_id,
+            "intent_id": intent_id,
+            "title": title,
+            "streaming_title": streaming_title,
+            "operation_type": operation_type,
+            "file_id": file_id,
+            "file_url": file_url,
+            "file_type": file_type
+        })
+    
+    async def send_operation_data(
+        self,
+        session_id: str,
+        operation_id: str,
+        data: str
+    ) -> None:
+        """
+        Send operation data event (streaming).
+        
+        Args:
+            session_id: Session identifier
+            operation_id: Operation identifier
+            data: Data string to stream
+        """
+        await self.send_event(session_id, "operation_data", {
+            "operation_id": operation_id,
+            "data": data
+        })
+    
+    async def send_operation_end(
+        self,
+        session_id: str,
+        operation_id: str,
+        summary: str
+    ) -> None:
+        """
+        Send operation end event.
+        
+        Args:
+            session_id: Session identifier
+            operation_id: Operation identifier
+            summary: Summary text (e.g., "Получено 10 встреч")
+        """
+        await self.send_event(session_id, "operation_end", {
+            "operation_id": operation_id,
+            "summary": summary
+        })
 
 
 # Global WebSocket manager

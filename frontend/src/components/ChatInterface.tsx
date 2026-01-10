@@ -845,7 +845,9 @@ export function ChatInterface() {
                               block.id?.includes('intent-final') ||
                               block.id?.includes('final')
                             const hasNoReasoning = !block.thinkingText || block.thinkingText.trim().length === 0
-                            const hasNoActions = !block.details || block.details.length === 0
+                            const hasNoDetails = !block.details || block.details.length === 0
+                            const hasNoOperations = !block.operations || Object.keys(block.operations).length === 0
+                            const hasNoActions = hasNoDetails && hasNoOperations
                             
                             // Исключаем шаг "Формирую ответ", если нет reasoning и нет действий
                             return !(isFormingAnswer && hasNoReasoning && hasNoActions)
@@ -863,6 +865,7 @@ export function ChatInterface() {
                               <IntentMessage
                                 key={intentBlock.id}
                                 block={intentBlock}
+                                workflowId={workflowId}
                                 stepNumber={stepNumber}
                                 onToggleCollapse={() => toggleIntentCollapse(workflowId, intentBlock.id)}
                                 onTogglePlanningCollapse={() => toggleIntentPhase(workflowId, intentBlock.id, 'planning')}

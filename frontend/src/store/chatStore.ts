@@ -147,6 +147,26 @@ export interface IntentDetail {
   timestamp: number
 }
 
+// Operation - операция со стримингом данных
+export type OperationType = 'read' | 'search' | 'write' | 'create' | 'update'
+export type FileType = 'sheets' | 'docs' | 'slides' | 'calendar' | 'gmail' | 'drive'
+
+export interface Operation {
+  id: string
+  intentId?: string
+  title: string              // "Записываем послесловие"
+  streamingTitle: string     // "Сказка.docx"
+  operationType: OperationType
+  status: 'pending' | 'streaming' | 'completed'
+  summary?: string           // "Записано 324 символа"
+  data: string[]             // Данные стриминга
+  isCollapsed: boolean
+  // Для автооткрытия в панели
+  fileId?: string
+  fileUrl?: string
+  fileType?: FileType
+}
+
 // Фаза выполнения intent
 export type IntentPhase = 'planning' | 'executing' | 'completed'
 
@@ -155,7 +175,8 @@ export interface IntentBlock {
   intent: string                    // "Создание встречи с bsn@lad24.ru"
   status: 'started' | 'streaming' | 'completed'
   phase: IntentPhase                // Текущая фаза: planning -> executing -> completed
-  details: IntentDetail[]           // Список деталей выполнения (фаза executing)
+  details: IntentDetail[]           // Список деталей выполнения (фаза executing) - устаревший формат
+  operations: Record<string, Operation> // operation_id -> Operation (новый формат)
   thinkingText?: string             // Streaming thinking text (фаза planning)
   summary?: string                  // "Найдено 5 встреч" - показывается в свёрнутом виде
   isCollapsed: boolean
@@ -1424,6 +1445,7 @@ export const useChatStore = create<ChatState>()(
             status: 'started',
             phase: 'planning',  // Начинаем с фазы планирования
             details: [],
+            operations: {},
             isCollapsed: false,
             planningCollapsed: false,
             executingCollapsed: false,
@@ -1666,6 +1688,138 @@ export const useChatStore = create<ChatState>()(
       setActiveIntent: (intentId: string | null) =>
         set({
           activeIntentId: intentId,
+        }),
+      
+      // Operation methods (новые операции со стримингом)
+      startOperation: (
+        workflowId: string,
+        operationId: string,
+        intentId: string,
+        title: string,
+        streamingTitle: string,
+        operationType: OperationType,
+        fileId?: string,
+        fileUrl?: string,
+        fileType?: FileType
+      ) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              const newOperation: Operation = {
+                id: operationId,
+                intentId: intentId,
+                title: title,
+                streamingTitle: streamingTitle,
+                operationType: operationType,
+                status: 'pending',
+                data: [],
+                isCollapsed: false,
+                fileId: fileId,
+                fileUrl: fileUrl,
+                fileType: fileType,
+              }
+              return {
+                ...intent,
+                operations: {
+                  ...intent.operations,
+                  [operationId]: newOperation,
+                },
+                details: [], // Очищаем старые details при создании операции, чтобы избежать дублирования
+                phase: 'executing', // Переключаем на фазу выполнения
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      addOperationData: (workflowId: string, intentId: string, operationId: string, data: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.operations[operationId]) {
+              const operation = intent.operations[operationId]
+              return {
+                ...intent,
+                operations: {
+                  ...intent.operations,
+                  [operationId]: {
+                    ...operation,
+                    status: 'streaming',
+                    data: [...operation.data, data],
+                  },
+                },
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      completeOperation: (workflowId: string, intentId: string, operationId: string, summary: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.operations[operationId]) {
+              const operation = intent.operations[operationId]
+              return {
+                ...intent,
+                operations: {
+                  ...intent.operations,
+                  [operationId]: {
+                    ...operation,
+                    status: 'completed',
+                    summary: summary,
+                  },
+                },
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      toggleOperationCollapse: (workflowId: string, intentId: string, operationId: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.operations[operationId]) {
+              const operation = intent.operations[operationId]
+              return {
+                ...intent,
+                operations: {
+                  ...intent.operations,
+                  [operationId]: {
+                    ...operation,
+                    isCollapsed: !operation.isCollapsed,
+                  },
+                },
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
         }),
       
       setUserAssistanceRequest: (request) =>

@@ -392,6 +392,27 @@ class GoogleCalendarMCPServer:
                     )]
                 
                 elif name == "create_event":
+                    # #region agent log - H2: Track attendees in MCP server
+                    import json as _json
+                    import time as _time
+                    _mcp_create_start = _time.time()
+                    try:
+                        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                            "location": "google_calendar_server:create_event:entry",
+                            "message": "MCP create_event entry",
+                            "data": {
+                                "arguments_attendees": arguments.get("attendees"),
+                                "has_test_example": any("test@example.com" in str(a.get("email", "")).lower() for a in arguments.get("attendees", [])) if arguments.get("attendees") else False,
+                                "all_arguments_keys": list(arguments.keys())
+                            },
+                            "timestamp": int(_mcp_create_start*1000),
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H2"
+                        }) + '\n')
+                    except Exception:
+                        pass
+                    # #endregion
+                    
                     calendar_id = arguments.get("calendarId", "primary")
                     event_body = {
                         "summary": arguments.get("summary"),
@@ -403,14 +424,95 @@ class GoogleCalendarMCPServer:
                     
                     if arguments.get("attendees"):
                         event_body["attendees"] = arguments.get("attendees")
+                        
+                        # #region agent log - H2: Track attendees in event_body
+                        try:
+                            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                                "location": "google_calendar_server:create_event:event_body",
+                                "message": "Attendees in event_body before API call",
+                                "data": {
+                                    "event_body_attendees": event_body.get("attendees"),
+                                    "has_test_example": any("test@example.com" in str(a.get("email", "")).lower() for a in event_body.get("attendees", [])) if event_body.get("attendees") else False
+                                },
+                                "timestamp": int(_time.time()*1000),
+                                "sessionId": "debug-session",
+                                "hypothesisId": "H2"
+                            }) + '\n')
+                        except Exception:
+                            pass
+                        # #endregion
                     
                     # Remove None values
                     event_body = {k: v for k, v in event_body.items() if v is not None}
+                    
+                    # #region agent log - H2: Track final event_body before API
+                    try:
+                        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                            "location": "google_calendar_server:create_event:before_api",
+                            "message": "Final event_body before API call",
+                            "data": {
+                                "event_body_attendees": event_body.get("attendees"),
+                                "has_test_example": any("test@example.com" in str(a.get("email", "")).lower() for a in event_body.get("attendees", [])) if event_body.get("attendees") else False,
+                                "event_body_keys": list(event_body.keys())
+                            },
+                            "timestamp": int(_time.time()*1000),
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H2"
+                        }) + '\n')
+                    except Exception:
+                        pass
+                    # #endregion
+                    
+                    # #region agent log - H5: Track sendUpdates parameter
+                    _before_insert = _time.time()
+                    try:
+                        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                            "location": "google_calendar_server:create_event:before_insert",
+                            "message": "Before events().insert() call",
+                            "data": {
+                                "event_body_attendees_count": len(event_body.get("attendees", [])),
+                                "event_body_attendees": event_body.get("attendees"),
+                                "has_sendUpdates": False,
+                                "sendUpdates_default": "all (Google Calendar API default - sends notifications to all attendees)",
+                                "has_test_example": any("test@example.com" in str(a.get("email", "")).lower() for a in event_body.get("attendees", [])) if event_body.get("attendees") else False
+                            },
+                            "timestamp": int(_before_insert*1000),
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H5"
+                        }) + '\n')
+                    except Exception:
+                        pass
+                    # #endregion
                     
                     event = service.events().insert(
                         calendarId=calendar_id,
                         body=event_body
                     ).execute()
+                    
+                    # #region agent log - H2: Track event after API call
+                    try:
+                        _all_attendees = event.get("attendees", [])
+                        _all_attendee_emails = [a.get("email", "") for a in _all_attendees if a.get("email")]
+                        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                            "location": "google_calendar_server:create_event:after_api",
+                            "message": "Event created by API - check if test@example.com was added by Google",
+                            "data": {
+                                "event_id": event.get("id"),
+                                "event_attendees_count": len(_all_attendees),
+                                "event_attendees": _all_attendees,
+                                "event_attendee_emails": _all_attendee_emails,
+                                "requested_attendees_count": len(event_body.get("attendees", [])),
+                                "requested_attendee_emails": [a.get("email", "") for a in event_body.get("attendees", []) if a.get("email")],
+                                "has_test_example": any("test@example.com" in email.lower() for email in _all_attendee_emails),
+                                "attendees_added_by_google": len(_all_attendees) > len(event_body.get("attendees", []))
+                            },
+                            "timestamp": int(_time.time()*1000),
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H2,H5"
+                        }) + '\n')
+                    except Exception:
+                        pass
+                    # #endregion
                     
                     return [TextContent(
                         type="text",

@@ -672,7 +672,11 @@ function StepItem({
                   <span className={`log-text-title ${isPending ? 'log-text-pending' : ''}`}>
                     {action.text}
                     {isPending && (
-                      <span className="log-text-dots" />
+                      <span className="log-text-dots">
+                        <span className="log-dot-1">.</span>
+                        <span className="log-dot-2">.</span>
+                        <span className="log-dot-3">.</span>
+                      </span>
                     )}
                     {isSlideTitle && (
                       <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}>
@@ -694,7 +698,11 @@ function StepItem({
               <span className="log-icon pending">○</span>
               <span className="log-text log-text-pending">
                 Выполняю действия...
-                <span className="log-text-dots" />
+                <span className="log-text-dots">
+                  <span className="log-dot-1">.</span>
+                  <span className="log-dot-2">.</span>
+                  <span className="log-dot-3">.</span>
+                </span>
               </span>
             </div>
           )}
