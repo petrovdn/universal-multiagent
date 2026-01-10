@@ -1432,10 +1432,14 @@ async def disable_workspace_integration(request: Request):
 
 
 @router.get("/google-workspace/folders")
-async def list_workspace_folders(request: Request):
+async def list_workspace_folders(
+    request: Request,
+    parent_folder_id: Optional[str] = Query(None, description="Optional parent folder ID to list subfolders")
+):
     """
     List folders from Google Drive that can be used as workspace folder.
-    Returns folders from the user's Drive.
+    If parent_folder_id is provided, returns subfolders of that folder.
+    Otherwise, returns all top-level folders.
     """
     if not WORKSPACE_TOKEN_PATH.exists():
         raise HTTPException(
@@ -1461,11 +1465,23 @@ async def list_workspace_folders(request: Request):
         
         drive_service = build('drive', 'v3', credentials=creds)
         
-        # List folders (excluding trashed)
+        # Build query
+        query_parts = ["mimeType='application/vnd.google-apps.folder'", "trashed=false"]
+        
+        if parent_folder_id:
+            # List subfolders of the specified parent folder
+            query_parts.append(f"'{parent_folder_id}' in parents")
+        else:
+            # List top-level folders (folders not in any other folder, or in 'root')
+            query_parts.append("'root' in parents")
+        
+        query = " and ".join(query_parts)
+        
+        # List folders
         results = drive_service.files().list(
-            q="mimeType='application/vnd.google-apps.folder' and trashed=false",
+            q=query,
             pageSize=100,
-            fields="files(id, name, createdTime, modifiedTime, webViewLink)",
+            fields="files(id, name, createdTime, modifiedTime, webViewLink, parents)",
             orderBy="modifiedTime desc"
         ).execute()
         
@@ -1478,7 +1494,8 @@ async def list_workspace_folders(request: Request):
                     "name": f.get('name'),
                     "createdTime": f.get('createdTime'),
                     "modifiedTime": f.get('modifiedTime'),
-                    "url": f.get('webViewLink')
+                    "url": f.get('webViewLink'),
+                    "parents": f.get('parents', [])
                 }
                 for f in folders
             ],

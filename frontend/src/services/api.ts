@@ -244,8 +244,9 @@ export const getGoogleWorkspaceStatus = async () => {
   return response.data
 }
 
-export const listWorkspaceFolders = async () => {
-  const response = await api.get('/integrations/google-workspace/folders')
+export const listWorkspaceFolders = async (parentFolderId?: string) => {
+  const params = parentFolderId ? { parent_folder_id: parentFolderId } : {}
+  const response = await api.get('/integrations/google-workspace/folders', { params })
   return response.data
 }
 
