@@ -3,20 +3,20 @@
     "password": "admin",
     "username": "admin"
   },
-  "demo": {
-    "password": "petrov@lad24.ru",
-    "username": "bottleneck2025"
+  "petrov@lad24.ru": {
+    "password": "bottleneck2025",
+    "username": "petrov@lad24.ru"
   },
   "user1": {
-    "password": "password1",
+    "password": "kucenko1$",
     "username": "KucenkoKA@lad24.ru"
   },
-  "user2": {
-    "password": "blynskijno@lad24.ru",
+  "blynskijno@lad24.ru": {
+    "password": "blynskij1$",
     "username": "blynskij1$"
   },
-  "user3": {
-    "password": "terichevma@lad24.ru",
+  "terichevma@lad24.ru": {
+    "password": "terichev1$",
     "username": "terichev1$"
   }
 }
