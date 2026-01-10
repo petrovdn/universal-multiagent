@@ -1,6 +1,4 @@
 import { useChatStore } from '../store/chatStore'
-import { useSettingsStore } from '../store/settingsStore'
-import type { DebugChunkType } from '../store/chatStore'
 
 export interface WebSocketEvent {
   type: string
@@ -158,18 +156,7 @@ export class WebSocketClient {
       
       return null
     }
-    const settingsStore = useSettingsStore.getState()
-    const debugMode = settingsStore.debugMode
     console.log('[WebSocket] Received event:', event.type, event.data)
-    
-  
-    // Helper function to add debug chunk if debug mode is enabled
-    const addDebugChunkIfEnabled = (messageId: string, chunkType: DebugChunkType, content: string, metadata?: Record<string, any>) => {
-      if (debugMode) {
-        const msgId = messageId || this.currentMessageId || `msg-${Date.now()}`
-        chatStore.addDebugChunk(msgId, chunkType, content, metadata)
-      }
-    }
 
     try {
       switch (event.type) {
@@ -203,7 +190,6 @@ export class WebSocketClient {
         this.currentReasoningBlockId = null
         this.currentAnswerBlockId = null
         chatStore.setAgentTyping(true)
-        addDebugChunkIfEnabled(messageId, 'message_start', 'Начало сообщения', event.data)
         console.log('[WebSocket] Starting new message:', messageId)
         break
 
@@ -266,7 +252,6 @@ export class WebSocketClient {
           break
         }
         chatStore.updateReasoningBlock(thinkingMsgId, this.currentReasoningBlockId, thinkingMessage)
-        addDebugChunkIfEnabled(thinkingMsgId, 'thinking', thinkingMessage, event.data)
         console.log('[WebSocket] Updated reasoning block:', this.currentReasoningBlockId, 'content length:', thinkingMessage.length)
         break
 
@@ -448,7 +433,6 @@ export class WebSocketClient {
         
         // Update answer block content (replace, not append - backend sends accumulated content)
         chatStore.updateAnswerBlock(chunkMsgId, this.currentAnswerBlockId, chunkContent)
-        addDebugChunkIfEnabled(chunkMsgId, 'message_chunk', chunkContent, { ...event.data, chunk: event.data.chunk })
         console.log('[WebSocket] Updated answer block:', this.currentAnswerBlockId, 'content length:', chunkContent.length)
         break
 
@@ -518,7 +502,6 @@ export class WebSocketClient {
             chatStore.completeMessage(completeMessageId)
           }
           
-          addDebugChunkIfEnabled(completeMessageId, 'message_complete', event.data.content || 'Сообщение завершено', event.data)
           
           // Reset state for next message
           // Note: We keep currentMessageId in case there's another reasoning cycle
@@ -556,7 +539,6 @@ export class WebSocketClient {
         const currentReasoning = chatStore.assistantMessages[toolMsgId]?.reasoningBlocks
           .find((b: any) => b.id === this.currentReasoningBlockId)?.content || ''
         chatStore.updateReasoningBlock(toolMsgId, this.currentReasoningBlockId, currentReasoning + (currentReasoning ? '\n' : '') + toolCallText)
-        addDebugChunkIfEnabled(toolMsgId, 'tool_call', toolCallText, { tool_name: toolName, arguments: toolArgs })
         break
 
       case 'tool_result':
@@ -577,7 +559,6 @@ export class WebSocketClient {
             .find((b: any) => b.id === this.currentReasoningBlockId)?.content || ''
           chatStore.updateReasoningBlock(resultMsgId, this.currentReasoningBlockId, currentReasoning + (currentReasoning ? '\n' : '') + `Результат: ${compactResult}`)
         }
-        addDebugChunkIfEnabled(resultMsgId, 'tool_result', compactResult, event.data)
         break
 
       case 'plan_request':
@@ -790,7 +771,6 @@ export class WebSocketClient {
 
       case 'error':
         const errorMsgId = this.currentMessageId || `msg-${Date.now()}`
-        addDebugChunkIfEnabled(errorMsgId, 'error', event.data.message || 'Ошибка', event.data)
         chatStore.addMessage({
           role: 'system',
           content: `Error: ${event.data.message}`,
@@ -1305,7 +1285,6 @@ export class WebSocketClient {
           firstBlockContent: message.reasoningBlocks[0]?.content?.substring(0, 50)
         } : 'Message not found')
         
-        addDebugChunkIfEnabled(reactMsgId, 'thinking', `ReAct started: ${goal}`, event.data)
         break
       }
 
@@ -1353,7 +1332,6 @@ export class WebSocketClient {
         
         console.log('[WebSocket] Updating reasoning block with thinking content, length:', thinkingContent.length)
         chatStore.updateReasoningBlock(thinkingMsgId, this.currentReasoningBlockId, thinkingContent)
-        addDebugChunkIfEnabled(thinkingMsgId, 'thinking', thought, event.data)
         break
       }
 
@@ -1422,7 +1400,6 @@ export class WebSocketClient {
         
         console.log('[WebSocket] Updating reasoning block with action content, length:', actionContent.length)
         chatStore.updateReasoningBlock(actionMsgId, this.currentReasoningBlockId, actionContent)
-        addDebugChunkIfEnabled(actionMsgId, 'tool_call', `Tool: ${tool}`, event.data)
         break
       }
 
@@ -1472,7 +1449,6 @@ export class WebSocketClient {
         
         console.log('[WebSocket] Updating reasoning block with observation content, length:', obsContent.length)
         chatStore.updateReasoningBlock(obsMsgId, this.currentReasoningBlockId, obsContent)
-        addDebugChunkIfEnabled(obsMsgId, 'tool_result', result, event.data)
         break
       }
 
@@ -1495,7 +1471,6 @@ export class WebSocketClient {
         const iteration = event.data.iteration || 1
         const adaptContent = `**Итерация ${iteration} - Адаптация:**\n\n🔄 **Причина:** ${reason}\n📋 **Новая стратегия:** ${newStrategy}`
         chatStore.updateReasoningBlock(adaptMsgId, this.currentReasoningBlockId, adaptContent)
-        addDebugChunkIfEnabled(adaptMsgId, 'thinking', `Adapting: ${newStrategy}`, event.data)
         break
       }
 
@@ -1562,7 +1537,6 @@ export class WebSocketClient {
         chatStore.clearCurrentAction()
         
         
-        addDebugChunkIfEnabled(completeMsgId, 'message_complete', result, event.data)
         break
       }
 
@@ -1611,7 +1585,6 @@ export class WebSocketClient {
         // chatStore.clearCurrentAction() - removed to keep action visible
         
         
-        addDebugChunkIfEnabled(failedMsgId, 'error', reason, event.data)
         break
       }
 

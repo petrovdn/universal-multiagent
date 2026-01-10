@@ -16,6 +16,7 @@ import io
 import json
 import time
 import asyncio
+import re
 try:
     import PyPDF2
 except ImportError:
@@ -206,13 +207,18 @@ if config.is_production:
         async def serve_favicon():
             favicon_path = frontend_dist / "favicon.svg"
             if favicon_path.exists():
-                return FileResponse(favicon_path, media_type="image/svg+xml")
+                return FileResponse(
+                    favicon_path, 
+                    media_type="image/svg+xml",
+                    headers={"Cache-Control": "public, max-age=31536000, immutable"}  # Cache favicon for 1 year
+                )
             return JSONResponse({"error": "Favicon not found"}, status_code=404)
         
         @app.get("/{full_path:path}")
         async def serve_frontend(full_path: str):
             """
-Serve frontend files, fallback to index.html for SPA routing."""
+Serve frontend files, fallback to index.html for SPA routing.
+Uses proper cache headers to prevent stale files in production."""
             # #region agent log
             if full_path.startswith("api/"):
                 logger.warning(f"[serve_frontend] Catch-all caught API path: {full_path} - this should not happen!")
@@ -228,9 +234,35 @@ Serve frontend files, fallback to index.html for SPA routing."""
                     media_type = "application/javascript"
                 elif full_path.endswith('.css'):
                     media_type = "text/css"
-                return FileResponse(file_path, media_type=media_type)
-            # Fallback to index.html for client-side routing
-            return FileResponse(frontend_dist / "index.html")
+                
+                # Set cache headers based on file type
+                # Assets with hashes (e.g., index-abc123.js) are immutable and can be cached for 1 year
+                # HTML and non-hashed files should not be cached to ensure fresh versions
+                has_hash = bool(re.search(r'-[a-f0-9]{8,}\.(js|css)$', full_path))
+                
+                headers = {}
+                if has_hash:
+                    # Hashed assets (immutable) - cache for 1 year
+                    headers["Cache-Control"] = "public, max-age=31536000, immutable"
+                elif full_path.endswith('.html'):
+                    # HTML files - no cache to always get latest version
+                    headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+                    headers["Pragma"] = "no-cache"
+                    headers["Expires"] = "0"
+                else:
+                    # Other static files (SVG, etc.) - short cache (1 hour)
+                    headers["Cache-Control"] = "public, max-age=3600"
+                
+                return FileResponse(file_path, media_type=media_type, headers=headers)
+            # Fallback to index.html for client-side routing (no cache!)
+            return FileResponse(
+                frontend_dist / "index.html",
+                headers={
+                    "Cache-Control": "no-cache, no-store, must-revalidate",
+                    "Pragma": "no-cache",
+                    "Expires": "0"
+                }
+            )
 
 
 @app.on_event("startup")

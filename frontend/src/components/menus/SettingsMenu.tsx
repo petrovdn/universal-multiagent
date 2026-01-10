@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Settings, Moon, Sun, Bug, ChevronDown } from 'lucide-react'
+import { Settings, Moon, Sun, ChevronDown } from 'lucide-react'
 import { useSettingsStore } from '../../store/settingsStore'
 
 interface SettingsMenuProps {
@@ -8,7 +8,7 @@ interface SettingsMenuProps {
 }
 
 export function SettingsMenu({ isOpen, onClose }: SettingsMenuProps) {
-  const { theme, setTheme, debugMode, setDebugMode } = useSettingsStore()
+  const { theme, setTheme } = useSettingsStore()
   const menuRef = useRef<HTMLDivElement>(null)
 
   // Close menu when clicking outside
@@ -28,10 +28,6 @@ export function SettingsMenu({ isOpen, onClose }: SettingsMenuProps) {
 
   const toggleTheme = () => {
     setTheme(theme === 'light' ? 'dark' : 'light')
-  }
-
-  const toggleDebugMode = () => {
-    setDebugMode(!debugMode)
   }
 
   if (!isOpen) return null
@@ -62,19 +58,6 @@ export function SettingsMenu({ isOpen, onClose }: SettingsMenuProps) {
           </button>
         </div>
 
-        {/* Debug Mode */}
-        <div className="settings-menu-item">
-          <div className="settings-menu-item-left">
-            <Bug className="w-4 h-4" />
-            <span>Режим отладки</span>
-          </div>
-          <button
-            onClick={toggleDebugMode}
-            className="toggle-button"
-          >
-            <div className={`toggle-slider ${debugMode ? 'active' : ''}`}></div>
-          </button>
-        </div>
       </div>
     </div>
   )
