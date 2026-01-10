@@ -878,13 +878,6 @@ body {
   background: #22C55E;
 }
 
-.debug-toggle {
-  background: #D1D5DB;
-}
-
-.debug-toggle.active {
-  background: #10B981;
-}
 
 .onec-toggle {
   background: #D1D5DB;
@@ -3281,28 +3274,6 @@ div[style*="padding: '10px'"] .prose li {
   padding: 20px 0;
 }
 
-/* Debug mode styles */
-.chat-message.debug-mode {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.debug-chunk {
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
-  line-height: 1.5;
-}
-
-.debug-chunk pre {
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
-  font-size: 11px;
-  line-height: 1.4;
-  margin: 0;
-  padding: 8px;
-  background: rgba(0, 0, 0, 0.03);
-  border-radius: 4px;
-  overflow-x: auto;
-}
 
 /* ============================================
    TYPING INDICATOR
