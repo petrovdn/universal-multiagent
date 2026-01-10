@@ -32,17 +32,6 @@ export interface AnswerBlock {
   timestamp: string
 }
 
-// Debug chunk structure for debug mode
-export type DebugChunkType = 'thinking' | 'message_chunk' | 'tool_call' | 'tool_result' | 'error' | 'message_start' | 'message_complete'
-
-export interface DebugChunk {
-  id: string
-  type: DebugChunkType
-  content: string
-  timestamp: string
-  metadata?: Record<string, any>
-}
-
 // Extended message structure for assistant messages with reasoning
 export interface AssistantMessage {
   id: string
@@ -50,7 +39,6 @@ export interface AssistantMessage {
   timestamp: string
   reasoningBlocks: ReasoningBlock[]
   answerBlocks: AnswerBlock[]
-  debugChunks?: DebugChunk[] // For debug mode
   toolCalls?: any[]
   isComplete: boolean
 }
@@ -261,9 +249,6 @@ interface ChatState {
   startAnswerBlock: (messageId: string, blockId: string) => void
   updateAnswerBlock: (messageId: string, blockId: string, content: string) => void
   completeAnswerBlock: (messageId: string, blockId: string) => void
-  
-  // Debug mode methods
-  addDebugChunk: (messageId: string, chunkType: DebugChunkType, content: string, metadata?: Record<string, any>) => void
   
   completeMessage: (messageId: string) => void
   
@@ -527,7 +512,6 @@ export const useChatStore = create<ChatState>()(
                 timestamp: new Date().toISOString(),
                 reasoningBlocks: [newBlock],
                 answerBlocks: [],
-                debugChunks: [],
                 isComplete: false,
               }
               console.log('[chatStore] updateReasoningBlock: New message created', { messageId, reasoningBlocksCount: newMessage.reasoningBlocks.length })
@@ -658,7 +642,6 @@ export const useChatStore = create<ChatState>()(
                 timestamp: new Date().toISOString(),
                 reasoningBlocks: [],
                 answerBlocks: [newBlock],
-                debugChunks: [],
                 isComplete: false,
               }
               return {
@@ -725,38 +708,6 @@ export const useChatStore = create<ChatState>()(
                 answerBlocks: updatedBlocks,
               },
             },
-          }
-        }),
-      
-      // Add debug chunk (for debug mode)
-      addDebugChunk: (messageId: string, chunkType: DebugChunkType, content: string, metadata?: Record<string, any>) =>
-        set((state) => {
-          const existing = state.assistantMessages[messageId]
-          const chunkId = `debug-${Date.now()}-${Math.random()}`
-          const newChunk: DebugChunk = {
-            id: chunkId,
-            type: chunkType,
-            content: content,
-            timestamp: new Date().toISOString(),
-            metadata: metadata,
-          }
-          
-          if (existing) {
-            return {
-              assistantMessages: {
-                ...state.assistantMessages,
-                [messageId]: {
-                  ...existing,
-                  debugChunks: [...(existing.debugChunks || []), newChunk],
-                },
-              },
-            }
-          } else {
-            // CRITICAL FIX: Don't create assistant message with only debug chunks and no content blocks
-            // Debug chunks are only shown in debug mode, and we don't want empty messages in normal mode
-            // Only create message if we have actual content (reasoning or answer blocks will be added later)
-            // For now, skip creating message - it will be created when reasoning/answer blocks are added
-            return state
           }
         }),
       
