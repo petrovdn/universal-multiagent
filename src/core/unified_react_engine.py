@@ -211,6 +211,14 @@ class UnifiedReActEngine:
         """
         file_ids = file_ids or []
         
+        # === Use files from context for follow-up questions ===
+        # Files are stored in context.uploaded_files from previous messages
+        # If no new files attached, use existing files from context
+        if not file_ids and context and hasattr(context, 'uploaded_files') and context.uploaded_files:
+            file_ids = list(context.uploaded_files.keys())
+            logger.info(f"[execute] Using {len(file_ids)} files from context for follow-up")
+            print(f"[execute] Using {len(file_ids)} files from context: {file_ids}", flush=True)
+        
         # #region agent log
         logger.info(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}, file_ids count: {len(file_ids)}")
         print(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}", flush=True)
@@ -272,7 +280,7 @@ class UnifiedReActEngine:
             self._current_intent_id = task_intent_id
             
             # Generate meaningful task description from goal
-            task_description = self._generate_task_description(goal)
+            task_description = self._generate_task_description(goal, file_ids)
             
             # #region agent log - H1: Single-phase intent_start timing
             # #endregion
@@ -291,7 +299,8 @@ class UnifiedReActEngine:
         
         # NOW check if query needs tools (may take 500-2000ms with LLM)
         # Check if query needs tools or can be answered directly (like Cursor does)
-        needs_tools = await self._needs_tools(goal, context)
+        # Pass file_ids to detect questions about attached files (e.g., "что видишь?")
+        needs_tools = await self._needs_tools(goal, context, file_ids)
         
         # #region agent log - H1: After _needs_tools timing
         _needs_tools_end = time.time()
@@ -596,7 +605,14 @@ class UnifiedReActEngine:
                     # Check if this tool supports operations - if yes, skip intent_detail (will send operation_start instead)
                     tools_with_operations = {
                         'get_calendar_events',
-                        # TODO: Add other tools (sheets, docs, etc.)
+                        'get_sheet_data',
+                        'add_rows',
+                        'update_cells',
+                        'list_emails',
+                        'search_emails',
+                        'read_document',
+                        'update_document',
+                        'get_presentation',
                     }
                     
                     # #region agent log - H2: Check if planned_tool should skip intent_detail
@@ -627,9 +643,9 @@ class UnifiedReActEngine:
                             self.session_id,
                             "intent_detail",
                             {
-                                "intent_id": self._current_intent_id,
-                                "type": "execute",
-                                "description": f"🎯 {action_description}" if action_description else f"🔧 {self._get_tool_display_name(planned_tool, action_plan.get('arguments', {}))}"
+                            "intent_id": self._current_intent_id,
+                            "type": "execute",
+                            "description": f"🎯 {action_description}" if action_description else f"🔧 {self._get_tool_display_name(planned_tool, action_plan.get('arguments', {}))}"
                             }
                         )
                         # #region agent log - H2: Intent detail sent (planned action)
@@ -784,6 +800,32 @@ class UnifiedReActEngine:
                     action_plan.get("tool_name", "unknown"),
                     action_plan.get("arguments", {})
                 )
+                
+                # #region agent log - H_MULTIPLE_CALLS: Track tool calls to detect multiple invocations
+                import json as _json; import time as _time
+                planned_tool = action_plan.get("tool_name", "unknown")
+                if planned_tool == "update_document":
+                    try:
+                        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                            "location": "unified_react_engine:execute:before_execute_action",
+                            "message": "About to execute update_document",
+                            "data": {
+                                "tool_name": planned_tool,
+                                "arguments": {k: (str(v)[:100] if len(str(v)) > 100 else v) for k, v in action_plan.get("arguments", {}).items()},
+                                "iteration": state.iteration,
+                                "step": getattr(state, 'current_step', None),
+                                "intent_id": getattr(self, '_current_intent_id', None),
+                                "action_plan_keys": list(action_plan.keys()),
+                                "state_actions_count": len(state.action_history),
+                                "state_observations_count": len(state.observations)
+                            },
+                            "timestamp": int(_time.time()*1000),
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H_MULTIPLE_CALLS"
+                        }) + '\n')
+                    except Exception:
+                        pass
+                # #endregion
                 
                 # #region agent log - H3,H4: Before _execute_action timing
                 _exec_action_start = time.time()
@@ -943,15 +985,33 @@ class UnifiedReActEngine:
             # Останавливаем SmartProgress в любом случае
             self.smart_progress.stop()
     
-    async def _needs_tools(self, goal: str, context: ConversationContext) -> bool:
+    async def _needs_tools(self, goal: str, context: ConversationContext, file_ids: Optional[List[str]] = None) -> bool:
         """
         Determine if the query needs tools or can be answered directly.
         
         Simple queries (greetings, simple questions) don't need tools.
         Complex queries (data retrieval, file operations) need tools.
         Also checks conversation context for follow-up queries.
+        
+        If files are attached and user asks about their content, we need to
+        process them through _generate_final_answer which supports Vision API.
         """
         goal_lower = goal.lower().strip()
+        
+        # === Check if user is asking about attached files ===
+        # Patterns like "что видишь?", "что на картинке?", "опиши файл", "что в файлах?"
+        if file_ids and len(file_ids) > 0:
+            content_question_patterns = [
+                'видишь', 'видно', 'видиш', 'что это', 'что здесь', 'что там',
+                'опиши', 'расскажи', 'объясни', 'проанализируй', 'анализируй',
+                'что на', 'что в', 'о чём', 'о чем', 'содержимое', 'содержание',
+                'картинк', 'изображени', 'фото', 'фотограф', 'снимк',
+                'написано', 'прочитай', 'прочти', 'скажи что',
+                'покажи что', 'расскажи что', 'describe', 'what is', 'what do you see'
+            ]
+            if any(pattern in goal_lower for pattern in content_question_patterns):
+                logger.info(f"[UnifiedReActEngine] Files attached + content question detected - needs file analysis")
+                return True
         
         log_data_needs_tools = {
             "location": "unified_react_engine.py:515",
@@ -1453,7 +1513,7 @@ class UnifiedReActEngine:
         # Default - simple intent without fake progress
         return ["Обрабатываю запрос"]
     
-    def _generate_task_description(self, goal: str) -> str:
+    def _generate_task_description(self, goal: str, file_ids: Optional[List[str]] = None) -> str:
         """
         Generate a high-level task description for the task-level intent.
         
@@ -1462,11 +1522,22 @@ class UnifiedReActEngine:
         
         Args:
             goal: User's request/goal
+            file_ids: Optional list of attached file IDs
             
         Returns:
             Human-readable task description
         """
         goal_lower = goal.lower()
+        
+        # Questions about attached files - show meaningful description
+        content_patterns = [
+            'видишь', 'видно', 'видиш', 'что это', 'что здесь', 'что там',
+            'опиши', 'расскажи', 'объясни', 'проанализируй',
+            'что на', 'что в', 'о чём', 'о чем', 'содержимое',
+            'картинк', 'изображени', 'фото', 'написано', 'прочитай'
+        ]
+        if file_ids and len(file_ids) > 0 and any(p in goal_lower for p in content_patterns):
+            return "Анализирую содержимое файлов"
         
         # Calendar / Meetings - use goal directly if it's specific
         if any(w in goal_lower for w in ['встреч', 'событ', 'календар', 'meeting']):
@@ -2538,6 +2609,29 @@ class UnifiedReActEngine:
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
             
+            # #region agent log - H_MULTIPLE_CALLS: Log parsed action_plan for update_document
+            if action_plan.get("tool_name") == "update_document":
+                import json as _json; import time as _time
+                try:
+                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                        "location": "unified_react_engine:_think_and_plan:parsed_action_plan",
+                        "message": "Parsed action_plan from LLM for update_document",
+                        "data": {
+                            "tool_name": action_plan.get("tool_name"),
+                            "arguments_keys": list(action_plan.get("arguments", {}).keys()),
+                            "arguments_document_id": str(action_plan.get("arguments", {}).get("document_id") or action_plan.get("arguments", {}).get("documentId", "not_found"))[:50],
+                            "arguments_content_length": len(str(action_plan.get("arguments", {}).get("content", ""))),
+                            "response_text_length": len(response_text),
+                            "response_text_preview": response_text[:500]
+                        },
+                        "timestamp": int(_time.time()*1000),
+                        "sessionId": "debug-session",
+                        "hypothesisId": "H_MULTIPLE_CALLS"
+                    }) + '\n')
+                except Exception:
+                    pass
+            # #endregion
+            
             return action_plan
             
         except Exception as e:
@@ -2749,16 +2843,20 @@ class UnifiedReActEngine:
 - Если в секции "ПРИКРЕПЛЕННЫЕ ФАЙЛЫ" есть Word документ или PDF - весь текст уже там, просто используй его для ответа!
 - НЕ используй инструменты для открытия файлов, если их содержимое уже показано выше - это приведет к ошибке!
 
-КРИТИЧЕСКИ ВАЖНО: Если запрос пользователя неполный или неясный (например, "создай встречу" без указания времени, участников, длительности), 
-"назначь встречу?" (вопросительный знак указывает на неполноту), "отправь письмо" без указания получателя и темы,
-НЕ пытайся выполнить действие с недостающими данными или угадывать параметры. 
-ВСЕГДА используй tool_name "ASK_CLARIFICATION" и в arguments укажи список конкретных вопросов для уточнения.
+ПРАВИЛО МИНИМАЛЬНЫХ УТОЧНЕНИЙ:
+Используй ASK_CLARIFICATION ТОЛЬКО в двух случаях:
+1. Когда НЕВОЗМОЖНО выполнить задание без критически важных данных (например, "отправь письмо" без получателя — письмо физически нельзя отправить)
+2. Когда пользователь САМ просит уточнить или задаёт вопрос ("а что именно?", "уточни")
+
+ВО ВСЕХ ОСТАЛЬНЫХ СЛУЧАЯХ — выполняй задание с имеющимися данными!
+- Если пользователь прикрепил файлы и спрашивает "что видишь?" — опиши содержимое ВСЕХ файлов, НЕ спрашивай "какой файл?"
+- Если запрос частично неясен — выполни то, что можно, и в конце ответа ПРЕДЛОЖИ уточнения
+- Пример правильного ответа: "Вот что я нашёл в файлах: [описание]. Если вас интересует что-то конкретное, уточните — я подберу нужную информацию."
 
 ВАЖНО: Следующие запросы НЕ требуют уточнения (используй текущую дату/время из контекста):
 - "покажи встречи на неделе" → означает текущую неделю (понедельник-воскресенье)
-- "покажи встречи сегодня" → означает сегодняшний день
-- "покажи встречи завтра" → означает завтрашний день
-- "покажи встречи" без указания периода → означает сегодня
+- "покажи встречи сегодня/завтра" → очевидные даты
+- "что в файлах?", "что видишь?" → опиши ВСЕ прикреплённые файлы
 
 ОСОБЕННО ВАЖНО ДЛЯ КАЛЕНДАРЯ:
 1. **Проверка доступности участников**: Если в запросе указаны участники встречи и время, ТЫ ДОЛЖЕН САМ проверить их доступность через инструмент `get_calendar_events` для каждого участника на указанное время. НЕ спрашивай пользователя о доступности - проверь сам!
@@ -2784,10 +2882,13 @@ class UnifiedReActEngine:
   * Если время занято → вызови `ASK_CLARIFICATION` и сообщи о конфликте
 - Если ты уже получил результат от `get_calendar_events`, НЕ вызывай его снова!
 
-Примеры неполных запросов, требующих уточнения:
-- "создай встречу" → нужны: время, участники, длительность, тема
-- "назначь встречу?" → нужны: все параметры встречи
-- "отправь письмо" → нужны: получатель, тема, текст
+Примеры когда ASK_CLARIFICATION НУЖЕН (невозможно выполнить без данных):
+- "отправь письмо" → нужен минимум получатель (нельзя отправить в никуда)
+- "создай встречу" → нужно минимум время (нельзя создать без времени)
+
+Примеры когда ASK_CLARIFICATION НЕ НУЖЕН (выполни и предложи):
+- "что видишь?", "что в файлах?" → опиши ВСЕ файлы, в конце предложи уточнить
+- "расскажи о документе" → опиши что есть, предложи углубиться в детали
 
 ⚡ **ОПТИМИЗАЦИЯ - НЕ ЧИТАЙ ДАННЫЕ, КОТОРЫЕ ТОЛЬКО ЧТО ЗАПИСАЛ:**
 - Если ты только что вызвал `add_rows` или `update_cells` для записи данных в таблицу, ты УЖЕ ЗНАЕШЬ эти данные!
@@ -2820,14 +2921,14 @@ class UnifiedReActEngine:
     "reasoning": "почему задача считается выполненной"
 }}
 
-Если запрос неполный и нужны уточнения, используй:
+ТОЛЬКО если НЕВОЗМОЖНО выполнить задание без критических данных (получатель письма, время встречи):
 {{
     "tool_name": "ASK_CLARIFICATION",
     "arguments": {{
-        "questions": ["Вопрос 1", "Вопрос 2", "Вопрос 3"]
+        "questions": ["Конкретный вопрос о недостающих данных"]
     }},
-    "description": "Запрос уточнений у пользователя",
-    "reasoning": "почему нужны уточнения"
+    "description": "Уточнение критически важных данных",
+    "reasoning": "без этих данных задание невозможно выполнить"
 }}
 
 Отвечай ТОЛЬКО в указанном формате, без дополнительного текста."""
@@ -2970,6 +3071,29 @@ class UnifiedReActEngine:
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
             
+            # #region agent log - H_MULTIPLE_CALLS: Log parsed action_plan for update_document
+            tool_name = action_plan.get("tool_name", "")
+            if tool_name == "update_document":
+                import json as _json; import time as _time
+                try:
+                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                        "location": "unified_react_engine:_think_and_plan:parsed_action_plan",
+                        "message": "Parsed action_plan from LLM for update_document",
+                        "data": {
+                            "tool_name": tool_name,
+                            "arguments_keys": list(action_plan.get("arguments", {}).keys()),
+                            "arguments_document_id": str(action_plan.get("arguments", {}).get("document_id") or action_plan.get("arguments", {}).get("documentId", "not_found"))[:50],
+                            "arguments_content_length": len(str(action_plan.get("arguments", {}).get("content", ""))),
+                            "arguments_content_preview": str(action_plan.get("arguments", {}).get("content", ""))[:200]
+                        },
+                        "timestamp": int(_time.time()*1000),
+                        "sessionId": "debug-session",
+                        "hypothesisId": "H_MULTIPLE_CALLS"
+                    }) + '\n')
+                except Exception:
+                    pass
+            # #endregion
+            
             # #region agent log - H11,H17: After parsing action plan
             tool_name = action_plan.get("tool_name", "")
             is_clarification = tool_name == "ASK_CLARIFICATION"
@@ -3021,6 +3145,32 @@ class UnifiedReActEngine:
             return ""
         arguments = action_plan.get("arguments", {})
         
+        # #region agent log - H_MULTIPLE_CALLS: Track _execute_action entry for update_document
+        if capability_name == "update_document":
+            import json as _json; import time as _time
+            try:
+                import traceback
+                stack_trace = ''.join(traceback.format_stack()[-5:-1])  # Last 4 frames
+                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
+                    "location": "unified_react_engine:_execute_action:ENTRY",
+                    "message": "_execute_action called for update_document",
+                    "data": {
+                        "capability_name": capability_name,
+                        "arguments_keys": list(arguments.keys()),
+                        "arguments_document_id": str(arguments.get("document_id") or arguments.get("documentId", "not_found"))[:50],
+                        "arguments_content_preview": str(arguments.get("content", ""))[:100],
+                        "arguments_content_length": len(str(arguments.get("content", ""))),
+                        "action_plan_keys": list(action_plan.keys()),
+                        "stack_trace": stack_trace
+                    },
+                    "timestamp": int(_time.time()*1000),
+                    "sessionId": "debug-session",
+                    "hypothesisId": "H_MULTIPLE_CALLS"
+                }) + '\n')
+            except Exception:
+                pass
+        # #endregion
+        
         # #region agent log - H3: _execute_action entry
         _action_entry_time = time.time()
         # #endregion
@@ -3034,13 +3184,73 @@ class UnifiedReActEngine:
             
             # Check if this tool supports operations (returns list of items)
             tools_with_operations = {
+                # Calendar (уже есть)
                 'get_calendar_events': {
                     'title': 'Получаем календарные события',
                     'streaming_title': 'Календарные события',
                     'operation_type': 'read',
                     'file_type': 'calendar'
                 },
-                # TODO: Add other tools (sheets, docs, etc.)
+                
+                # Sheets - чтение
+                'get_sheet_data': {
+                    'title': 'Получаем данные из таблицы',
+                    'streaming_title': 'Данные таблицы',
+                    'operation_type': 'read',
+                    'file_type': 'sheets'
+                },
+                
+                # Sheets - запись
+                'add_rows': {
+                    'title': 'Записываем строки в таблицу',
+                    'streaming_title': 'Записанные строки',
+                    'operation_type': 'write',
+                    'file_type': 'sheets'
+                },
+                'update_cells': {
+                    'title': 'Обновляем ячейки в таблице',
+                    'streaming_title': 'Обновленные ячейки',
+                    'operation_type': 'write',
+                    'file_type': 'sheets'
+                },
+                
+                # Gmail - чтение
+                'list_emails': {
+                    'title': 'Получаем список писем',
+                    'streaming_title': 'Письма',
+                    'operation_type': 'read',
+                    'file_type': 'email'
+                },
+                'search_emails': {
+                    'title': 'Ищем письма',
+                    'streaming_title': 'Найденные письма',
+                    'operation_type': 'read',
+                    'file_type': 'email'
+                },
+                
+                # Docs - чтение
+                'read_document': {
+                    'title': 'Читаем документ',
+                    'streaming_title': 'Содержимое документа',
+                    'operation_type': 'read',
+                    'file_type': 'docs'
+                },
+                
+                # Docs - запись
+                'update_document': {
+                    'title': 'Обновляем документ',
+                    'streaming_title': 'Записанный текст',
+                    'operation_type': 'write',
+                    'file_type': 'docs'
+                },
+                
+                # Slides - чтение
+                'get_presentation': {
+                    'title': 'Получаем информацию о презентации',
+                    'streaming_title': 'Слайды презентации',
+                    'operation_type': 'read',
+                    'file_type': 'slides'
+                },
             }
             
             # #region agent log - H3: Check capability_name for operations
@@ -3067,13 +3277,60 @@ class UnifiedReActEngine:
             if capability_name in tools_with_operations:
                 operation_id = f"op-{int(time.time() * 1000)}"
                 op_config = tools_with_operations[capability_name]
+                
+                # Extract file_id and form file_url for automatic file opening
+                file_id = None
+                file_url = None
+                file_type = op_config.get('file_type')
+                
+                if file_type == 'sheets':
+                    # Extract spreadsheet_id from arguments
+                    spreadsheet_id = arguments.get('spreadsheet_id') or arguments.get('spreadsheetId')
+                    if spreadsheet_id:
+                        # Extract ID from URL if present
+                        id_match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', spreadsheet_id)
+                        if id_match:
+                            spreadsheet_id = id_match.group(1)
+                        elif '/d/' in spreadsheet_id:
+                            spreadsheet_id = spreadsheet_id.split('/d/')[1].split('/')[0]
+                        file_id = spreadsheet_id
+                        file_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}/preview"
+                
+                elif file_type == 'docs':
+                    # Extract document_id from arguments
+                    document_id = arguments.get('document_id') or arguments.get('documentId')
+                    if document_id:
+                        # Extract ID from URL if present
+                        id_match = re.search(r'/document/d/([a-zA-Z0-9-_]+)', document_id)
+                        if id_match:
+                            document_id = id_match.group(1)
+                        elif '/d/' in document_id:
+                            document_id = document_id.split('/d/')[1].split('/')[0]
+                        file_id = document_id
+                        file_url = f"https://docs.google.com/document/d/{document_id}/preview"
+                
+                elif file_type == 'slides':
+                    # Extract presentation_id from arguments
+                    presentation_id = arguments.get('presentation_id') or arguments.get('presentationId')
+                    if presentation_id:
+                        # Extract ID from URL if present
+                        id_match = re.search(r'/presentation/d/([a-zA-Z0-9-_]+)', presentation_id)
+                        if id_match:
+                            presentation_id = id_match.group(1)
+                        elif '/d/' in presentation_id:
+                            presentation_id = presentation_id.split('/d/')[1].split('/')[0]
+                        file_id = presentation_id
+                        file_url = f"https://docs.google.com/presentation/d/{presentation_id}/preview"
+                
                 await self.ws_manager.send_operation_start(
                     self.session_id,
                     operation_id,
                     op_config['title'],
                     op_config['streaming_title'],
                     op_config['operation_type'],
-                    file_type=op_config.get('file_type'),
+                    file_id=file_id,
+                    file_url=file_url,
+                    file_type=file_type,
                     intent_id=intent_id
                 )
                 # #region agent log - H3: Operation start sent
@@ -3125,13 +3382,16 @@ class UnifiedReActEngine:
         _registry_start = time.time()
         # #endregion
         
-        # Add session_id and intent_id to arguments for tools that support operations
-        # Tools can use these to send operations directly
+        # Add session_id, intent_id, and operation_id to arguments for tools that support operations
+        # Tools can use these to send operations directly or return structured data
         if self.session_id:
             arguments['_session_id'] = self.session_id
             intent_id = getattr(self, '_current_intent_id', None)
             if intent_id:
                 arguments['_intent_id'] = intent_id
+            # Pass operation_id to tools that support operations for structured data return
+            if operation_id:
+                arguments['_operation_id'] = operation_id
         
         # Registry routes to appropriate provider (MCP or A2A)
         result = await self.registry.execute(capability_name, arguments)
@@ -3144,6 +3404,7 @@ class UnifiedReActEngine:
         if operation_id and self.ws_manager and self.session_id:
             intent_id = getattr(self, '_current_intent_id', None)
             
+            # Calendar operations (existing implementation)
             if capability_name == 'get_calendar_events':
                 # Parse calendar events from result string
                 try:
@@ -3242,7 +3503,114 @@ class UnifiedReActEngine:
                             operation_id,
                             result_summary
                         )
-            # TODO: Add processing for other tools (sheets, docs, etc.)
+            
+            # Sheets operations
+            elif capability_name in ['get_sheet_data', 'add_rows', 'update_cells']:
+                try:
+                    items, summary = await self._parse_sheets_result(str(result), capability_name, arguments)
+                    if items:
+                        for item in items:
+                            await self.ws_manager.send_operation_data(
+                                self.session_id,
+                                operation_id,
+                                item
+                            )
+                    if summary:
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            summary
+                        )
+                except Exception as e:
+                    logger.warning(f"[UnifiedReActEngine] Failed to process sheets operation for {capability_name}: {e}", exc_info=True)
+                    result_summary = self._get_result_summary(capability_name, result)
+                    if result_summary:
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            result_summary
+                        )
+            
+            # Gmail operations
+            elif capability_name in ['list_emails', 'search_emails']:
+                try:
+                    items, summary = await self._parse_gmail_result(str(result), capability_name, arguments)
+                    if items:
+                        for item in items:
+                            await self.ws_manager.send_operation_data(
+                                self.session_id,
+                                operation_id,
+                                item
+                            )
+                    if summary:
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            summary
+                        )
+                except Exception as e:
+                    logger.warning(f"[UnifiedReActEngine] Failed to process gmail operation for {capability_name}: {e}", exc_info=True)
+                    result_summary = self._get_result_summary(capability_name, result)
+                    if result_summary:
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            result_summary
+                        )
+            
+            # Docs operations
+            elif capability_name in ['read_document', 'update_document']:
+                try:
+                    items, summary = await self._parse_docs_result(str(result), capability_name, arguments)
+                    if items:
+                        for item in items:
+                            await self.ws_manager.send_operation_data(
+                                self.session_id,
+                                operation_id,
+                                item
+                            )
+                    if summary:
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            summary
+                        )
+                except Exception as e:
+                    logger.warning(f"[UnifiedReActEngine] Failed to process docs operation for {capability_name}: {e}", exc_info=True)
+                    result_summary = self._get_result_summary(capability_name, result)
+                    if result_summary:
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            result_summary
+                        )
+            
+            # Slides operations
+            elif capability_name == 'get_presentation':
+                try:
+                    items, summary = await self._parse_slides_result(str(result), capability_name, arguments)
+                    if items:
+                        for item in items:
+                            await self.ws_manager.send_operation_data(
+                                self.session_id,
+                                operation_id,
+                                item
+                            )
+                    if summary:
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            summary
+                        )
+                except Exception as e:
+                    logger.warning(f"[UnifiedReActEngine] Failed to process slides operation for {capability_name}: {e}", exc_info=True)
+                    result_summary = self._get_result_summary(capability_name, result)
+                    if result_summary:
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            result_summary
+                        )
         elif self.ws_manager and self.session_id:
             # Legacy: Send intent_detail AFTER tool execution with result summary
             intent_id = getattr(self, '_current_intent_id', None)
@@ -3261,6 +3629,230 @@ class UnifiedReActEngine:
                     )
         
         return result
+    
+    async def _parse_sheets_result(self, result_str: str, capability_name: str, arguments: dict) -> tuple[list[str], str]:
+        """Парсить результат sheets операций для стриминга."""
+        items = []
+        summary = ""
+        
+        if capability_name == 'get_sheet_data':
+            # Проверяем, является ли результат JSON с raw_data
+            try:
+                import json
+                result_data = json.loads(result_str)
+                if isinstance(result_data, dict) and "raw_data" in result_data:
+                    # Инструмент вернул структурированные данные
+                    raw_data = result_data["raw_data"]
+                    values = raw_data.get("values", [])
+                    summary = result_data.get("formatted", f"Получено {len(values)} строк из таблицы")
+                    
+                    # Стримим строки
+                    for i, row in enumerate(values, 1):
+                        row_str = ' | '.join(str(cell) for cell in row) if isinstance(row, list) else str(row)
+                        items.append(f"{i}. {row_str}")
+                else:
+                    # Старый формат - парсим строку
+                    count_match = re.search(r'Retrieved (\d+) row\(s\)', result_str)
+                    if count_match:
+                        count = int(count_match.group(1))
+                        summary = f"Получено {count} строк из таблицы"
+                    else:
+                        summary = result_str
+            except (json.JSONDecodeError, TypeError):
+                # Не JSON, парсим как строку
+                count_match = re.search(r'Retrieved (\d+) row\(s\)', result_str)
+                if count_match:
+                    count = int(count_match.group(1))
+                    summary = f"Получено {count} строк из таблицы"
+                else:
+                    summary = result_str
+        
+        elif capability_name == 'add_rows':
+            # Формат: "Successfully added N row(s) to sheet '...'"
+            # Для стриминга используем arguments['values']
+            count_match = re.search(r'added (\d+) row\(s\)', result_str)
+            if count_match:
+                count = int(count_match.group(1))
+                summary = f"Записано {count} строк"
+            
+            # Стримим строки из arguments['values']
+            values = arguments.get('values', [])
+            if isinstance(values, list):
+                for i, row in enumerate(values, 1):
+                    row_str = ' | '.join(str(cell) for cell in row) if isinstance(row, list) else str(row)
+                    items.append(f"{i}. {row_str}")
+        
+        elif capability_name == 'update_cells':
+            # Формат: "Successfully updated N cell(s)..."
+            # Для стриминга используем arguments['values']
+            count_match = re.search(r'updated (\d+)', result_str)
+            if count_match:
+                count = int(count_match.group(1))
+                summary = f"Обновлено {count} ячеек"
+            
+            # Стримим строки из arguments['values']
+            values = arguments.get('values', [])
+            if isinstance(values, list):
+                for i, row in enumerate(values, 1):
+                    row_str = ' | '.join(str(cell) for cell in row) if isinstance(row, list) else str(row)
+                    items.append(f"{i}. {row_str}")
+        
+        if not summary:
+            summary = result_str or "Операция выполнена"
+        
+        return items, summary
+    
+    async def _parse_gmail_result(self, result_str: str, capability_name: str, arguments: dict) -> tuple[list[str], str]:
+        """Парсить результат Gmail операций для стриминга."""
+        items = []
+        summary = ""
+        
+        # Формат: многострочный с письмами вида "1. 📧 Subject\n   От: from\n   ID: id\n"
+        lines = result_str.split('\n')
+        
+        # Извлекаем количество писем из первой строки
+        count_match = re.search(r'📬 (\d+) emails?', result_str)
+        if count_match:
+            count = int(count_match.group(1))
+            summary = f"Найдено {count} писем"
+        else:
+            # Попробуем найти в другом формате
+            count_match = re.search(r'(\d+) emails?', result_str)
+            if count_match:
+                count = int(count_match.group(1))
+                summary = f"Найдено {count} писем"
+        
+        # Парсим письма - группируем строки по номерам
+        current_email = None
+        email_lines = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Новая запись начинается с номера
+            if re.match(r'^\d+\.', line):
+                # Сохраняем предыдущую запись
+                if current_email is not None and email_lines:
+                    items.append(' '.join(email_lines))
+                    email_lines = []
+                
+                # Начинаем новую запись
+                email_info = re.sub(r'^\d+\.\s*', '', line).strip()
+                email_lines = [email_info]
+                current_email = email_info
+            elif email_lines and (line.startswith('   От:') or line.startswith('   ID:') or line.startswith('   ')):
+                # Продолжение текущей записи
+                email_lines.append(line.strip())
+        
+        # Сохраняем последнюю запись
+        if current_email is not None and email_lines:
+            items.append(' '.join(email_lines))
+        
+        if not summary:
+            summary = f"Найдено {len(items)} писем" if items else "Письма не найдены"
+        
+        return items, summary
+    
+    async def _parse_docs_result(self, result_str: str, capability_name: str, arguments: dict) -> tuple[list[str], str]:
+        """Парсить результат Docs операций для стриминга."""
+        items = []
+        summary = ""
+        
+        if capability_name == 'read_document':
+            # Формат: "Document: title\n\ncontent"
+            # Разделяем по \n\n и стримим строки содержимого построчно
+            parts = result_str.split('\n\n', 1)
+            if len(parts) == 2:
+                title_line = parts[0]
+                content = parts[1]
+                
+                # Извлекаем название документа
+                title_match = re.search(r'Document: (.+)', title_line)
+                if title_match:
+                    title = title_match.group(1)
+                    summary = f"Документ: {title}"
+                
+                # Стримим содержимое построчно
+                content_lines = content.split('\n')
+                for line in content_lines:
+                    line = line.strip()
+                    if line:  # Пропускаем пустые строки
+                        items.append(line)
+            else:
+                # Формат не соответствует ожидаемому, стримим всё построчно
+                lines = result_str.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line and not line.startswith('Document:'):
+                        items.append(line)
+                
+                summary = "Документ прочитан"
+        
+        elif capability_name == 'update_document':
+            # Формат: "Document updated: title"
+            # Для стриминга используем arguments['content']
+            title_match = re.search(r'Document updated: (.+)', result_str)
+            if title_match:
+                title = title_match.group(1)
+                summary = f"Документ обновлен: {title}"
+            else:
+                summary = "Документ обновлен"
+            
+            # Стримим содержимое из arguments['content']
+            content = arguments.get('content', '')
+            if content:
+                content_lines = content.split('\n')
+                for line in content_lines:
+                    line = line.strip()
+                    if line:
+                        items.append(line)
+        
+        if not summary:
+            summary = result_str or "Операция выполнена"
+        
+        return items, summary
+    
+    async def _parse_slides_result(self, result_str: str, capability_name: str, arguments: dict) -> tuple[list[str], str]:
+        """Парсить результат Slides операций для стриминга."""
+        items = []
+        summary = ""
+        
+        # Формат: "Presentation: title\nSlides: N\nSlide IDs:\n  1. id\n..."
+        lines = result_str.split('\n')
+        
+        # Извлекаем название и количество слайдов
+        title_match = re.search(r'Presentation: (.+)', result_str)
+        slides_match = re.search(r'Slides: (\d+)', result_str)
+        
+        if title_match:
+            title = title_match.group(1)
+            if slides_match:
+                count = int(slides_match.group(1))
+                summary = f"Презентация: {title} ({count} слайдов)"
+            else:
+                summary = f"Презентация: {title}"
+        
+        # Парсим слайды после "Slide IDs:"
+        in_slide_ids = False
+        for line in lines:
+            line = line.strip()
+            if 'Slide IDs:' in line:
+                in_slide_ids = True
+                continue
+            
+            if in_slide_ids:
+                if re.match(r'^\d+\.', line):
+                    slide_info = re.sub(r'^\d+\.\s*', '', line).strip()
+                    items.append(f"Слайд: {slide_info}")
+                elif line and not line.startswith('...'):
+                    items.append(line)
+        
+        if not summary:
+            summary = "Презентация получена"
+        
+        return items, summary
     
     async def _find_alternative(
         self,
@@ -3425,10 +4017,15 @@ class UnifiedReActEngine:
 {file_contents_text}
 
 {table_instruction}
-ВАЖНО: Опиши КОНКРЕТНО что находится в файлах. Например:
-- Для PDF: "В файле находится чек на оплату налогов на сумму X руб. от даты Y..."
-- Для изображения: "На изображении показан человек, играющий в теннис..."
-НЕ говори абстрактно "файл содержит текстовую информацию". Будь КОНКРЕТНЫМ!
+ВАЖНО: Опиши КОНКРЕТНО что находится в КАЖДОМ файле:
+- Для PDF/Word: кратко опиши содержание документа
+- Для изображения: опиши что на нём изображено
+Если на изображении есть люди - опиши что они делают и в каком контексте.
+НЕ отказывайся отвечать на вопросы о людях на изображении - описывай общими словами!
+
+ОБЯЗАТЕЛЬНО ответь по ВСЕМ прикреплённым файлам!
+
+В конце ответа добавь: "Если вас интересует что-то конкретное в этих файлах, уточните — я подберу нужную информацию."
 
 Ответ:"""
             elif is_finish_case:
@@ -3487,19 +4084,28 @@ class UnifiedReActEngine:
             # Stream the response
             full_answer = ""
             
-            # Send intent event to show user what's happening
-            intent_message = "Анализирую содержимое файлов" if file_contents_text else "Формирую ответ"
-            if len(image_contents) > 0:
-                intent_message += f" (включая {len(image_contents)} изображение(я))..."
-            else:
-                intent_message += "..."
+            # Check if main task intent already covers file analysis
+            # If so, use it instead of creating a duplicate intent
+            task_intent_id = getattr(self, '_task_intent_id', None)
+            main_intent_is_file_analysis = file_contents_text and task_intent_id
             
-            intent_id = f"intent-final-{int(time.time() * 1000)}"
-            await self.ws_manager.send_event(
-                self.session_id,
-                "intent_start",
-                {"intent_id": intent_id, "text": intent_message}  # Fixed: use 'text' not 'intent'
-            )
+            if main_intent_is_file_analysis:
+                # Reuse the main task intent - don't create a duplicate
+                intent_id = task_intent_id
+            else:
+                # Send intent event for "Формирую ответ" or similar
+                intent_message = "Формирую ответ"
+                if len(image_contents) > 0:
+                    intent_message += f" (включая {len(image_contents)} изображение(я))..."
+                else:
+                    intent_message += "..."
+                
+                intent_id = f"intent-final-{int(time.time() * 1000)}"
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "intent_start",
+                    {"intent_id": intent_id, "text": intent_message}
+                )
             
             # Send details about each file being analyzed
             if file_ids and context:

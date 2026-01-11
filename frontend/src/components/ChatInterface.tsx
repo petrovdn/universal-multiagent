@@ -837,8 +837,8 @@ export function ChatInterface() {
                         
                         {/* Intent блоки с фазами Планирую/Выполняю */}
                         {hasIntentBlocks && (() => {
-                          // Фильтруем шаги: исключаем "Формирую ответ" (нет reasoning и нет действий)
-                          const filteredBlocks = workflowIntentBlocks.filter((block) => {
+                          // Фильтруем шаги: исключаем служебные шаги без реального содержимого
+                          const filteredBlocks = workflowIntentBlocks.filter((block, index) => {
                             const isFormingAnswer = 
                               block.intent?.toLowerCase().includes('формирую ответ') ||
                               block.intent?.toLowerCase().includes('forming the answer') ||
@@ -850,7 +850,18 @@ export function ChatInterface() {
                             const hasNoActions = hasNoDetails && hasNoOperations
                             
                             // Исключаем шаг "Формирую ответ", если нет reasoning и нет действий
-                            return !(isFormingAnswer && hasNoReasoning && hasNoActions)
+                            if (isFormingAnswer && hasNoReasoning && hasNoActions) return false
+                            
+                            // Исключаем первый шаг, если он просто повторяет запрос пользователя без анализа
+                            // (это происходит когда агент читает прикреплённые файлы)
+                            if (index === 0 && hasNoActions) {
+                              // Проверяем, есть ли следующий шаг с реальным анализом
+                              const hasNextStep = workflowIntentBlocks.length > 1
+                              // Если первый шаг — просто запрос без действий, а есть второй шаг — пропускаем первый
+                              if (hasNextStep) return false
+                            }
+                            
+                            return true
                           })
                           
                           // Считаем количество оставшихся шагов

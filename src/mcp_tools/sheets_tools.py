@@ -277,6 +277,21 @@ class GetSheetDataTool(BaseTool):
                     result = json.loads(first_item['text'])
             
             values = result.get("values", [])
+            
+            # If operation streaming is requested, return structured data
+            if arguments.get("_operation_id"):
+                # Return dict with formatted string and raw data for streaming
+                import json
+                return json.dumps({
+                    "formatted": f"Retrieved {len(values)} row(s) from range '{validated_range}'",
+                    "raw_data": {
+                        "values": values,
+                        "range": validated_range,
+                        "row_count": len(values),
+                        "column_count": max(len(row) for row in values) if values else 0
+                    }
+                })
+            
             return f"Retrieved {len(values)} row(s) from range '{validated_range}'"
             
         except Exception as e:

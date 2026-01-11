@@ -2544,15 +2544,15 @@ div[style*="padding: '10px'"] .prose li {
 
 .log-text-dots {
   display: inline-block;
-  width: 18px; /* Фиксированная ширина для трех точек */
+  width: 24px; /* Фиксированная ширина для трёх точек с запасом */
   margin-left: 2px;
   text-align: left;
   position: relative;
   vertical-align: baseline;
   font-family: monospace; /* Моноширинный шрифт для стабильной ширины */
-  letter-spacing: 0.1em; /* Расстояние между точками */
+  letter-spacing: 0.15em; /* Расстояние между точками */
   white-space: nowrap; /* Предотвращаем перенос точек на новую строку */
-  overflow: hidden; /* Скрываем переполнение */
+  overflow: visible; /* Показываем все точки */
 }
 
 .log-text-dots > span {
