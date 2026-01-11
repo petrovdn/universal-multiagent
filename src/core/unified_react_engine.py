@@ -22,6 +22,7 @@ from src.core.capability_registry import CapabilityRegistry
 from src.core.action_provider import CapabilityCategory
 from src.core.file_context_resolver import FileContextResolver
 from src.core.action_filter import ActionFilter
+from src.core.file_reference_resolver import get_relevant_file_ids
 from src.api.websocket_manager import WebSocketManager
 from src.agents.model_factory import create_llm, supports_vision
 from src.utils.logging_config import get_logger
@@ -211,13 +212,31 @@ class UnifiedReActEngine:
         """
         file_ids = file_ids or []
         
-        # === Use files from context for follow-up questions ===
-        # Files are stored in context.uploaded_files from previous messages
-        # If no new files attached, use existing files from context
+        # === Smart file resolution for follow-up questions ===
+        # If no new files attached, find relevant files from context based on query
+        # This uses entity_memory with keywords to match "про страховку" → insurance PDF
         if not file_ids and context and hasattr(context, 'uploaded_files') and context.uploaded_files:
-            file_ids = list(context.uploaded_files.keys())
-            logger.info(f"[execute] Using {len(file_ids)} files from context for follow-up")
-            print(f"[execute] Using {len(file_ids)} files from context: {file_ids}", flush=True)
+            # Use keyword-based resolution to find relevant files
+            relevant_ids = get_relevant_file_ids(goal, context)
+            
+            if relevant_ids:
+                # Found specific relevant files by keywords
+                file_ids = relevant_ids
+                logger.info(f"[execute] Found {len(file_ids)} relevant files by keywords: {file_ids}")
+                print(f"[execute] Found relevant files by keywords: {file_ids}", flush=True)
+            else:
+                # No keyword match - check if query seems to be about files in general
+                goal_lower = goal.lower()
+                general_file_patterns = ['что видишь', 'что в файл', 'опиши файл', 'опиши все', 
+                                        'про все файлы', 'во всех файлах', 'в файлах']
+                if any(p in goal_lower for p in general_file_patterns):
+                    # General query about all files
+                    file_ids = list(context.uploaded_files.keys())
+                    logger.info(f"[execute] Using ALL {len(file_ids)} files for general query")
+                    print(f"[execute] Using all files for general query: {file_ids}", flush=True)
+                else:
+                    logger.info(f"[execute] No relevant files found for query: {goal[:50]}")
+                    print(f"[execute] No relevant files found for query", flush=True)
         
         # #region agent log
         logger.info(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}, file_ids count: {len(file_ids)}")

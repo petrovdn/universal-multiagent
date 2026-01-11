@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from src.utils.config_loader import get_config
 from src.core.entity_memory import EntityMemory, extract_entities_from_tool_result
+from src.core.file_reference_resolver import extract_keywords_from_text
 
 
 class ConversationContext:
@@ -263,7 +264,7 @@ class ConversationContext:
     
     def add_file(self, file_id: str, file_data: Dict[str, Any]) -> None:
         """
-        Store uploaded file data.
+        Store uploaded file data and add to entity_memory for reference resolution.
         
         Args:
             file_id: Unique file identifier
@@ -274,6 +275,37 @@ class ConversationContext:
             "uploaded_at": datetime.now().isoformat()
         }
         self.updated_at = datetime.now().isoformat()
+        
+        # Also add to entity_memory for follow-up reference resolution
+        filename = file_data.get("filename", "unknown")
+        file_type = file_data.get("type", "application/octet-stream")
+        text_content = file_data.get("text", "")
+        
+        # Extract keywords from text content
+        keywords = extract_keywords_from_text(text_content) if text_content else []
+        
+        # Also add filename parts as keywords
+        import re
+        filename_parts = re.findall(r'[а-яёА-ЯЁa-zA-Z0-9]+', filename.lower())
+        keywords.extend([p for p in filename_parts if len(p) >= 3])
+        
+        # Create description from first sentences
+        description = ""
+        if text_content:
+            sentences = re.split(r'[.!?\n]', text_content)
+            description = '. '.join(s.strip() for s in sentences[:2] if s.strip())[:200]
+        
+        # Add to entity_memory for reference resolution in follow-up queries
+        self.entity_memory.add_reference(
+            entity_type="file",
+            entity_id=file_id,
+            name=filename,
+            metadata={
+                "type": file_type,
+                "keywords": list(set(keywords)),
+                "description": description
+            }
+        )
     
     def get_file(self, file_id: str) -> Optional[Dict[str, Any]]:
         """
