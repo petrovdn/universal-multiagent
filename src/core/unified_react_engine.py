@@ -22,7 +22,11 @@ from src.core.capability_registry import CapabilityRegistry
 from src.core.action_provider import CapabilityCategory
 from src.core.file_context_resolver import FileContextResolver
 from src.core.action_filter import ActionFilter
-from src.core.file_reference_resolver import get_relevant_file_ids
+from src.core.file_reference_resolver import (
+    get_relevant_file_ids,
+    find_source_for_reference,
+    extract_entities_from_response,
+)
 from src.api.websocket_manager import WebSocketManager
 from src.agents.model_factory import create_llm, supports_vision
 from src.utils.logging_config import get_logger
@@ -213,30 +217,40 @@ class UnifiedReActEngine:
         file_ids = file_ids or []
         
         # === Smart file resolution for follow-up questions ===
-        # If no new files attached, find relevant files from context based on query
-        # This uses entity_memory with keywords to match "про страховку" → insurance PDF
+        # Priority: 1) Conversation history, 2) Entity memory keywords, 3) General patterns
         if not file_ids and context and hasattr(context, 'uploaded_files') and context.uploaded_files:
-            # Use keyword-based resolution to find relevant files
-            relevant_ids = get_relevant_file_ids(goal, context)
             
-            if relevant_ids:
-                # Found specific relevant files by keywords
-                file_ids = relevant_ids
-                logger.info(f"[execute] Found {len(file_ids)} relevant files by keywords: {file_ids}")
-                print(f"[execute] Found relevant files by keywords: {file_ids}", flush=True)
+            # 1. First, search conversation history for references
+            # "расскажи про человека" → find where "человек" was mentioned → get source file
+            history_source_files = find_source_for_reference(goal, context)
+            
+            if history_source_files:
+                # Found source files from conversation history
+                file_ids = history_source_files
+                logger.info(f"[execute] Found {len(file_ids)} source files from conversation history: {file_ids}")
+                print(f"[execute] Found source files from history: {file_ids}", flush=True)
             else:
-                # No keyword match - check if query seems to be about files in general
-                goal_lower = goal.lower()
-                general_file_patterns = ['что видишь', 'что в файл', 'опиши файл', 'опиши все', 
-                                        'про все файлы', 'во всех файлах', 'в файлах']
-                if any(p in goal_lower for p in general_file_patterns):
-                    # General query about all files
-                    file_ids = list(context.uploaded_files.keys())
-                    logger.info(f"[execute] Using ALL {len(file_ids)} files for general query")
-                    print(f"[execute] Using all files for general query: {file_ids}", flush=True)
+                # 2. Try keyword-based resolution from entity_memory
+                relevant_ids = get_relevant_file_ids(goal, context)
+                
+                if relevant_ids:
+                    # Found specific relevant files by keywords
+                    file_ids = relevant_ids
+                    logger.info(f"[execute] Found {len(file_ids)} relevant files by keywords: {file_ids}")
+                    print(f"[execute] Found relevant files by keywords: {file_ids}", flush=True)
                 else:
-                    logger.info(f"[execute] No relevant files found for query: {goal[:50]}")
-                    print(f"[execute] No relevant files found for query", flush=True)
+                    # 3. Check if query seems to be about files in general
+                    goal_lower = goal.lower()
+                    general_file_patterns = ['что видишь', 'что в файл', 'опиши файл', 'опиши все', 
+                                            'про все файлы', 'во всех файлах', 'в файлах']
+                    if any(p in goal_lower for p in general_file_patterns):
+                        # General query about all files
+                        file_ids = list(context.uploaded_files.keys())
+                        logger.info(f"[execute] Using ALL {len(file_ids)} files for general query")
+                        print(f"[execute] Using all files for general query: {file_ids}", flush=True)
+                    else:
+                        logger.info(f"[execute] No relevant files found for query: {goal[:50]}")
+                        print(f"[execute] No relevant files found for query", flush=True)
         
         # #region agent log
         logger.info(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}, file_ids count: {len(file_ids)}")
@@ -1437,6 +1451,19 @@ class UnifiedReActEngine:
                         "role": "assistant",
                         "message_id": message_id,
                         "content": answer
+                    }
+                )
+            
+            # Save response to context for follow-up reference resolution
+            if hasattr(context, 'add_message'):
+                extracted_entities = extract_entities_from_response(answer)
+                context.add_message(
+                    "assistant",
+                    answer,
+                    metadata={
+                        "source_files": [],  # No files used in direct answer
+                        "extracted_entities": extracted_entities,
+                        "goal": goal
                     }
                 )
             
@@ -4314,8 +4341,21 @@ class UnifiedReActEngine:
                 }
             )
         
+        # Save response to context with source_files metadata for follow-up reference resolution
         if hasattr(context, 'add_message'):
-            context.add_message("assistant", f"Задача выполнена: {state.goal}")
+            # Extract entities from the response for future reference resolution
+            extracted_entities = extract_entities_from_response(human_answer)
+            
+            context.add_message(
+                "assistant",
+                human_answer,
+                metadata={
+                    "source_files": file_ids or [],
+                    "extracted_entities": extracted_entities,
+                    "goal": state.goal
+                }
+            )
+            logger.info(f"[execute] Saved response with source_files={file_ids}, entities={extracted_entities[:5] if extracted_entities else []}")
         
         logger.info(f"[UnifiedReActEngine] Successfully completed in {state.iteration} iterations")
         return result_summary

@@ -74,11 +74,12 @@ def get_word_stem(word: str) -> str:
     word = normalize_word(word)
     
     # Remove common Russian suffixes for basic stemming
-    suffixes = ['ость', 'ение', 'ание', 'ация', 'ский', 'ская', 'ское', 
+    suffixes = ['овка', 'евка', 'ость', 'ение', 'ание', 'ация', 'ский', 'ская', 'ское', 
                 'ного', 'ной', 'ному', 'овый', 'овая', 'овое',
                 'ный', 'ная', 'ное', 'ные', 'ных',
                 'ой', 'ый', 'ая', 'ое', 'ые', 'ых',
                 'ом', 'ем', 'ей', 'ах', 'ям', 'ами',
+                'ка', 'ки', 'ку', 'ке', 'кой', 'ков',
                 'ы', 'и', 'а', 'я', 'у', 'ю', 'е', 'о']
     
     for suffix in suffixes:
@@ -268,3 +269,110 @@ def get_relevant_file_ids(query: str, context: "ConversationContext") -> List[st
     
     # If no specific match, return empty (or could return all for "general" queries)
     return []
+
+
+def find_source_for_reference(query: str, context: "ConversationContext") -> List[str]:
+    """
+    Find source files for a reference in the user query by searching conversation history.
+    
+    Looks for keywords from the query in previous assistant messages,
+    and returns the source_files from the matching message's metadata.
+    
+    This enables follow-up questions like "расскажи про человека" to find
+    the image where "человек" was mentioned.
+    
+    Args:
+        query: User's follow-up query
+        context: ConversationContext with message history
+        
+    Returns:
+        List of file IDs that were sources for the relevant information
+    """
+    if not query or not context or not hasattr(context, 'messages'):
+        return []
+    
+    # Extract keywords from query
+    query_keywords = extract_keywords_from_text(query)
+    if not query_keywords:
+        # Try simpler extraction for short queries
+        query_lower = query.lower()
+        query_words = set(re.findall(r'[а-яёА-ЯЁa-zA-Z]+', query_lower))
+        query_keywords = [w for w in query_words if len(w) >= 4 and w not in RUSSIAN_STOPWORDS]
+    
+    if not query_keywords:
+        return []
+    
+    # Search in conversation history (reverse order - most recent first)
+    for msg in reversed(context.messages):
+        if msg.get("role") != "assistant":
+            continue
+        
+        content = msg.get("content", "").lower()
+        metadata = msg.get("metadata", {})
+        source_files = metadata.get("source_files", [])
+        
+        if not source_files:
+            continue
+        
+        # Check if any query keyword appears in the message content
+        for keyword in query_keywords:
+            keyword_lower = keyword.lower()
+            keyword_stem = get_word_stem(keyword_lower)
+            
+            # Check for exact match or stem match in content
+            if keyword_lower in content:
+                return source_files
+            
+            # Check for stem match
+            content_words = set(re.findall(r'[а-яёА-ЯЁa-zA-Z]+', content))
+            for content_word in content_words:
+                if get_word_stem(content_word) == keyword_stem and len(keyword_stem) >= 4:
+                    return source_files
+        
+        # Also check against extracted_entities in metadata
+        extracted_entities = metadata.get("extracted_entities", [])
+        for keyword in query_keywords:
+            keyword_stem = get_word_stem(keyword.lower())
+            for entity in extracted_entities:
+                entity_stem = get_word_stem(entity.lower())
+                if keyword_stem == entity_stem or keyword.lower() in entity.lower():
+                    return source_files
+    
+    return []
+
+
+def extract_entities_from_response(response: str) -> List[str]:
+    """
+    Extract key entities/terms from an agent response.
+    
+    These entities are saved in message metadata to enable
+    reference resolution in follow-up queries.
+    
+    Args:
+        response: Agent's response text
+        
+    Returns:
+        List of extracted entity keywords
+    """
+    if not response:
+        return []
+    
+    # Use the same keyword extraction logic
+    keywords = extract_keywords_from_text(response)
+    
+    # Also extract domain-specific terms using IMPORTANT_KEYWORDS
+    response_lower = response.lower()
+    response_words = set(re.findall(r'[а-яёА-ЯЁa-zA-Z]+', response_lower))
+    
+    for key, variants in IMPORTANT_KEYWORDS.items():
+        for variant in variants:
+            if variant in response_lower:
+                keywords.append(variant)
+            # Also check if any word starts with the variant stem
+            variant_stem = get_word_stem(variant)
+            for word in response_words:
+                if get_word_stem(word) == variant_stem and len(variant_stem) >= 4:
+                    keywords.append(word)
+    
+    # Remove duplicates and return
+    return list(set(keywords))
