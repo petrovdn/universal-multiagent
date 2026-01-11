@@ -226,9 +226,31 @@ class UnifiedReActEngine:
             
             if history_source_files:
                 # Found source files from conversation history
-                file_ids = history_source_files
-                logger.info(f"[execute] Found {len(file_ids)} source files from conversation history: {file_ids}")
-                print(f"[execute] Found source files from history: {file_ids}", flush=True)
+                # If multiple files, try to narrow down by keyword matching
+                if len(history_source_files) > 1:
+                    keyword_matches = get_relevant_file_ids(goal, context)
+                    if keyword_matches:
+                        # Use intersection: files that are both in history AND match keywords
+                        relevant = [f for f in keyword_matches if f in history_source_files]
+                        if relevant:
+                            file_ids = relevant
+                            logger.info(f"[execute] Narrowed from {len(history_source_files)} to {len(file_ids)} files by keyword: {file_ids}")
+                            print(f"[execute] Narrowed to relevant files: {file_ids}", flush=True)
+                        else:
+                            # No intersection, use keyword matches directly
+                            file_ids = keyword_matches
+                            logger.info(f"[execute] Using keyword matches instead: {file_ids}")
+                            print(f"[execute] Using keyword matches: {file_ids}", flush=True)
+                    else:
+                        # No keyword matches, use all from history
+                        file_ids = history_source_files
+                        logger.info(f"[execute] Using all {len(file_ids)} source files from history: {file_ids}")
+                        print(f"[execute] Using all files from history: {file_ids}", flush=True)
+                else:
+                    # Single file from history
+                    file_ids = history_source_files
+                    logger.info(f"[execute] Found source file from history: {file_ids}")
+                    print(f"[execute] Found source from history: {file_ids}", flush=True)
             else:
                 # 2. Try keyword-based resolution from entity_memory
                 relevant_ids = get_relevant_file_ids(goal, context)
