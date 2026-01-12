@@ -114,6 +114,7 @@ class UnifiedReActEngine:
         self._current_thinking_id: Optional[str] = None  # Current thinking block ID
         self._thinking_start_time: Optional[float] = None  # Start time for elapsed calculation
         self._current_intent_id: Optional[str] = None  # Current intent block ID (Cursor-style)
+        self._current_iteration: int = 0  # Current ReAct iteration number
         
         logger.info(
             f"[UnifiedReActEngine] Initialized for session {session_id} "
@@ -585,9 +586,40 @@ class UnifiedReActEngine:
                     break
                 
                 state.iteration += 1
+                self._current_iteration = state.iteration  # Store for use in _execute_action
                 logger.info(f"[UnifiedReActEngine] Starting iteration {state.iteration}")
                 # === NEW ARCHITECTURE: No per-iteration intent, use task-level intent ===
                 # Intent details will be added for each tool call
+                
+                # === Send iteration_start event for UI ===
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "iteration_start",
+                    {
+                        "intent_id": self._current_intent_id,
+                        "iteration_number": state.iteration
+                    }
+                )
+                
+                # #region agent log - REACT_ITERATION_START
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps({
+                            "location": "unified_react_engine:execute:iteration_start",
+                            "message": f"=== ITERATION {state.iteration} START ===",
+                            "data": {
+                                "iteration": state.iteration,
+                                "goal": state.goal[:200],
+                                "observations_count": len(state.observations),
+                                "actions_count": len(state.action_history)
+                            },
+                            "timestamp": int(time.time()*1000),
+                            "sessionId": self.session_id,
+                            "hypothesisId": "REACT_FLOW"
+                        }) + '\n')
+                except Exception:
+                    pass
+                # #endregion
                 
                 # 1. THINK - Analyze current situation
                 state.status = "thinking"
@@ -598,10 +630,52 @@ class UnifiedReActEngine:
                 _think_plan_end = time.time()
                 state.current_thought = thought
                 state.add_reasoning_step("think", thought)
+                
+                # #region agent log - THINK PHASE
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps({
+                            "location": "unified_react_engine:execute:think_phase",
+                            "message": "1. THINK - Анализ ситуации",
+                            "data": {
+                                "iteration": state.iteration,
+                                "thought_full": thought,
+                                "thought_length": len(thought) if thought else 0,
+                                "duration_ms": int((_think_plan_end - _think_plan_start) * 1000)
+                            },
+                            "timestamp": int(time.time()*1000),
+                            "sessionId": self.session_id,
+                            "hypothesisId": "REACT_THINK"
+                        }) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+                
                 await self._stream_reasoning("react_thinking", {
                     "thought": thought,
                     "iteration": state.iteration
                 })
+                
+                # === Send iteration thinking events for UI ===
+                think_duration = _think_plan_end - _think_plan_start
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "iteration_thinking_chunk",
+                    {
+                        "intent_id": self._current_intent_id,
+                        "iteration_number": state.iteration,
+                        "chunk": thought or ""
+                    }
+                )
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "iteration_thinking_complete",
+                    {
+                        "intent_id": self._current_intent_id,
+                        "iteration_number": state.iteration,
+                        "duration_sec": think_duration
+                    }
+                )
                 
                 if self._stop_requested:
                     break
@@ -609,6 +683,28 @@ class UnifiedReActEngine:
                 # 2. PLAN - Action plan уже получен из _think_and_plan
                 state.status = "acting"
                 planned_tool = action_plan.get("tool_name", "")
+                
+                # #region agent log - PLAN PHASE
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps({
+                            "location": "unified_react_engine:execute:plan_phase",
+                            "message": "2. PLAN - Выбор следующего инструмента",
+                            "data": {
+                                "iteration": state.iteration,
+                                "planned_tool": planned_tool,
+                                "tool_arguments": action_plan.get("arguments", {}),
+                                "description": action_plan.get("description", ""),
+                                "reasoning": action_plan.get("reasoning", "")
+                            },
+                            "timestamp": int(time.time()*1000),
+                            "sessionId": self.session_id,
+                            "hypothesisId": "REACT_PLAN"
+                        }) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+                
                 import json as _json
                 
                 # === ANTI-LOOP: Block repeated read_document calls ===
@@ -633,12 +729,14 @@ class UnifiedReActEngine:
                                 if is_formatting_task and not formatting_done:
                                     # Redirect to format_document_text
                                     logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Document already read, redirecting to format_document_text")
+                                    # Получаем реальную длину документа
+                                    doc_length = self._get_document_length_from_observations(state)
                                     action_plan = {
                                         "tool_name": "format_document_text",
                                         "arguments": {
                                             "document_id": planned_doc_id,
                                             "start_index": 1,
-                                            "end_index": 100,
+                                            "end_index": min(doc_length, 50),  # Первые 50 символов для заголовка
                                             "bold": True
                                         },
                                         "description": "Форматирование заголовка жирным",
@@ -666,7 +764,38 @@ class UnifiedReActEngine:
                     format_keywords = ["форматир", "красиво", "красив", "оформи", "оформить", "format", "выдели", "жирн"]
                     is_formatting_task = any(kw in goal_lower for kw in format_keywords)
                     
-                    if is_formatting_task:
+                    # Проверяем, является ли задача составной
+                    is_compound, phases = self._is_compound_task(state.goal)
+                    
+                    if is_compound and "modify" in phases:
+                        # Составная задача - проверяем, выполнена ли фаза модификации
+                        modify_done = any(
+                            obs.action.tool_name in text_modifying_tools and obs.success
+                            for obs in state.observations
+                        )
+                        if not modify_done:
+                            # Разрешаем модификацию - это первая фаза составной задачи
+                            logger.info(f"[UnifiedReActEngine] Compound task detected: allowing {planned_tool} for modify phase")
+                            pass  # Не блокируем
+                        else:
+                            # Модификация выполнена - теперь блокируем для форматирования
+                            doc_id = action_plan.get("arguments", {}).get("document_id", "")
+                            logger.warning(f"[UnifiedReActEngine] BLOCK: {planned_tool} blocked - modify phase done, redirecting to format_document_text")
+                            doc_length = self._get_document_length_from_observations(state)
+                            action_plan = {
+                                "tool_name": "format_document_text",
+                                "arguments": {
+                                    "document_id": doc_id,
+                                    "start_index": 1,
+                                    "end_index": min(doc_length, 50),  # Первые 50 символов для заголовка
+                                    "bold": True
+                                },
+                                "description": "Форматирование заголовка жирным шрифтом",
+                                "reasoning": f"Модификация выполнена, применяем форматирование вместо {planned_tool}"
+                            }
+                            planned_tool = "format_document_text"
+                    elif is_formatting_task:
+                        # Простая задача форматирования - блокируем модифицирующие инструменты
                         # Get document_id from the planned arguments
                         doc_id = action_plan.get("arguments", {}).get("document_id", "")
                         logger.warning(f"[UnifiedReActEngine] BLOCK: {planned_tool} blocked for formatting task, should use format_document_text instead")
@@ -679,12 +808,13 @@ class UnifiedReActEngine:
                                 break
                         
                         # Redirect to format_document_text - format title bold
+                        doc_length = self._get_document_length_from_observations(state)
                         action_plan = {
                             "tool_name": "format_document_text",
                             "arguments": {
                                 "document_id": doc_id,
                                 "start_index": 1,  # Start after beginning
-                                "end_index": 100,  # Format first 100 chars (title area)
+                                "end_index": min(doc_length, 50),  # Первые 50 символов для заголовка
                                 "bold": True
                             },
                             "description": "Форматирование заголовка жирным шрифтом",
@@ -875,6 +1005,8 @@ class UnifiedReActEngine:
                         'search_emails',
                         'read_document',
                         'update_document',
+                        'append_to_document',
+                        'insert_into_document',
                         'get_presentation',
                         'format_document_text',
                         'format_document_paragraph',
@@ -923,6 +1055,59 @@ class UnifiedReActEngine:
                             }) + '\n')
                         except Exception:
                             pass
+                
+                # === Send iteration plan event ===
+                # Отправляем план итерации в UI для отображения текущего намерения
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "iteration_plan",
+                    {
+                        "iteration": state.iteration,
+                        "thought": thought[:200] if thought else "",  # Краткое размышление
+                        "planned_action": action_plan.get("tool_name", ""),
+                        "description": action_plan.get("description", ""),
+                        "reasoning": action_plan.get("reasoning", "")
+                    }
+                )
+                
+                # === Send iteration_summary event for UI ===
+                # Формируем human-readable summary
+                action_description = action_plan.get("description", "") or f"Выполню {planned_tool}"
+                
+                if state.iteration == 1:
+                    # Первая итерация - "Я сделаю X для Y"
+                    summary_text = f"→ {action_description}"
+                else:
+                    # Последующие итерации - оценка предыдущего + план
+                    prev_result = ""
+                    if state.observations:
+                        last_obs = state.observations[-1]
+                        if last_obs.success:
+                            prev_tool = last_obs.action.tool_name
+                            if "read" in prev_tool.lower():
+                                prev_result = "Документ прочитан, понял контекст. "
+                            elif "append" in prev_tool.lower() or "insert" in prev_tool.lower():
+                                prev_result = "Текст добавлен, отлично! "
+                            elif "format" in prev_tool.lower():
+                                prev_result = "Форматирование применено. "
+                            elif "create" in prev_tool.lower():
+                                prev_result = "Создано успешно. "
+                            else:
+                                prev_result = "Готово. "
+                        else:
+                            prev_result = "Попробую по-другому. "
+                    summary_text = f"→ {prev_result}Теперь {action_description.lower()}"
+                
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "iteration_summary",
+                    {
+                        "intent_id": self._current_intent_id,
+                        "iteration_number": state.iteration,
+                        "summary": summary_text
+                    }
+                )
+                
                 # Check for special "FINISH" marker
                 tool_name = action_plan.get("tool_name", "")
                 if tool_name.upper() == "FINISH" or tool_name == "finish":
@@ -1039,35 +1224,113 @@ class UnifiedReActEngine:
                 )
                 import json as _json; import time as _time
                 planned_tool = action_plan.get("tool_name", "unknown")
-                if planned_tool == "update_document":
-                    try:
-                        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
-                            "location": "unified_react_engine:execute:before_execute_action",
-                            "message": "About to execute update_document",
+                
+                # === Send iteration_action_start event for UI ===
+                action_title = self._get_tool_display_name(planned_tool, action_plan.get("arguments", {}))
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "iteration_action_start",
+                    {
+                        "intent_id": self._current_intent_id,
+                        "iteration_number": state.iteration,
+                        "title": action_title
+                    }
+                )
+                
+                # #region agent log - ACT PHASE START
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps({
+                            "location": "unified_react_engine:execute:act_phase_start",
+                            "message": "3. ACT - Выполнение инструмента (начало)",
                             "data": {
-                                "tool_name": planned_tool,
-                                "arguments": {k: (str(v)[:100] if len(str(v)) > 100 else v) for k, v in action_plan.get("arguments", {}).items()},
                                 "iteration": state.iteration,
-                                "step": getattr(state, 'current_step', None),
-                                "intent_id": getattr(self, '_current_intent_id', None),
-                                "action_plan_keys": list(action_plan.keys()),
-                                "state_actions_count": len(state.action_history),
-                                "state_observations_count": len(state.observations)
+                                "tool_name": planned_tool,
+                                "arguments": {k: (str(v)[:200] if len(str(v)) > 200 else v) for k, v in action_plan.get("arguments", {}).items()}
                             },
-                            "timestamp": int(_time.time()*1000),
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H_MULTIPLE_CALLS"
+                            "timestamp": int(time.time()*1000),
+                            "sessionId": self.session_id,
+                            "hypothesisId": "REACT_ACT"
                         }) + '\n')
-                    except Exception:
-                        pass
+                except Exception:
+                    pass
+                # #endregion
+                
                 _exec_action_start = time.time()
                 try:
                     result = await self._execute_action(action_plan, context)
                     _exec_action_end = time.time()
+                    
+                    # === Send iteration_action_complete event for UI ===
+                    result_preview = str(result)[:100] if result else ""
+                    result_summary = f"Выполнено ({len(str(result)) if result else 0} символов)"
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "iteration_action_complete",
+                        {
+                            "intent_id": self._current_intent_id,
+                            "iteration_number": state.iteration,
+                            "result": result_summary
+                        }
+                    )
+                    
+                    # #region agent log - ACT PHASE SUCCESS
+                    try:
+                        result_preview_log = str(result)[:500] if result else "None"
+                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                            f.write(json.dumps({
+                                "location": "unified_react_engine:execute:act_phase_success",
+                                "message": "3. ACT - Выполнение инструмента (успех)",
+                                "data": {
+                                    "iteration": state.iteration,
+                                    "tool_name": planned_tool,
+                                    "duration_ms": int((_exec_action_end - _exec_action_start) * 1000),
+                                    "result_preview": result_preview_log,
+                                    "result_length": len(str(result)) if result else 0
+                                },
+                                "timestamp": int(time.time()*1000),
+                                "sessionId": self.session_id,
+                                "hypothesisId": "REACT_ACT"
+                            }) + '\n')
+                    except Exception:
+                        pass
+                    # #endregion
+                    
                 except Exception as e:
                     _exec_action_end = time.time()
                     error_msg = str(e)
                     logger.error(f"[UnifiedReActEngine] Action execution failed: {error_msg}")
+                    
+                    # === Send iteration_action_complete event for UI (error case) ===
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "iteration_action_complete",
+                        {
+                            "intent_id": self._current_intent_id,
+                            "iteration_number": state.iteration,
+                            "result": f"Ошибка: {error_msg[:50]}..."
+                        }
+                    )
+                    
+                    # #region agent log - ACT PHASE ERROR
+                    try:
+                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                            f.write(json.dumps({
+                                "location": "unified_react_engine:execute:act_phase_error",
+                                "message": "3. ACT - Выполнение инструмента (ошибка)",
+                                "data": {
+                                    "iteration": state.iteration,
+                                    "tool_name": planned_tool,
+                                    "duration_ms": int((_exec_action_end - _exec_action_start) * 1000),
+                                    "error": error_msg[:300]
+                                },
+                                "timestamp": int(time.time()*1000),
+                                "sessionId": self.session_id,
+                                "hypothesisId": "REACT_ACT"
+                            }) + '\n')
+                    except Exception:
+                        pass
+                    # #endregion
                     
                     # Проверяем, не пытается ли инструмент открыть уже загруженный файл
                     if planned_tool in ["open_file", "find_and_open_file", "workspace_open_file", "workspace_find_and_open_file"]:
@@ -1110,6 +1373,31 @@ class UnifiedReActEngine:
                 observation.error_message = analysis.error_message
                 observation.extracted_data = analysis.extracted_data
                 
+                # #region agent log - OBSERVE PHASE
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps({
+                            "location": "unified_react_engine:execute:observe_phase",
+                            "message": "4. OBSERVE - Анализ результата",
+                            "data": {
+                                "iteration": state.iteration,
+                                "tool_name": action_record.tool_name,
+                                "is_success": analysis.is_success,
+                                "is_error": analysis.is_error,
+                                "is_goal_achieved": analysis.is_goal_achieved,
+                                "progress_toward_goal": analysis.progress_toward_goal,
+                                "error_message": analysis.error_message,
+                                "next_action_suggestion": analysis.next_action_suggestion,
+                                "extracted_data_keys": list(analysis.extracted_data.keys()) if analysis.extracted_data else []
+                            },
+                            "timestamp": int(time.time()*1000),
+                            "sessionId": self.session_id,
+                            "hypothesisId": "REACT_OBSERVE"
+                        }) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+                
                 state.add_reasoning_step("observe", f"Analysis: {analysis.progress_toward_goal:.0%} progress", {
                     "success": analysis.is_success,
                     "progress": analysis.progress_toward_goal,
@@ -1119,26 +1407,80 @@ class UnifiedReActEngine:
                 # 5. ADAPT - Make decision
                 state.status = "adapting"
                 
-                # #region agent log
-                import json as _json_log
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    f.write(_json_log.dumps({"location": "unified_react_engine.py:adapt:before_goal_check", "message": "H6: Checking is_goal_achieved", "data": {"is_goal_achieved": analysis.is_goal_achieved, "is_success": analysis.is_success, "is_error": analysis.is_error, "progress": analysis.progress_toward_goal, "iteration": state.iteration, "next_action": analysis.next_action_suggestion}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H6"}) + "\n")
+                # #region agent log - ADAPT PHASE
+                try:
+                    adapt_decision = "unknown"
+                    if analysis.is_goal_achieved:
+                        adapt_decision = "GOAL_ACHIEVED - завершаем"
+                    elif analysis.is_error:
+                        adapt_decision = "ERROR - ищем альтернативу"
+                    else:
+                        adapt_decision = "CONTINUE - продолжаем к следующей итерации"
+                    
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps({
+                            "location": "unified_react_engine:execute:adapt_phase",
+                            "message": "5. ADAPT - Принятие решения о следующем шаге",
+                            "data": {
+                                "iteration": state.iteration,
+                                "decision": adapt_decision,
+                                "is_goal_achieved": analysis.is_goal_achieved,
+                                "is_error": analysis.is_error,
+                                "progress": analysis.progress_toward_goal,
+                                "next_action_suggestion": analysis.next_action_suggestion
+                            },
+                            "timestamp": int(time.time()*1000),
+                            "sessionId": self.session_id,
+                            "hypothesisId": "REACT_ADAPT"
+                        }) + '\n')
+                except Exception:
+                    pass
                 # #endregion
                 
                 if analysis.is_goal_achieved:
                     logger.info(f"[UnifiedReActEngine] Goal achieved at iteration {state.iteration}")
-                    # #region agent log
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                        f.write(_json_log.dumps({"location": "unified_react_engine.py:adapt:goal_achieved_exit", "message": "H6: Goal achieved - calling _finalize_success", "data": {"iteration": state.iteration}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H6"}) + "\n")
+                    # #region agent log - GOAL ACHIEVED
+                    try:
+                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                            f.write(json.dumps({
+                                "location": "unified_react_engine:execute:adapt_goal_achieved",
+                                "message": "=== GOAL ACHIEVED - Завершение ===",
+                                "data": {
+                                    "iteration": state.iteration,
+                                    "total_actions": len(state.action_history)
+                                },
+                                "timestamp": int(time.time()*1000),
+                                "sessionId": self.session_id,
+                                "hypothesisId": "REACT_ADAPT"
+                            }) + '\n')
+                    except Exception:
+                        pass
                     # #endregion
                     return await self._finalize_success(state, result, context, file_ids)
                 
                 elif analysis.is_error:
-                    import json as _json
+                    # #region agent log - ADAPT ERROR
+                    try:
+                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                            f.write(json.dumps({
+                                "location": "unified_react_engine:execute:adapt_error",
+                                "message": "=== ERROR - Ищем альтернативу ===",
+                                "data": {
+                                    "iteration": state.iteration,
+                                    "error_message": analysis.error_message,
+                                    "enable_alternatives": self.config.enable_alternatives
+                                },
+                                "timestamp": int(time.time()*1000),
+                                "sessionId": self.session_id,
+                                "hypothesisId": "REACT_ADAPT"
+                            }) + '\n')
+                    except Exception:
+                        pass
+                    # #endregion
+                    
                     if self.config.enable_alternatives:
                         alternative = await self._find_alternative(state, analysis, context, file_ids)
                         if alternative:
-                            import json as _json
                             logger.info(f"[UnifiedReActEngine] Trying alternative: {alternative.get('description', '')}")
                             state.alternatives_tried.append(alternative.get("description", ""))
                             state.add_reasoning_step("adapt", f"Trying alternative: {alternative.get('description', '')}", {
@@ -1157,7 +1499,25 @@ class UnifiedReActEngine:
                         return await self._finalize_failure(state, analysis, context)
                 else:
                     # Progress made, continue
-                    import json as _json
+                    # #region agent log - ADAPT CONTINUE
+                    try:
+                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                            f.write(json.dumps({
+                                "location": "unified_react_engine:execute:adapt_continue",
+                                "message": f"=== CONTINUE - Переход к итерации {state.iteration + 1} ===",
+                                "data": {
+                                    "current_iteration": state.iteration,
+                                    "next_iteration": state.iteration + 1,
+                                    "progress": analysis.progress_toward_goal
+                                },
+                                "timestamp": int(time.time()*1000),
+                                "sessionId": self.session_id,
+                                "hypothesisId": "REACT_ADAPT"
+                            }) + '\n')
+                    except Exception:
+                        pass
+                    # #endregion
+                    
                     state.add_reasoning_step("adapt", "Continuing with progress", {
                         "progress": analysis.progress_toward_goal
                     })
@@ -2029,6 +2389,59 @@ class UnifiedReActEngine:
                 return category
         
         return 'general'
+    
+    def _is_compound_task(self, goal: str) -> tuple[bool, list[str]]:
+        """
+        Определяет, является ли задача составной (несколько операций).
+        Возвращает (is_compound, phases) где phases = ['modify', 'format'] и т.д.
+        
+        Args:
+            goal: Текст цели задачи
+            
+        Returns:
+            Tuple[bool, list[str]]: (is_compound, phases)
+        """
+        goal_lower = goal.lower()
+        
+        # Паттерны модификации контента
+        modify_keywords = ["допиши", "добавь", "напиши", "вставь", "создай", "append", "insert", "add"]
+        has_modify = any(kw in goal_lower for kw in modify_keywords)
+        
+        # Паттерны форматирования
+        format_keywords = ["форматир", "красиво", "оформи", "format"]
+        has_format = any(kw in goal_lower for kw in format_keywords)
+        
+        phases = []
+        if has_modify:
+            phases.append("modify")
+        if has_format:
+            phases.append("format")
+        
+        return (len(phases) > 1, phases)
+    
+    def _get_document_length_from_observations(self, state: ReActState) -> int:
+        """
+        Получает длину документа из предыдущих наблюдений read_document.
+        
+        Args:
+            state: Текущее состояние ReAct
+            
+        Returns:
+            Длина документа в символах, или 100 по умолчанию
+        """
+        import re
+        for obs in state.observations:
+            if obs.action.tool_name == "read_document" and obs.success:
+                # Парсим TEXT_LENGTH из результата
+                result_str = str(obs.raw_result)
+                match = re.search(r'TEXT_LENGTH:\s*(\d+)', result_str)
+                if match:
+                    return int(match.group(1))
+                # Альтернативный паттерн: ищем в формате "[TEXT_LENGTH: X characters]"
+                match = re.search(r'\[TEXT_LENGTH:\s*(\d+)', result_str)
+                if match:
+                    return int(match.group(1))
+        return 100  # fallback
     
     def _get_phase_description_for_category(self, category: str) -> str:
         """Get human-readable phase description for a tool category."""
@@ -3646,7 +4059,8 @@ class UnifiedReActEngine:
                     file_id=file_id,
                     file_url=file_url,
                     file_type=file_type,
-                    intent_id=intent_id
+                    intent_id=intent_id,
+                    iteration_number=getattr(self, '_current_iteration', None)
                 )
                 try:
                     open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({

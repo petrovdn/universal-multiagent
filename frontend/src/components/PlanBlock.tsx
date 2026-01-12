@@ -110,6 +110,24 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
                 autoCollapse={false}
                 className="plan-content-block"
               >
+                {/* Прогресс выполнения шагов */}
+                {workflowPlan.stepPlanProgress && (
+                  <div className="step-plan-progress mb-3 p-2 bg-gray-50 dark:bg-gray-800/50 rounded" style={{ marginBottom: '12px' }}>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      Шаг {workflowPlan.stepPlanProgress.currentStep} из {workflowPlan.stepPlanProgress.totalSteps}
+                      {' '}(Выполнено: {workflowPlan.stepPlanProgress.completedSteps})
+                    </div>
+                    <div className="text-sm font-medium text-gray-900 dark:text-white">
+                      Текущий шаг: {workflowPlan.stepPlanProgress.currentStepTitle}
+                    </div>
+                    {workflowPlan.stepPlanProgress.remainingSteps.length > 0 && (
+                      <div className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                        Осталось: {workflowPlan.stepPlanProgress.remainingSteps.join(', ')}
+                      </div>
+                    )}
+                  </div>
+                )}
+                
                 {workflowPlan.steps && workflowPlan.steps.length > 0 && (
                   <ol className="plan-steps-list">
                     {workflowPlan.steps.map((step, index) => {

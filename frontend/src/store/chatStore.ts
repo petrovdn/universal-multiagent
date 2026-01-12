@@ -51,6 +51,13 @@ export interface WorkflowPlan {
   awaitingConfirmation: boolean
   planThinking: string // Reasoning/thinking during plan generation
   planThinkingIsStreaming: boolean // Whether plan thinking is currently streaming
+  stepPlanProgress?: {
+    currentStep: number
+    totalSteps: number
+    completedSteps: number
+    currentStepTitle: string
+    remainingSteps: string[]
+  }
 }
 
 // File preview data structure
@@ -170,6 +177,33 @@ export interface Operation {
 // Фаза выполнения intent
 export type IntentPhase = 'planning' | 'executing' | 'completed'
 
+// IterationBlock - блок одной итерации ReAct цикла
+export interface IterationBlock {
+  id: string
+  iterationNumber: number
+  
+  // Думание (Think фаза)
+  thinking: {
+    content: string              // Мысли модели
+    durationSec: number          // "Думаю... 5с"
+    isStreaming: boolean
+    isCollapsed: boolean
+  }
+  
+  // Summary/Plan после думания
+  summary?: string               // "→ Прочитаю сказку для понимания контекста"
+  
+  // Действие (Act фаза)
+  action?: {
+    title: string                // "Читаю документ"
+    result?: string              // "Прочитано (2250 символов)"
+    status: 'pending' | 'streaming' | 'done'
+  }
+  
+  // Связь с операцией (если есть стриминг данных)
+  operationId?: string
+}
+
 export interface IntentBlock {
   id: string
   intent: string                    // "Создание встречи с bsn@lad24.ru"
@@ -177,7 +211,8 @@ export interface IntentBlock {
   phase: IntentPhase                // Текущая фаза: planning -> executing -> completed
   details: IntentDetail[]           // Список деталей выполнения (фаза executing) - устаревший формат
   operations: Record<string, Operation> // operation_id -> Operation (новый формат)
-  thinkingText?: string             // Streaming thinking text (фаза planning)
+  iterations: IterationBlock[]      // Новый формат: массив итераций ReAct цикла
+  thinkingText?: string             // Streaming thinking text (фаза planning) - устаревший
   summary?: string                  // "Найдено 5 встреч" - показывается в свёрнутом виде
   isCollapsed: boolean
   planningCollapsed: boolean        // Свёрнута ли секция "Планирую"
@@ -188,6 +223,14 @@ export interface IntentBlock {
   estimatedSec: number
   startedAt: number
   completedAt?: number
+  // План итерации (для Agent Mode) - устаревший
+  iterationPlan?: {
+    iteration: number
+    thought: string
+    plannedAction: string
+    description: string
+    reasoning: string
+  }
 }
 
 interface ChatState {
@@ -339,6 +382,28 @@ interface ChatState {
   collapseAllIntents: (workflowId: string) => void
   clearIntents: (workflowId: string) => void
   setActiveIntent: (intentId: string | null) => void
+  updateIntentPlan: (workflowId: string, plan: {
+    iteration: number
+    thought: string
+    plannedAction: string
+    description: string
+    reasoning: string
+  }) => void
+  updateStepPlanProgress: (workflowId: string, progress: {
+    currentStep: number
+    totalSteps: number
+    completedSteps: number
+    currentStepTitle: string
+    remainingSteps: string[]
+  }) => void
+  
+  // Iteration methods (для ReAct итераций внутри Intent)
+  startIteration: (workflowId: string, intentId: string, iterationNumber: number) => void
+  appendIterationThinking: (workflowId: string, intentId: string, iterationNumber: number, chunk: string) => void
+  completeIterationThinking: (workflowId: string, intentId: string, iterationNumber: number, durationSec: number) => void
+  setIterationSummary: (workflowId: string, intentId: string, iterationNumber: number, summary: string) => void
+  startIterationAction: (workflowId: string, intentId: string, iterationNumber: number, title: string, operationId?: string) => void
+  completeIterationAction: (workflowId: string, intentId: string, iterationNumber: number, result: string) => void
   
   // Operation methods (for streaming operations inside intents)
   startOperation: (
@@ -1462,6 +1527,7 @@ export const useChatStore = create<ChatState>()(
             phase: 'planning',  // Начинаем с фазы планирования
             details: [],
             operations: {},
+            iterations: [],     // Новый массив итераций
             isCollapsed: false,
             planningCollapsed: false,
             executingCollapsed: false,
@@ -1708,6 +1774,254 @@ export const useChatStore = create<ChatState>()(
       setActiveIntent: (intentId: string | null) =>
         set({
           activeIntentId: intentId,
+        }),
+      
+      updateIntentPlan: (workflowId: string, plan: {
+        iteration: number
+        thought: string
+        plannedAction: string
+        description: string
+        reasoning: string
+      }) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const activeIntentId = state.activeIntentId
+          
+          if (!activeIntentId) return state
+          
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === activeIntentId) {
+              return {
+                ...intent,
+                iterationPlan: plan,
+              }
+            }
+            return intent
+          })
+          
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      updateStepPlanProgress: (workflowId: string, progress: {
+        currentStep: number
+        totalSteps: number
+        completedSteps: number
+        currentStepTitle: string
+        remainingSteps: string[]
+      }) =>
+        set((state) => {
+          const workflow = state.workflows[workflowId]
+          if (!workflow) return state
+          
+          return {
+            workflows: {
+              ...state.workflows,
+              [workflowId]: {
+                ...workflow,
+                plan: {
+                  ...workflow.plan,
+                  stepPlanProgress: progress,
+                },
+              },
+            },
+          }
+        }),
+      
+      // Iteration methods (для ReAct итераций внутри Intent)
+      startIteration: (workflowId: string, intentId: string, iterationNumber: number) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              const newIteration: IterationBlock = {
+                id: `${intentId}-iter-${iterationNumber}`,
+                iterationNumber,
+                thinking: {
+                  content: '',
+                  durationSec: 0,
+                  isStreaming: true,
+                  isCollapsed: false,
+                },
+              }
+              return {
+                ...intent,
+                iterations: [...intent.iterations, newIteration],
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      appendIterationThinking: (workflowId: string, intentId: string, iterationNumber: number, chunk: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              const updatedIterations = intent.iterations.map(iter => {
+                if (iter.iterationNumber === iterationNumber) {
+                  return {
+                    ...iter,
+                    thinking: {
+                      ...iter.thinking,
+                      content: iter.thinking.content + chunk,
+                    },
+                  }
+                }
+                return iter
+              })
+              return {
+                ...intent,
+                iterations: updatedIterations,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      completeIterationThinking: (workflowId: string, intentId: string, iterationNumber: number, durationSec: number) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              const updatedIterations = intent.iterations.map(iter => {
+                if (iter.iterationNumber === iterationNumber) {
+                  return {
+                    ...iter,
+                    thinking: {
+                      ...iter.thinking,
+                      isStreaming: false,
+                      durationSec,
+                      isCollapsed: true, // Сворачиваем после завершения
+                    },
+                  }
+                }
+                return iter
+              })
+              return {
+                ...intent,
+                iterations: updatedIterations,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      setIterationSummary: (workflowId: string, intentId: string, iterationNumber: number, summary: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              const updatedIterations = intent.iterations.map(iter => {
+                if (iter.iterationNumber === iterationNumber) {
+                  return {
+                    ...iter,
+                    summary,
+                  }
+                }
+                return iter
+              })
+              return {
+                ...intent,
+                iterations: updatedIterations,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      startIterationAction: (workflowId: string, intentId: string, iterationNumber: number, title: string, operationId?: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              const updatedIterations = intent.iterations.map(iter => {
+                if (iter.iterationNumber === iterationNumber) {
+                  return {
+                    ...iter,
+                    action: {
+                      title,
+                      status: 'pending' as const,
+                    },
+                    operationId,
+                  }
+                }
+                return iter
+              })
+              return {
+                ...intent,
+                iterations: updatedIterations,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      completeIterationAction: (workflowId: string, intentId: string, iterationNumber: number, result: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              const updatedIterations = intent.iterations.map(iter => {
+                if (iter.iterationNumber === iterationNumber) {
+                  return {
+                    ...iter,
+                    action: iter.action ? {
+                      ...iter.action,
+                      result,
+                      status: 'done' as const,
+                    } : undefined,
+                  }
+                }
+                return iter
+              })
+              return {
+                ...intent,
+                iterations: updatedIterations,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
         }),
       
       // Operation methods (новые операции со стримингом)

@@ -4961,3 +4961,229 @@ div[style*="padding: '10px'"] .prose li {
   border-radius: 3px;
   transition: width 0.3s ease;
 }
+
+/* ============================================
+   ITERATION BLOCK (Блок итерации ReAct цикла)
+   ============================================ */
+.iteration-block {
+  margin-bottom: 12px;
+  padding: 0;
+}
+
+/* Think секция */
+.iteration-think {
+  margin-bottom: 4px;
+}
+
+.iteration-think-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.iteration-think-header:hover {
+  color: var(--text-primary);
+}
+
+.iteration-chevron {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.iteration-think-icon {
+  flex-shrink: 0;
+}
+
+.iteration-think-label {
+  font-weight: 500;
+}
+
+.iteration-think-dots {
+  display: inline-flex;
+  gap: 1px;
+}
+
+.iteration-think-dots .dot-1,
+.iteration-think-dots .dot-2,
+.iteration-think-dots .dot-3 {
+  animation: iterationDotBlink 1.4s infinite both;
+}
+
+.iteration-think-dots .dot-2 {
+  animation-delay: 0.2s;
+}
+
+.iteration-think-dots .dot-3 {
+  animation-delay: 0.4s;
+}
+
+@keyframes iterationDotBlink {
+  0%, 80%, 100% { opacity: 0.3; }
+  40% { opacity: 1; }
+}
+
+.iteration-think-content {
+  margin-left: 18px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-radius: 6px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.iteration-think-content pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
+/* Summary секция (стрелка с планом) */
+.iteration-summary {
+  padding: 6px 0 6px 18px;
+  font-size: 13px;
+}
+
+.iteration-summary-text {
+  font-weight: 500;
+  color: var(--accent-primary);
+}
+
+/* Action секция */
+.iteration-action {
+  margin-left: 18px;
+  margin-top: 4px;
+}
+
+.iteration-action-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.iteration-action-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.iteration-action-icon.done {
+  color: var(--success-color, #10b981);
+}
+
+.iteration-action-icon.pending {
+  color: var(--text-tertiary);
+}
+
+.iteration-action-title {
+  color: var(--text-primary);
+}
+
+.iteration-action-title.pending {
+  color: var(--text-secondary);
+}
+
+.iteration-action-dots {
+  display: inline-flex;
+  gap: 1px;
+  margin-left: 2px;
+}
+
+.iteration-action-dots .dot-1,
+.iteration-action-dots .dot-2,
+.iteration-action-dots .dot-3 {
+  animation: iterationDotBlink 1.4s infinite both;
+}
+
+.iteration-action-dots .dot-2 {
+  animation-delay: 0.2s;
+}
+
+.iteration-action-dots .dot-3 {
+  animation-delay: 0.4s;
+}
+
+/* Результат действия */
+.iteration-action-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 4px;
+  margin-left: 24px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.iteration-result-label {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.iteration-result-text {
+  color: var(--text-secondary);
+}
+
+/* Связанная операция */
+.iteration-operation {
+  margin-left: 18px;
+  margin-top: 8px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.iteration-operation-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  cursor: pointer;
+}
+
+.iteration-operation-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.iteration-operation-title {
+  flex: 1;
+  font-weight: 500;
+}
+
+.iteration-operation-streaming {
+  font-size: 12px;
+}
+
+.iteration-operation-content {
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 150px;
+  overflow-y: auto;
+  background: var(--bg-primary);
+}
+
+/* Iterations container */
+.iterations-container {
+  padding: 0;
+}

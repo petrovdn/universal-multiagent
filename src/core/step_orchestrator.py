@@ -605,6 +605,19 @@ class StepOrchestrator:
                         )
                         break
                     
+                    # Send step_plan_update event with progress information
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "step_plan_update",
+                        {
+                            "current_step": step_index,
+                            "total_steps": len(plan_steps),
+                            "completed_steps": step_index - 1,
+                            "current_step_title": step_title,
+                            "remaining_steps": [s for s in plan_steps[step_index:]]
+                        }
+                    )
+                    
                     # Send step_start event
                     await self.ws_manager.send_event(
                         self.session_id,

@@ -629,6 +629,128 @@ export class WebSocketClient {
         console.log('[WebSocket] Step started:', event.data.step, event.data.title)
         break
 
+      case 'step_plan_update':
+        // Update plan progress for Step Mode
+        console.log('[WebSocket] Step plan update:', event.data)
+        const state = useChatStore.getState()
+        const workflowId = state.activeWorkflowId
+        
+        if (workflowId) {
+          chatStore.updateStepPlanProgress(workflowId, {
+            currentStep: event.data.current_step,
+            totalSteps: event.data.total_steps,
+            completedSteps: event.data.completed_steps,
+            currentStepTitle: event.data.current_step_title,
+            remainingSteps: event.data.remaining_steps || []
+          })
+        }
+        break
+
+      case 'iteration_plan':
+        // Update intent with iteration plan for Agent Mode
+        console.log('[WebSocket] Iteration plan:', event.data)
+        const { iteration, thought, planned_action, description, reasoning } = event.data
+        
+        // Обновляем текущий intent с планом итерации
+        const iterationState = useChatStore.getState()
+        const iterationWorkflowId = iterationState.activeWorkflowId
+        
+        if (iterationWorkflowId) {
+          chatStore.updateIntentPlan(iterationWorkflowId, {
+            iteration,
+            thought,
+            plannedAction: planned_action,
+            description,
+            reasoning
+          })
+        }
+        break
+      
+      // Новые события для отображения итераций (Think → Summary → Act → Result)
+      case 'iteration_start': {
+        console.log('[WebSocket] Iteration started:', event.data)
+        const iterStartState = useChatStore.getState()
+        const iterStartWorkflowId = iterStartState.activeWorkflowId
+        const iterStartIntentId = event.data.intent_id || iterStartState.activeIntentId
+        const iterNumber = event.data.iteration_number || 1
+        
+        if (iterStartWorkflowId && iterStartIntentId) {
+          chatStore.startIteration(iterStartWorkflowId, iterStartIntentId, iterNumber)
+        }
+        break
+      }
+      
+      case 'iteration_thinking_chunk': {
+        console.log('[WebSocket] Iteration thinking chunk:', event.data)
+        const iterThinkState = useChatStore.getState()
+        const iterThinkWorkflowId = iterThinkState.activeWorkflowId
+        const iterThinkIntentId = event.data.intent_id || iterThinkState.activeIntentId
+        const iterThinkNumber = event.data.iteration_number || 1
+        const chunk = event.data.chunk || ''
+        
+        if (iterThinkWorkflowId && iterThinkIntentId && chunk) {
+          chatStore.appendIterationThinking(iterThinkWorkflowId, iterThinkIntentId, iterThinkNumber, chunk)
+        }
+        break
+      }
+      
+      case 'iteration_thinking_complete': {
+        console.log('[WebSocket] Iteration thinking complete:', event.data)
+        const iterThinkCompleteState = useChatStore.getState()
+        const iterThinkCompleteWorkflowId = iterThinkCompleteState.activeWorkflowId
+        const iterThinkCompleteIntentId = event.data.intent_id || iterThinkCompleteState.activeIntentId
+        const iterThinkCompleteNumber = event.data.iteration_number || 1
+        const durationSec = event.data.duration_sec || 0
+        
+        if (iterThinkCompleteWorkflowId && iterThinkCompleteIntentId) {
+          chatStore.completeIterationThinking(iterThinkCompleteWorkflowId, iterThinkCompleteIntentId, iterThinkCompleteNumber, durationSec)
+        }
+        break
+      }
+      
+      case 'iteration_summary': {
+        console.log('[WebSocket] Iteration summary:', event.data)
+        const iterSummaryState = useChatStore.getState()
+        const iterSummaryWorkflowId = iterSummaryState.activeWorkflowId
+        const iterSummaryIntentId = event.data.intent_id || iterSummaryState.activeIntentId
+        const iterSummaryNumber = event.data.iteration_number || 1
+        const summary = event.data.summary || ''
+        
+        if (iterSummaryWorkflowId && iterSummaryIntentId && summary) {
+          chatStore.setIterationSummary(iterSummaryWorkflowId, iterSummaryIntentId, iterSummaryNumber, summary)
+        }
+        break
+      }
+      
+      case 'iteration_action_start': {
+        console.log('[WebSocket] Iteration action started:', event.data)
+        const iterActionState = useChatStore.getState()
+        const iterActionWorkflowId = iterActionState.activeWorkflowId
+        const iterActionIntentId = event.data.intent_id || iterActionState.activeIntentId
+        const iterActionNumber = event.data.iteration_number || 1
+        const actionTitle = event.data.title || 'Выполняю действие...'
+        const operationId = event.data.operation_id
+        
+        if (iterActionWorkflowId && iterActionIntentId) {
+          chatStore.startIterationAction(iterActionWorkflowId, iterActionIntentId, iterActionNumber, actionTitle, operationId)
+        }
+        break
+      }
+      
+      case 'iteration_action_complete': {
+        console.log('[WebSocket] Iteration action complete:', event.data)
+        const iterActionCompleteState = useChatStore.getState()
+        const iterActionCompleteWorkflowId = iterActionCompleteState.activeWorkflowId
+        const iterActionCompleteIntentId = event.data.intent_id || iterActionCompleteState.activeIntentId
+        const iterActionCompleteNumber = event.data.iteration_number || 1
+        const actionResult = event.data.result || ''
+        
+        if (iterActionCompleteWorkflowId && iterActionCompleteIntentId) {
+          chatStore.completeIterationAction(iterActionCompleteWorkflowId, iterActionCompleteIntentId, iterActionCompleteNumber, actionResult)
+        }
+        break
+      }
+
       case 'step_thinking_chunk':
         // Ensure active workflow exists
         ensureActiveWorkflow()
@@ -1240,6 +1362,7 @@ export class WebSocketClient {
         const workflowId = state.activeWorkflowId
         const intentId = event.data.intent_id || state.activeIntentId
         const operationId = event.data.operation_id
+        const iterationNumber = event.data.iteration_number
         
         if (workflowId && intentId && operationId) {
           chatStore.startOperation(
@@ -1253,6 +1376,11 @@ export class WebSocketClient {
             event.data.file_url,
             event.data.file_type
           )
+          
+          // Связываем операцию с итерацией
+          if (iterationNumber) {
+            chatStore.startIterationAction(workflowId, intentId, iterationNumber, title, operationId)
+          }
         }
         break
       }

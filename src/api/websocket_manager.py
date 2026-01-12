@@ -169,7 +169,8 @@ class WebSocketManager:
         file_id: Optional[str] = None,
         file_url: Optional[str] = None,
         file_type: Optional[str] = None,
-        intent_id: Optional[str] = None
+        intent_id: Optional[str] = None,
+        iteration_number: Optional[int] = None
     ) -> None:
         """
         Send operation start event.
@@ -184,10 +185,12 @@ class WebSocketManager:
             file_url: Optional file URL
             file_type: Optional file type (sheets | docs | slides | calendar | gmail)
             intent_id: Optional intent ID this operation belongs to
+            iteration_number: Optional iteration number for linking to iteration block
         """
         await self.send_event(session_id, "operation_start", {
             "operation_id": operation_id,
             "intent_id": intent_id,
+            "iteration_number": iteration_number,
             "title": title,
             "streaming_title": streaming_title,
             "operation_type": operation_type,

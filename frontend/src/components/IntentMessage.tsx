@@ -2,6 +2,7 @@ import React from 'react'
 import { IntentBlock, useChatStore } from '../store/chatStore'
 import { PlanningBlock } from './PlanningBlock'
 import { OperationBlock } from './OperationBlock'
+import { IterationBlock } from './IterationBlock'
 
 interface IntentMessageProps {
   block: IntentBlock
@@ -27,12 +28,14 @@ export function IntentMessage({
   const hasThinkingText = !!block.thinkingText
   const hasDetails = block.details.length > 0
   const hasOperations = block.operations && Object.keys(block.operations).length > 0
+  const hasIterations = block.iterations && block.iterations.length > 0
 
-  // Показывать секцию "Планирую" если есть thinking или в фазе planning
-  const showPlanningSection = hasThinkingText || isPlanning
-  // Показывать секцию "Выполняю" если есть operations, details или в фазе executing/completed
+  // НОВЫЙ ФОРМАТ: Если есть iterations, используем их вместо старых секций
+  // Показывать секцию "Планирую" если есть thinking или в фазе planning (только если НЕТ iterations)
+  const showPlanningSection = !hasIterations && (hasThinkingText || isPlanning)
+  // Показывать секцию "Выполняю" если есть operations, details или в фазе executing/completed (только если НЕТ iterations)
   // ВАЖНО: Если есть операции, игнорируем старые details, чтобы избежать дублирования
-  const showExecutingSection = hasOperations || (!hasOperations && hasDetails) || isExecuting || isCompleted
+  const showExecutingSection = !hasIterations && (hasOperations || (!hasOperations && hasDetails) || isExecuting || isCompleted)
   
   // #region agent log - H3: tracking showPlanningSection render decision
   React.useEffect(() => {
@@ -53,6 +56,8 @@ export function IntentMessage({
       <div className="step-header" style={{ marginBottom: '12px', paddingLeft: '0', paddingRight: '0' }}>
         {stepNumber !== undefined ? `Шаг ${stepNumber}: ${block.intent}` : block.intent}
       </div>
+      
+      {/* План итерации убран - теперь отображается внутри iterations */}
       
       {/* Фаза 1: Планирую - используем PlanningBlock */}
       {showPlanningSection && (
@@ -132,6 +137,58 @@ export function IntentMessage({
               </span>
             </div>
           )}
+        </div>
+      )}
+      
+      {/* НОВЫЙ ФОРМАТ: Итерации ReAct цикла (Think → Summary → Act → Result) */}
+      {hasIterations && (
+        <div className="iterations-container" style={{ marginTop: '8px' }}>
+          {block.iterations.map((iteration) => {
+            // Находим связанную операцию, если есть
+            const linkedOperation = iteration.operationId 
+              ? block.operations[iteration.operationId]
+              : undefined
+              
+            return (
+              <IterationBlock
+                key={iteration.id}
+                iteration={iteration}
+                operation={linkedOperation}
+                onToggleThinkingCollapse={() => {
+                  // Toggle thinking collapse для итерации
+                  const store = useChatStore.getState()
+                  const existingIntents = store.intentBlocks[workflowId] || []
+                  const updatedIntents = existingIntents.map(intent => {
+                    if (intent.id === block.id) {
+                      const updatedIterations = intent.iterations.map(iter => {
+                        if (iter.id === iteration.id) {
+                          return {
+                            ...iter,
+                            thinking: {
+                              ...iter.thinking,
+                              isCollapsed: !iter.thinking.isCollapsed,
+                            },
+                          }
+                        }
+                        return iter
+                      })
+                      return { ...intent, iterations: updatedIterations }
+                    }
+                    return intent
+                  })
+                  useChatStore.setState({
+                    intentBlocks: {
+                      ...store.intentBlocks,
+                      [workflowId]: updatedIntents,
+                    },
+                  })
+                }}
+                onToggleOperationCollapse={linkedOperation ? () => {
+                  useChatStore.getState().toggleOperationCollapse(workflowId, block.id, linkedOperation.id)
+                } : undefined}
+              />
+            )
+          })}
         </div>
       )}
     </div>
