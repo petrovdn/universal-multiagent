@@ -18,6 +18,8 @@ from src.utils.validators import (
     validate_email,
     validate_attendee_list,
     parse_datetime,
+    parse_date_range,
+    parse_attendee_filter,
     validate_date_not_past,
     validate_duration
 )
@@ -252,16 +254,123 @@ class GetNextAvailabilityTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
+def filter_events_by_attendees(
+    events: List[Dict[str, Any]],
+    filter_config: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """
+    Filter calendar events by attendee filter.
+    
+    Args:
+        events: List of event dicts from Google Calendar API
+        filter_config: Filter config from parse_attendee_filter()
+            Format: {"operator": "AND"|"OR", "patterns": [str, ...]}
+    
+    Returns:
+        Filtered list of events.
+    """
+    if not events:
+        return []
+    
+    operator = filter_config.get("operator", "OR")
+    patterns = filter_config.get("patterns", [])
+    
+    if not patterns:
+        return events
+    
+    filtered_events = []
+    
+    for event in events:
+        # Get all attendees from event
+        attendees = event.get("attendees", [])
+        if not attendees:
+            # If no attendees and patterns specified, skip (unless pattern is very general)
+            continue
+        
+        # Extract all emails and names from attendees
+        attendee_emails = []
+        attendee_names = []
+        for attendee in attendees:
+            if isinstance(attendee, dict):
+                email = attendee.get("email", "").lower()
+                display_name = attendee.get("displayName", "").lower()
+                if email:
+                    attendee_emails.append(email)
+                if display_name:
+                    attendee_names.append(display_name)
+        
+        # Check if event matches filter
+        matches = []
+        for pattern in patterns:
+            pattern_lower = pattern.lower()
+            matched = False
+            
+            # Check if pattern is partial email (contains @)
+            is_partial_email = "@" in pattern_lower
+            
+            if is_partial_email:
+                # Pattern is partial email (marat@, @lad24.ru) - check only emails
+                for email in attendee_emails:
+                    # Full match
+                    if email == pattern_lower:
+                        matched = True
+                        break
+                    # Partial match: pattern in email
+                    if pattern_lower in email:
+                        matched = True
+                        break
+            else:
+                # Pattern is name - check both emails and names
+                # Check emails (pattern in email local part)
+                for email in attendee_emails:
+                    # Full match
+                    if email == pattern_lower:
+                        matched = True
+                        break
+                    # Check if pattern is in email local part (before @)
+                    if "@" in email:
+                        email_local = email.split("@")[0]
+                        if pattern_lower == email_local or pattern_lower in email_local:
+                            matched = True
+                            break
+                
+                # Check names if not matched yet
+                if not matched:
+                    for name in attendee_names:
+                        # Full match or substring match
+                        if pattern_lower == name or pattern_lower in name or name in pattern_lower:
+                            matched = True
+                            break
+            
+            matches.append(matched)
+        
+        # Apply operator
+        if operator == "AND":
+            # All patterns must match
+            if all(matches):
+                filtered_events.append(event)
+        else:  # OR
+            # At least one pattern must match
+            if any(matches):
+                filtered_events.append(event)
+    
+    return filtered_events
+
+
 class GetCalendarEventsInput(BaseModel):
     """Input schema for get_calendar_events tool."""
     
     start_time: Optional[str] = Field(
         default=None, 
-        description="Start of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'на прошлой неделе' (previous calendar week Mon-Sun), 'за прошлые две недели' (past two weeks), ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
+        description="Start of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'на прошлой неделе' (previous calendar week Mon-Sun), 'за прошлые две недели' (past two weeks), 'в текущем месяце', 'в январе', 'в первом квартале', 'в 2026', ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
     )
     end_time: Optional[str] = Field(
         default=None, 
-        description="End of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'на прошлой неделе' (previous calendar week Mon-Sun), 'за прошлые две недели' (past two weeks), ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
+        description="End of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'на прошлой неделе' (previous calendar week Mon-Sun), 'за прошлые две недели' (past two weeks), 'в текущем месяце', 'в январе', 'в первом квартале', 'в 2026', ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
+    )
+    attendee_filter: Optional[str] = Field(
+        default=None,
+        description="Filter events by attendees. Supports: 'Марат и Аня' (AND), 'Марат или Аня' (OR), 'marat@' (partial email), '@lad24.ru' (domain). Examples: 'Марат и Аня', 'marat@ или anna@', 'petrov@lad24.ru'"
     )
     max_results: int = Field(default=10, description="Maximum number of events")
 
@@ -271,7 +380,7 @@ class GetCalendarEventsTool(BaseTool):
     
     name: str = "get_calendar_events"
     description: str = """
-    Get calendar events for a time range.
+    Get calendar events for a time range, optionally filtered by attendees.
     
     IMPORTANT: You can use natural language for dates:
     - 'сегодня' (today) - events for today
@@ -279,17 +388,23 @@ class GetCalendarEventsTool(BaseTool):
     - 'на неделе' or 'на этой неделе' (this week) - events for current week (Monday to Sunday)
     - 'за прошлую неделю' or 'на прошлой неделе' (last week) - events for previous calendar week (Monday to Sunday)
     - 'за прошлые две недели' or 'за последние две недели' (past two weeks) - events for past 14 days
+    - 'в январе', 'в феврале', etc. - events for specific month
+    - 'в текущем месяце', 'в прошлом месяце' - events for current/previous month
     - ISO 8601 format: '2024-01-15T14:30:00+03:00'
     - Simple format: '2024-01-15 14:30'
     
-    The system automatically handles timezone conversion. You don't need to worry about timezone - just use natural expressions like 'сегодня', 'завтра', 'на неделе', 'на прошлой неделе', 'за прошлые две недели'.
+    ATTENDEE FILTERING (use attendee_filter parameter):
+    - 'Марат' or 'marat@' - events with this attendee (partial match supported)
+    - 'Марат и Аня' - events with BOTH attendees (AND)
+    - 'Марат или Аня' - events with ANY of these attendees (OR)
+    - '@lad24.ru' - events with attendees from this domain
+    
+    The system automatically handles timezone conversion.
     
     Examples:
-    - start_time='сегодня', end_time='завтра' - events from today to tomorrow
-    - start_time='на неделе' - events for this week (automatically calculates Monday-Sunday range)
-    - start_time='на прошлой неделе' - events for previous calendar week (Monday-Sunday)
-    - start_time='за прошлые две недели' - events for past 14 days (automatically calculates range)
-    - start_time='2024-01-15 09:00', end_time='2024-01-15 18:00' - events for specific day
+    - start_time='в январе', attendee_filter='marat@' - events in January with marat@
+    - start_time='на неделе', attendee_filter='Марат и Аня' - this week's events with both Marat AND Anna
+    - start_time='сегодня', attendee_filter='@lad24.ru' - today's events with lad24.ru attendees
     """
     args_schema: type = GetCalendarEventsInput
     
@@ -298,15 +413,21 @@ class GetCalendarEventsTool(BaseTool):
         self,
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
-        max_results: int = 10
+        max_results: int = 10,
+        attendee_filter: Optional[str] = None
     ) -> str:
         """Execute the tool asynchronously."""
-        try:
+        try:            
             timezone = get_config().timezone
             tz = pytz.timezone(timezone)
             now = datetime.now(tz)
             
-            args = {"maxResults": max_results}
+            # FIXED: When attendee_filter is used, fetch more events to ensure we find matching ones
+            # Personal events (without attendees) often come first, so we need more results
+            effective_max_results = max_results
+            if attendee_filter:
+                effective_max_results = max(100, max_results)  # At least 100 when filtering by attendee            
+            args = {"maxResults": effective_max_results}
             
             # Handle "за прошлую неделю" / "на прошлой неделе" / "past week" / "last week" - previous calendar week (Mon-Sun)
             start_lower = start_time.lower() if start_time else ""
@@ -349,8 +470,7 @@ class GetCalendarEventsTool(BaseTool):
                 args["timeMin"] = week_start.isoformat()
                 
                 # Calculate end of week (Sunday 23:59:59)
-                week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)
-                
+                week_end = week_start + timedelta(days=6, hours=23, minutes=59, seconds=59)                
                 # If end_time not specified OR end_time also contains "неделе" (LLM sometimes passes same value), use week end
                 end_lower = end_time.lower() if end_time else ""
                 if not end_time or "неделе" in end_lower or "week" in end_lower:
@@ -358,7 +478,27 @@ class GetCalendarEventsTool(BaseTool):
                 else:
                     end_dt = parse_datetime(end_time, timezone)
                     args["timeMax"] = end_dt.isoformat()
+            # Handle date ranges: "в текущем месяце", "в январе", "в первом квартале", "в 2026"
             elif start_time:
+                # Try parse_date_range first (for months, quarters, years)
+                try:
+                    range_start, range_end = parse_date_range(start_time, timezone)
+                    args["timeMin"] = range_start.isoformat()
+                    # If end_time not specified, use range end
+                    if not end_time:
+                        args["timeMax"] = range_end.isoformat()
+                    else:
+                        # If end_time specified, try parse_date_range for it too
+                        try:
+                            end_range_start, end_range_end = parse_date_range(end_time, timezone)
+                            args["timeMax"] = end_range_end.isoformat()
+                        except ValidationError:
+                            # If end_time is not a range, use parse_datetime
+                            end_dt = parse_datetime(end_time, timezone)
+                            args["timeMax"] = end_dt.isoformat()
+                except ValidationError:
+                    # Not a date range, use parse_datetime (existing logic)
+                    pass
                 start_dt = parse_datetime(start_time, timezone)
                 args["timeMin"] = start_dt.isoformat()
                 
@@ -372,7 +512,8 @@ class GetCalendarEventsTool(BaseTool):
                         end_dt = tomorrow.replace(hour=23, minute=59, second=59, microsecond=0)
                         args["timeMax"] = end_dt.isoformat()
             
-            if end_time and not ("на неделе" in start_time.lower() if start_time else False):
+            # Handle end_time if not already set (e.g., for non-range dates)
+            if end_time and "timeMax" not in args and not ("на неделе" in start_time.lower() if start_time else False):
                 end_time_lower = end_time.lower()
                 # Check if end_time is a day-level expression without specific time
                 # If so, set to end of that day (23:59:59) to get full day's events
@@ -385,11 +526,9 @@ class GetCalendarEventsTool(BaseTool):
                     end_dt = end_dt.replace(hour=23, minute=59, second=59, microsecond=0)
                 else:
                     end_dt = parse_datetime(end_time, timezone)
-                args["timeMax"] = end_dt.isoformat()
-            
+                args["timeMax"] = end_dt.isoformat()            
             mcp_manager = get_mcp_manager()
-            result = await mcp_manager.call_tool("list_events", args, server_name="calendar")
-            
+            result = await mcp_manager.call_tool("list_events", args, server_name="calendar")            
             # Handle MCP result format (TextContent list or dict)
             if isinstance(result, list) and len(result) > 0:
                 first_item = result[0]
@@ -411,16 +550,23 @@ class GetCalendarEventsTool(BaseTool):
                 except:
                     result = {"items": [], "count": 0}
             
-            events = result.get("items", []) if isinstance(result, dict) else []
-            count = result.get("count", len(events)) if isinstance(result, dict) else len(events) if isinstance(events, list) else 0
+            events = result.get("items", []) if isinstance(result, dict) else []            
+            # Apply attendee filter if provided
+            if attendee_filter:
+                try:
+                    filter_config = parse_attendee_filter(attendee_filter)
+                    events = filter_events_by_attendees(events, filter_config)
+                except ValidationError as e:
+                    # If filter parsing fails, log warning but continue with all events
+                    logger.warning(f"[GetCalendarEventsTool] Failed to parse attendee filter '{attendee_filter}': {e}")
             
-            # If no events, return simple message
+            # FIXED: Use filtered events count, not original API count
+            count = len(events) if isinstance(events, list) else 0            
+            # If no events after filtering, return clear message
             if count == 0:
-                return "Found 0 events"
-            
-            # If we have events but no details in items, return count with suggestion
-            if isinstance(events, list) and len(events) == 0:
-                return f"Found {count} events (details not available in current response)"
+                if attendee_filter:
+                    return f"Found 0 events matching attendee filter '{attendee_filter}'. No events with this attendee in the specified time range."
+                return "Found 0 events in the specified time range."
             
             # Build detailed response with event information
             response_parts = [f"Found {count} event(s):"]
@@ -457,8 +603,13 @@ class GetCalendarEventsTool(BaseTool):
                     location = event.get("location", "")
                     attendees = event.get("attendees", [])
                     description = event.get("description", "")
+                    html_link = event.get("htmlLink", "")
                     
-                    event_info = f"\n{i}. {summary}"
+                    # Make event title clickable (opens in Google Calendar)
+                    if html_link:
+                        event_info = f"\n{i}. [{summary}]({html_link})"
+                    else:
+                        event_info = f"\n{i}. {summary}"
                     event_info += f"\n   Время: {formatted_start} - {formatted_end}"
                     
                     if location:

@@ -5,8 +5,9 @@ Validates emails, dates, timezones, and other inputs before processing.
 
 import re
 import pytz
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict, Any
 from datetime import datetime, timedelta
+from calendar import monthrange
 from email.utils import parseaddr
 
 from src.utils.exceptions import ValidationError
@@ -312,6 +313,245 @@ def parse_datetime(
         field="datetime",
         value=date_str
     )
+
+
+def parse_date_range(
+    date_str: str,
+    timezone: str = "Europe/Moscow"
+) -> Tuple[datetime, datetime]:
+    """
+    Parse date range expressions like "в январе", "в первом квартале", "в 2026".
+    
+    Supports formats:
+    - "в текущем месяце", "в этом месяце" → весь текущий месяц
+    - "в прошлом месяце" → весь предыдущий месяц
+    - "в следующем месяце" → весь следующий месяц
+    - "в январе", "в феврале", ... → весь указанный месяц текущего года
+    - "в январе 2026" → весь указанный месяц указанного года
+    - "в первом квартале", "во втором квартале", ... → весь квартал текущего года
+    - "в первом квартале 2026" → весь квартал указанного года
+    - "в 2026", "в 2025" → весь указанный год
+    
+    Args:
+        date_str: Date range string to parse
+        timezone: Default timezone if not specified
+        
+    Returns:
+        Tuple of (start_datetime, end_datetime) for the range
+        
+    Raises:
+        ValidationError: If date range cannot be parsed
+    """
+    if not date_str:
+        raise ValidationError("Date range is required", field="date_range")
+    
+    # Validate timezone
+    tz = pytz.timezone(validate_timezone(timezone))
+    now = datetime.now(tz)
+    date_str_lower = date_str.lower().strip()
+    
+    # Russian month names (genitive case: "в январе", "в феврале")
+    month_names = {
+        "январе": 1, "феврале": 2, "марте": 3, "апреле": 4,
+        "мае": 5, "июне": 6, "июле": 7, "августе": 8,
+        "сентябре": 9, "октябре": 10, "ноябре": 11, "декабре": 12
+    }
+    
+    # Current month: "в текущем месяце", "в этом месяце"
+    if "в текущем месяце" in date_str_lower or "в этом месяце" in date_str_lower:
+        year = now.year
+        month = now.month
+        days = monthrange(year, month)[1]
+        start = tz.localize(datetime(year, month, 1, 0, 0, 0))
+        end = tz.localize(datetime(year, month, days, 23, 59, 59))
+        return start, end
+    
+    # Last month: "в прошлом месяце"
+    if "в прошлом месяце" in date_str_lower:
+        if now.month == 1:
+            year = now.year - 1
+            month = 12
+        else:
+            year = now.year
+            month = now.month - 1
+        days = monthrange(year, month)[1]
+        start = tz.localize(datetime(year, month, 1, 0, 0, 0))
+        end = tz.localize(datetime(year, month, days, 23, 59, 59))
+        return start, end
+    
+    # Next month: "в следующем месяце"
+    if "в следующем месяце" in date_str_lower:
+        if now.month == 12:
+            year = now.year + 1
+            month = 1
+        else:
+            year = now.year
+            month = now.month + 1
+        days = monthrange(year, month)[1]
+        start = tz.localize(datetime(year, month, 1, 0, 0, 0))
+        end = tz.localize(datetime(year, month, days, 23, 59, 59))
+        return start, end
+    
+    # Quarters with optional year: "в первом квартале", "в первом квартале 2026"
+    # Check quarters before months to avoid conflicts
+    quarter_patterns = [
+        (r"в\s+первом\s+квартале\s+(\d{4})", 1, 3),
+        (r"в\s+втором\s+квартале\s+(\d{4})", 4, 6),
+        (r"в\s+третьем\s+квартале\s+(\d{4})", 7, 9),
+        (r"в\s+четвертом\s+квартале\s+(\d{4})", 10, 12),
+        (r"во\s+втором\s+квартале\s+(\d{4})", 4, 6),
+        (r"в\s+первом\s+квартале", 1, 3),
+        (r"во\s+втором\s+квартале", 4, 6),
+        (r"в\s+третьем\s+квартале", 7, 9),
+        (r"в\s+четвертом\s+квартале", 10, 12),
+    ]
+    
+    for pattern, start_month, end_month in quarter_patterns:
+        match = re.search(pattern, date_str_lower)
+        if match:
+            if match.groups() and match.group(1):
+                year = int(match.group(1))
+            else:
+                year = now.year
+            
+            start_day = 1
+            end_day = monthrange(year, end_month)[1]
+            start = tz.localize(datetime(year, start_month, start_day, 0, 0, 0))
+            end = tz.localize(datetime(year, end_month, end_day, 23, 59, 59))
+            return start, end
+    
+    # Named month with optional year: "в январе 2026", "в январе"
+    # Check months with year first, then without year
+    for month_name, month_num in month_names.items():
+        # With year: "в январе 2026"
+        pattern_with_year = rf"в\s+{month_name}\s+(\d{{4}})"
+        match = re.search(pattern_with_year, date_str_lower)
+        if match:
+            year = int(match.group(1))
+            days = monthrange(year, month_num)[1]
+            start = tz.localize(datetime(year, month_num, 1, 0, 0, 0))
+            end = tz.localize(datetime(year, month_num, days, 23, 59, 59))
+            return start, end
+    
+    # Without year (current year): "в январе"
+    for month_name, month_num in month_names.items():
+        pattern_without_year = rf"в\s+{month_name}\b"
+        match = re.search(pattern_without_year, date_str_lower)
+        if match:
+            year = now.year
+            days = monthrange(year, month_num)[1]
+            start = tz.localize(datetime(year, month_num, 1, 0, 0, 0))
+            end = tz.localize(datetime(year, month_num, days, 23, 59, 59))
+            return start, end
+    
+    # Year: "в 2026", "в 2025"
+    # Check year last to avoid conflicts with months and quarters
+    year_match = re.search(r"^в\s+(\d{4})$", date_str_lower.strip())
+    if year_match:
+        year = int(year_match.group(1))
+        start = tz.localize(datetime(year, 1, 1, 0, 0, 0))
+        end = tz.localize(datetime(year, 12, 31, 23, 59, 59))
+        return start, end
+    
+    # If all parsing attempts fail, raise error
+    raise ValidationError(
+        f"Unable to parse date range: {date_str}. "
+        f"Supported formats: 'в текущем месяце', 'в прошлом месяце', 'в следующем месяце', "
+        f"'в январе', 'в январе 2026', 'в первом квартале', 'в первом квартале 2026', 'в 2026'",
+        field="date_range",
+        value=date_str
+    )
+
+
+def parse_attendee_filter(
+    filter_str: str
+) -> Dict[str, Any]:
+    """
+    Parse attendee filter from natural language.
+    
+    Supports formats:
+    - "Марат и Аня" → {"operator": "AND", "patterns": ["марат", "аня"]}
+    - "Марат или Аня" → {"operator": "OR", "patterns": ["марат", "аня"]}
+    - "marat@" → {"operator": "OR", "patterns": ["marat@"]}
+    - "@lad24.ru" → {"operator": "OR", "patterns": ["@lad24.ru"]}
+    - "Марат и anna@lad24.ru" → {"operator": "AND", "patterns": ["марат", "anna@lad24.ru"]}
+    
+    Args:
+        filter_str: Filter string to parse
+        
+    Returns:
+        Dict with "operator" ("AND"|"OR") and "patterns" (list of strings).
+        
+    Raises:
+        ValidationError: If filter string cannot be parsed
+    """
+    if not filter_str or not filter_str.strip():
+        raise ValidationError("Attendee filter is required", field="attendee_filter")
+    
+    filter_str = filter_str.strip()
+    filter_lower = filter_str.lower()
+    
+    # Determine operator: "и" / "and" → AND, "или" / "or" → OR
+    # Default to OR if no explicit operator
+    has_and = " и " in filter_str or " and " in filter_lower
+    has_or = " или " in filter_str or " or " in filter_lower
+    
+    if has_and and has_or:
+        # Mixed operators - use AND as default (more restrictive)
+        operator = "AND"
+    elif has_and:
+        operator = "AND"
+    elif has_or:
+        operator = "OR"
+    else:
+        # No explicit operator - default to OR
+        operator = "OR"
+    
+    # Split by operator
+    if has_and:
+        # Split by " и " or " and "
+        parts = re.split(r'\s+и\s+|\s+and\s+', filter_str, flags=re.IGNORECASE)
+    elif has_or:
+        # Split by " или " or " or "
+        parts = re.split(r'\s+или\s+|\s+or\s+', filter_str, flags=re.IGNORECASE)
+    else:
+        # Single pattern
+        parts = [filter_str]
+    
+    # Extract patterns
+    patterns = []
+    email_pattern = re.compile(r'[\w\.-]+@[\w\.-]+\.\w+')  # Full email
+    partial_email_pattern = re.compile(r'[\w\.-]+@|@[\w\.-]+\.\w+')  # Partial email
+    
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        
+        part_lower = part.lower()
+        
+        # Check if it's a full email
+        if email_pattern.match(part):
+            patterns.append(part)
+        # Check if it's a partial email (starts or ends with @)
+        elif partial_email_pattern.search(part):
+            patterns.append(part)
+        else:
+            # It's a name - normalize to lowercase
+            patterns.append(part_lower)
+    
+    if not patterns:
+        raise ValidationError(
+            f"Unable to parse attendee filter: {filter_str}. "
+            f"Supported formats: 'Марат и Аня', 'Марат или Аня', 'marat@', '@lad24.ru'",
+            field="attendee_filter",
+            value=filter_str
+        )
+    
+    return {
+        "operator": operator,
+        "patterns": patterns
+    }
 
 
 def validate_date_not_past(date: datetime, field_name: str = "date") -> datetime:
