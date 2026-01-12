@@ -569,56 +569,32 @@ class UnifiedReActEngine:
                         planned_tool = "format_document_text"
                 
                 # === ANTI-LOOP: Detect repeated get_calendar_events calls ===
+                # FIXED: Do NOT automatically create events! Just FINISH with explanation.
                 if planned_tool == "get_calendar_events" and len(state.action_history) > 0:
                     # Check if last action was also get_calendar_events
                     last_action = state.action_history[-1]
                     if last_action.tool_name == "get_calendar_events":
-                        logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Detected repeated get_calendar_events call, forcing create_event")
-                        # Extract meeting parameters from goal
-                        goal_lower = state.goal.lower()
-                        
-                        # Override action_plan to call create_event instead
-                        action_plan = {
-                            "tool_name": "create_event",
-                            "arguments": {
-                                "title": "Встреча",
-                                "start_time": "завтра в 14:00",  # Will be parsed by create_event
-                                "duration": "30m",
-                                "attendees": ["bsn@lad24.ru"]  # Default attendee from goal
-                            },
-                            "description": "Создание встречи после проверки доступности",
-                            "reasoning": "Доступность уже проверена, создаём встречу"
-                        }
-                        
-                        # Try to extract actual parameters from goal
-                        import re
-                        # Extract time like "в 14:00", "в 15:30"
-                        time_match = re.search(r'в\s+(\d{1,2}[:\s]\d{2}|\d{1,2}:\d{2})', goal_lower)
-                        if time_match:
-                            time_str = time_match.group(1).replace(' ', ':')
-                            if "завтра" in goal_lower:
-                                action_plan["arguments"]["start_time"] = f"завтра в {time_str}"
-                            elif "послезавтра" in goal_lower:
-                                action_plan["arguments"]["start_time"] = f"послезавтра в {time_str}"
-                            else:
-                                action_plan["arguments"]["start_time"] = f"сегодня в {time_str}"
-                        
-                        # Extract duration like "30 минут", "1 час"
-                        duration_match = re.search(r'(\d+)\s*(минут|мин|час)', goal_lower)
-                        if duration_match:
-                            num = int(duration_match.group(1))
-                            unit = duration_match.group(2)
-                            if "час" in unit:
-                                action_plan["arguments"]["duration"] = f"{num}h"
-                            else:
-                                action_plan["arguments"]["duration"] = f"{num}m"
-                        
-                        # Extract attendees (email addresses)
-                        email_matches = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', state.goal)
-                        if email_matches:
-                            action_plan["arguments"]["attendees"] = email_matches
-                        
-                        planned_tool = "create_event"
+                        # Check if it failed
+                        last_obs = state.observations[-1] if state.observations else None
+                        if last_obs and not last_obs.success:
+                            logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: get_calendar_events failed, finishing with explanation")
+                            # Return FINISH with explanation instead of creating event!
+                            action_plan = {
+                                "tool_name": "FINISH",
+                                "arguments": {},
+                                "description": "Не удалось получить события календаря",
+                                "reasoning": f"Ошибка при получении событий: {last_obs.error_message or last_obs.raw_result}"
+                            }
+                            planned_tool = "FINISH"
+                        else:
+                            logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Repeated get_calendar_events, finishing")
+                            action_plan = {
+                                "tool_name": "FINISH",
+                                "arguments": {},
+                                "description": "Календарные события уже получены",
+                                "reasoning": "Повторный вызов get_calendar_events, завершаем задачу"
+                            }
+                            planned_tool = "FINISH"
                 
                 # === UNIVERSAL ANTI-LOOP: Detect repeated failed tool calls ===
                 # If same tool failed 2+ times (not necessarily consecutive), block it
@@ -3023,6 +2999,24 @@ class UnifiedReActEngine:
   * Если время занято → вызови `ASK_CLARIFICATION` и сообщи о конфликте
 - Если ты уже получил результат от `get_calendar_events`, НЕ вызывай его снова!
 
+🛑 **КРИТИЧЕСКОЕ ПРАВИЛО - ОПЕРАЦИИ ТОЛЬКО С ЯВНОЙ ПРОСЬБОЙ:**
+Следующие операции НЕЛЬЗЯ выполнять без ЯВНОЙ просьбы пользователя:
+- `create_event` - ТОЛЬКО если пользователь прямо просит "создай встречу", "запланируй", "добавь событие"
+- `delete_event` - ТОЛЬКО если пользователь прямо просит "удали встречу", "отмени событие"
+- `send_email` - ТОЛЬКО если пользователь прямо просит "отправь письмо", "напиши email"
+- `update_document` - ТОЛЬКО если пользователь прямо просит изменить документ
+- `add_rows`, `update_cells` - ТОЛЬКО если пользователь прямо просит записать данные
+
+⚠️ ПРИМЕРЫ НЕПРАВИЛЬНОГО ПОВЕДЕНИЯ:
+- Запрос "какие встречи у меня есть?" → НЕ создавай новые встречи! Только ПОКАЗЫВАЙ существующие!
+- Запрос "какие письма пришли?" → НЕ отправляй письма! Только ПОКАЗЫВАЙ входящие!
+- Запрос "найди встречи с участником X" → Это ПОИСК, НЕ создание! Используй get_calendar_events для поиска!
+
+✅ ПРИМЕРЫ ПРАВИЛЬНОГО ПОВЕДЕНИЯ:
+- "какие встречи у меня на неделе?" → get_calendar_events → покажи список
+- "создай встречу с Иваном завтра" → create_event (пользователь ЯВНО просит создать)
+- "найди встречи с anna@" → get_calendar_events с фильтром → покажи найденные
+
 Примеры когда ASK_CLARIFICATION НУЖЕН (невозможно выполнить без данных):
 - "отправь письмо" → нужен минимум получатель (нельзя отправить в никуда)
 - "создай встречу" → нужно минимум время (нельзя создать без времени)
@@ -3206,6 +3200,35 @@ class UnifiedReActEngine:
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
+            
+            # Check for dangerous operations without explicit request
+            DANGEROUS_OPERATIONS = {
+                "create_event": ["создай встречу", "запланируй встречу", "добавь событие", "назначь встречу", "schedule", "create event", "создай событие"],
+                "delete_event": ["удали встречу", "отмени встречу", "удали событие", "cancel event", "delete event"],
+                "send_email": ["отправь письмо", "напиши письмо", "send email", "отправь email"],
+                "update_document": ["измени документ", "обнови документ", "запиши в документ", "update document"],
+                "add_rows": ["добавь строки", "запиши строки", "add rows"],
+                "update_cells": ["обнови ячейки", "запиши в ячейки", "update cells"],
+            }
+            
+            goal_lower = state.goal.lower() if state.goal else ""
+            if tool_name in DANGEROUS_OPERATIONS:
+                required_keywords = DANGEROUS_OPERATIONS[tool_name]
+                has_explicit_request = any(kw in goal_lower for kw in required_keywords)
+                
+                # Block dangerous operation if no explicit request
+                if not has_explicit_request:
+                    logger.warning(f"[UnifiedReActEngine] BLOCKED dangerous operation {tool_name} - no explicit request in goal: {state.goal}")
+                    # Return FINISH instead of dangerous operation
+                    action_plan = {
+                        "tool_name": "FINISH",
+                        "arguments": {},
+                        "description": f"Завершаю задачу. Действие '{tool_name}' требует явного запроса пользователя.",
+                        "reasoning": f"Операция {tool_name} заблокирована: пользователь не просил выполнить это действие. Запрос '{state.goal}' не содержит явной просьбы о создании/изменении/удалении."
+                    }
+                    thought = f"Операция {tool_name} требует явного запроса. Пользователь спросил: '{state.goal}', что является запросом на получение информации, а не на изменение данных."
+                    return thought, action_plan
+            
             if tool_name == "update_document":
                 import json as _json; import time as _time
                 try:
@@ -3271,6 +3294,31 @@ class UnifiedReActEngine:
         if not capability_name:
             logger.warning("[UnifiedReActEngine] No tool_name in action_plan, skipping execution")
             return ""
+        
+        # CRITICAL: Block dangerous operations without explicit request
+        # This is a safety check at execution time to prevent creating/deleting without user request
+        DANGEROUS_OPS_EXECUTE = {
+            "create_event": ["создай встречу", "запланируй встречу", "добавь событие", "назначь встречу", "schedule meeting", "create event", "создай событие", "запиши встречу"],
+            "delete_event": ["удали встречу", "отмени встречу", "удали событие", "cancel event", "delete event"],
+            "send_email": ["отправь письмо", "напиши письмо", "send email", "отправь email", "отправь сообщение"],
+        }
+        
+        if capability_name in DANGEROUS_OPS_EXECUTE:
+            # Get goal from context's last message
+            goal = ""
+            if hasattr(context, 'messages') and context.messages:
+                for msg in reversed(context.messages):
+                    if msg.get('role') == 'user':
+                        goal = msg.get('content', '').lower()
+                        break
+            
+            required_keywords = DANGEROUS_OPS_EXECUTE[capability_name]
+            has_explicit_request = any(kw in goal for kw in required_keywords)
+            
+            if not has_explicit_request:
+                logger.error(f"[UnifiedReActEngine] BLOCKED at execute: {capability_name} without explicit request. Goal: {goal[:100]}")
+                return f"Операция {capability_name} заблокирована: пользователь не просил выполнить это действие. Для создания/удаления событий нужен явный запрос."
+        
         arguments = action_plan.get("arguments", {})
         if capability_name == "update_document":
             import json as _json; import time as _time
@@ -4194,6 +4242,11 @@ class UnifiedReActEngine:
 - Если найдены данные - перечисли их кратко и понятно
 - Если данные пустые (пустой массив [], "Found 0") - скажи что ничего не найдено
 - НЕ говори что данных нет, если в результатах есть записи!
+
+⚠️ КРИТИЧНО - СОХРАНЯЙ ССЫЛКИ:
+- Если в данных есть markdown ссылки [название](url), СОХРАНИ их в ответе!
+- Названия событий календаря должны быть КЛИКАБЕЛЬНЫМИ: [Офис](url), а НЕ просто "Офис"
+- Email-адреса оставляй как есть
 
 Ответ:"""
 

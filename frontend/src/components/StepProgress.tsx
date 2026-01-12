@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import type { Components } from 'react-markdown'
 import { useChatStore, WorkflowStep } from '../store/chatStore'
 import { PlanningBlock } from './PlanningBlock'
 import { TextStreamingBlock } from './TextStreamingBlock'
@@ -816,7 +817,23 @@ function StepItem({
             prose-th:border prose-th:border-gray-300 prose-th:bg-gray-50 prose-th:px-3 prose-th:py-2 prose-th:text-left prose-th:font-semibold
             prose-td:border prose-td:border-gray-300 prose-td:px-3 prose-td:py-2
             prose-tr:hover:bg-gray-50">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{result}</ReactMarkdown>
+            <ReactMarkdown 
+              remarkPlugins={[remarkGfm]}
+              components={{
+                a: ({ node, href, children, ...props }) => (
+                  <a
+                    href={href || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    {...props}
+                  >
+                    {children}
+                  </a>
+                ),
+              } as Components}
+            >
+              {result}
+            </ReactMarkdown>
           </div>
         </div>
       )}

@@ -117,8 +117,10 @@ class ReadDocumentTool(BaseTool):
             
             title = result.get("title", "Untitled")
             content = result.get("content", "")
+            text_length = len(content)
             
-            return f"Document: {title}\n\n{content}"
+            # Include text length for formatting tools to use the correct end_index
+            return f"Document: {title}\n[TEXT_LENGTH: {text_length} characters - use this as end_index for format_document_paragraph to format the ENTIRE document]\n\n{content}"
             
         except Exception as e:
             raise ToolExecutionError(
@@ -361,6 +363,109 @@ class FormatDocumentTextTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
+class FormatDocumentParagraphInput(BaseModel):
+    """Input schema for format_document_paragraph tool."""
+    
+    document_id: str = Field(description="Document ID or URL")
+    start_index: int = Field(description="Start character index (0-based)")
+    end_index: int = Field(description="End character index (exclusive)")
+    alignment: Optional[str] = Field(default=None, description="Paragraph alignment: START, CENTER, END, JUSTIFIED")
+    indent_first_line: Optional[float] = Field(default=None, description="First line indent in points (36pt = ~1.27cm)")
+    indent_start: Optional[float] = Field(default=None, description="Left indent in points")
+    indent_end: Optional[float] = Field(default=None, description="Right indent in points")
+    space_above: Optional[float] = Field(default=None, description="Space above paragraph in points")
+    space_below: Optional[float] = Field(default=None, description="Space below paragraph in points")
+    line_spacing: Optional[float] = Field(default=None, description="Line spacing multiplier (e.g., 1.15, 1.5, 2.0)")
+
+
+class FormatDocumentParagraphTool(BaseTool):
+    """Tool for formatting paragraph style in a Google Docs document."""
+    
+    name: str = "format_document_paragraph"
+    description: str = """
+    Format paragraph style in a Google Docs document (alignment, indentation, spacing).
+    Use this for 'beautiful' formatting: justify text, add first-line indents.
+    
+    Input:
+    - document_id: Document ID or URL
+    - start_index: Start character index (0-based)
+    - end_index: End character index (exclusive)
+    - alignment: Optional paragraph alignment (START, CENTER, END, JUSTIFIED)
+    - indent_first_line: Optional first line indent in points (36pt = ~1.27cm standard)
+    - indent_start: Optional left indent in points
+    - indent_end: Optional right indent in points
+    - space_above: Optional space above paragraph in points
+    - space_below: Optional space below paragraph in points
+    - line_spacing: Optional line spacing multiplier (1.15, 1.5, 2.0)
+    
+    Example for 'beautiful' formatting:
+    - alignment="JUSTIFIED", indent_first_line=36 for justified text with first-line indent
+    """
+    args_schema: type = FormatDocumentParagraphInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        document_id: str,
+        start_index: int,
+        end_index: int,
+        alignment: Optional[str] = None,
+        indent_first_line: Optional[float] = None,
+        indent_start: Optional[float] = None,
+        indent_end: Optional[float] = None,
+        space_above: Optional[float] = None,
+        space_below: Optional[float] = None,
+        line_spacing: Optional[float] = None
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            args = {
+                "documentId": document_id,
+                "startIndex": start_index,
+                "endIndex": end_index
+            }
+            
+            if alignment:
+                args["alignment"] = alignment
+            if indent_first_line is not None:
+                args["indentFirstLine"] = indent_first_line
+            if indent_start is not None:
+                args["indentStart"] = indent_start
+            if indent_end is not None:
+                args["indentEnd"] = indent_end
+            if space_above is not None:
+                args["spaceAbove"] = space_above
+            if space_below is not None:
+                args["spaceBelow"] = space_below
+            if line_spacing is not None:
+                args["lineSpacing"] = line_spacing
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("docs_format_paragraph", args, server_name="docs")
+            
+            styles = []
+            if alignment:
+                styles.append(f"alignment={alignment}")
+            if indent_first_line:
+                styles.append(f"first-line indent={indent_first_line}pt")
+            if indent_start:
+                styles.append(f"left indent={indent_start}pt")
+            if line_spacing:
+                styles.append(f"line spacing={line_spacing}")
+            
+            style_desc = ", ".join(styles) if styles else "paragraph formatting"
+            return f"Successfully applied {style_desc} (characters {start_index}-{end_index-1})"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to format paragraph: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
 class SearchDocumentTextInput(BaseModel):
     """Input schema for search_document_text tool."""
     
@@ -447,6 +552,7 @@ def get_docs_tools() -> List[BaseTool]:
         AppendToDocumentTool(),
         InsertIntoDocumentTool(),
         FormatDocumentTextTool(),
+        FormatDocumentParagraphTool(),
         SearchDocumentTextTool(),
     ]
 

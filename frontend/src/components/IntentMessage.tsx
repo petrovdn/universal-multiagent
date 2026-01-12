@@ -34,6 +34,14 @@ export function IntentMessage({
   // ВАЖНО: Если есть операции, игнорируем старые details, чтобы избежать дублирования
   const showExecutingSection = hasOperations || (!hasOperations && hasDetails) || isExecuting || isCompleted
   
+  // #region agent log - H3: tracking showPlanningSection render decision
+  React.useEffect(() => {
+    if (!showPlanningSection && hasThinkingText === false && block.phase !== 'planning') {
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'IntentMessage.tsx:showPlanningSection',message:'H3: Planning section HIDDEN - no thinkingText and not planning phase',data:{intentId:block.id,phase:block.phase,hasThinkingText,thinkingTextLength:block.thinkingText?.length || 0,isPlanning,showPlanningSection,planningCollapsed:block.planningCollapsed},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+    }
+  }, [showPlanningSection, hasThinkingText, block.phase, block.id, isPlanning, block.planningCollapsed, block.thinkingText?.length])
+  // #endregion
+  
   // Вычисляем оставшееся время для таймера
   const estimatedSeconds = block.estimatedSec || 10
   const elapsedSeconds = block.elapsedSec || 0

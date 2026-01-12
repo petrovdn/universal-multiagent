@@ -324,6 +324,57 @@ class GoogleDocsMCPServer:
                         "required": ["documentId", "searchText"]
                     }
                 ),
+                Tool(
+                    name="docs_format_paragraph",
+                    description="Format paragraph style in a Google Docs document (alignment, indentation, spacing). Use this for 'beautiful' formatting: justify text, add first-line indents.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "documentId": {
+                                "type": "string",
+                                "description": "Document ID or URL"
+                            },
+                            "startIndex": {
+                                "type": "integer",
+                                "description": "Start character index (0-based)"
+                            },
+                            "endIndex": {
+                                "type": "integer",
+                                "description": "End character index (exclusive)"
+                            },
+                            "alignment": {
+                                "type": "string",
+                                "description": "Paragraph alignment: START, CENTER, END, JUSTIFIED",
+                                "enum": ["START", "CENTER", "END", "JUSTIFIED"]
+                            },
+                            "indentFirstLine": {
+                                "type": "number",
+                                "description": "First line indent in points (PT). Use 36 for standard indent (~1.27cm)"
+                            },
+                            "indentStart": {
+                                "type": "number",
+                                "description": "Left indent in points (PT)"
+                            },
+                            "indentEnd": {
+                                "type": "number",
+                                "description": "Right indent in points (PT)"
+                            },
+                            "spaceAbove": {
+                                "type": "number",
+                                "description": "Space above paragraph in points (PT)"
+                            },
+                            "spaceBelow": {
+                                "type": "number",
+                                "description": "Space below paragraph in points (PT)"
+                            },
+                            "lineSpacing": {
+                                "type": "number",
+                                "description": "Line spacing multiplier (e.g., 1.15, 1.5, 2.0)"
+                            }
+                        },
+                        "required": ["documentId", "startIndex", "endIndex"]
+                    }
+                ),
             ]
         
         @self.server.call_tool()
@@ -614,6 +665,104 @@ class GoogleDocsMCPServer:
                             "searchText": search_text,
                             "matches": matches,
                             "matchCount": len(matches)
+                        }, indent=2)
+                    )]
+                
+                elif name == "docs_format_paragraph":
+                    docs_service = self._get_docs_service()
+                    document_id = self._extract_file_id(arguments.get("documentId"))
+                    start_index = arguments.get("startIndex")
+                    end_index = arguments.get("endIndex")
+                    
+                    # Google Docs API requires startIndex >= 1 (index 0 is reserved)
+                    if start_index < 1:
+                        start_index = 1
+                    
+                    update_mask = []
+                    paragraph_style = {}
+                    
+                    if "alignment" in arguments:
+                        paragraph_style["alignment"] = arguments["alignment"]
+                        update_mask.append("alignment")
+                    
+                    if "indentFirstLine" in arguments:
+                        paragraph_style["indentFirstLine"] = {
+                            "magnitude": arguments["indentFirstLine"],
+                            "unit": "PT"
+                        }
+                        update_mask.append("indentFirstLine")
+                    
+                    if "indentStart" in arguments:
+                        paragraph_style["indentStart"] = {
+                            "magnitude": arguments["indentStart"],
+                            "unit": "PT"
+                        }
+                        update_mask.append("indentStart")
+                    
+                    if "indentEnd" in arguments:
+                        paragraph_style["indentEnd"] = {
+                            "magnitude": arguments["indentEnd"],
+                            "unit": "PT"
+                        }
+                        update_mask.append("indentEnd")
+                    
+                    if "spaceAbove" in arguments:
+                        paragraph_style["spaceAbove"] = {
+                            "magnitude": arguments["spaceAbove"],
+                            "unit": "PT"
+                        }
+                        update_mask.append("spaceAbove")
+                    
+                    if "spaceBelow" in arguments:
+                        paragraph_style["spaceBelow"] = {
+                            "magnitude": arguments["spaceBelow"],
+                            "unit": "PT"
+                        }
+                        update_mask.append("spaceBelow")
+                    
+                    if "lineSpacing" in arguments:
+                        # Line spacing as percentage (1.5 = 150%)
+                        paragraph_style["lineSpacing"] = arguments["lineSpacing"] * 100
+                        update_mask.append("lineSpacing")
+                    
+                    if not update_mask:
+                        return [TextContent(
+                            type="text",
+                            text=json.dumps({"error": "No paragraph formatting options provided"}, indent=2)
+                        )]
+                    
+                    requests = [{
+                        "updateParagraphStyle": {
+                            "range": {
+                                "startIndex": start_index,
+                                "endIndex": end_index
+                            },
+                            "paragraphStyle": paragraph_style,
+                            "fields": ",".join(update_mask)
+                        }
+                    }]
+                    
+                    docs_service.documents().batchUpdate(
+                        documentId=document_id,
+                        body={"requests": requests}
+                    ).execute()
+                    
+                    applied_styles = []
+                    if "alignment" in arguments:
+                        applied_styles.append(f"alignment={arguments['alignment']}")
+                    if "indentFirstLine" in arguments:
+                        applied_styles.append(f"first-line indent={arguments['indentFirstLine']}pt")
+                    if "indentStart" in arguments:
+                        applied_styles.append(f"left indent={arguments['indentStart']}pt")
+                    if "lineSpacing" in arguments:
+                        applied_styles.append(f"line spacing={arguments['lineSpacing']}")
+                    
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "status": "formatted",
+                            "documentId": document_id,
+                            "appliedStyles": applied_styles
                         }, indent=2)
                     )]
                 

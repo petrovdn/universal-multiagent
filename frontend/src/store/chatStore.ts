@@ -1503,6 +1503,10 @@ export const useChatStore = create<ChatState>()(
       clearIntentThinking: (workflowId: string, intentId: string) =>
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []
+          const targetIntent = existingIntents.find(i => i.id === intentId)
+          // #region agent log - H1b: tracking thinkingText clear in store
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:clearIntentThinking',message:'H1b: thinkingText being CLEARED in store',data:{workflowId,intentId,previousThinkingTextLength:targetIntent?.thinkingText?.length || 0,previousPhase:targetIntent?.phase},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1b'})}).catch(()=>{});
+          // #endregion
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
               return {
@@ -1871,11 +1875,9 @@ export const useChatStore = create<ChatState>()(
         return persistedState
       },
       partialize: (state) => ({
-        // Don't persist messages - always start with empty chat
-        currentSession: state.currentSession,
-        // Don't persist workflows - always start with clean state
-        // Don't persist assistantMessages or streamingMessages - they're temporary
-        // Don't persist actionMessages, questionMessages, resultSummaries - they're temporary
+        // Don't persist anything - always start with a fresh session on page reload
+        // currentSession removed to ensure new chat on reload (issue: old context artifacts)
+        // Old sessions are preserved in data/sessions/ for future multi-session feature
       }),
     }
   )

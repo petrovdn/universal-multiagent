@@ -481,9 +481,11 @@ class GetCalendarEventsTool(BaseTool):
             # Handle date ranges: "в текущем месяце", "в январе", "в первом квартале", "в 2026"
             elif start_time:
                 # Try parse_date_range first (for months, quarters, years)
+                date_range_parsed = False
                 try:
                     range_start, range_end = parse_date_range(start_time, timezone)
                     args["timeMin"] = range_start.isoformat()
+                    date_range_parsed = True
                     # If end_time not specified, use range end
                     if not end_time:
                         args["timeMax"] = range_end.isoformat()
@@ -499,8 +501,11 @@ class GetCalendarEventsTool(BaseTool):
                 except ValidationError:
                     # Not a date range, use parse_datetime (existing logic)
                     pass
-                start_dt = parse_datetime(start_time, timezone)
-                args["timeMin"] = start_dt.isoformat()
+                
+                # Only call parse_datetime if date_range didn't work
+                if not date_range_parsed:
+                    start_dt = parse_datetime(start_time, timezone)
+                    args["timeMin"] = start_dt.isoformat()
                 
                 # If end_time not specified and start_time is "сегодня" or "завтра", set end to end of that day
                 if not end_time:

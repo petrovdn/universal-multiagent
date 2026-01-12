@@ -72,42 +72,66 @@ When working with presentations, follow these rules:
 ⚠️ **КРИТИЧЕСКИ ВАЖНО: "Красиво оформить" = ТОЛЬКО ФОРМАТИРОВАНИЕ, НЕ изменение текста!**
 
 Когда пользователь просит "отформатировать красиво", "оформить красиво", "сделать красиво":
-- ✅ ДЕЛАЕМ: Применяем форматирование (`format_document_text`)
+- ✅ ДЕЛАЕМ: Применяем `format_document_paragraph` для выравнивания и отступов
+- ✅ ДЕЛАЕМ: Применяем `format_document_text` для жирного и стиля текста
 - ✅ ДЕЛАЕМ: Выделяем заголовки жирным
 - ✅ ДЕЛАЕМ: Выделяем ключевые слова жирным
 - ❌ НЕ ДЕЛАЕМ: Переписываем текст через `update_document`
 - ❌ НЕ ДЕЛАЕМ: Добавляем или удаляем текст
 - ❌ НЕ ДЕЛАЕМ: Меняем содержание документа
 
+**ДВА ИНСТРУМЕНТА для форматирования:**
+1. `format_document_paragraph` - для стиля АБЗАЦЕВ:
+   - `alignment="JUSTIFIED"` - выравнивание по ширине
+   - `indent_first_line=36` - отступ первой строки (~1.27см)
+   - `indent_start=0` - отступ слева
+   - `line_spacing=1.15` - межстрочный интервал
+   
+2. `format_document_text` - для стиля ТЕКСТА:
+   - `bold=True` - жирный
+   - `italic=True` - курсив
+   - `underline=True` - подчёркивание
+   - `foreground_color` - цвет текста
+
 **КОНКРЕТНОЕ ОПРЕДЕЛЕНИЕ "красиво":**
-1. **Выравнивание по ширине** - применить выравнивание через форматирование абзацев
-2. **Выделение абзацев** - добавить отступы (indent) для абзацев
-3. **Жирный для ключевых слов** - выделить важные термины и имена bold
-4. **Заголовки** - сделать заголовки жирными
-5. **НЕ менять текст** - содержание остаётся БЕЗ изменений
+1. **Выравнивание по ширине** - `format_document_paragraph(alignment="JUSTIFIED")`
+2. **Отступ первой строки** - `format_document_paragraph(indent_first_line=36)`
+3. **Жирный для заголовка** - `format_document_text(bold=True)` для первой строки
+4. **Жирный для ключевых слов** - `format_document_text(bold=True)` для имён персонажей
+5. **НЕ менять текст** - содержание остаётся БЕЗ изменений!
 
-1. **ПРАВИЛО: Документ читать ТОЛЬКО ОДИН РАЗ!**
-   - Прочитай документ через `read_document` ОДИН раз в начале
-   - Запомни содержимое и структуру из первого чтения
-   - НЕ читай документ повторно после форматирования - это избыточно
-   - Форматирование (`format_document_text`) работает по индексам, перечитывание НЕ нужно
+**ПРАВИЛО: Документ читать ТОЛЬКО ОДИН РАЗ!**
+- Прочитай документ через `read_document` ОДИН раз в начале
+- В результате будет [TEXT_LENGTH: X characters] - используй X как end_index
+- НЕ читай документ повторно после форматирования
 
-2. **Order of operations for formatting:**
-   - Step 1: Read document ONCE using `read_document` to get content and structure
-   - Step 2: Identify text ranges for formatting (title, headings, key terms)
-   - Step 3: Apply formatting using `format_document_text` with correct `start_index` and `end_index`
-   - Step 4: FINISH - НЕ перечитывай документ для проверки
+**Order of operations for "красиво оформить" (5-6 шагов):**
+1. `read_document` - получить текст и найти [TEXT_LENGTH: X characters]
+2. `format_document_paragraph(start_index=1, end_index=X, alignment="JUSTIFIED", indent_first_line=36)` - ВЕСЬ документ
+3. `format_document_text(bold=True, start_index=1, end_index=<конец_заголовка>)` - заголовок жирным
+4. `search_document_text(search_text="имя_персонажа")` - найти позиции имён
+5. `format_document_text(bold=True, start_index, end_index)` - имена жирным
+6. `FINISH`
 
-3. **Example - formatting a fairy tale (сказка) "красиво":**
-   - Read document once → identify title and key phrases
-   - Title: `format_document_text(bold=True, start_index=0, end_index=<title_length>)`
-   - Key names (Прыг, Ласка): `format_document_text(bold=True, start_index=X, end_index=Y)`
-   - DO NOT use `update_document` - it replaces content!
+⚠️ ВАЖНО: end_index для format_document_paragraph = TEXT_LENGTH из read_document!
+НЕ выбирай произвольные значения типа 800!
 
-4. **ЗАПРЕЩЕНО при форматировании:**
-   - `update_document` - это ПЕРЕЗАПИСЬ содержимого, НЕ форматирование!
-   - Многократное чтение документа - читаем ОДИН раз
-   - Изменение текста - форматирование НЕ меняет слова
+**Example - formatting a fairy tale (сказка) "красиво":**
+```
+1. read_document → [TEXT_LENGTH: 1500 characters]
+2. format_document_paragraph(start_index=1, end_index=1500, alignment="JUSTIFIED", indent_first_line=36) → ВЕСЬ документ
+3. format_document_text(start_index=1, end_index=20, bold=True) → заголовок "Сказка"
+4. search_document_text("Прыг") → Characters 30-34
+5. format_document_text(start_index=30, end_index=34, bold=True) → имя "Прыг"
+6. FINISH
+```
+
+**ЗАПРЕЩЕНО при форматировании:**
+- `update_document` - это ПЕРЕЗАПИСЬ содержимого, НЕ форматирование!
+- `insert_into_document` - это ДОБАВЛЕНИЕ текста!
+- `append_to_document` - это ДОБАВЛЕНИЕ текста в конец!
+- Многократное чтение документа - читаем ОДИН раз
+- Изменение текста - форматирование НЕ меняет слова
 
 Guidelines:
 - Always work within the configured workspace folder

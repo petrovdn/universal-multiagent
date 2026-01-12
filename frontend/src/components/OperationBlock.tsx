@@ -74,9 +74,16 @@ export function OperationBlock({
           {isCompleted ? '✓' : '○'}
         </span>
         <div className="log-text-container">
-          <span className="log-text-title">
+          <span className={`log-text-title ${isPending ? 'log-text-pending' : ''}`}>
             {operationTitle}
           </span>
+          {isPending && (
+            <span className="log-text-dots">
+              <span className="log-dot-1">.</span>
+              <span className="log-dot-2">.</span>
+              <span className="log-dot-3">.</span>
+            </span>
+          )}
         </div>
       </div>
 
