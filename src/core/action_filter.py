@@ -101,12 +101,8 @@ class ActionFilter:
             attached_files=attached_files,
             open_files=open_files
         )
-        
-        # #region agent log
         logger.info(f"[ActionFilter] Validating tool: {tool_name}, query: {query}, should_block: {should_block}")
         print(f"[ActionFilter] Validating tool: {tool_name}, query: {query}, should_block: {should_block}, attached_files: {list(attached_files.keys())}", flush=True)
-        # #endregion
-        
         if should_block:
             reason = alternative.get("reason", "Файл уже доступен")
             logger.warning(f"[ActionFilter] BLOCKED tool {tool_name} with query '{query}': {reason}")

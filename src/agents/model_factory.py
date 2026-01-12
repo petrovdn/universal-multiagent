@@ -80,18 +80,14 @@ def get_available_models() -> Dict[str, Dict[str, Any]]:
     Returns:
         Dictionary mapping model IDs to their configurations
     """
-    # #region agent log
     import logging
     _logger = logging.getLogger(__name__)
-    # #endregion
     try:
         config = get_config()
-        # #region agent log
         _has_anthropic = bool(config.anthropic_api_key and config.anthropic_api_key.strip())
         _has_openai = bool(config.openai_api_key and config.openai_api_key.strip())
         _logger.info(f"[get_available_models] Config loaded - Anthropic key: {'SET' if _has_anthropic else 'MISSING'} (len={len(config.anthropic_api_key) if config.anthropic_api_key else 0}), OpenAI key: {'SET' if _has_openai else 'MISSING'} (len={len(config.openai_api_key) if config.openai_api_key else 0})")
         print(f"[get_available_models] Config loaded - Anthropic: {'SET' if _has_anthropic else 'MISSING'}, OpenAI: {'SET' if _has_openai else 'MISSING'}", flush=True)
-        # #endregion
         available = {}
         
         for model_id, model_config in MODELS.items():
@@ -100,19 +96,14 @@ def get_available_models() -> Dict[str, Dict[str, Any]]:
                 available[model_id] = model_config
             elif model_config["provider"] == "openai" and config.openai_api_key and config.openai_api_key.strip():
                 available[model_id] = model_config
-        
-        # #region agent log
         _logger.info(f"[get_available_models] Found {len(available)} available models: {list(available.keys())}")
         print(f"[get_available_models] Returning {len(available)} models: {list(available.keys())}", flush=True)
-        # #endregion
         return available
     except Exception as e:
-        # #region agent log
         _logger.error(f"[get_available_models] ERROR: {e}", exc_info=True)
         print(f"[get_available_models] ERROR: {e}", flush=True)
         import traceback
         print(f"[get_available_models] Traceback: {traceback.format_exc()}", flush=True)
-        # #endregion
         return {}
 
 

@@ -273,24 +273,14 @@ class UnifiedReActEngine:
                     else:
                         logger.info(f"[execute] No relevant files found for query: {goal[:50]}")
                         print(f"[execute] No relevant files found for query", flush=True)
-        
-        # #region agent log
         logger.info(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}, file_ids count: {len(file_ids)}")
         print(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}", flush=True)
         if hasattr(context, 'uploaded_files'):
             total_files = len(context.uploaded_files)
             logger.info(f"[execute] Context has {total_files} uploaded files: {list(context.uploaded_files.keys())}")
             print(f"[execute] Context has {total_files} uploaded files: {list(context.uploaded_files.keys())}", flush=True)
-        # #endregion
-        
-        # #region agent log - H1,H2,H5: Execute start with timing
         _exec_start = time.time()
-        # #endregion
-        
-        # #region agent log - H4: Available capabilities check
         _calendar_caps = [c.name for c in self.capabilities if 'calendar' in c.name.lower() or 'event' in c.name.lower()]
-        # #endregion
-        
         # Initialize state
         state = ReActState(goal=goal)
         state.context = {
@@ -307,10 +297,6 @@ class UnifiedReActEngine:
         self._task_phases = task_phases
         self._current_phase_category = None
         self._phase_intent_ids = {}  # category -> intent_id mapping
-        
-        # #region agent log - H1,H2,H3: Intent creation decision
-        # #endregion
-        
         # Create intent_start IMMEDIATELY (before any LLM calls)
         if self._is_multi_phase:
             logger.info(f"[UnifiedReActEngine] Multi-phase task detected: {len(task_phases)} phases")
@@ -320,10 +306,6 @@ class UnifiedReActEngine:
             self._current_intent_id = task_intent_id
             self._current_phase_category = first_phase['category']
             self._phase_intent_ids[first_phase['category']] = task_intent_id
-            
-            # #region agent log - H1,H2: First intent created
-            # #endregion
-            
             await self.ws_manager.send_event(
                 self.session_id,
                 "intent_start",
@@ -336,10 +318,6 @@ class UnifiedReActEngine:
             
             # Generate meaningful task description from goal
             task_description = self._generate_task_description(goal, file_ids)
-            
-            # #region agent log - H1: Single-phase intent_start timing
-            # #endregion
-            
             await self.ws_manager.send_event(
                 self.session_id,
                 "intent_start",
@@ -347,20 +325,12 @@ class UnifiedReActEngine:
             )
         
         self._task_intent_id = self._current_intent_id  # Store for the entire execution
-        
-        # #region agent log - H1: Before _needs_tools timing
         _needs_tools_start = time.time()
-        # #endregion
-        
         # NOW check if query needs tools (may take 500-2000ms with LLM)
         # Check if query needs tools or can be answered directly (like Cursor does)
         # Pass file_ids to detect questions about attached files (e.g., "что видишь?")
         needs_tools = await self._needs_tools(goal, context, file_ids)
-        
-        # #region agent log - H1: After _needs_tools timing
         _needs_tools_end = time.time()
-        # #endregion
-        
         # Анализируем сложность задачи и выбираем модель/budget
         complexity = self.complexity_analyzer.analyze(goal)
         
@@ -394,8 +364,6 @@ class UnifiedReActEngine:
                 f.write(json.dumps(log_data_needs_result, default=str) + "\n")
         except Exception:
             pass
-        # #endregion
-        
         if not needs_tools:
             # Simple query - answer directly without tools
             logger.info(f"[UnifiedReActEngine] Simple query detected, answering directly without tools")
@@ -440,28 +408,16 @@ class UnifiedReActEngine:
                 
                 state.iteration += 1
                 logger.info(f"[UnifiedReActEngine] Starting iteration {state.iteration}")
-                
-                # #region agent log - H_ITER: Iteration start with full context
-                # #endregion
-                
                 # === NEW ARCHITECTURE: No per-iteration intent, use task-level intent ===
                 # Intent details will be added for each tool call
                 
                 # 1. THINK - Analyze current situation
                 state.status = "thinking"
                 # Real progress: no fake messages, just actual work
-                
-                # #region agent log - H2: Before _think_and_plan timing
                 _think_plan_start = time.time()
-                # #endregion
-                
                 # Объединённый вызов: анализ + планирование
                 thought, action_plan = await self._think_and_plan(state, context, file_ids)
-                
-                # #region agent log - H2: After _think_and_plan timing
                 _think_plan_end = time.time()
-                # #endregion
-                
                 state.current_thought = thought
                 state.add_reasoning_step("think", thought)
                 await self._stream_reasoning("react_thinking", {
@@ -474,8 +430,6 @@ class UnifiedReActEngine:
                 
                 # 2. PLAN - Action plan уже получен из _think_and_plan
                 state.status = "acting"
-                
-                # #region agent log - H3: Planned action with FULL ARGUMENTS
                 planned_tool = action_plan.get("tool_name", "")
                 import json as _json
                 # === ANTI-LOOP: Detect repeated get_calendar_events calls ===
@@ -484,9 +438,6 @@ class UnifiedReActEngine:
                     last_action = state.action_history[-1]
                     if last_action.tool_name == "get_calendar_events":
                         logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Detected repeated get_calendar_events call, forcing create_event")
-                        # #region agent log - H6: Anti-loop triggered
-                        # #endregion
-                        
                         # Extract meeting parameters from goal
                         goal_lower = state.goal.lower()
                         
@@ -579,7 +530,6 @@ class UnifiedReActEngine:
                         else:
                             # No known alternative, force FINISH with explanation
                             logger.warning(f"[UnifiedReActEngine] No alternative for {planned_tool}, forcing FINISH")
-                            # #region agent log
                             _last_obs = state.observations[-1] if state.observations else None
                             _error_msg = "неизвестная"
                             if _last_obs:
@@ -587,7 +537,6 @@ class UnifiedReActEngine:
                                     _error_msg = _last_obs.error_message[:200]
                                 elif _last_obs.raw_result:
                                     _error_msg = str(_last_obs.raw_result)[:200]
-                            # #endregion
                             action_plan = {
                                 "tool_name": "FINISH",
                                 "arguments": {},
@@ -600,10 +549,6 @@ class UnifiedReActEngine:
                 # This allows dynamic detection when different tool categories are used
                 if planned_tool.upper() != "FINISH":
                     new_category = self._get_tool_category(planned_tool)
-                    
-                    # #region agent log - H3,H4: Tool category classification
-                    # #endregion
-                    
                     # Check if we're transitioning to a new phase
                     # Allow transition if:
                     # 1. Task was detected as multi-phase initially, OR
@@ -615,8 +560,6 @@ class UnifiedReActEngine:
                     )
                     
                     if should_transition:
-                        # #endregion
-                        
                         # Complete current intent before starting new one
                         if self._current_intent_id:
                             await self.ws_manager.send_event(
@@ -632,7 +575,6 @@ class UnifiedReActEngine:
                         if new_category in self._phase_intent_ids:
                             # Reusing existing phase intent
                             self._current_intent_id = self._phase_intent_ids[new_category]
-                            # #endregion
                         else:
                             # Create new phase intent
                             new_intent_id = f"phase-{int(time.time() * 1000)}"
@@ -646,9 +588,6 @@ class UnifiedReActEngine:
                                 {"intent_id": new_intent_id, "text": phase_description}
                             )
                             logger.info(f"[UnifiedReActEngine] Phase transition: {self._current_phase_category} -> {new_category}")
-                            
-                            # #endregion
-                        
                         self._current_phase_category = new_category
                         self._task_intent_id = self._current_intent_id
                     elif self._current_phase_category is None:
@@ -669,8 +608,6 @@ class UnifiedReActEngine:
                         'update_document',
                         'get_presentation',
                     }
-                    
-                    # #region agent log - H2: Check if planned_tool should skip intent_detail
                     import json as _json
                     import time as _time
                     _check_planned_start = _time.time()
@@ -689,8 +626,6 @@ class UnifiedReActEngine:
                         }) + '\n')
                     except Exception:
                         pass
-                    # #endregion
-                    
                     if planned_tool not in tools_with_operations:
                         # Add detail about what we're going to do (only for tools without operations)
                         action_description = action_plan.get("description", "")[:80]
@@ -703,7 +638,6 @@ class UnifiedReActEngine:
                             "description": f"🎯 {action_description}" if action_description else f"🔧 {self._get_tool_display_name(planned_tool, action_plan.get('arguments', {}))}"
                             }
                         )
-                        # #region agent log - H2: Intent detail sent (planned action)
                         try:
                             open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
                                 "location": "unified_react_engine:_think_and_plan:intent_detail_sent",
@@ -718,14 +652,10 @@ class UnifiedReActEngine:
                             }) + '\n')
                         except Exception:
                             pass
-                        # #endregion
-                
                 # Check for special "FINISH" marker
                 tool_name = action_plan.get("tool_name", "")
                 if tool_name.upper() == "FINISH" or tool_name == "finish":
                     logger.info(f"[UnifiedReActEngine] LLM indicated task completion")
-                    # #region agent log - H3: FINISH marker detected - WHY did agent decide to finish?
-                    # #endregion
                     finish_reasoning = action_plan.get("reasoning", "Задача выполнена")
                     finish_description = action_plan.get("description", "Задача выполнена")
                     state.add_reasoning_step("plan", finish_reasoning, {
@@ -747,9 +677,6 @@ class UnifiedReActEngine:
                 
                 # Check for "ASK_CLARIFICATION" marker
                 elif tool_name.upper() == "ASK_CLARIFICATION" or tool_name == "ask_clarification":
-                    # #region agent log - H11: ASK_CLARIFICATION detected
-                    # #endregion
-                    
                     logger.info(f"[UnifiedReActEngine] LLM requested clarification for incomplete request")
                     questions = action_plan.get("arguments", {}).get("questions", [])
                     clarification_reasoning = action_plan.get("reasoning", "Нужны уточнения для выполнения задачи")
@@ -780,19 +707,11 @@ class UnifiedReActEngine:
                         "tool": "ASK_CLARIFICATION",
                         "questions": questions
                     })
-                    # #region agent log - H1,H2,H3: Before add_action/add_observation
-                    # #endregion
                     clarification_action = state.add_action("ASK_CLARIFICATION", {"questions": questions})
-                    # #region agent log - H1,H2: After add_action, before add_observation
-                    # #endregion
                     state.add_observation(clarification_action, clarification_response, success=True)
                     
                     # Прерываем цикл - ждём ответа пользователя
                     break
-                
-                # #region agent log - H2_EXECUTE_ACTION: About to execute tool (including FINISH if no break above)
-                # #endregion
-                
                 state.add_reasoning_step("plan", action_plan.get("reasoning", ""), {
                     "tool": action_plan.get("tool_name"),
                     "arguments": action_plan.get("arguments", {})
@@ -808,16 +727,8 @@ class UnifiedReActEngine:
                     break
                 
                 # 3. ACT - Execute action through registry
-                
-                # #region agent log - H1,H3,H5: action_plan before validation
-                # #endregion
-                
                 # Validate action through ActionFilter (blocks redundant file searches)
                 validation_result = self.action_filter.validate(action_plan, context, file_ids)
-                
-                # #region agent log - H5: ActionFilter validation result
-                # #endregion
-                
                 if not validation_result.allowed:
                     # Action blocked - use alternative or skip
                     logger.info(f"[UnifiedReActEngine] Action blocked: {validation_result.reason}")
@@ -855,8 +766,6 @@ class UnifiedReActEngine:
                     action_plan.get("tool_name", "unknown"),
                     action_plan.get("arguments", {})
                 )
-                
-                # #region agent log - H_MULTIPLE_CALLS: Track tool calls to detect multiple invocations
                 import json as _json; import time as _time
                 planned_tool = action_plan.get("tool_name", "unknown")
                 if planned_tool == "update_document":
@@ -880,22 +789,12 @@ class UnifiedReActEngine:
                         }) + '\n')
                     except Exception:
                         pass
-                # #endregion
-                
-                # #region agent log - H3,H4: Before _execute_action timing
                 _exec_action_start = time.time()
-                # #endregion
-                
                 try:
                     result = await self._execute_action(action_plan, context)
-                    
-                    # #region agent log - H3: After _execute_action SUCCESS
                     _exec_action_end = time.time()
-                    # #endregion
                 except Exception as e:
-                    # #region agent log - H3,H4: _execute_action ERROR
                     _exec_action_end = time.time()
-                    # #endregion
                     error_msg = str(e)
                     logger.error(f"[UnifiedReActEngine] Action execution failed: {error_msg}")
                     
@@ -922,8 +821,6 @@ class UnifiedReActEngine:
                     result,
                     success=True  # Will be updated by analyzer
                 )
-                
-                # #region agent log - H2_OBSERVATION: Tool result saved
                 await self._stream_reasoning("react_observation", {
                     "result": str(result),  # Full result - no truncation
                     "iteration": state.iteration
@@ -956,17 +853,11 @@ class UnifiedReActEngine:
                     return await self._finalize_success(state, result, context, file_ids)
                 
                 elif analysis.is_error:
-                    # #region agent log - H4: Error detected, looking for alternative
                     import json as _json
-                    # #endregion
-                    
                     if self.config.enable_alternatives:
                         alternative = await self._find_alternative(state, analysis, context, file_ids)
                         if alternative:
-                            # #region agent log - H4: Alternative found
                             import json as _json
-                            # #endregion
-                            
                             logger.info(f"[UnifiedReActEngine] Trying alternative: {alternative.get('description', '')}")
                             state.alternatives_tried.append(alternative.get("description", ""))
                             state.add_reasoning_step("adapt", f"Trying alternative: {alternative.get('description', '')}", {
@@ -985,10 +876,7 @@ class UnifiedReActEngine:
                         return await self._finalize_failure(state, analysis, context)
                 else:
                     # Progress made, continue
-                    # #region agent log - H_LOOP: Progress but not achieved - CONTINUING LOOP
                     import json as _json
-                    # #endregion
-                    
                     state.add_reasoning_step("adapt", "Continuing with progress", {
                         "progress": analysis.progress_toward_goal
                     })
@@ -996,9 +884,6 @@ class UnifiedReActEngine:
             
             # Check if we exited due to ASK_CLARIFICATION (should return successfully with clarification response)
             if state.action_history and state.action_history[-1].tool_name == "ASK_CLARIFICATION":
-                # #region agent log - H9: ASK_CLARIFICATION exit
-                # #endregion
-                
                 logger.info(f"[UnifiedReActEngine] Exiting after ASK_CLARIFICATION - awaiting user response")
                 state.status = "awaiting_clarification"
                 
@@ -1020,8 +905,6 @@ class UnifiedReActEngine:
                 }
             
             # Max iterations reached
-            # #region agent log - H4: Max iterations reached
-            # #endregion
             logger.warning(f"[UnifiedReActEngine] Max iterations reached")
             return await self._finalize_timeout(state, context)
             
@@ -1085,8 +968,6 @@ class UnifiedReActEngine:
                 f.write(json.dumps(log_data_needs_tools, default=str) + "\n")
         except Exception:
             pass
-        # #endregion
-        
         # IMPORTANT: Check tool keywords FIRST before simple patterns
         # This prevents false matches like "пока" matching "покажи"
         # First, check if query contains tool keywords - if yes, it needs tools
@@ -1133,7 +1014,6 @@ class UnifiedReActEngine:
                         f.write(json.dumps(log_data, default=str) + "\n")
                 except Exception:
                     pass
-                # #endregion
                 return True
         
         # Simple greetings and basic questions - no tools needed
@@ -1160,7 +1040,6 @@ class UnifiedReActEngine:
                         f.write(json.dumps(log_data, default=str) + "\n")
                 except Exception:
                     pass
-                # #endregion
                 return False
         
         # Check for simple generative patterns (poems, jokes, greetings, etc.) - no tools needed
@@ -1199,7 +1078,6 @@ class UnifiedReActEngine:
                         f.write(json.dumps(log_data, default=str) + "\n")
                 except Exception:
                     pass
-                # #endregion
                 return False
         
         # Check for specific calendar-related patterns
@@ -1229,7 +1107,6 @@ class UnifiedReActEngine:
                         f.write(json.dumps(log_data, default=str) + "\n")
                 except Exception:
                     pass
-                # #endregion
                 return True
         
         # === NEW: Check for follow-up/clarification queries that reference previous context ===
@@ -1335,8 +1212,6 @@ class UnifiedReActEngine:
                     f.write(json.dumps(log_data, default=str) + "\n")
             except Exception:
                 pass
-            # #endregion
-            
             return llm_result
         except Exception as e:
             logger.error(f"[UnifiedReActEngine] Error checking if tools needed: {e}")
@@ -1353,7 +1228,6 @@ class UnifiedReActEngine:
                     f.write(json.dumps(log_data, default=str) + "\n")
             except Exception:
                 pass
-            # #endregion
             # Default to using tools if check fails
             return True
     
@@ -1654,9 +1528,6 @@ class UnifiedReActEngine:
         Returns:
             List of phases or empty list if single-step task
         """
-        # #region agent log - H1,H2: Analyze task phases entry
-        # #endregion
-        
         goal_lower = goal.lower()
         phases = []
         
@@ -1752,10 +1623,6 @@ class UnifiedReActEngine:
                     'keywords': phase_def['keywords']
                 })
                 matched_keywords[phase_def['name']] = matched_kw
-        
-        # #region agent log - H1,H2: Phase detection results
-        # #endregion
-        
         # Check for explicit multi-step patterns
         explicit_multi_step = any(pattern in goal_lower for pattern in [
             'по очереди', 'потом', 'затем', 'далее', 'после этого',
@@ -2124,11 +1991,7 @@ class UnifiedReActEngine:
             """
             if not self.intent_id or not text:
                 return
-            
-            # #region agent log - H1,H2: Backend sends intent_thinking_append
             import json as _json
-            # #endregion
-            
             # Просто отправляем текст как есть для append
             await self.ws_manager.send_event(
                 self.session_id,
@@ -2168,26 +2031,22 @@ class UnifiedReActEngine:
                 context_str += "\n"
         
         # Add file context (uploaded files have PRIORITY #1)
-        # #region agent log
         logger.info(f"[_think] Processing file_ids: {file_ids}, count: {len(file_ids) if file_ids else 0}")
         print(f"[_think] Processing file_ids: {file_ids}", flush=True)
         if hasattr(context, 'uploaded_files'):
             total_files_in_context = len(context.uploaded_files)
             logger.info(f"[_think] Total files in context.uploaded_files: {total_files_in_context}")
             print(f"[_think] Total files in context.uploaded_files: {total_files_in_context}, keys: {list(context.uploaded_files.keys())}", flush=True)
-        # #endregion
         if file_ids:
             uploaded_files_found = []
             for file_id in file_ids:
                 file_data = context.get_file(file_id)
-                # #region agent log
                 if file_data:
                     logger.info(f"[_think] Found file {file_id}: {file_data.get('filename')}, type: {file_data.get('type')}, has_text: {'text' in file_data}")
                     print(f"[_think] Found file {file_id}: {file_data.get('filename')}, has_text: {'text' in file_data}, text_length: {len(file_data.get('text', ''))}", flush=True)
                 else:
                     logger.warning(f"[_think] File {file_id} NOT found in context!")
                     print(f"[_think] WARNING: File {file_id} NOT found in context! Available files: {list(context.uploaded_files.keys()) if hasattr(context, 'uploaded_files') else 'N/A'}", flush=True)
-                # #endregion
                 if file_data:
                     uploaded_files_found.append(file_data)
             if uploaded_files_found:
@@ -2250,8 +2109,6 @@ class UnifiedReActEngine:
                 f.write(json.dumps(log_data_think, default=str) + "\n")
         except Exception:
             pass
-        # #endregion
-        
         if open_files:
             context_str += "\n📂 ОТКРЫТЫЕ ФАЙЛЫ В РАБОЧЕЙ ОБЛАСТИ:\n"
             for file in open_files:
@@ -2302,8 +2159,6 @@ class UnifiedReActEngine:
                 f.write(json.dumps(log_data_think_prompt, default=str) + "\n")
         except Exception:
             pass
-        # #endregion
-        
         if state.action_history:
             context_str += "\nВыполненные действия:\n"
             for i, action in enumerate(state.action_history[-5:], 1):
@@ -2497,8 +2352,6 @@ class UnifiedReActEngine:
                 f.write(json.dumps(log_data_plan, default=str) + "\n")
         except Exception:
             pass
-        # #endregion
-        
         if open_files:
             context_str += "\n📂 ОТКРЫТЫЕ ФАЙЛЫ В РАБОЧЕЙ ОБЛАСТИ (ПРИОРИТЕТ #2):\n"
             for file in open_files:
@@ -2558,8 +2411,6 @@ class UnifiedReActEngine:
                 f.write(json.dumps(log_data_prompt, default=str) + "\n")
         except Exception:
             pass
-        # #endregion
-        
         prompt = f"""Ты планируешь следующее действие для достижения цели.
 
 {context_str}
@@ -2676,8 +2527,6 @@ class UnifiedReActEngine:
             # Validate
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
-            
-            # #region agent log - H_MULTIPLE_CALLS: Log parsed action_plan for update_document
             if action_plan.get("tool_name") == "update_document":
                 import json as _json; import time as _time
                 try:
@@ -2698,8 +2547,6 @@ class UnifiedReActEngine:
                     }) + '\n')
                 except Exception:
                     pass
-            # #endregion
-            
             return action_plan
             
         except Exception as e:
@@ -2759,26 +2606,22 @@ class UnifiedReActEngine:
                 context_str += "\n"
         
         # Добавляем ПРИКРЕПЛЕННЫЕ ФАЙЛЫ (PRIORITY #1 - должны быть ПЕРВЫМИ!)
-        # #region agent log
         logger.info(f"[_think_and_plan] Processing file_ids: {file_ids}, count: {len(file_ids) if file_ids else 0}")
         print(f"[_think_and_plan] Processing file_ids: {file_ids}", flush=True)
         if hasattr(context, 'uploaded_files'):
             total_files = len(context.uploaded_files)
             logger.info(f"[_think_and_plan] Context has {total_files} uploaded files: {list(context.uploaded_files.keys())}")
             print(f"[_think_and_plan] Context has {total_files} uploaded files: {list(context.uploaded_files.keys())}", flush=True)
-        # #endregion
         if file_ids:
             uploaded_files_found = []
             for file_id in file_ids:
                 file_data = context.get_file(file_id)
-                # #region agent log
                 if file_data:
                     logger.info(f"[_think_and_plan] Found file {file_id}: {file_data.get('filename')}, type: {file_data.get('type')}, has_text: {'text' in file_data}")
                     print(f"[_think_and_plan] Found file {file_id}: {file_data.get('filename')}, has_text: {'text' in file_data}, text_length: {len(file_data.get('text', ''))}", flush=True)
                 else:
                     logger.warning(f"[_think_and_plan] File {file_id} NOT found in context!")
                     print(f"[_think_and_plan] WARNING: File {file_id} NOT found! Available: {list(context.uploaded_files.keys()) if hasattr(context, 'uploaded_files') else 'N/A'}", flush=True)
-                # #endregion
                 if file_data:
                     uploaded_files_found.append(file_data)
             
@@ -3096,9 +2939,6 @@ class UnifiedReActEngine:
                         filtered_lines.append(line)
                 
                 thought = '\n'.join(filtered_lines).strip()
-            # #endregion
-            
-            # #region agent log - H_LOOP: Log full LLM response to detect duplication
             import json as _json; import time as _time
             # Check for repeated patterns in thought AFTER filtering
             # Извлекаем action из оставшегося буфера или полного ответа
@@ -3138,8 +2978,6 @@ class UnifiedReActEngine:
             # Валидация
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
-            
-            # #region agent log - H_MULTIPLE_CALLS: Log parsed action_plan for update_document
             tool_name = action_plan.get("tool_name", "")
             if tool_name == "update_document":
                 import json as _json; import time as _time
@@ -3160,9 +2998,6 @@ class UnifiedReActEngine:
                     }) + '\n')
                 except Exception:
                     pass
-            # #endregion
-            
-            # #region agent log - H11,H17: After parsing action plan
             tool_name = action_plan.get("tool_name", "")
             is_clarification = tool_name == "ASK_CLARIFICATION"
             goal_lower = state.goal.lower() if state.goal else ""
@@ -3170,8 +3005,6 @@ class UnifiedReActEngine:
             has_attendees = any("@" in arg for arg in str(action_plan.get("arguments", {})).split() if isinstance(arg, str))
             has_time = any(kw in goal_lower for kw in ["в ", "в ", "время", "time", "14:00", "15:00"])
             should_check_availability = has_meeting_keywords and has_attendees and has_time and not is_clarification
-            # #endregion
-            
             # Если thought пустой, используем fallback
             if not thought:
                 thought = f"Анализирую задачу: {state.goal[:100]}..."
@@ -3212,8 +3045,6 @@ class UnifiedReActEngine:
             logger.warning("[UnifiedReActEngine] No tool_name in action_plan, skipping execution")
             return ""
         arguments = action_plan.get("arguments", {})
-        
-        # #region agent log - H_MULTIPLE_CALLS: Track _execute_action entry for update_document
         if capability_name == "update_document":
             import json as _json; import time as _time
             try:
@@ -3237,12 +3068,7 @@ class UnifiedReActEngine:
                 }) + '\n')
             except Exception:
                 pass
-        # #endregion
-        
-        # #region agent log - H3: _execute_action entry
         _action_entry_time = time.time()
-        # #endregion
-        
         # Send real progress event BEFORE tool execution
         # For tools that support operations (get_calendar_events, etc.), send operation_start
         operation_id = None
@@ -3320,8 +3146,6 @@ class UnifiedReActEngine:
                     'file_type': 'slides'
                 },
             }
-            
-            # #region agent log - H3: Check capability_name for operations
             import json as _json
             import time as _time
             _check_op_start = _time.time()
@@ -3340,8 +3164,6 @@ class UnifiedReActEngine:
                 }) + '\n')
             except Exception:
                 pass
-            # #endregion
-            
             if capability_name in tools_with_operations:
                 operation_id = f"op-{int(time.time() * 1000)}"
                 op_config = tools_with_operations[capability_name]
@@ -3401,7 +3223,6 @@ class UnifiedReActEngine:
                     file_type=file_type,
                     intent_id=intent_id
                 )
-                # #region agent log - H3: Operation start sent
                 try:
                     open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
                         "location": "unified_react_engine:_execute_action:operation_start_sent",
@@ -3417,7 +3238,6 @@ class UnifiedReActEngine:
                     }) + '\n')
                 except Exception:
                     pass
-                # #endregion
             elif intent_id:
                 # Legacy: Send intent_detail for other tools (without dots - they will be added by frontend if needed)
                 await self.ws_manager.send_event(
@@ -3429,7 +3249,6 @@ class UnifiedReActEngine:
                         "description": display_name  # Убрали точки - они не нужны, так как анимация убрана
                     }
                 )
-                # #region agent log - H3: Intent detail sent (legacy)
                 try:
                     open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
                         "location": "unified_react_engine:_execute_action:intent_detail_sent",
@@ -3444,12 +3263,7 @@ class UnifiedReActEngine:
                     }) + '\n')
                 except Exception:
                     pass
-                # #endregion
-        
-        # #region agent log - H3: Before registry.execute
         _registry_start = time.time()
-        # #endregion
-        
         # Add session_id, intent_id, and operation_id to arguments for tools that support operations
         # Tools can use these to send operations directly or return structured data
         if self.session_id:
@@ -3463,11 +3277,7 @@ class UnifiedReActEngine:
         
         # Registry routes to appropriate provider (MCP or A2A)
         result = await self.registry.execute(capability_name, arguments)
-        
-        # #region agent log - H3: After registry.execute
         _registry_end = time.time()
-        # #endregion
-        
         # Process result for operations (parse and stream data)
         if operation_id and self.ws_manager and self.session_id:
             intent_id = getattr(self, '_current_intent_id', None)
@@ -4208,11 +4018,7 @@ class UnifiedReActEngine:
                 "final_result_start",
                 {}
             )
-            
-            # #region agent log - H7: final_result streaming start
             _stream_chunk_count = 0
-            # #endregion
-            
             # Stream chunks
             async for chunk in self.llm.astream(messages):
                 chunk_text = ""
@@ -4240,10 +4046,6 @@ class UnifiedReActEngine:
                         "final_result_chunk",
                         {"content": full_answer}  # Send accumulated content
                     )
-            
-            # #region agent log - H7: final_result streaming complete
-            # #endregion
-            
             # Send intent completion
             await self.ws_manager.send_event(
                 self.session_id,

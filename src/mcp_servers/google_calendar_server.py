@@ -392,7 +392,6 @@ class GoogleCalendarMCPServer:
                     )]
                 
                 elif name == "create_event":
-                    # #region agent log - H2: Track attendees in MCP server
                     import json as _json
                     import time as _time
                     _mcp_create_start = _time.time()
@@ -411,8 +410,6 @@ class GoogleCalendarMCPServer:
                         }) + '\n')
                     except Exception:
                         pass
-                    # #endregion
-                    
                     calendar_id = arguments.get("calendarId", "primary")
                     event_body = {
                         "summary": arguments.get("summary"),
@@ -424,8 +421,6 @@ class GoogleCalendarMCPServer:
                     
                     if arguments.get("attendees"):
                         event_body["attendees"] = arguments.get("attendees")
-                        
-                        # #region agent log - H2: Track attendees in event_body
                         try:
                             open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
                                 "location": "google_calendar_server:create_event:event_body",
@@ -440,12 +435,8 @@ class GoogleCalendarMCPServer:
                             }) + '\n')
                         except Exception:
                             pass
-                        # #endregion
-                    
                     # Remove None values
                     event_body = {k: v for k, v in event_body.items() if v is not None}
-                    
-                    # #region agent log - H2: Track final event_body before API
                     try:
                         open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
                             "location": "google_calendar_server:create_event:before_api",
@@ -461,9 +452,6 @@ class GoogleCalendarMCPServer:
                         }) + '\n')
                     except Exception:
                         pass
-                    # #endregion
-                    
-                    # #region agent log - H5: Track sendUpdates parameter
                     _before_insert = _time.time()
                     try:
                         open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({
@@ -482,14 +470,10 @@ class GoogleCalendarMCPServer:
                         }) + '\n')
                     except Exception:
                         pass
-                    # #endregion
-                    
                     event = service.events().insert(
                         calendarId=calendar_id,
                         body=event_body
                     ).execute()
-                    
-                    # #region agent log - H2: Track event after API call
                     try:
                         _all_attendees = event.get("attendees", [])
                         _all_attendee_emails = [a.get("email", "") for a in _all_attendees if a.get("email")]
@@ -512,8 +496,6 @@ class GoogleCalendarMCPServer:
                         }) + '\n')
                     except Exception:
                         pass
-                    # #endregion
-                    
                     return [TextContent(
                         type="text",
                         text=json.dumps({

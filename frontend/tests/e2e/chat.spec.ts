@@ -127,13 +127,9 @@ test.describe('Chat Interface', () => {
     // ВАЖНО: Используем специфичный селектор для кнопки отправки, чтобы не найти кнопку выбора файлов
     // Кнопка отправки имеет type="submit" и класс "send-button", НЕ имеет класс "input-icon-button"
     const sendButton = page.locator('button[type="submit"].send-button, button.send-button:not(.input-icon-button):not(.stop-button)').last();
-    
-    // #region agent log - H9: Checking send button in chat test
     const sendButtonVisible = await sendButton.isVisible({ timeout: 2000 }).catch(() => false);
     const sendButtonCount = await sendButton.count();
     await logDebug('playwright:test:send-button', 'Send button check', { sendButtonVisible, sendButtonCount });
-    // #endregion
-    
     if (sendButtonVisible) {
       await sendButton.click();
       await logDebug('playwright:test', 'Clicked send button', {});

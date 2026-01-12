@@ -119,14 +119,10 @@ class FileContextResolver:
         """Ищет файл среди прикреплённых."""
         if not attached_files:
             return None
-        
-        # #region agent log
         import logging
         _logger = logging.getLogger(__name__)
         _logger.info(f"[_find_in_attached] Searching for query: '{query_lower}' in {len(attached_files)} attached files")
         print(f"[_find_in_attached] Searching query: '{query_lower}' in files: {[f.get('filename') for f in attached_files.values()]}", flush=True)
-        # #endregion
-        
         # Ключевые слова, которые указывают на прикрепленный файл (если есть только один файл)
         generic_file_keywords = ["файл", "file", "документ", "document", "word", "pdf", "изображение", "image"]
         has_generic_keyword = any(keyword in query_lower for keyword in generic_file_keywords)
@@ -161,10 +157,8 @@ class FileContextResolver:
             
             match = exact_match or partial_match
             if not match:
-                # #region agent log
                 _logger.warning(f"[_find_in_attached] No match found for query: '{query_lower}'")
                 print(f"[_find_in_attached] No match found for query: '{query_lower}'", flush=True)
-                # #endregion
                 return None
         
         file_id, file_data = match
@@ -173,12 +167,8 @@ class FileContextResolver:
         # Определяем тип файла
         is_image = file_type.startswith("image/")
         has_text = "text" in file_data and file_data["text"]
-        
-        # #region agent log
         _logger.info(f"[_find_in_attached] Found match: {file_data.get('filename')}, type: {file_type}, has_text: {has_text}")
         print(f"[_find_in_attached] Found match: {file_data.get('filename')}, has_text: {has_text}", flush=True)
-        # #endregion
-        
         return FileResolution(
             source=FileSource.ATTACHED,
             content=file_data.get("text"),

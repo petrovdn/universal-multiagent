@@ -371,13 +371,11 @@ class ConversationContext:
         context.execution_mode = data.get("execution_mode", "instant")
         uploaded_files_data = data.get("uploaded_files", {})
         context.uploaded_files = uploaded_files_data  # Load uploaded files
-        # #region agent log
         if uploaded_files_data:
             import logging
             _logger = logging.getLogger(__name__)
             _logger.info(f"[from_dict] Loading {len(uploaded_files_data)} uploaded files for session {data['session_id']}")
             print(f"[from_dict] Loading {len(uploaded_files_data)} uploaded files: {list(uploaded_files_data.keys())}", flush=True)
-        # #endregion
         context.metadata = data.get("metadata", {})  # Load metadata
         context.open_files = data.get("open_files", [])  # Load open files
         # Load model_name if exists, otherwise use default from config
@@ -437,20 +435,16 @@ class PersistentStorage:
         try:
             with open(file_path, "r") as f:
                 data = json.load(f)
-            # #region agent log
             uploaded_files_in_data = data.get("uploaded_files", {})
             import logging
             _logger = logging.getLogger(__name__)
             if uploaded_files_in_data:
                 _logger.info(f"[load_context] Found {len(uploaded_files_in_data)} uploaded files in storage for session {session_id}")
                 print(f"[load_context] Found {len(uploaded_files_in_data)} uploaded files in storage: {list(uploaded_files_in_data.keys())}", flush=True)
-            # #endregion
             context = ConversationContext.from_dict(data)
-            # #region agent log
             if hasattr(context, 'uploaded_files') and context.uploaded_files:
                 _logger.info(f"[load_context] Loaded {len(context.uploaded_files)} files into context")
                 print(f"[load_context] Loaded {len(context.uploaded_files)} files into context: {list(context.uploaded_files.keys())}", flush=True)
-            # #endregion
             return context
         except Exception as e:
             import logging

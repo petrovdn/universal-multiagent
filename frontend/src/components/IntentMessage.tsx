@@ -115,7 +115,7 @@ export function IntentMessage({
             <div className="execution-log-item">
               <span className="log-icon pending">○</span>
               <span className="log-text log-text-pending">
-                Выполняю действия...
+                Выполняю действия
                 <span className="log-text-dots">
                   <span className="log-dot-1">.</span>
                   <span className="log-dot-2">.</span>

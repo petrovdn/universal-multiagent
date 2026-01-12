@@ -66,8 +66,6 @@ export function OperationBlock({
   const isPending = status === 'pending'
   const isStreaming = status === 'streaming'
   const isCompleted = status === 'completed'
-
-  // #region agent log - H1: Track operation status changes and title content
   useEffect(() => {
     const logData = {
       location: 'OperationBlock.tsx:69',
@@ -85,15 +83,7 @@ export function OperationBlock({
       sessionId: 'debug-session',
       runId: 'run1',
       hypothesisId: 'H1'
-    }
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(logData)
-    }).catch(() => {})
-  }, [id, status, title, operationTitle, streamingContent])
-  // #endregion
-
+    }}, [id, status, title, operationTitle, streamingContent])
   return (
     <div className={`operation-block ${className}`}>
       {/* Заголовок операции */}

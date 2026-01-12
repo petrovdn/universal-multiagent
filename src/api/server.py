@@ -30,10 +30,7 @@ try:
     DOCX_AVAILABLE = True
 except ImportError as e:
     DOCX_AVAILABLE = False
-    # #region agent log
     print(f"[DEBUG] python-docx import failed: {e}")
-    # #endregion
-
 from src.utils.config_loader import get_config, reload_config
 from src.utils.logging_config import setup_logging, get_logger
 from src.utils.mcp_loader import get_mcp_manager
@@ -149,16 +146,12 @@ async def list_models():
     logger.info("[API] /api/models endpoint called")
     print(f"[API] /api/models endpoint called", flush=True)
     try:
-        # #region agent log
         import os
         _anthropic_env = os.getenv("ANTHROPIC_API_KEY")
         _openai_env = os.getenv("OPENAI_API_KEY")
         print(f"[API] Environment variables check - ANTHROPIC_API_KEY: {'SET' if _anthropic_env and _anthropic_env.strip() else 'MISSING'} (len={len(_anthropic_env) if _anthropic_env else 0}), OPENAI_API_KEY: {'SET' if _openai_env and _openai_env.strip() else 'MISSING'} (len={len(_openai_env) if _openai_env else 0})", flush=True)
-        # #endregion
         config = get_config()
-        # #region agent log
         print(f"[API] Config after get_config() - Anthropic key: {'SET' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'MISSING'} (len={len(config.anthropic_api_key) if config.anthropic_api_key else 0}), OpenAI key: {'SET' if config.openai_api_key and config.openai_api_key.strip() else 'MISSING'} (len={len(config.openai_api_key) if config.openai_api_key else 0})", flush=True)
-        # #endregion
         available_models = get_available_models()
         # Log for debugging
         logger.info(f"[DEBUG] Available models count: {len(available_models)}, IDs: {list(available_models.keys())}")
@@ -219,11 +212,9 @@ if config.is_production:
             """
 Serve frontend files, fallback to index.html for SPA routing.
 Uses proper cache headers to prevent stale files in production."""
-            # #region agent log
             if full_path.startswith("api/"):
                 logger.warning(f"[serve_frontend] Catch-all caught API path: {full_path} - this should not happen!")
                 print(f"[serve_frontend] WARNING: Catch-all caught API path: {full_path}", flush=True)
-            # #endregion
             file_path = frontend_dist / full_path
             if file_path.exists() and file_path.is_file():
                 # Set correct MIME type for common files
@@ -280,8 +271,6 @@ Initialize services on startup."""
     print(f"[🚀 SERVER STARTUP] Instance ID: {server_instance_id}, Timestamp: {startup_timestamp}", flush=True)
     
     logger.info("Starting up Multi-Agent API...")
-    
-    # #region agent log
     # Debug: Log optional dependencies status
     print(f"[DEBUG] File processing dependencies status:", flush=True)
     print(f"[DEBUG]   PyPDF2: {PyPDF2 is not None}", flush=True)
@@ -302,8 +291,6 @@ Initialize services on startup."""
     available_models_startup = get_available_models()
     print(f"[DEBUG]   Available models at startup: {len(available_models_startup)} - {list(available_models_startup.keys())}", flush=True)
     logger.info(f"API Keys - Anthropic: {'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI: {'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}, Available models: {len(available_models_startup)}")
-    # #endregion
-    
     # Connect to MCP servers
     try:
         results = await mcp_manager.connect_all()
@@ -649,9 +636,7 @@ async def upload_file(
     logger.info(f"Upload endpoint called: filename={file.filename}, session_id={session_id}")
     try:
         file_type = file.content_type
-        # #region agent log
         logger.info(f"[UPLOAD] File type detected: {file_type}, DOCX_AVAILABLE={DOCX_AVAILABLE}")
-        # #endregion
         if not file_type:
             raise HTTPException(status_code=400, detail="Could not determine file type")
         
@@ -750,10 +735,8 @@ async def upload_file(
         elif file_type in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", 
                           "application/msword"):
             # For .docx and .doc files
-            # #region agent log
             logger.info(f"[UPLOAD] Processing Word document: {file.filename}, DOCX_AVAILABLE={DOCX_AVAILABLE}, file_size={len(content)}")
             print(f"[DEBUG] Upload Word doc: {file.filename}, DOCX_AVAILABLE={DOCX_AVAILABLE}", flush=True)
-            # #endregion
             if not DOCX_AVAILABLE:
                 logger.error(f"[UPLOAD] python-docx not available for file: {file.filename}")
                 raise HTTPException(
@@ -764,15 +747,11 @@ async def upload_file(
             try:
                 # For .docx
                 if file_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-                    # #region agent log
                     logger.info(f"[UPLOAD] Attempting to parse .docx file: {file.filename}")
-                    # #endregion
                     doc_file = io.BytesIO(content)
                     doc = Document(doc_file)
                     text = "\n".join([paragraph.text for paragraph in doc.paragraphs])
-                    # #region agent log
                     logger.info(f"[UPLOAD] Extracted {len(text)} chars from .docx file: {file.filename}")
-                    # #endregion
                 else:
                     # For .doc (old format) - not directly supported by python-docx
                     raise HTTPException(
@@ -895,15 +874,9 @@ WebSocket endpoint for real-time communication."""
                 user_message = data.get("content")
                 file_ids = data.get("file_ids", [])
                 open_files = data.get("open_files", [])
-                
-                # #region agent log
                 logger.info(f"[WS] Received message - session_id: {session_id}, file_ids: {file_ids}, open_files count: {len(open_files) if open_files else 0}")
                 print(f"[WS] Received message - session_id: {session_id}, file_ids: {file_ids}, user_message length: {len(user_message) if user_message else 0}", flush=True)
-                # #endregion
-                
                 context = session_manager.get_session(session_id)
-                
-                # #region agent log
                 if context:
                     files_in_context = len(context.uploaded_files) if hasattr(context, 'uploaded_files') else 0
                     logger.info(f"[WS] Context found - uploaded_files count: {files_in_context}")
@@ -917,8 +890,6 @@ WebSocket endpoint for real-time communication."""
                 else:
                     logger.warning(f"[WS] Context NOT found for session {session_id} - creating new one (this will lose uploaded files!)")
                     print(f"[WS] WARNING: Context NOT found for session {session_id} - creating new one!", flush=True)
-                # #endregion
-                
                 if not context:
                     context = ConversationContext(session_id)
                     session_manager.update_session(session_id, context)

@@ -1223,7 +1223,6 @@ export class WebSocketClient {
 
       case 'operation_start': {
         console.log('[WebSocket] Operation started:', event.data)
-        // #region agent log - H2: Track operation title for dots issue
         const title = event.data.title || 'Выполняем операцию'
         const logData = {
           location: 'websocket.ts:1223',
@@ -1238,14 +1237,7 @@ export class WebSocketClient {
           sessionId: 'debug-session',
           runId: 'run1',
           hypothesisId: 'H2'
-        }
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(logData)
-        }).catch(() => {})
-        // #endregion
-        const state = useChatStore.getState()
+        }const state = useChatStore.getState()
         const workflowId = state.activeWorkflowId
         const intentId = event.data.intent_id || state.activeIntentId
         const operationId = event.data.operation_id
