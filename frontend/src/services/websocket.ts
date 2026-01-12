@@ -1224,20 +1224,7 @@ export class WebSocketClient {
       case 'operation_start': {
         console.log('[WebSocket] Operation started:', event.data)
         const title = event.data.title || 'Выполняем операцию'
-        const logData = {
-          location: 'websocket.ts:1223',
-          message: 'Operation start received',
-          data: { 
-            title, 
-            titleLength: title?.length,
-            titleHasDots: title?.includes('...') || title?.includes('…'),
-            titleHasThreeDots: (title?.match(/\./g) || []).length >= 3
-          },
-          timestamp: Date.now(),
-          sessionId: 'debug-session',
-          runId: 'run1',
-          hypothesisId: 'H2'
-        }const state = useChatStore.getState()
+        const state = useChatStore.getState()
         const workflowId = state.activeWorkflowId
         const intentId = event.data.intent_id || state.activeIntentId
         const operationId = event.data.operation_id

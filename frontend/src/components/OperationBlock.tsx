@@ -66,24 +66,6 @@ export function OperationBlock({
   const isPending = status === 'pending'
   const isStreaming = status === 'streaming'
   const isCompleted = status === 'completed'
-  useEffect(() => {
-    const logData = {
-      location: 'OperationBlock.tsx:69',
-      message: 'Operation status changed',
-      data: { 
-        id, 
-        status, 
-        title, 
-        operationTitle, 
-        operationTitleLength: operationTitle?.length,
-        operationTitleHasDots: operationTitle?.includes('...'),
-        hasStreamingContent: !!streamingContent 
-      },
-      timestamp: Date.now(),
-      sessionId: 'debug-session',
-      runId: 'run1',
-      hypothesisId: 'H1'
-    }}, [id, status, title, operationTitle, streamingContent])
   return (
     <div className={`operation-block ${className}`}>
       {/* Заголовок операции */}
