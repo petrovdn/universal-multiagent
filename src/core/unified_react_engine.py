@@ -216,6 +216,130 @@ class UnifiedReActEngine:
         """
         file_ids = file_ids or []
         
+        # === Check for pending confirmation ===
+        goal_lower = goal.lower().strip()
+        confirmation_keywords = ["да", "давай", "создай", "подтверждаю", "ок", "ok", "yes", "согласен"]
+        is_confirmation = any(kw in goal_lower for kw in confirmation_keywords) and len(goal_lower) < 20
+        
+        if is_confirmation and context.pending_confirmations.get("meeting"):
+            pending = context.pending_confirmations["meeting"]
+            logger.info(f"[UnifiedReActEngine] Confirmation detected - creating meeting with pending data")
+            
+            # Clear pending confirmation
+            context.pending_confirmations.pop("meeting", None)
+            
+            # Build a new goal for ReAct that includes all meeting details
+            args = pending["arguments"]
+            attendees_str = ", ".join(args.get("attendees", []))
+            slot_start = args.get("slot_start", "")
+            
+            # Extract description first
+            description = args.get("description")
+            if not description and args.get("original_goal"):
+                # Extract description from original goal if available
+                import re
+                original_goal = args["original_goal"]
+                
+                # Try multiple patterns - more flexible
+                patterns = [
+                    r'в содержании[^\w]*(?:напиши|напиши|добавь)[^\w]*(.+?)(?:\.|$)',
+                    r'в содержании[^\w]+(.+?)(?:\.|$)',
+                    r'описание[^\w]+(.+?)(?:\.|$)',
+                    r'тост[^\w]+(.+?)(?:\.|$)',
+                    r'(?:в содержании|описание|тост)[\s:]+(.+?)(?:\.|$)',
+                ]
+                for pattern in patterns:
+                    desc_match = re.search(pattern, original_goal, re.IGNORECASE | re.DOTALL)
+                    if desc_match:
+                        description = desc_match.group(1).strip()
+                        # Clean up - remove quotes if present
+                        description = description.strip('"\'')
+                        if description:
+                            break
+                
+                # If still not found, try to extract everything after "в содержании" to end
+                if not description:
+                    desc_match = re.search(r'в содержании[^\w]+(.+)', original_goal, re.IGNORECASE | re.DOTALL)
+                    if desc_match:
+                        description = desc_match.group(1).strip()
+                        # Remove trailing punctuation
+                        description = description.rstrip('.,;!?')
+                        description = description.strip('"\'')
+            
+            # Check if description is an instruction to generate content (e.g., "напиши тост про...")
+            # If so, generate it using LLM before passing to goal
+            if description:
+                description_lower = description.lower()
+                generation_keywords = ["напиши", "создай", "составь", "придумай", "сгенерируй"]
+                is_generation_request = any(kw in description_lower for kw in generation_keywords)
+                
+                # Also check original_goal for generation instructions (e.g., "в содержании напиши тост про...")
+                # Even if extracted description doesn't contain "напиши", if original goal had it, we need to generate
+                if not is_generation_request and args.get("original_goal"):
+                    original_goal_lower = args["original_goal"].lower()
+                    # Check if original goal contains generation instruction before description
+                    if any(kw in original_goal_lower for kw in generation_keywords):
+                        # Check if description is a topic/theme (not a ready text)
+                        # Patterns that indicate generation needed: "тост про", "про ИИ", "про [topic]"
+                        generation_patterns = [
+                            r'тост\s+про',
+                            r'про\s+[а-яё]+',  # "про ИИ", "про резиновую лодку"
+                            r'на\s+тему',
+                            r'о\s+[а-яё]+'  # "о ИИ", "о творчестве"
+                        ]
+                        import re
+                        for pattern in generation_patterns:
+                            if re.search(pattern, description_lower):
+                                is_generation_request = True
+                                logger.info(f"[UnifiedReActEngine] Detected generation pattern in description: {pattern}")
+                                break
+                
+                if is_generation_request:
+                    logger.info(f"[UnifiedReActEngine] Description is a generation request, generating content: {description[:100]}")
+                    try:
+                        # Use LLM to generate the content
+                        from langchain_anthropic import ChatAnthropic
+                        from langchain_core.messages import HumanMessage
+                        from src.utils.config_loader import get_config
+                        config = get_config()
+                        llm = ChatAnthropic(
+                            model="claude-sonnet-4-5-20250929",
+                            api_key=config.anthropic_api_key,
+                            temperature=0.7
+                        )
+                        
+                        prompt = f"Пользователь просит: {description}\n\nСоздай/напиши это содержание. Будь креативным и следуй инструкции пользователя."
+                        response = await llm.ainvoke([HumanMessage(content=prompt)])
+                        generated_description = response.content.strip()
+                        
+                        logger.info(f"[UnifiedReActEngine] Generated description: {generated_description[:100]}")
+                        description = generated_description
+                    except Exception as e:
+                        logger.error(f"[UnifiedReActEngine] Failed to generate description: {e}")
+                        # Fallback: use original description as-is
+                        pass
+            
+            # Build goal that explicitly uses schedule_group_meeting with confirmed=True
+            # IMPORTANT: Use schedule_group_meeting, NOT create_event directly
+            # DO NOT use create_event - it is blocked. Use schedule_group_meeting instead.
+            new_goal = f"Вызови schedule_group_meeting для создания встречи '{args.get('title', 'Встреча')}' с участниками {attendees_str} на время {slot_start}, длительность {args.get('duration', '1h')}. Параметры вызова: confirmed=True, slot_start='{slot_start}'"
+            
+            if description:
+                new_goal += f", description='{description}'"
+                new_goal += f". ВАЖНО: обязательно передай description='{description}' в schedule_group_meeting!"
+            
+            if args.get("location"):
+                new_goal += f", location='{args['location']}'"
+            
+            new_goal += ". НЕ используй create_event - он заблокирован."
+            
+            logger.info(f"[UnifiedReActEngine] Created ReAct goal from confirmation: {new_goal[:200]}")
+            logger.info(f"[UnifiedReActEngine] Description extracted: {description[:100] if description else 'None'}")
+            
+            # Continue with ReAct execution (will call schedule_group_meeting with confirmed=True)
+            # Modify goal to trigger ReAct
+            goal = new_goal
+        
         # === Smart file resolution for follow-up questions ===
         # Priority: 1) Conversation history, 2) Entity memory keywords, 3) General patterns
         if not file_ids and context and hasattr(context, 'uploaded_files') and context.uploaded_files:
@@ -995,8 +1119,18 @@ class UnifiedReActEngine:
                 # 5. ADAPT - Make decision
                 state.status = "adapting"
                 
+                # #region agent log
+                import json as _json_log
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    f.write(_json_log.dumps({"location": "unified_react_engine.py:adapt:before_goal_check", "message": "H6: Checking is_goal_achieved", "data": {"is_goal_achieved": analysis.is_goal_achieved, "is_success": analysis.is_success, "is_error": analysis.is_error, "progress": analysis.progress_toward_goal, "iteration": state.iteration, "next_action": analysis.next_action_suggestion}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H6"}) + "\n")
+                # #endregion
+                
                 if analysis.is_goal_achieved:
                     logger.info(f"[UnifiedReActEngine] Goal achieved at iteration {state.iteration}")
+                    # #region agent log
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(_json_log.dumps({"location": "unified_react_engine.py:adapt:goal_achieved_exit", "message": "H6: Goal achieved - calling _finalize_success", "data": {"iteration": state.iteration}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H6"}) + "\n")
+                    # #endregion
                     return await self._finalize_success(state, result, context, file_ids)
                 
                 elif analysis.is_error:
@@ -4427,8 +4561,78 @@ class UnifiedReActEngine:
                 }
             )
         
-        # Generate human-friendly final answer instead of raw result
-        human_answer = await self._generate_final_answer(state, context, file_ids)
+        # Check if this is a confirmation request - return tool result directly without LLM reformulation
+        final_result_str = str(final_result).lower() if final_result else ""
+        confirmation_indicators = [
+            "создать встречу на это время?",
+            "требуется подтверждение",
+            "подтвердите",
+            "удалить события?"
+        ]
+        is_confirmation_request = any(ind in final_result_str for ind in confirmation_indicators)
+        
+        if is_confirmation_request and final_result:
+            # For confirmation requests, return tool result as-is to preserve all information
+            human_answer = str(final_result)
+            logger.info(f"[UnifiedReActEngine] Confirmation request detected - returning tool result directly")
+            
+            # Extract meeting details from tool result and save to pending_confirmations
+            # Look for the last schedule_group_meeting action
+            for action in reversed(state.action_history):
+                if action.tool_name == "schedule_group_meeting":
+                    # Extract slot_start from result (format: "2026-01-15 16:10 - 17:10")
+                    import re
+                    slot_match = re.search(r'\*\*(\d{4}-\d{2}-\d{2} \d{2}:\d{2})', str(final_result))
+                    if slot_match:
+                        slot_start = slot_match.group(1)
+                        
+                        # Extract description from original goal if not in arguments
+                        description = action.arguments.get("description")
+                        if not description:
+                            # Try to extract from original goal (look for "в содержании", "описание", "тост")
+                            goal_lower = state.goal.lower()
+                            if "в содержании" in goal_lower or "описание" in goal_lower or "тост" in goal_lower:
+                                # Try multiple patterns - more flexible
+                                patterns = [
+                                    r'в содержании[^\w]*(?:напиши|напиши|добавь)[^\w]*(.+?)(?:\.|$)',
+                                    r'в содержании[^\w]+(.+?)(?:\.|$)',
+                                    r'описание[^\w]+(.+?)(?:\.|$)',
+                                    r'тост[^\w]+(.+?)(?:\.|$)',
+                                    r'(?:в содержании|описание|тост)[\s:]+(.+?)(?:\.|$)',
+                                ]
+                                for pattern in patterns:
+                                    desc_match = re.search(pattern, state.goal, re.IGNORECASE | re.DOTALL)
+                                    if desc_match:
+                                        description = desc_match.group(1).strip()
+                                        description = description.strip('"\'')
+                                        if description:
+                                            break
+                                
+                                # If still not found, try to extract everything after "в содержании" to end
+                                if not description:
+                                    desc_match = re.search(r'в содержании[^\w]+(.+)', state.goal, re.IGNORECASE | re.DOTALL)
+                                    if desc_match:
+                                        description = desc_match.group(1).strip()
+                                        description = description.rstrip('.,;!?')
+                                        description = description.strip('"\'')
+                        
+                        context.pending_confirmations["meeting"] = {
+                            "tool": "schedule_group_meeting",
+                            "arguments": {
+                                "title": action.arguments.get("title", "Встреча"),
+                                "attendees": action.arguments.get("attendees", []),
+                                "duration": action.arguments.get("duration", "1h"),
+                                "slot_start": slot_start,
+                                "description": description,
+                                "location": action.arguments.get("location"),
+                                "original_goal": state.goal  # Save original goal for ReAct
+                            }
+                        }
+                        logger.info(f"[UnifiedReActEngine] Saved pending confirmation: slot_start={slot_start}, description={description[:50] if description else None}")
+                    break
+        else:
+            # Generate human-friendly final answer instead of raw result
+            human_answer = await self._generate_final_answer(state, context, file_ids)
         
         result_summary = {
             "status": "completed",

@@ -192,6 +192,12 @@ class GetNextAvailabilityTool(BaseTool):
         start_time: Optional[str] = None
     ) -> str:
         """Execute the tool asynchronously."""
+        # #region agent log H5
+        try:
+            import time as _t
+            open('/Users/Dima/universal-multiagent/.cursor/debug.log','a').write(json.dumps({"location":"calendar_tools.py:GetNextAvailabilityTool","message":"Tool called","data":{"attendees":attendees,"duration":duration,"start_time":start_time},"timestamp":int(_t.time()*1000),"sessionId":"debug-session","hypothesisId":"H5"})+'\n')
+        except: pass
+        # #endregion
         try:
             from src.core.meeting_scheduler import MeetingScheduler
             
@@ -225,16 +231,24 @@ class GetNextAvailabilityTool(BaseTool):
             if slot:
                 slot_start = slot["start"]
                 slot_end = slot["end"]
-                # Format result
-                result = (
-                    f"✅ Found available slot:\n"
-                    f"   Start: {slot_start.strftime('%Y-%m-%d %H:%M')}\n"
-                    f"   End: {slot_end.strftime('%H:%M')}\n"
-                    f"   Duration: {duration_minutes} minutes\n"
-                    f"   Attendees: {', '.join(attendee_emails)}\n\n"
-                    f"You can now create the meeting using create_event with start_time=\"{slot_start.strftime('%Y-%m-%d %H:%M')}\"."
+                
+                # Get busy summary from scheduler
+                busy_summary = scheduler.get_busy_summary(7)
+                
+                # Format result - ASK FOR CONFIRMATION (same as ScheduleGroupMeetingTool)
+                response = (
+                    f"🔍 Найдено свободное время для встречи:\n\n"
+                    f"📅 **{slot_start.strftime('%Y-%m-%d %H:%M')} - {slot_end.strftime('%H:%M')}**\n"
+                    f"👥 Участники: {', '.join(attendee_emails)}\n"
+                    f"⏱ Длительность: {duration_minutes} мин\n\n"
                 )
-                return result
+                
+                if busy_summary:
+                    response += f"{busy_summary}\n\n"
+                
+                response += f"**Создать встречу на это время?**"
+                
+                return response
             else:
                 return (
                     f"❌ No available slot found in the next 7 days for all attendees: {', '.join(attendee_emails)}.\n"
@@ -898,6 +912,8 @@ class ScheduleGroupMeetingInput(BaseModel):
     search_days: int = Field(default=7, description="Number of days to search for available slot")
     working_hours_start: int = Field(default=9, description="Start of working hours (0-23)")
     working_hours_end: int = Field(default=18, description="End of working hours (0-23)")
+    confirmed: bool = Field(default=False, description="Must be True to actually create the meeting. If False, returns found slot for user confirmation")
+    slot_start: Optional[str] = Field(default=None, description="Start time of confirmed slot (for second call with confirmed=True)")
 
 
 class ScheduleGroupMeetingTool(BaseTool):
@@ -906,11 +922,30 @@ class ScheduleGroupMeetingTool(BaseTool):
     
     Finds the first available time slot when ALL participants are free,
     respecting buffer time between meetings.
+    
+    IMPORTANT: Requires user confirmation before creating the meeting!
     """
     
     name: str = "schedule_group_meeting"
     description: str = """
     Schedule a meeting with multiple participants by finding the first available time slot.
+    
+    ⚠️ ВАЖНО: Этот инструмент ТРЕБУЕТ подтверждения пользователя перед созданием встречи!
+    
+    ПРОЦЕСС ИСПОЛЬЗОВАНИЯ (ОБЯЗАТЕЛЬНЫЙ ДВУХШАГОВЫЙ ПРОЦЕСС):
+    
+    1️⃣ ПЕРВЫЙ ВЫЗОВ (поиск свободного времени):
+       - Вызови с confirmed=False (по умолчанию)
+       - Инструмент найдёт первое свободное время для всех участников
+       - ПОКАЖИ ПОЛЬЗОВАТЕЛЮ найденное время и СПРОСИ: "Создаю встречу на [время]?"
+    
+    2️⃣ ОЖИДАНИЕ ПОДТВЕРЖДЕНИЯ:
+       - Дождись явного подтверждения от пользователя ("да", "создавай", "подтверждаю" и т.п.)
+       - Если пользователь отказывается - НЕ вызывай инструмент повторно
+    
+    3️⃣ ВТОРОЙ ВЫЗОВ (создание после подтверждения):
+       - Вызови с confirmed=True и передай slot_start из первого вызова
+       - Инструмент создаст встречу
     
     Features:
     - Finds first slot when ALL participants are free
@@ -922,15 +957,14 @@ class ScheduleGroupMeetingTool(BaseTool):
     - attendees: List of attendee emails (required)
     - duration: Meeting duration (default '50m')
     - buffer: Buffer after meeting (default '10m')
-    - description: Optional meeting description
-    - location: Optional location or video link
-    - search_days: Days to search (default 7)
-    - working_hours_start: Start hour (default 9)
-    - working_hours_end: End hour (default 18)
+    - confirmed: Must be True to create meeting (default False - just search)
+    - slot_start: Start time for confirmed meeting (required when confirmed=True)
     
     Example:
-    - title="Командная встреча", attendees=["alice@example.com", "bob@example.com"]
-    - Will find first slot where both Alice and Bob are available
+    1st call: schedule_group_meeting(title="Встреча", attendees=["a@x.com"], confirmed=False)
+    → "Найдено время: 2026-01-15 16:10. Создаю встречу?"
+    After user says "да":
+    2nd call: schedule_group_meeting(title="Встреча", attendees=["a@x.com"], confirmed=True, slot_start="2026-01-15 16:10")
     """
     args_schema: type = ScheduleGroupMeetingInput
     
@@ -945,7 +979,9 @@ class ScheduleGroupMeetingTool(BaseTool):
         location: Optional[str] = None,
         search_days: int = 7,
         working_hours_start: int = 9,
-        working_hours_end: int = 18
+        working_hours_end: int = 18,
+        confirmed: bool = False,
+        slot_start: Optional[str] = None
     ) -> str:
         """Execute the tool asynchronously."""
         try:
@@ -963,6 +999,7 @@ class ScheduleGroupMeetingTool(BaseTool):
             
             # Get organizer's email (primary calendar) and include in participants
             mcp_manager = get_mcp_manager()
+            organizer_email = None
             try:
                 calendars_result = await mcp_manager.call_tool("list_calendars", {}, server_name="calendar")
                 # Parse result to find primary calendar email
@@ -983,6 +1020,46 @@ class ScheduleGroupMeetingTool(BaseTool):
             except Exception as e:
                 logger.warning(f"[ScheduleGroupMeetingTool] Could not get organizer email: {e}")
             
+            # ========== CONFIRMED MODE: Create the meeting ==========
+            if confirmed and slot_start:
+                # Parse provided slot_start
+                parsed_slot_start = parse_datetime(slot_start, timezone)
+                parsed_slot_end = parsed_slot_start + timedelta(minutes=duration_minutes)
+                
+                # Create the event using MCP
+                event_args = {
+                    "summary": title,
+                    "start": {
+                        "dateTime": parsed_slot_start.isoformat(),
+                        "timeZone": timezone
+                    },
+                    "end": {
+                        "dateTime": parsed_slot_end.isoformat(),
+                        "timeZone": timezone
+                    },
+                    "attendees": [{"email": email} for email in attendee_emails]
+                }
+                
+                if description:
+                    event_args["description"] = description
+                
+                if location:
+                    event_args["location"] = location
+                
+                await mcp_manager.call_tool("create_event", event_args, server_name="calendar")
+                
+                # Format response
+                formatted_start = parsed_slot_start.strftime("%Y-%m-%d %H:%M")
+                formatted_end = parsed_slot_end.strftime("%H:%M")
+                
+                return (
+                    f"✅ Встреча '{title}' создана!\n"
+                    f"📅 Время: {formatted_start} - {formatted_end}\n"
+                    f"👥 Участники: {', '.join(attendee_emails)}\n"
+                    f"⏱ Длительность: {duration_minutes} мин"
+                )
+            
+            # ========== SEARCH MODE: Find available slot ==========
             # Calculate search range
             search_start = now
             search_end = now + timedelta(days=search_days)
@@ -1002,55 +1079,42 @@ class ScheduleGroupMeetingTool(BaseTool):
             
             if not slot:
                 return (
-                    f"Не удалось найти свободное время для встречи '{title}' "
-                    f"с участниками {', '.join(attendee_emails)} в ближайшие {search_days} дней. "
+                    f"❌ Не удалось найти свободное время для встречи '{title}' "
+                    f"с участниками {', '.join(attendee_emails)} в ближайшие {search_days} дней.\n"
                     f"Попробуйте увеличить период поиска или изменить рабочие часы."
                 )
             
             # Format slot times
-            slot_start = slot["start"]
-            slot_end = slot["end"]
+            found_slot_start = slot["start"]
+            found_slot_end = slot["end"]
             
             # Localize if needed
-            if slot_start.tzinfo is None:
-                slot_start = tz.localize(slot_start)
-            if slot_end.tzinfo is None:
-                slot_end = tz.localize(slot_end)
+            if found_slot_start.tzinfo is None:
+                found_slot_start = tz.localize(found_slot_start)
+            if found_slot_end.tzinfo is None:
+                found_slot_end = tz.localize(found_slot_end)
             
-            # Create the event using MCP
-            mcp_manager = get_mcp_manager()
+            # Format response - ASK FOR CONFIRMATION
+            formatted_start = found_slot_start.strftime("%Y-%m-%d %H:%M")
+            formatted_end = found_slot_end.strftime("%H:%M")
+            slot_start_for_confirm = found_slot_start.strftime("%Y-%m-%d %H:%M")
             
-            event_args = {
-                "summary": title,
-                "start": {
-                    "dateTime": slot_start.isoformat(),
-                    "timeZone": timezone
-                },
-                "end": {
-                    "dateTime": slot_end.isoformat(),
-                    "timeZone": timezone
-                },
-                "attendees": [{"email": email} for email in attendee_emails]
-            }
+            # Get busy summary from scheduler
+            busy_summary = scheduler.get_busy_summary(search_days)
             
-            if description:
-                event_args["description"] = description
-            
-            if location:
-                event_args["location"] = location
-            
-            result = await mcp_manager.call_tool("create_event", event_args, server_name="calendar")
-            
-            # Format response
-            formatted_start = slot_start.strftime("%Y-%m-%d %H:%M")
-            formatted_end = slot_end.strftime("%H:%M")
-            
-            return (
-                f"✅ Встреча '{title}' запланирована!\n"
-                f"📅 Время: {formatted_start} - {formatted_end}\n"
+            response = (
+                f"🔍 Найдено свободное время для встречи '{title}':\n\n"
+                f"📅 **{formatted_start} - {formatted_end}**\n"
                 f"👥 Участники: {', '.join(attendee_emails)}\n"
-                f"⏱ Длительность: {duration_minutes} мин (+ {buffer_minutes} мин буфер)"
+                f"⏱ Длительность: {duration_minutes} мин\n\n"
             )
+            
+            if busy_summary:
+                response += f"{busy_summary}\n\n"
+            
+            response += f"**Создать встречу на это время?**"
+            
+            return response
             
         except ValidationError as e:
             raise ToolExecutionError(
