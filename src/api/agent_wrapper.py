@@ -195,6 +195,7 @@ Initialize agent wrapper."""
         
         # Add message to context
         context.add_message("user", user_message)
+        
         # Send thinking event
         await self.ws_manager.send_event(
             session_id,

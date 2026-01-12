@@ -220,59 +220,73 @@ class UnifiedReActEngine:
         # Priority: 1) Conversation history, 2) Entity memory keywords, 3) General patterns
         if not file_ids and context and hasattr(context, 'uploaded_files') and context.uploaded_files:
             
-            # 1. First, search conversation history for references
-            # "расскажи про человека" → find where "человек" was mentioned → get source file
-            history_source_files = find_source_for_reference(goal, context)
+            # NEW: Check if query has multiple parts (conjunction) - likely asking about multiple files
+            goal_lower = goal.lower()
+            multi_part_indicators = [' и ', ' а также ', ' ещё ', ' еще ', ' плюс ', ' потом ']
+            is_multi_part_query = any(ind in goal_lower for ind in multi_part_indicators)
             
-            if history_source_files:
-                # Found source files from conversation history
-                # If multiple files, try to narrow down by keyword matching
-                if len(history_source_files) > 1:
-                    keyword_matches = get_relevant_file_ids(goal, context)
-                    if keyword_matches:
-                        # Use intersection: files that are both in history AND match keywords
-                        relevant = [f for f in keyword_matches if f in history_source_files]
-                        if relevant:
-                            file_ids = relevant
-                            logger.info(f"[execute] Narrowed from {len(history_source_files)} to {len(file_ids)} files by keyword: {file_ids}")
-                            print(f"[execute] Narrowed to relevant files: {file_ids}", flush=True)
-                        else:
-                            # No intersection, use keyword matches directly
-                            file_ids = keyword_matches
-                            logger.info(f"[execute] Using keyword matches instead: {file_ids}")
-                            print(f"[execute] Using keyword matches: {file_ids}", flush=True)
-                    else:
-                        # No keyword matches, use all from history
-                        file_ids = history_source_files
-                        logger.info(f"[execute] Using all {len(file_ids)} source files from history: {file_ids}")
-                        print(f"[execute] Using all files from history: {file_ids}", flush=True)
-                else:
-                    # Single file from history
-                    file_ids = history_source_files
-                    logger.info(f"[execute] Found source file from history: {file_ids}")
-                    print(f"[execute] Found source from history: {file_ids}", flush=True)
-            else:
-                # 2. Try keyword-based resolution from entity_memory
-                relevant_ids = get_relevant_file_ids(goal, context)
+            # If multi-part query AND multiple files in context - use ALL files
+            # This handles cases like "расскажи о годовом цикле И опиши спортивную форму"
+            # where different parts refer to different files
+            if is_multi_part_query and len(context.uploaded_files) > 1:
+                file_ids = list(context.uploaded_files.keys())
+                logger.info(f"[execute] Multi-part query detected, using ALL {len(file_ids)} files: {file_ids}")
+                print(f"[execute] Multi-part query - using all files: {file_ids}", flush=True)
+            elif not file_ids:
+                # Only do smart resolution if multi-part didn't apply
+                # 1. First, search conversation history for references
+                # "расскажи про человека" → find where "человек" was mentioned → get source file
+                history_source_files = find_source_for_reference(goal, context)
                 
-                if relevant_ids:
-                    # Found specific relevant files by keywords
-                    file_ids = relevant_ids
-                    logger.info(f"[execute] Found {len(file_ids)} relevant files by keywords: {file_ids}")
-                    print(f"[execute] Found relevant files by keywords: {file_ids}", flush=True)
-                else:
-                    # 3. Check if query seems to be about files in general
-                    goal_lower = goal.lower()
-                    general_file_patterns = ['что видишь', 'что в файл', 'опиши файл', 'опиши все', 
-                                            'про все файлы', 'во всех файлах', 'в файлах']
-                    if any(p in goal_lower for p in general_file_patterns):
-                        # General query about all files
-                        file_ids = list(context.uploaded_files.keys())
-                        logger.info(f"[execute] Using ALL {len(file_ids)} files for general query")
-                        print(f"[execute] Using all files for general query: {file_ids}", flush=True)
+                if history_source_files:
+                    # Found source files from conversation history
+                    # If multiple files, try to narrow down by keyword matching
+                    if len(history_source_files) > 1:
+                        keyword_matches = get_relevant_file_ids(goal, context)
+                        if keyword_matches:
+                            # Use intersection: files that are both in history AND match keywords
+                            relevant = [f for f in keyword_matches if f in history_source_files]
+                            if relevant:
+                                file_ids = relevant
+                                logger.info(f"[execute] Narrowed from {len(history_source_files)} to {len(file_ids)} files by keyword: {file_ids}")
+                                print(f"[execute] Narrowed to relevant files: {file_ids}", flush=True)
+                            else:
+                                # No intersection, use keyword matches directly
+                                file_ids = keyword_matches
+                                logger.info(f"[execute] Using keyword matches instead: {file_ids}")
+                                print(f"[execute] Using keyword matches: {file_ids}", flush=True)
+                        else:
+                            # No keyword matches, use all from history
+                            file_ids = history_source_files
+                            logger.info(f"[execute] Using all {len(file_ids)} source files from history: {file_ids}")
+                            print(f"[execute] Using all files from history: {file_ids}", flush=True)
                     else:
-                        logger.info(f"[execute] No relevant files found for query: {goal[:50]}")
-                        print(f"[execute] No relevant files found for query", flush=True)
+                        # Single file from history
+                        file_ids = history_source_files
+                        logger.info(f"[execute] Found source file from history: {file_ids}")
+                        print(f"[execute] Found source from history: {file_ids}", flush=True)
+                else:
+                    # 2. Try keyword-based resolution from entity_memory
+                    relevant_ids = get_relevant_file_ids(goal, context)
+                    
+                    if relevant_ids:
+                        # Found specific relevant files by keywords
+                        file_ids = relevant_ids
+                        logger.info(f"[execute] Found {len(file_ids)} relevant files by keywords: {file_ids}")
+                        print(f"[execute] Found relevant files by keywords: {file_ids}", flush=True)
+                    else:
+                        # 3. Check if query seems to be about files in general
+                        general_file_patterns = ['что видишь', 'что в файл', 'опиши файл', 'опиши все', 
+                                                'про все файлы', 'во всех файлах', 'в файлах']
+                        if any(p in goal_lower for p in general_file_patterns):
+                            # General query about all files
+                            file_ids = list(context.uploaded_files.keys())
+                            logger.info(f"[execute] Using ALL {len(file_ids)} files for general query")
+                            print(f"[execute] Using all files for general query: {file_ids}", flush=True)
+                        else:
+                            logger.info(f"[execute] No relevant files found for query: {goal[:50]}")
+                            print(f"[execute] No relevant files found for query", flush=True)
+        
         logger.info(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}, file_ids count: {len(file_ids)}")
         print(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}", flush=True)
         if hasattr(context, 'uploaded_files'):
@@ -311,6 +325,19 @@ class UnifiedReActEngine:
                 "intent_start",
                 {"intent_id": task_intent_id, "text": first_phase['description']}
             )
+            # #region agent log - WS_INTENT_START multi-phase
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    f.write(json.dumps({
+                        "location": "unified_react_engine:execute:intent_start_multi",
+                        "message": "WS: intent_start sent (multi-phase)",
+                        "data": {"intent_id": task_intent_id, "text": first_phase['description'], "phase_category": first_phase['category']},
+                        "timestamp": int(time.time()*1000),
+                        "sessionId": self.session_id, "hypothesisId": "WS_EVENTS"
+                    }) + '\n')
+            except Exception:
+                pass
+            # #endregion
         else:
             # Single-phase task: Create ONE task-level intent for the entire goal
             task_intent_id = f"task-{int(time.time() * 1000)}"
@@ -323,6 +350,19 @@ class UnifiedReActEngine:
                 "intent_start",
                 {"intent_id": task_intent_id, "text": task_description}
             )
+            # #region agent log - WS_INTENT_START single-phase
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    f.write(json.dumps({
+                        "location": "unified_react_engine:execute:intent_start_single",
+                        "message": "WS: intent_start sent (single-phase)",
+                        "data": {"intent_id": task_intent_id, "text": task_description},
+                        "timestamp": int(time.time()*1000),
+                        "sessionId": self.session_id, "hypothesisId": "WS_EVENTS"
+                    }) + '\n')
+            except Exception:
+                pass
+            # #endregion
         
         self._task_intent_id = self._current_intent_id  # Store for the entire execution
         _needs_tools_start = time.time()
@@ -361,6 +401,7 @@ class UnifiedReActEngine:
             "hypothesisId": "H_NEEDS_TOOLS"
         }
         try:
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                 f.write(json.dumps(log_data_needs_result, default=str) + "\n")
         except Exception:
             pass
@@ -377,6 +418,19 @@ class UnifiedReActEngine:
                         "summary": "Завершено"
                     }
                 )
+                # #region agent log - WS_INTENT_COMPLETE (no tools)
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        f.write(json.dumps({
+                            "location": "unified_react_engine:execute:intent_complete_no_tools",
+                            "message": "WS: intent_complete sent (no tools needed)",
+                            "data": {"intent_id": self._current_intent_id, "summary": "Завершено"},
+                            "timestamp": int(time.time()*1000),
+                            "sessionId": self.session_id, "hypothesisId": "WS_EVENTS"
+                        }) + '\n')
+                except Exception:
+                    pass
+                # #endregion
             try:
                 return await self._answer_directly(goal, context, state)
             except Exception as e:
@@ -432,6 +486,88 @@ class UnifiedReActEngine:
                 state.status = "acting"
                 planned_tool = action_plan.get("tool_name", "")
                 import json as _json
+                
+                # === ANTI-LOOP: Block repeated read_document calls ===
+                # If document was already read successfully, redirect to format_document_text
+                if planned_tool == "read_document" and len(state.observations) > 0:
+                    planned_doc_id = action_plan.get("arguments", {}).get("document_id", "")
+                    for obs in state.observations:
+                        if obs.action.tool_name == "read_document" and obs.success:
+                            prev_doc_id = obs.action.arguments.get("document_id", "")
+                            if prev_doc_id == planned_doc_id:
+                                # Document already read - check if formatting task
+                                goal_lower = state.goal.lower()
+                                format_keywords = ["форматир", "красиво", "красив", "оформи", "format"]
+                                is_formatting_task = any(kw in goal_lower for kw in format_keywords)
+                                
+                                # Check if formatting was already done
+                                formatting_done = any(
+                                    obs.action.tool_name == "format_document_text" and obs.success
+                                    for obs in state.observations
+                                )
+                                
+                                if is_formatting_task and not formatting_done:
+                                    # Redirect to format_document_text
+                                    logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Document already read, redirecting to format_document_text")
+                                    action_plan = {
+                                        "tool_name": "format_document_text",
+                                        "arguments": {
+                                            "document_id": planned_doc_id,
+                                            "start_index": 1,
+                                            "end_index": 100,
+                                            "bold": True
+                                        },
+                                        "description": "Форматирование заголовка жирным",
+                                        "reasoning": "Документ уже прочитан, применяем форматирование"
+                                    }
+                                    planned_tool = "format_document_text"
+                                else:
+                                    # Not formatting task or already formatted - FINISH
+                                    logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Document already read/formatted, forcing FINISH")
+                                    action_plan = {
+                                        "tool_name": "FINISH",
+                                        "arguments": {},
+                                        "description": "Документ обработан",
+                                        "reasoning": "Документ уже прочитан и отформатирован"
+                                    }
+                                    planned_tool = "FINISH"
+                                break
+                
+                # === CRITICAL: Block update_document for formatting tasks ===
+                # "Красиво оформить" should use format_document_text, NOT update_document
+                # update_document REWRITES the entire document, destroying original text
+                text_modifying_tools = ["update_document", "insert_into_document", "append_to_document"]
+                if planned_tool in text_modifying_tools:
+                    goal_lower = state.goal.lower()
+                    format_keywords = ["форматир", "красиво", "красив", "оформи", "оформить", "format", "выдели", "жирн"]
+                    is_formatting_task = any(kw in goal_lower for kw in format_keywords)
+                    
+                    if is_formatting_task:
+                        # Get document_id from the planned arguments
+                        doc_id = action_plan.get("arguments", {}).get("document_id", "")
+                        logger.warning(f"[UnifiedReActEngine] BLOCK: {planned_tool} blocked for formatting task, should use format_document_text instead")
+                        
+                        # Get document content from previous read_document observation
+                        doc_content = ""
+                        for obs in state.observations:
+                            if obs.action.tool_name == "read_document" and obs.success:
+                                doc_content = str(obs.raw_result)[:500] if obs.raw_result else ""
+                                break
+                        
+                        # Redirect to format_document_text - format title bold
+                        action_plan = {
+                            "tool_name": "format_document_text",
+                            "arguments": {
+                                "document_id": doc_id,
+                                "start_index": 1,  # Start after beginning
+                                "end_index": 100,  # Format first 100 chars (title area)
+                                "bold": True
+                            },
+                            "description": "Форматирование заголовка жирным шрифтом",
+                            "reasoning": f"Задача форматирования: используем format_document_text вместо {planned_tool}"
+                        }
+                        planned_tool = "format_document_text"
+                
                 # === ANTI-LOOP: Detect repeated get_calendar_events calls ===
                 if planned_tool == "get_calendar_events" and len(state.action_history) > 0:
                     # Check if last action was also get_calendar_events
@@ -553,10 +689,17 @@ class UnifiedReActEngine:
                     # Allow transition if:
                     # 1. Task was detected as multi-phase initially, OR
                     # 2. We're using a different category than current (dynamic detection)
+                    # BUT: Skip transitions involving docs_format to prevent UI flickering during document formatting
+                    is_formatting_transition = (
+                        new_category == 'docs_format' or 
+                        self._current_phase_category == 'docs_format' or
+                        (self._current_phase_category == 'files' and new_category == 'docs_format')
+                    )
                     should_transition = (
                         new_category != self._current_phase_category and 
                         new_category != 'general' and
-                        (self._is_multi_phase or self._current_phase_category is not None)
+                        (self._is_multi_phase or self._current_phase_category is not None) and
+                        not is_formatting_transition  # Prevent UI flickering for formatting tasks
                     )
                     
                     if should_transition:
@@ -570,6 +713,19 @@ class UnifiedReActEngine:
                                     "summary": "Завершено"
                                 }
                             )
+                            # #region agent log - WS_INTENT_COMPLETE (phase transition)
+                            try:
+                                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                                    f.write(json.dumps({
+                                        "location": "unified_react_engine:_think_and_plan:phase_transition_complete",
+                                        "message": "WS: intent_complete sent (phase transition)",
+                                        "data": {"intent_id": self._current_intent_id, "old_category": self._current_phase_category, "new_category": new_category},
+                                        "timestamp": int(time.time()*1000),
+                                        "sessionId": self.session_id, "hypothesisId": "WS_EVENTS"
+                                    }) + '\n')
+                            except Exception:
+                                pass
+                            # #endregion
                         
                         # Find or create intent for new phase
                         if new_category in self._phase_intent_ids:
@@ -587,6 +743,19 @@ class UnifiedReActEngine:
                                 "intent_start",
                                 {"intent_id": new_intent_id, "text": phase_description}
                             )
+                            # #region agent log - WS_INTENT_START (phase transition)
+                            try:
+                                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                                    f.write(json.dumps({
+                                        "location": "unified_react_engine:_think_and_plan:phase_transition_start",
+                                        "message": "WS: intent_start sent (phase transition)",
+                                        "data": {"intent_id": new_intent_id, "text": phase_description, "old_category": self._current_phase_category, "new_category": new_category},
+                                        "timestamp": int(time.time()*1000),
+                                        "sessionId": self.session_id, "hypothesisId": "WS_EVENTS"
+                                    }) + '\n')
+                            except Exception:
+                                pass
+                            # #endregion
                             logger.info(f"[UnifiedReActEngine] Phase transition: {self._current_phase_category} -> {new_category}")
                         self._current_phase_category = new_category
                         self._task_intent_id = self._current_intent_id
@@ -607,6 +776,8 @@ class UnifiedReActEngine:
                         'read_document',
                         'update_document',
                         'get_presentation',
+                        'format_document_text',
+                        'format_document_paragraph',
                     }
                     import json as _json
                     import time as _time
@@ -965,6 +1136,7 @@ class UnifiedReActEngine:
             "hypothesisId": "H_NEEDS_TOOLS"
         }
         try:
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                 f.write(json.dumps(log_data_needs_tools, default=str) + "\n")
         except Exception:
             pass
@@ -997,6 +1169,11 @@ class UnifiedReActEngine:
             'обнови', 'update', 'измени', 'change', 'изменение',
             'удали', 'delete', 'очисти', 'clear', 'удаление',
             'скопируй', 'copy', 'перенеси', 'move', 'перемести',
+            # Document formatting keywords - CRITICAL for formatting tasks
+            'отформатируй', 'форматируй', 'format', 'оформи', 'оформить',
+            'красиво', 'красив',  # "красиво оформить", "сделай красиво"
+            'отредактируй', 'редактируй', 'edit', 'выдели', 'highlight',
+            'жирн', 'bold', 'курсив', 'italic', 'подчеркн', 'underline',
         ]
         
         for keyword in tool_keywords_early:
@@ -1011,6 +1188,7 @@ class UnifiedReActEngine:
                     "hypothesisId": "H_NEEDS_TOOLS"
                 }
                 try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                         f.write(json.dumps(log_data, default=str) + "\n")
                 except Exception:
                     pass
@@ -1716,6 +1894,13 @@ class UnifiedReActEngine:
             'read_document': 'files',  # Google Docs reading
             'docs_read': 'files',
             
+            # Document operations (Google Docs)
+            'update_document': 'docs_write',
+            'insert_into_document': 'docs_write',
+            'append_to_document': 'docs_write',
+            'format_document_text': 'docs_format',
+            'format_document_paragraph': 'docs_format',
+            
             # Charts / Visualization
             'create_chart': 'visualization',
             'slides_create': 'visualization',
@@ -1747,6 +1932,8 @@ class UnifiedReActEngine:
             'sheets_read': '📋 Чтение таблицы',
             'sheets_write': '📋 Запись в таблицу',
             'files': '📁 Поиск и чтение файлов',
+            'docs_write': '📄 Обновление документа',
+            'docs_format': '📄 Форматирование документа',
             'code': '🐍 Выполнение кода',
             'visualization': '📈 Создание графика',
             'files': '📁 Поиск файлов',
@@ -2037,9 +2224,17 @@ class UnifiedReActEngine:
             total_files_in_context = len(context.uploaded_files)
             logger.info(f"[_think] Total files in context.uploaded_files: {total_files_in_context}")
             print(f"[_think] Total files in context.uploaded_files: {total_files_in_context}, keys: {list(context.uploaded_files.keys())}", flush=True)
-        if file_ids:
+        # Use file_ids if provided, otherwise use all files from context
+        files_to_process = file_ids if file_ids else []
+        if not files_to_process and hasattr(context, 'uploaded_files') and context.uploaded_files:
+            # If no file_ids provided, use all files from context
+            files_to_process = list(context.uploaded_files.keys())
+            logger.info(f"[_think] No file_ids provided, using all {len(files_to_process)} files from context")
+            print(f"[_think] No file_ids provided, using all files from context: {files_to_process}", flush=True)
+        
+        if files_to_process:
             uploaded_files_found = []
-            for file_id in file_ids:
+            for file_id in files_to_process:
                 file_data = context.get_file(file_id)
                 if file_data:
                     logger.info(f"[_think] Found file {file_id}: {file_data.get('filename')}, type: {file_data.get('type')}, has_text: {'text' in file_data}")
@@ -2069,14 +2264,17 @@ class UnifiedReActEngine:
                         if len(docx_text) > max_len:
                             docx_text = docx_text[:max_len] + "\n... (обрезано, полный текст " + str(len(file_data.get('text', ''))) + " символов)"
                         context_str += f"- Word документ: {filename}\n{docx_text}\n"
+                    elif file_type.startswith('image/'):
+                        # For images, add description (image data is stored as base64 in 'data' field)
+                        context_str += f"- Изображение: {filename} (тип: {file_type})\n"
                     else:
                         context_str += f"- {filename}\n"
             else:
-                logger.warning(f"[_think] file_ids provided ({file_ids}) but no files found in context!")
+                logger.warning(f"[_think] file_ids provided ({files_to_process}) but no files found in context!")
                 print(f"[_think] WARNING: file_ids provided but no files found!", flush=True)
         else:
-            logger.info(f"[_think] No file_ids provided")
-            print(f"[_think] No file_ids provided", flush=True)
+            logger.info(f"[_think] No file_ids provided and no files in context")
+            print(f"[_think] No file_ids provided and no files in context", flush=True)
         
         # Add open files context (PRIORITY #2)
         import json
@@ -2440,6 +2638,38 @@ class UnifiedReActEngine:
 ВАЖНО для данных:
 - Если получен результат с количеством событий/данных, но БЕЗ деталей - получи ДЕТАЛИ
 - НЕ завершай задачу, пока не получены все необходимые детали для ответа пользователю
+
+⚠️ КРИТИЧЕСКИ ВАЖНО для ФОРМАТИРОВАНИЯ ДОКУМЕНТОВ:
+- "красиво оформить" / "отформатировать" = ТОЛЬКО format_document_text и format_document_paragraph!
+- ❌ ЗАПРЕЩЕНО: update_document - это ПЕРЕЗАПИСЬ всего текста!
+- ❌ ЗАПРЕЩЕНО: insert_into_document - это ДОБАВЛЕНИЕ нового текста!
+- ❌ ЗАПРЕЩЕНО: append_to_document - это ДОБАВЛЕНИЕ текста в конец!
+
+✅ ДВА инструмента для форматирования:
+1. format_document_paragraph - для стиля ВСЕХ абзацев (выравнивание, отступы)
+   ⚠️ ВАЖНО: Используй TEXT_LENGTH из read_document как end_index!
+   Пример: format_document_paragraph(document_id, start_index=1, end_index=TEXT_LENGTH, alignment="JUSTIFIED", indent_first_line=36)
+2. format_document_text - для выделения текста (bold, italic)
+   Пример: format_document_text(document_id, start_index=1, end_index=20, bold=True) - заголовок
+
+📋 "Красиво оформить" = 3 ОБЯЗАТЕЛЬНЫХ шага:
+1. format_document_paragraph(start_index=1, end_index=TEXT_LENGTH, alignment="JUSTIFIED", indent_first_line=36) - ВЕСЬ документ
+2. format_document_text(start_index=1, end_index=<конец_заголовка>, bold=True) - заголовок жирным
+3. Найти имена персонажей через search_document_text и выделить их жирным через format_document_text
+
+⚠️ ОБЯЗАТЕЛЬНО:
+- end_index для format_document_paragraph = TEXT_LENGTH (из результата read_document)
+- НЕ выбирай произвольные значения типа 800 или 500!
+- Выдели жирным: заголовок + имена персонажей + ключевые фразы
+- НЕ меняй содержание текста!
+
+Порядок действий:
+1. read_document → найти [TEXT_LENGTH: X characters] в результате
+2. format_document_paragraph(end_index=X) → выравнивание для ВСЕГО документа
+3. format_document_text(bold=True) → заголовок жирным
+4. search_document_text → найти имена персонажей
+5. format_document_text(bold=True) → имена персонажей жирным
+6. FINISH
 
 Выбери ОДИН инструмент и укажи параметры для его вызова. Ответь в формате JSON:
 {{
@@ -2854,14 +3084,11 @@ class UnifiedReActEngine:
             # Передаём intent_id для отправки intent_detail событий
             current_intent_id = getattr(self, '_current_intent_id', None)
             
-            # FIX: Очищаем thinkingText перед каждой новой итерацией
-            # чтобы не накапливался текст от предыдущих итераций
-            if current_intent_id:
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "intent_thinking_clear",
-                    {"intent_id": current_intent_id}
-                )
+            # REMOVED: intent_thinking_clear was causing the plan to disappear!
+            # When thinkingText is cleared and phase is 'executing', 
+            # showPlanningSection becomes false and the entire section vanishes.
+            # Instead, we let the thinking text accumulate between iterations,
+            # which shows the full reasoning process to the user.
             
             parser = self.StreamingThoughtParser(
                 self.ws_manager, 
@@ -3144,6 +3371,22 @@ class UnifiedReActEngine:
                     'streaming_title': 'Слайды презентации',
                     'operation_type': 'read',
                     'file_type': 'slides'
+                },
+                
+                # Docs - форматирование текста
+                'format_document_text': {
+                    'title': 'Выделяю текст жирным...',
+                    'streaming_title': 'Выделение текста',
+                    'operation_type': 'write',
+                    'file_type': 'docs'
+                },
+                
+                # Docs - форматирование абзацев
+                'format_document_paragraph': {
+                    'title': 'Форматирую абзацы...',
+                    'streaming_title': 'Выравнивание и отступы',
+                    'operation_type': 'write',
+                    'file_type': 'docs'
                 },
             }
             import json as _json
@@ -3482,6 +3725,28 @@ class UnifiedReActEngine:
                         )
                 except Exception as e:
                     logger.warning(f"[UnifiedReActEngine] Failed to process slides operation for {capability_name}: {e}", exc_info=True)
+                    result_summary = self._get_result_summary(capability_name, result)
+                    if result_summary:
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            result_summary
+                        )
+            
+            # Docs formatting operations
+            elif capability_name in ['format_document_text', 'format_document_paragraph']:
+                result_str = str(result)
+                if 'Successfully applied' in result_str:
+                    if capability_name == 'format_document_paragraph':
+                        summary = "✓ Абзацы отформатированы"
+                    else:
+                        summary = "✓ Текст выделен"
+                    await self.ws_manager.send_operation_end(
+                        self.session_id,
+                        operation_id,
+                        summary
+                    )
+                else:
                     result_summary = self._get_result_summary(capability_name, result)
                     if result_summary:
                         await self.ws_manager.send_operation_end(
@@ -3952,12 +4217,29 @@ class UnifiedReActEngine:
                                     }
                                 })
             
-            # Create message (multimodal if images present)
+            # Create messages list with conversation history for context
+            messages = []
+            
+            # Add conversation history for follow-up context (CRITICAL for reference resolution)
+            # This allows the model to understand what was discussed before
+            if context and hasattr(context, 'messages') and context.messages:
+                recent_msgs = context.messages[-6:]  # Last 3 exchanges
+                for msg in recent_msgs:
+                    role = msg.get('role', 'user')
+                    content = msg.get('content', '')
+                    if not content:
+                        continue
+                    if role == 'user':
+                        messages.append(HumanMessage(content=content))
+                    elif role == 'assistant':
+                        messages.append(AIMessage(content=content))
+            
+            # Create current message (multimodal if images present)
             if image_contents:
                 message_content = [{"type": "text", "text": prompt}] + image_contents
-                messages = [HumanMessage(content=message_content)]
+                messages.append(HumanMessage(content=message_content))
             else:
-                messages = [HumanMessage(content=prompt)]
+                messages.append(HumanMessage(content=prompt))
 
             # Stream the response
             full_answer = ""
