@@ -169,28 +169,6 @@ class ResultAnalyzer:
             format_keywords = ["форматир", "красиво", "оформи", "format", "выдели", "жирн"]
             has_additional_requirements = any(kw in goal_lower for kw in format_keywords)
             
-            # #region agent log - H4: goal completing tool check
-            try:
-                import json as _json
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    f.write(_json.dumps({
-                        "location": "result_analyzer.py:164",
-                        "message": "H4: Goal completing tool detected",
-                        "data": {
-                            "tool_name": action.tool_name,
-                            "has_success": "success" in result_str or "успешно" in result_str,
-                            "has_additional_requirements": has_additional_requirements,
-                            "will_mark_goal_achieved": not has_additional_requirements,
-                            "result_preview": result_str[:200]
-                        },
-                        "timestamp": __import__("time").time() * 1000,
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H4"
-                    }) + "\n")
-            except Exception:
-                pass
-            # #endregion
-            
             if "success" in result_str or "успешно" in result_str:
                 # Если есть дополнительные требования (форматирование) - НЕ завершаем
                 if has_additional_requirements:

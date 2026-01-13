@@ -701,29 +701,6 @@ class UnifiedReActEngine:
                                 )
                                 doc_length = self._get_document_length_from_observations(state)
                                 
-                                # #region agent log - H6: ANTI-LOOP read_document redirect
-                                try:
-                                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                                        import json as _json
-                                        f.write(_json.dumps({
-                                            "location": "unified_react_engine.py:ANTI-LOOP",
-                                            "message": "H6: read_document ANTI-LOOP check",
-                                            "data": {
-                                                "needs_modification": needs_modification,
-                                                "modify_done": modify_done,
-                                                "needs_formatting": needs_formatting,
-                                                "bold_count": bold_count,
-                                                "paragraph_done": paragraph_done,
-                                                "iteration": state.iteration
-                                            },
-                                            "timestamp": __import__("time").time() * 1000,
-                                            "sessionId": self.session_id,
-                                            "hypothesisId": "H6"
-                                        }) + "\n")
-                                except Exception:
-                                    pass
-                                # #endregion
-                                
                                 # КРИТИЧЕСКАЯ ЛОГИКА: Если нужна модификация (хокку) И она НЕ сделана
                                 # → НЕ перенаправляем на форматирование! Пусть LLM добавит хокку.
                                 if needs_modification and not modify_done:
@@ -826,54 +803,12 @@ class UnifiedReActEngine:
                     # Проверяем, является ли задача составной
                     is_compound, phases = self._is_compound_task(state.goal)
                     
-                    # #region agent log - H1: compound task detection
-                    try:
-                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                            import json as _json
-                            f.write(_json.dumps({
-                                "location": "unified_react_engine.py:730",
-                                "message": "H1: Compound task detection",
-                                "data": {
-                                    "is_compound": is_compound,
-                                    "phases": phases,
-                                    "planned_tool": planned_tool,
-                                    "is_formatting_task": is_formatting_task,
-                                    "iteration": state.iteration,
-                                    "observations_count": len(state.observations)
-                                },
-                                "timestamp": __import__("time").time() * 1000,
-                                "sessionId": self.session_id,
-                                "hypothesisId": "H1"
-                            }) + "\n")
-                    except Exception:
-                        pass
-                    # #endregion
-                    
                     if is_compound and "modify" in phases:
                         # Составная задача - проверяем, выполнена ли фаза модификации
                         modify_done = any(
                             obs.action.tool_name in text_modifying_tools and obs.success
                             for obs in state.observations
                         )
-                        # #region agent log - H3: modify phase check
-                        try:
-                            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                                import json as _json
-                                f.write(_json.dumps({
-                                    "location": "unified_react_engine.py:755",
-                                    "message": "H3: Modify phase check",
-                                    "data": {
-                                        "modify_done": modify_done,
-                                        "planned_tool": planned_tool,
-                                        "will_redirect_to_format": modify_done
-                                    },
-                                    "timestamp": __import__("time").time() * 1000,
-                                    "sessionId": self.session_id,
-                                    "hypothesisId": "H3"
-                                }) + "\n")
-                        except Exception:
-                            pass
-                        # #endregion
                         
                         if not modify_done:
                             # Разрешаем модификацию - это первая фаза составной задачи
@@ -993,26 +928,6 @@ class UnifiedReActEngine:
                             obs.action.tool_name == "format_document_paragraph" and obs.success
                             for obs in state.observations
                         )
-                        # #region agent log - H9: Premature FINISH check
-                        try:
-                            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                                import json as _json
-                                f.write(_json.dumps({
-                                    "location": "unified_react_engine.py:FINISH-CHECK",
-                                    "message": "H9: Premature FINISH check",
-                                    "data": {
-                                        "is_formatting_task": is_formatting_task,
-                                        "paragraph_done": paragraph_done,
-                                        "will_redirect": not paragraph_done,
-                                        "iteration": state.iteration
-                                    },
-                                    "timestamp": __import__("time").time() * 1000,
-                                    "sessionId": self.session_id,
-                                    "hypothesisId": "H9"
-                                }) + "\n")
-                        except Exception:
-                            pass
-                        # #endregion
                         
                         if not paragraph_done:
                             # FINISH преждевременный - нужно ещё отформатировать абзацы
@@ -3614,35 +3529,6 @@ class UnifiedReActEngine:
                 HumanMessage(content=prompt)
             ]
             
-            # #region agent log - H10: Full prompt sent to LLM (optimized XML structure)
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    import json as _json
-                    model_name = getattr(self.llm, 'model_name', 'unknown')
-                    if not model_name or model_name == 'unknown':
-                        model_name = str(type(self.llm).__name__)
-                    
-                    f.write(_json.dumps({
-                        "location": "unified_react_engine.py:_think_and_plan",
-                        "message": "H10: OPTIMIZED XML PROMPT",
-                        "data": {
-                            "iteration": state.iteration,
-                            "model_name": model_name,
-                            "is_fast_llm": False,  # Всегда основная модель теперь
-                            "completed_tools": completed_tools,
-                            "next_step": next_step,
-                            "relevant_tools_count": len(relevant_tools),
-                            "prompt_length": len(prompt),
-                            "full_prompt": prompt[:3000]
-                        },
-                        "timestamp": __import__("time").time() * 1000,
-                        "sessionId": self.session_id,
-                        "hypothesisId": "H10"
-                    }) + "\n")
-            except Exception:
-                pass
-            # #endregion
-            
             # Создаём парсер для стриминга thought
             # Передаём intent_id для отправки intent_detail событий
             current_intent_id = getattr(self, '_current_intent_id', None)
@@ -3692,29 +3578,6 @@ class UnifiedReActEngine:
             
             # Получаем thought из парсера
             thought = parser.get_thought()
-            _think_duration = __import__("time").time() - _think_start
-            
-            # #region agent log - H8: Thinking duration
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    import json as _json
-                    f.write(_json.dumps({
-                        "location": "unified_react_engine.py:_think_and_plan",
-                        "message": "H8: Thinking stream completed",
-                        "data": {
-                            "iteration": state.iteration,
-                            "duration_sec": round(_think_duration, 1),
-                            "chunk_count": _chunk_count,
-                            "thought_len": len(thought) if thought else 0,
-                            "full_response_len": len(full_response)
-                        },
-                        "timestamp": __import__("time").time() * 1000,
-                        "sessionId": self.session_id,
-                        "hypothesisId": "H8"
-                    }) + "\n")
-            except Exception:
-                pass
-            # #endregion
             
             # Remove duplicate patterns from thought
             # Some LLMs (especially Claude 3 Haiku) tend to repeat their analysis
@@ -3801,33 +3664,6 @@ class UnifiedReActEngine:
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
-            
-            # #region agent log - H11: LLM response and parsed action
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    import json as _json
-                    model_name = getattr(self.llm, 'model_name', 'unknown')
-                    # Проверяем: повторяет ли модель действие из completed_tools?
-                    is_repeat = tool_name in completed_tools and tool_name not in ["FINISH", "format_document_text", "format_document_paragraph"]
-                    f.write(_json.dumps({
-                        "location": "unified_react_engine.py:_think_and_plan",
-                        "message": "H11: PARSED ACTION",
-                        "data": {
-                            "iteration": state.iteration,
-                            "model_name": model_name,
-                            "tool_name": tool_name,
-                            "is_repeat_action": is_repeat,
-                            "completed_tools": completed_tools,
-                            "thought_preview": thought[:500] if thought else "",
-                            "action_plan": action_plan
-                        },
-                        "timestamp": __import__("time").time() * 1000,
-                        "sessionId": self.session_id,
-                        "hypothesisId": "H11"
-                    }) + "\n")
-            except Exception:
-                pass
-            # #endregion
             
             # Check for dangerous operations without explicit request
             DANGEROUS_OPERATIONS = {
