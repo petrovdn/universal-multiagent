@@ -518,10 +518,25 @@ class MCPConnection:
             if self.config.transport == "stdio" and self.session:
                 import time as _time
                 import json as _json
-                _session_call_start = _time.time()                try:
+                _session_call_start = _time.time()
+                try:
+                    open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp_loader:before_session_call", "message": "Before session.call_tool", "data": {"tool_name": tool_name, "server": self.config.name, "arguments": str(arguments)[:200]}, "timestamp": int(_session_call_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+                except Exception:
+                    pass
+                try:
                     result = await self.session.call_tool(tool_name, arguments)
-                    _session_call_end = _time.time()                except Exception as mcp_exception:
-                    _session_call_end = _time.time()                    # MCP call raised an exception
+                    _session_call_end = _time.time()
+                    try:
+                        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp_loader:after_session_call_SUCCESS", "message": "After session.call_tool SUCCESS", "data": {"tool_name": tool_name, "server": self.config.name, "duration_ms": int((_session_call_end - _session_call_start)*1000), "result_type": type(result).__name__}, "timestamp": int(_session_call_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
+                    except Exception:
+                        pass
+                except Exception as mcp_exception:
+                    _session_call_end = _time.time()
+                    try:
+                        open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp_loader:session_call_ERROR", "message": "SESSION CALL ERROR", "data": {"tool_name": tool_name, "server": self.config.name, "duration_ms": int((_session_call_end - _session_call_start)*1000), "error": str(mcp_exception), "error_type": type(mcp_exception).__name__}, "timestamp": int(_session_call_end*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
+                    except Exception:
+                        pass
+                    # MCP call raised an exception
                     error_msg = str(mcp_exception) if str(mcp_exception) else f"MCP call failed: {type(mcp_exception).__name__}"
                     logger.error(
                         f"Tool execution failed: {tool_name} on {self.config.name}. "
@@ -703,31 +718,51 @@ class MCPServerManager:
     
     async def connect_all(self) -> Dict[str, bool]:
         """
-        Connect to all configured MCP servers.
+        Connect to all configured MCP servers in parallel.
         
         Returns:
             Dictionary mapping server names to connection status
         """
-        results = {}
-        connected_connections = set()  # Track which connection objects we've already connected
+        import asyncio
         
+        results = {}
+        
+        # Filter enabled connections and avoid duplicates
+        unique_connections: Dict[int, tuple] = {}  # id(connection) -> (name, connection)
         for name, connection in self.connections.items():
             if not connection.config.enabled:
                 results[name] = False
                 continue
-            
-            # If this connection object was already connected (e.g., sheets shares calendar connection)
-            if connection in connected_connections:
-                results[name] = connection.connected
-                continue
-            
+            conn_id = id(connection)
+            if conn_id not in unique_connections:
+                unique_connections[conn_id] = (name, connection)
+            else:
+                # This connection is shared, will get result from primary
+                pass
+        
+        async def connect_one(name: str, connection: 'MCPConnection') -> tuple:
             try:
-                results[name] = await connection.connect()
-                if results[name]:
-                    connected_connections.add(connection)
+                success = await connection.connect()
+                return (name, success, connection)
             except Exception as e:
                 logger.error(f"Failed to connect to {name}: {e}")
-                results[name] = False
+                return (name, False, connection)
+        
+        # Connect all unique connections in parallel
+        tasks = [connect_one(name, conn) for name, conn in unique_connections.values()]
+        if tasks:
+            connect_results = await asyncio.gather(*tasks)
+            
+            # Build results dict
+            conn_status = {id(conn): success for name, success, conn in connect_results}
+            for name, success, conn in connect_results:
+                results[name] = success
+            
+            # Add shared connections status
+            for name, connection in self.connections.items():
+                if name not in results:
+                    conn_id = id(connection)
+                    results[name] = conn_status.get(conn_id, False)
         
         return results
     
