@@ -4982,7 +4982,7 @@ div[style*="padding: '10px'"] .prose li {
   font-size: 13px;
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 4px 0;
+  padding: 0;
 }
 
 .iteration-think-header:hover {
@@ -5082,7 +5082,7 @@ div[style*="padding: '10px'"] .prose li {
 }
 
 .iteration-action-icon.done {
-  color: var(--success-color, #10b981);
+  color: var(--text-secondary);
 }
 
 .iteration-action-icon.pending {
@@ -5119,7 +5119,7 @@ div[style*="padding: '10px'"] .prose li {
 
 .iteration-action-done {
   margin-left: 8px;
-  color: var(--success-color, #10b981);
+  color: var(--text-secondary);
   font-size: 12px;
 }
 

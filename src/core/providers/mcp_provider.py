@@ -140,26 +140,11 @@ class MCPToolProvider(ActionProvider):
             raise ValueError(f"Unknown capability: {capability_name}")
         import time as _time
         import json as _json
-        _mcp_exec_start = _time.time()
-        try:
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp:execute_ENTRY", "message": "MCP executing tool", "data": {"capability_name": capability_name, "tool_class": type(tool).__name__, "arguments": str(arguments)[:200]}, "timestamp": int(_mcp_exec_start*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
-        except Exception:
-            pass
-        try:
+        _mcp_exec_start = _time.time()        try:
             result = await tool.ainvoke(arguments)
-            _mcp_exec_end = _time.time()
-            try:
-                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp:execute_SUCCESS", "message": "MCP execute completed", "data": {"capability_name": capability_name, "duration_ms": int((_mcp_exec_end - _mcp_exec_start)*1000), "result_preview": str(result)[:200]}, "timestamp": int(_mcp_exec_end*1000), "sessionId": "debug-session", "hypothesisId": "H3"}) + '\n')
-            except Exception:
-                pass
-            return result
+            _mcp_exec_end = _time.time()            return result
         except Exception as e:
-            _mcp_exec_end = _time.time()
-            try:
-                open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a').write(_json.dumps({"location": "mcp:execute_ERROR", "message": "MCP EXECUTE ERROR", "data": {"capability_name": capability_name, "duration_ms": int((_mcp_exec_end - _mcp_exec_start)*1000), "error": str(e), "error_type": type(e).__name__}, "timestamp": int(_mcp_exec_end*1000), "sessionId": "debug-session", "hypothesisId": "H3,H4"}) + '\n')
-            except Exception:
-                pass
-            logger.error(f"[MCPToolProvider] Execution failed for {capability_name}: {e}")
+            _mcp_exec_end = _time.time()            logger.error(f"[MCPToolProvider] Execution failed for {capability_name}: {e}")
             raise
     
     @property

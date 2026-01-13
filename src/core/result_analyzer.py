@@ -69,18 +69,9 @@ class ResultAnalyzer:
         Returns:
             Analysis object with success status, progress, and suggestions
         """
-        # #region agent log
-        import json
-        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-            f.write(json.dumps({"location": "result_analyzer.py:analyze:entry", "message": "H6: analyze() called", "data": {"tool_name": action.tool_name, "goal_preview": goal[:100] if goal else None, "result_preview": str(result)[:300]}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H6"}) + "\n")
-        # #endregion
         # Quick check for obvious success/failure
         quick_analysis = self._quick_analysis(result, action)
         if quick_analysis:
-            # #region agent log
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                f.write(json.dumps({"location": "result_analyzer.py:analyze:quick_result", "message": "H6: quick_analysis returned result", "data": {"is_success": quick_analysis.is_success, "is_goal_achieved": quick_analysis.is_goal_achieved, "is_error": quick_analysis.is_error, "progress": quick_analysis.progress_toward_goal, "next_action": quick_analysis.next_action_suggestion}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H6"}) + "\n")
-            # #endregion
             logger.info(f"[ResultAnalyzer] Quick analysis: success={quick_analysis.is_success}, error={quick_analysis.is_error}")
             return quick_analysis
         
@@ -100,12 +91,6 @@ class ResultAnalyzer:
             Analysis if quick check succeeded, None otherwise
         """
         result_str = str(result).lower()
-        
-        # #region agent log
-        import json
-        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-            f.write(json.dumps({"location": "result_analyzer.py:_quick_analysis:entry", "message": "H7: _quick_analysis checking result", "data": {"tool_name": action.tool_name, "result_str_len": len(result_str), "result_str_preview": result_str[:500], "contains_sozdat": "создать встречу?" in result_str, "contains_sozdat_on_time": "создать встречу на это время?" in result_str, "contains_confirmed": "confirmed=true" in result_str}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H7"}) + "\n")
-        # #endregion
         
         # Check for obvious errors
         error_indicators = [
@@ -153,11 +138,6 @@ class ResultAnalyzer:
         # Check if user confirmation is needed - stop and show to user
         for indicator in confirmation_required_indicators:
             if indicator in result_str:
-                # #region agent log
-                import json
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    f.write(json.dumps({"location": "result_analyzer.py:_quick_analysis:confirmation_found", "message": "H7: confirmation indicator FOUND - returning goal_achieved=True", "data": {"indicator": indicator, "tool_name": action.tool_name}, "timestamp": __import__("time").time() * 1000, "sessionId": "debug-session", "hypothesisId": "H7"}) + "\n")
-                # #endregion
                 return Analysis(
                     is_success=True,
                     is_goal_achieved=True,  # Stop here, show to user
@@ -173,6 +153,25 @@ class ResultAnalyzer:
             "list_workspace_files", "search_workspace_files", "find_and_open_file",
             "read_document", "sheets_read_range", "sheets_write_range"
         ]
+        
+        # Tools that complete their goal when successful (content modification)
+        # These tools modify content, so one successful execution = goal achieved
+        goal_completing_tools = [
+            "append_to_document", "insert_into_document", "update_document"
+        ]
+        
+        # For goal-completing tools, successful execution means goal is achieved
+        if action.tool_name in goal_completing_tools:
+            
+            if "success" in result_str or "успешно" in result_str:
+                
+                return Analysis(
+                    is_success=True,
+                    is_goal_achieved=True,  # Content was modified successfully
+                    is_error=False,
+                    progress_toward_goal=1.0,
+                    confidence=0.95
+                )
         
         # Check for goal achieved first (but not for intermediate tools)
         if action.tool_name not in intermediate_tools:

@@ -90,12 +90,6 @@ class MeetingScheduler:
             При поиске учитывается полный блок: duration + buffer.
             Например, 50-мин встреча + 10-мин буфер = нужно 60 мин свободного времени.
         """
-        # #region agent log H1
-        try:
-            import time as _t
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log','a').write(json.dumps({"location":"meeting_scheduler.py:find_available_slot:entry","message":"Entry params","data":{"participants":participants,"duration":duration_minutes,"buffer":buffer_minutes,"search_start":str(search_start),"search_end":str(search_end)},"timestamp":int(_t.time()*1000),"sessionId":"debug-session","hypothesisId":"H1"})+'\n')
-        except: pass
-        # #endregion
         logger.info(
             f"[MeetingScheduler] Searching slot for {len(participants)} participants, "
             f"duration={duration_minutes}min, buffer={buffer_minutes}min"
@@ -110,29 +104,12 @@ class MeetingScheduler:
         # 1. Получаем события всех участников
         calendars = await self._get_calendar_events(participants, search_start, search_end)
         
-        # #region agent log H1,H2
-        try:
-            import time as _t
-            _cal_summary = {email: len(slots) for email, slots in calendars.items()}
-            _cal_detail = {email: slots[:3] for email, slots in calendars.items()}
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log','a').write(json.dumps({"location":"meeting_scheduler.py:find_available_slot:after_get_events","message":"Calendars received","data":{"calendars_summary":_cal_summary,"calendars_detail":_cal_detail},"timestamp":int(_t.time()*1000),"sessionId":"debug-session","hypothesisId":"H1,H2"})+'\n')
-        except: pass
-        # #endregion
-        
         # 2. Объединяем все занятые слоты (с учётом буфера после каждого)
         all_busy_slots = self._merge_busy_slots(calendars, buffer_minutes)
         
         # Store for summary display
         self._last_busy_slots = all_busy_slots
         self._last_calendars = calendars
-        
-        # #region agent log H4
-        try:
-            import time as _t
-            _busy_str = [(str(s), str(e)) for s, e in all_busy_slots[:10]]
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log','a').write(json.dumps({"location":"meeting_scheduler.py:find_available_slot:after_merge","message":"Merged busy slots","data":{"total_busy_slots":len(all_busy_slots),"first_10_slots":_busy_str},"timestamp":int(_t.time()*1000),"sessionId":"debug-session","hypothesisId":"H4"})+'\n')
-        except: pass
-        # #endregion
         
         # 3. Ищем первое свободное окно нужной длительности
         slot = self._find_first_free_slot(
@@ -148,13 +125,6 @@ class MeetingScheduler:
             logger.info(f"[MeetingScheduler] Found slot: {slot['start']} - {slot['end']}")
         else:
             logger.info("[MeetingScheduler] No available slot found")
-        
-        # #region agent log H3,H4
-        try:
-            import time as _t
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log','a').write(json.dumps({"location":"meeting_scheduler.py:find_available_slot:result","message":"Final result","data":{"slot_found":slot is not None,"slot_start":str(slot['start']) if slot else None,"slot_end":str(slot['end']) if slot else None},"timestamp":int(_t.time()*1000),"sessionId":"debug-session","hypothesisId":"H3,H4"})+'\n')
-        except: pass
-        # #endregion
         
         return slot
     
@@ -283,13 +253,6 @@ class MeetingScheduler:
             
             # Extract calendars data from FreeBusy response
             freebusy_calendars = parsed.get("calendars", {})
-            
-            # #region agent log H2
-            try:
-                import time as _t
-                open('/Users/Dima/universal-multiagent/.cursor/debug.log','a').write(json.dumps({"location":"meeting_scheduler.py:_parse_freebusy_result","message":"Parsed FreeBusy raw","data":{"parsed_calendars_keys":list(freebusy_calendars.keys()),"parsed_data":freebusy_calendars},"timestamp":int(_t.time()*1000),"sessionId":"debug-session","hypothesisId":"H2"})+'\n')
-            except: pass
-            # #endregion
             
             for email in participants:
                 calendar_data = freebusy_calendars.get(email, {})
@@ -521,13 +484,6 @@ class MeetingScheduler:
         
         # Общее время которое нужно (встреча + буфер)
         total_needed = duration + buffer
-        
-        # #region agent log H3,H4
-        try:
-            import time as _t
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log','a').write(json.dumps({"location":"meeting_scheduler.py:_find_first_free_slot:start","message":"Starting slot search","data":{"current":str(current),"duration_min":duration.total_seconds()/60,"buffer_min":buffer.total_seconds()/60,"busy_slots_count":len(busy_slots),"first_busy":str(busy_slots[0]) if busy_slots else None},"timestamp":int(_t.time()*1000),"sessionId":"debug-session","hypothesisId":"H3,H4"})+'\n')
-        except: pass
-        # #endregion
         
         for busy_start, busy_end in busy_slots:
             # Проверяем, есть ли место до этого занятого слота

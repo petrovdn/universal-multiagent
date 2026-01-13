@@ -74,9 +74,6 @@ export function IterationBlock({
         {!thinking.isCollapsed && thinking.content && (
           <div className="iteration-think-content">
             <pre>{thinking.content}</pre>
-            {thinking.isStreaming && (
-              <span className="text-streaming-cursor">▊</span>
-            )}
           </div>
         )}
       </div>

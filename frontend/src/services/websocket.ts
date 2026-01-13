@@ -1256,12 +1256,6 @@ export class WebSocketClient {
         const workflowId = state.activeWorkflowId
         const intentId = event.data.intent_id || state.activeIntentId
         
-        // #region agent log - H1: tracking intent_thinking_clear
-        const existingIntents = state.intentBlocks[workflowId || ''] || []
-        const targetIntent = existingIntents.find(i => i.id === intentId)
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_thinking_clear',message:'H1: intent_thinking_clear received - thinkingText will be CLEARED',data:{workflowId,intentId,currentThinkingTextLength:targetIntent?.thinkingText?.length || 0,currentPhase:targetIntent?.phase},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
-        
         if (workflowId && intentId) {
           chatStore.clearIntentThinking(workflowId, intentId)
         }
@@ -1334,13 +1328,7 @@ export class WebSocketClient {
         const state = useChatStore.getState()
         const workflowId = state.activeWorkflowId
         const intentId = event.data.intent_id || state.activeIntentId
-        
-        // #region agent log - H2: tracking intent_complete thinkingText state
-        const existingIntents = state.intentBlocks[workflowId || ''] || []
-        const targetIntent = existingIntents.find(i => i.id === intentId)
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:intent_complete',message:'H2: intent_complete - checking thinkingText before completion',data:{workflowId,intentId,thinkingTextLength:targetIntent?.thinkingText?.length || 0,thinkingTextPreview:targetIntent?.thinkingText?.substring(0,100),currentPhase:targetIntent?.phase,planningCollapsed:targetIntent?.planningCollapsed},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
-        
+
         if (workflowId && intentId) {
           // DON'T auto-collapse here - collapse happens when NEXT intent starts or final result arrives
           const autoCollapse = false  // Changed: don't collapse immediately

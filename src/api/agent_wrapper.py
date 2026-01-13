@@ -125,13 +125,7 @@ Initialize agent wrapper."""
             "sessionId": session_id,
             "runId": "run1",
             "hypothesisId": "H3,H4"
-        }
-        try:
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                f.write(json.dumps(log_data) + "\n")
-        except Exception:
-            pass
-        # #endregion
+        }        # #endregion
         
         # Store open files in context
         context.set_open_files(open_files)
@@ -149,13 +143,7 @@ Initialize agent wrapper."""
             "sessionId": session_id,
             "runId": "run1",
             "hypothesisId": "H4"
-        }
-        try:
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                f.write(json.dumps(log_data2) + "\n")
-        except Exception:
-            pass
-        # #endregion
+        }        # #endregion
         
         # Wait for WebSocket connection BEFORE sending any events
         # This ensures events can be sent to the frontend

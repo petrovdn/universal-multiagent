@@ -1570,10 +1570,6 @@ export const useChatStore = create<ChatState>()(
       clearIntentThinking: (workflowId: string, intentId: string) =>
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []
-          const targetIntent = existingIntents.find(i => i.id === intentId)
-          // #region agent log - H1b: tracking thinkingText clear in store
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:clearIntentThinking',message:'H1b: thinkingText being CLEARED in store',data:{workflowId,intentId,previousThinkingTextLength:targetIntent?.thinkingText?.length || 0,previousPhase:targetIntent?.phase},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1b'})}).catch(()=>{});
-          // #endregion
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
               return {
@@ -1769,12 +1765,34 @@ export const useChatStore = create<ChatState>()(
       collapseAllIntents: (workflowId: string) =>
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []
-          const updatedIntents = existingIntents.map(intent => ({
-            ...intent,
-            isCollapsed: true,
-            status: 'completed' as const,  // Also mark as completed to stop animations
-            completedAt: intent.completedAt || Date.now(),
-          }))
+          const updatedIntents = existingIntents.map(intent => {
+            // Сворачиваем все итерации внутри интента
+            const collapsedIterations = intent.iterations.map(iter => ({
+              ...iter,
+              thinking: {
+                ...iter.thinking,
+                isCollapsed: true,
+              },
+            }))
+            
+            // Сворачиваем все операции внутри интента
+            const collapsedOperations: Record<string, Operation> = {}
+            for (const [opId, op] of Object.entries(intent.operations)) {
+              collapsedOperations[opId] = {
+                ...op,
+                isCollapsed: true,
+              }
+            }
+            
+            return {
+              ...intent,
+              isCollapsed: true,
+              status: 'completed' as const,  // Also mark as completed to stop animations
+              completedAt: intent.completedAt || Date.now(),
+              iterations: collapsedIterations,
+              operations: collapsedOperations,
+            }
+          })
           return {
             intentBlocks: {
               ...state.intentBlocks,
@@ -1859,6 +1877,24 @@ export const useChatStore = create<ChatState>()(
           const existingIntents = state.intentBlocks[workflowId] || []
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
+              // Сворачиваем ВСЕ предыдущие итерации при появлении новой
+              const collapsedIterations = intent.iterations.map(iter => ({
+                ...iter,
+                thinking: {
+                  ...iter.thinking,
+                  isCollapsed: true,
+                },
+              }))
+              
+              // Сворачиваем ВСЕ предыдущие операции при появлении новой итерации
+              const collapsedOperations: Record<string, Operation> = {}
+              for (const [opId, op] of Object.entries(intent.operations)) {
+                collapsedOperations[opId] = {
+                  ...op,
+                  isCollapsed: true,
+                }
+              }
+              
               const newIteration: IterationBlock = {
                 id: `${intentId}-iter-${iterationNumber}`,
                 iterationNumber,
@@ -1866,12 +1902,14 @@ export const useChatStore = create<ChatState>()(
                   content: '',
                   durationSec: 0,
                   isStreaming: true,
-                  isCollapsed: false,
+                  isCollapsed: false, // Новая итерация развёрнута
                 },
               }
+              
               return {
                 ...intent,
-                iterations: [...intent.iterations, newIteration],
+                iterations: [...collapsedIterations, newIteration],
+                operations: collapsedOperations,
               }
             }
             return intent
@@ -1929,7 +1967,7 @@ export const useChatStore = create<ChatState>()(
                       ...iter.thinking,
                       isStreaming: false,
                       durationSec,
-                      isCollapsed: true, // Сворачиваем после завершения
+                      // НЕ сворачиваем - свернётся при появлении следующего блока
                     },
                   }
                 }
@@ -2061,6 +2099,27 @@ export const useChatStore = create<ChatState>()(
           const existingIntents = state.intentBlocks[workflowId] || []
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
+              // Последовательная свёртка: при появлении operation сворачиваем thinking текущей итерации
+              const updatedIterations = intent.iterations.map((iter, index) => ({
+                ...iter,
+                thinking: {
+                  ...iter.thinking,
+                  // Сворачиваем thinking текущей итерации при появлении operation
+                  isCollapsed: index === intent.iterations.length - 1 ? true : iter.thinking.isCollapsed,
+                },
+                // Связываем operationId с последней итерацией
+                operationId: index === intent.iterations.length - 1 ? operationId : iter.operationId,
+              }))
+              
+              // Сворачиваем все предыдущие операции
+              const collapsedOperations: Record<string, Operation> = {}
+              for (const [opId, op] of Object.entries(intent.operations)) {
+                collapsedOperations[opId] = {
+                  ...op,
+                  isCollapsed: true,
+                }
+              }
+              
               const newOperation: Operation = {
                 id: operationId,
                 intentId: intentId,
@@ -2069,15 +2128,16 @@ export const useChatStore = create<ChatState>()(
                 operationType: operationType,
                 status: 'pending',
                 data: [],
-                isCollapsed: false,
+                isCollapsed: false, // Новая операция развёрнута
                 fileId: fileId,
                 fileUrl: fileUrl,
                 fileType: fileType,
               }
               return {
                 ...intent,
+                iterations: updatedIterations,
                 operations: {
-                  ...intent.operations,
+                  ...collapsedOperations,
                   [operationId]: newOperation,
                 },
                 details: [], // Очищаем старые details при создании операции, чтобы избежать дублирования
@@ -2136,6 +2196,7 @@ export const useChatStore = create<ChatState>()(
                     ...operation,
                     status: 'completed' as const,
                     summary: summary,
+                    // НЕ сворачиваем - свернётся при появлении следующего блока
                   },
                 },
               }

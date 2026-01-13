@@ -192,12 +192,6 @@ class GetNextAvailabilityTool(BaseTool):
         start_time: Optional[str] = None
     ) -> str:
         """Execute the tool asynchronously."""
-        # #region agent log H5
-        try:
-            import time as _t
-            open('/Users/Dima/universal-multiagent/.cursor/debug.log','a').write(json.dumps({"location":"calendar_tools.py:GetNextAvailabilityTool","message":"Tool called","data":{"attendees":attendees,"duration":duration,"start_time":start_time},"timestamp":int(_t.time()*1000),"sessionId":"debug-session","hypothesisId":"H5"})+'\n')
-        except: pass
-        # #endregion
         try:
             from src.core.meeting_scheduler import MeetingScheduler
             
