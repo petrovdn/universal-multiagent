@@ -150,6 +150,10 @@ class MCPToolProvider(ActionProvider):
                     clean_arguments['content'] = clean_arguments.pop('text')
                 if 'position' in clean_arguments and 'index' not in clean_arguments:
                     clean_arguments['index'] = clean_arguments.pop('position')
+                # Convert escaped newlines to real newlines in content
+                # LLM often outputs \\n\\n instead of actual newlines
+                if 'content' in clean_arguments and isinstance(clean_arguments['content'], str):
+                    clean_arguments['content'] = clean_arguments['content'].replace('\\n', '\n')
             
             # Fix boolean to float conversion for indent_first_line
             # LLM sometimes passes true instead of 36 (standard indent in points)

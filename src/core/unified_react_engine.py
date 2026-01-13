@@ -961,31 +961,25 @@ class UnifiedReActEngine:
                                 }
                                 planned_tool = "FINISH"
                     elif is_formatting_task:
-                        # Get document_id from the planned arguments
+                        # Skip bold formatting, go directly to paragraph formatting
                         doc_id = action_plan.get("arguments", {}).get("document_id", "")
-                        logger.warning(f"[UnifiedReActEngine] BLOCK: {planned_tool} blocked for formatting task, using smart formatting")
-                        
-                        # Умное определение что выделить жирным
                         doc_length = self._get_document_length_from_observations(state)
-                        doc_text = self._get_document_text_from_observations(state)
-                        if doc_text:
-                            ranges = await self._get_smart_formatting_ranges(doc_text, doc_length)
-                            first_range = ranges[0] if ranges else {"start": 1, "end": min(doc_length, 100)}
-                        else:
-                            first_range = {"start": 1, "end": min(doc_length, 100)}
+                        logger.warning(f"[UnifiedReActEngine] BLOCK: {planned_tool} blocked, skipping bold, going to paragraph formatting")
                         
                         action_plan = {
-                            "tool_name": "format_document_text",
+                            "tool_name": "format_document_paragraph",
                             "arguments": {
                                 "document_id": doc_id,
-                                "start_index": first_range["start"],
-                                "end_index": first_range["end"],
-                                "bold": True
+                                "start_index": 1,
+                                "end_index": doc_length or 2000,
+                                "alignment": "JUSTIFIED",
+                                "line_spacing": 1.15,
+                                "indent_first_line": 36
                             },
-                            "description": f"Выделение жирным: {first_range.get('reason', 'заголовок')}",
-                            "reasoning": f"Задача форматирования: умное определение вместо {planned_tool}"
+                            "description": "Форматирование абзацев: выравнивание и красная строка",
+                            "reasoning": f"Задача форматирования: пропускаем bold, сразу paragraph"
                         }
-                        planned_tool = "format_document_text"
+                        planned_tool = "format_document_paragraph"
                 
                 # === ANTI-LOOP: Block premature FINISH for formatting tasks ===
                 # If LLM wants FINISH but format_document_paragraph not done yet
@@ -3204,27 +3198,21 @@ class UnifiedReActEngine:
 1. format_document_paragraph - для стиля ВСЕХ абзацев (выравнивание, отступы)
    ⚠️ ВАЖНО: Используй TEXT_LENGTH из read_document как end_index!
    Пример: format_document_paragraph(document_id, start_index=1, end_index=TEXT_LENGTH, alignment="JUSTIFIED", indent_first_line=36)
-2. format_document_text - для выделения текста (bold, italic)
-   Пример: format_document_text(document_id, start_index=1, end_index=20, bold=True) - заголовок
 
-📋 "Красиво оформить" = 3 ОБЯЗАТЕЛЬНЫХ шага:
-1. format_document_paragraph(start_index=1, end_index=TEXT_LENGTH, alignment="JUSTIFIED", indent_first_line=36) - ВЕСЬ документ
-2. format_document_text(start_index=1, end_index=<конец_заголовка>, bold=True) - заголовок жирным
-3. Найти имена персонажей через search_document_text и выделить их жирным через format_document_text
+📋 "Красиво оформить" = format_document_paragraph:
+- alignment="JUSTIFIED" — выравнивание по ширине
+- indent_first_line=36 — красная строка
+- line_spacing=1.15 — межстрочный интервал
 
 ⚠️ ОБЯЗАТЕЛЬНО:
 - end_index для format_document_paragraph = TEXT_LENGTH (из результата read_document)
-- НЕ выбирай произвольные значения типа 800 или 500!
-- Выдели жирным: заголовок + имена персонажей + ключевые фразы
+- НЕ используй format_document_text (bold) — не выделяй жирным!
 - НЕ меняй содержание текста!
 
 Порядок действий:
 1. read_document → найти [TEXT_LENGTH: X characters] в результате
 2. format_document_paragraph(end_index=X) → выравнивание для ВСЕГО документа
-3. format_document_text(bold=True) → заголовок жирным
-4. search_document_text → найти имена персонажей
-5. format_document_text(bold=True) → имена персонажей жирным
-6. FINISH
+3. FINISH
 
 Выбери ОДИН инструмент и укажи параметры для его вызова. Ответь в формате JSON:
 {{
@@ -3345,8 +3333,9 @@ class UnifiedReActEngine:
         if any(kw in goal_lower for kw in ["документ", "doc", "текст", "сказк", "допиши", "напиши"]):
             relevant_tool_names.update([
                 "read_document", "append_to_document", "insert_into_document",
-                "update_document", "format_document_text", "format_document_paragraph"
+                "update_document", "format_document_paragraph"
             ])
+            # Note: format_document_text (bold) removed - we skip bold formatting
         
         if any(kw in goal_lower for kw in ["таблиц", "sheet", "excel", "данн"]):
             relevant_tool_names.update([
@@ -3371,8 +3360,8 @@ class UnifiedReActEngine:
         # Всегда добавляем FINISH
         relevant_tool_names.add("FINISH")
         
-        # Исключаем уже успешно выполненные инструменты (кроме FINISH и форматирования)
-        repeatable_tools = {"FINISH", "format_document_text", "format_document_paragraph"}
+        # Исключаем уже успешно выполненные инструменты (кроме FINISH и форматирования абзацев)
+        repeatable_tools = {"FINISH", "format_document_paragraph"}
         filtered_names = [t for t in relevant_tool_names 
                          if t not in completed_tools or t in repeatable_tools]
         
@@ -3382,7 +3371,6 @@ class UnifiedReActEngine:
             "append_to_document": "Input: document_id (ID документа), content (текст для добавления). ВАЖНО: НЕ используй маркдаун (**) в content!",
             "insert_into_document": "Input: document_id, index (позиция), content (текст). ВАЖНО: НЕ используй маркдаун!",
             "update_document": "Input: document_id, content (новый текст)",
-            "format_document_text": "Input: document_id, start_index (int), end_index (int), bold=true/false. Применяет РЕАЛЬНОЕ форматирование Google Docs (НЕ маркдаун!)",
             "format_document_paragraph": "Input: document_id, start_index (int), end_index (int), alignment (START/JUSTIFIED), line_spacing (float: 1.15/1.5/2.0), indent_first_line (float в пунктах: 36=стандартная красная строка)"
         }
         
@@ -3432,9 +3420,8 @@ class UnifiedReActEngine:
                 return "read_document — прочитать содержимое документа"
             if is_write_task and not (has_append or has_insert or has_update):
                 return "append_to_document — добавить текст в конец документа"
-            if is_format_task and not has_format_text:
-                return "format_document_text — выделить заголовок/ключевые мысли жирным"
-            if is_format_task and has_format_text and not has_format_para:
+            # Skip format_document_text (bold) — go directly to paragraph formatting
+            if is_format_task and not has_format_para:
                 return "format_document_paragraph — применить выравнивание абзацев"
             return "FINISH — все шаги выполнены, задача завершена"
         
@@ -3943,95 +3930,6 @@ class UnifiedReActEngine:
         
         arguments = action_plan.get("arguments", {})
         
-        # === SMART BOLD: If format_document_text is called for whole document, use smart ranges ===
-        if capability_name == "format_document_text" and arguments.get("bold"):
-            start_idx = arguments.get("start_index", 0)
-            end_idx = arguments.get("end_index", 0)
-            # #region agent log - H20: Smart bold entry check
-            try:
-                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                    import json as _json
-                    f.write(_json.dumps({
-                        "location": "unified_react_engine.py:SMART-BOLD-ENTRY",
-                        "message": "H20: Smart bold entry check",
-                    "data": {
-                            "start_idx": start_idx,
-                            "end_idx": end_idx,
-                            "condition_met": start_idx <= 1 and end_idx > 500,
-                            "has_last_document_text": hasattr(self, '_last_document_text'),
-                            "last_document_text_len": len(getattr(self, '_last_document_text', '') or '')
-                        },
-                        "timestamp": __import__("time").time() * 1000,
-                        "sessionId": self.session_id,
-                        "hypothesisId": "H20"
-                    }) + "\n")
-            except: pass
-            # #endregion
-            # If formatting 80%+ of document, apply smart formatting instead
-            if start_idx <= 1 and end_idx > 500:  # Large document, likely "whole doc" request
-                doc_text = None
-                # Try to get document text from context
-                if hasattr(context, 'messages'):
-                    for msg in reversed(context.messages):
-                        if msg.get('role') == 'assistant' and isinstance(msg.get('content'), str):
-                            content = msg['content']
-                            if len(content) > 500:
-                                doc_text = content
-                                break
-                
-                # Get from state observations if available
-                if not doc_text:
-                    # Try to get from MCP call result
-                    doc_id = arguments.get("document_id", "")
-                    if doc_id and hasattr(self, '_last_document_text'):
-                        doc_text = getattr(self, '_last_document_text', None)
-                
-                # #region agent log - H21: Smart bold doc_text check
-                try:
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                        import json as _json
-                        f.write(_json.dumps({
-                            "location": "unified_react_engine.py:SMART-BOLD-TEXT",
-                            "message": "H21: Smart bold doc_text check",
-                            "data": {
-                                "doc_text_found": doc_text is not None,
-                                "doc_text_len": len(doc_text) if doc_text else 0,
-                                "doc_text_preview": (doc_text[:100] + "...") if doc_text else None
-                            },
-                            "timestamp": __import__("time").time() * 1000,
-                            "sessionId": self.session_id,
-                            "hypothesisId": "H21"
-                        }) + "\n")
-                except: pass
-                # #endregion
-                
-                if doc_text:
-                    try:
-                        ranges = await self._get_smart_formatting_ranges(doc_text, end_idx)
-                        if ranges and len(ranges) > 0:
-                            logger.info(f"[UnifiedReActEngine] SMART BOLD: Found {len(ranges)} ranges instead of whole doc")
-                            # Apply formatting to all ranges
-                            results = []
-                            for r in ranges:
-                                try:
-                                    range_args = {
-                                        "document_id": arguments.get("document_id"),
-                                        "start_index": r["start"],
-                                        "end_index": r["end"],
-                                        "bold": True
-                                    }
-                                    result = await self.capability_registry.execute(
-                                        capability_name, 
-                                        range_args,
-                                        {"session_id": self.session_id}
-                                    )
-                                    results.append(f"Bold applied to: {r.get('reason', 'range')} ({r['start']}-{r['end']})")
-                                except Exception as e:
-                                    logger.warning(f"[UnifiedReActEngine] Smart bold range failed: {e}")
-                            if results:
-                                return "Successfully applied smart bold formatting:\n" + "\n".join(results)
-                    except Exception as e:
-                        logger.warning(f"[UnifiedReActEngine] Smart bold failed, falling back to original: {e}")
         # Send real progress event BEFORE tool execution
         # For tools that support operations (get_calendar_events, etc.), send operation_start
         operation_id = None
