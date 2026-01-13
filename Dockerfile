@@ -41,27 +41,58 @@ RUN apt-get update && apt-get install -y \
 
 # Обновляем pip для лучшей производительности
 # Используем python -m pip для более надежного обновления
-RUN python -m pip install --upgrade pip && \
-    pip install --upgrade setuptools wheel
+RUN python -m pip install --upgrade pip setuptools wheel
 
 # Этап 1: Основные зависимости (быстрые, кешируются)
 # Эти пакеты редко меняются и будут кешироваться Docker
 # BUILD_DATE и FORCE_REBUILD используются для форсирования пересборки слоя
 COPY requirements-core.txt ./
-RUN echo "Building dependencies layer, BUILD_DATE=${BUILD_DATE:-not-set}" && \
-    pip install --no-cache-dir --timeout=300 --retries=3 -r requirements-core.txt
+RUN set -e && \
+    echo "Building dependencies layer, BUILD_DATE=${BUILD_DATE:-not-set}" && \
+    echo "Installing core dependencies..." && \
+    python -m pip install \
+        --no-cache-dir \
+        --timeout=600 \
+        --retries=5 \
+        --verbose \
+        -r requirements-core.txt && \
+    echo "Core dependencies installed successfully"
 
 # Этап 2: MCP зависимости (легкие, устанавливаются быстро)
 COPY requirements-mcp.txt ./
-RUN pip install --no-cache-dir --timeout=300 --retries=3 -r requirements-mcp.txt
+RUN set -e && \
+    echo "Installing MCP dependencies..." && \
+    python -m pip install \
+        --no-cache-dir \
+        --timeout=600 \
+        --retries=5 \
+        --verbose \
+        -r requirements-mcp.txt && \
+    echo "MCP dependencies installed successfully"
 
 # Этап 3: Google APIs (средние по размеру)
 COPY requirements-google.txt ./
-RUN pip install --no-cache-dir --timeout=300 --retries=3 -r requirements-google.txt
+RUN set -e && \
+    echo "Installing Google API dependencies..." && \
+    python -m pip install \
+        --no-cache-dir \
+        --timeout=600 \
+        --retries=5 \
+        --verbose \
+        -r requirements-google.txt && \
+    echo "Google API dependencies installed successfully"
 
 # Этап 4: AI Framework (самые тяжелые - в конце, больше времени)
 COPY requirements-ai.txt ./
-RUN pip install --no-cache-dir --timeout=600 --retries=5 -r requirements-ai.txt
+RUN set -e && \
+    echo "Installing AI framework dependencies..." && \
+    python -m pip install \
+        --no-cache-dir \
+        --timeout=900 \
+        --retries=5 \
+        --verbose \
+        -r requirements-ai.txt && \
+    echo "AI framework dependencies installed successfully"
 
 # Stage 3: Final image
 FROM python:3.10-slim
