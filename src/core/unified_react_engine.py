@@ -1113,6 +1113,7 @@ class UnifiedReActEngine:
                         'update_cells',
                         'list_emails',
                         'search_emails',
+                        'create_document',
                         'read_document',
                         'update_document',
                         'get_presentation',
@@ -3819,6 +3820,14 @@ class UnifiedReActEngine:
                     'file_type': 'email'
                 },
                 
+                # Docs - создание
+                'create_document': {
+                    'title': 'Создаю документ',
+                    'streaming_title': 'Новый документ',
+                    'operation_type': 'write',
+                    'file_type': 'docs'
+                },
+                
                 # Docs - чтение
                 'read_document': {
                     'title': 'Читаю документ',
@@ -4139,11 +4148,48 @@ class UnifiedReActEngine:
                         )
             
             # Docs operations
-            elif capability_name in ['read_document', 'update_document', 'append_to_document', 'insert_into_document']:
+            elif capability_name in ['create_document', 'read_document', 'update_document', 'append_to_document', 'insert_into_document']:
                 try:
+                    # For create_document, extract title and send file_preview
+                    if capability_name == 'create_document':
+                        # Extract document_id and title from result
+                        result_str = str(result)
+                        
+                        # Try multiple patterns for document_id
+                        doc_id_match = re.search(r'ID: ([a-zA-Z0-9-_]+)', result_str) or re.search(r'\(ID: ([a-zA-Z0-9-_]+)\)', result_str)
+                        # Try multiple patterns for title
+                        title_match = re.search(r"'([^']+)' created successfully", result_str) or re.search(r'Document \'([^\']+)\' created', result_str)
+                        
+                        if doc_id_match and title_match:
+                            document_id = doc_id_match.group(1)
+                            document_title = title_match.group(1)
+                            
+                            # Extract URL if present
+                            url_match = re.search(r'URL: (https?://[^\s]+)', result_str)
+                            document_url = url_match.group(1) if url_match else f"https://docs.google.com/document/d/{document_id}/edit"
+                            
+                            # Send file_preview event for frontend to open tab
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "file_preview",
+                                {
+                                    "file_type": "docs",
+                                    "file_id": document_id,
+                                    "file_url": document_url,
+                                    "streaming_title": document_title,
+                                    "title": document_title
+                                }
+                            )
+                        
+                        summary = "✓ Документ создан"
+                        await self.ws_manager.send_operation_end(
+                            self.session_id,
+                            operation_id,
+                            summary
+                        )
                     # For write operations, content was already streamed BEFORE MCP call
                     # Only stream for read operations here
-                    if capability_name == 'read_document':
+                    elif capability_name == 'read_document':
                         items, summary = await self._parse_docs_result(str(result), capability_name, arguments)
                         # Save document text for smart bold formatting
                         if items:
@@ -4157,15 +4203,21 @@ class UnifiedReActEngine:
                                 )
                                 # Small delay for visual streaming effect (50ms per line)
                                 await asyncio.sleep(0.05)
+                        if summary:
+                            await self.ws_manager.send_operation_end(
+                                self.session_id,
+                                operation_id,
+                                summary
+                            )
                     else:
-                        # For write operations, just get the summary
+                        # For other write operations, just get the summary
                         _, summary = await self._parse_docs_result(str(result), capability_name, arguments)
-                    if summary:
-                        await self.ws_manager.send_operation_end(
-                            self.session_id,
-                            operation_id,
-                            summary
-                        )
+                        if summary:
+                            await self.ws_manager.send_operation_end(
+                                self.session_id,
+                                operation_id,
+                                summary
+                            )
                 except Exception as e:
                     logger.warning(f"[UnifiedReActEngine] Failed to process docs operation for {capability_name}: {e}", exc_info=True)
                     result_summary = self._get_result_summary(capability_name, result)
