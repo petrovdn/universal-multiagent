@@ -346,6 +346,51 @@ export function ChatInterface() {
     }
   }, [messages, workflows, updateAllPositions])
 
+  // Автоскролл при любых изменениях контента (не только finalResult)
+  // При появлении новых блоков или текста прокручиваем так, чтобы ничего не уходило под input
+  useEffect(() => {
+    if (!messagesContainerRef.current) return
+    
+    const container = messagesContainerRef.current
+    const inputArea = document.querySelector('.input-area') as HTMLElement
+    if (!inputArea) return
+    
+    // Функция для проверки и скролла
+    const checkAndScroll = () => {
+      // Находим самый нижний видимый элемент контента
+      const allContentElements = container.querySelectorAll(
+        '.iteration-block, .iteration-think-content, .iteration-operation-content, ' +
+        '.sticky-result-section, .intent-message, .step-progress-item'
+      )
+      
+      if (allContentElements.length === 0) return
+      
+      // Получаем самый нижний элемент
+      let lowestBottom = 0
+      allContentElements.forEach(el => {
+        const rect = el.getBoundingClientRect()
+        if (rect.bottom > lowestBottom) {
+          lowestBottom = rect.bottom
+        }
+      })
+      
+      const inputRect = inputArea.getBoundingClientRect()
+      const inputTopWithGap = inputRect.top - 20
+      
+      // Если контент уходит под input, скроллим
+      if (lowestBottom > inputTopWithGap) {
+        const scrollAmount = lowestBottom - inputTopWithGap
+        container.scrollTo({
+          top: container.scrollTop + scrollAmount,
+          behavior: 'smooth'
+        })
+      }
+    }
+    
+    // Проверяем при каждом изменении
+    checkAndScroll()
+  }, [activeWorkflowId, workflows, intentBlocks, isAgentTyping])
+
   // Обновляем позиции всех запросов после рендера всех элементов
   useEffect(() => {
     const updatePositions = () => {

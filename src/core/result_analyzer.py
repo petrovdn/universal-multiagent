@@ -70,7 +70,7 @@ class ResultAnalyzer:
             Analysis object with success status, progress, and suggestions
         """
         # Quick check for obvious success/failure
-        quick_analysis = self._quick_analysis(result, action)
+        quick_analysis = self._quick_analysis(result, action, goal)
         if quick_analysis:
             logger.info(f"[ResultAnalyzer] Quick analysis: success={quick_analysis.is_success}, error={quick_analysis.is_error}")
             return quick_analysis
@@ -79,13 +79,14 @@ class ResultAnalyzer:
         logger.info(f"[ResultAnalyzer] Performing LLM analysis for action {action.tool_name}")
         return await self._llm_analyze(action, result, goal, previous_observations)
     
-    def _quick_analysis(self, result: Any, action: ActionRecord) -> Optional[Analysis]:
+    def _quick_analysis(self, result: Any, action: ActionRecord, goal: Optional[str] = None) -> Optional[Analysis]:
         """
         Quick analysis without LLM for obvious cases.
         
         Args:
             result: Action result
             action: Action record
+            goal: Original goal (for compound task detection)
             
         Returns:
             Analysis if quick check succeeded, None otherwise
@@ -161,9 +162,46 @@ class ResultAnalyzer:
         ]
         
         # For goal-completing tools, successful execution means goal is achieved
+        # BUT: check if goal has additional requirements (like formatting)
         if action.tool_name in goal_completing_tools:
+            goal_lower = goal.lower() if goal else ""
+            # Паттерны дополнительных требований (форматирование)
+            format_keywords = ["форматир", "красиво", "оформи", "format", "выдели", "жирн"]
+            has_additional_requirements = any(kw in goal_lower for kw in format_keywords)
+            
+            # #region agent log - H4: goal completing tool check
+            try:
+                import json as _json
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    f.write(_json.dumps({
+                        "location": "result_analyzer.py:164",
+                        "message": "H4: Goal completing tool detected",
+                        "data": {
+                            "tool_name": action.tool_name,
+                            "has_success": "success" in result_str or "успешно" in result_str,
+                            "has_additional_requirements": has_additional_requirements,
+                            "will_mark_goal_achieved": not has_additional_requirements,
+                            "result_preview": result_str[:200]
+                        },
+                        "timestamp": __import__("time").time() * 1000,
+                        "sessionId": "debug-session",
+                        "hypothesisId": "H4"
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
             
             if "success" in result_str or "успешно" in result_str:
+                # Если есть дополнительные требования (форматирование) - НЕ завершаем
+                if has_additional_requirements:
+                    return Analysis(
+                        is_success=True,
+                        is_goal_achieved=False,  # Ещё нужно форматирование!
+                        is_error=False,
+                        progress_toward_goal=0.5,  # Только половина пути
+                        confidence=0.9,
+                        next_action_suggestion="Контент добавлен, теперь нужно применить форматирование"
+                    )
                 
                 return Analysis(
                     is_success=True,
@@ -172,6 +210,39 @@ class ResultAnalyzer:
                     progress_toward_goal=1.0,
                     confidence=0.95
                 )
+        
+        # Formatting tools - check if goal has multiple formatting requirements
+        formatting_tools = ["format_document_text", "format_document_paragraph"]
+        if action.tool_name in formatting_tools:
+            goal_lower = goal.lower() if goal else ""
+            # Patterns for different formatting types
+            bold_keywords = ["жирн", "bold", "выдели"]
+            align_keywords = ["выравнивани", "выровня", "отступ", "красная строка", "align", "indent", "paragraph", "абзац"]
+            has_bold_requirement = any(kw in goal_lower for kw in bold_keywords)
+            has_align_requirement = any(kw in goal_lower for kw in align_keywords) or "красиво" in goal_lower
+            
+            # If success and multiple formatting types needed, don't mark goal achieved yet
+            if "success" in result_str or "successfully" in result_str:
+                # If we did format_document_text (bold) but still need alignment
+                if action.tool_name == "format_document_text" and has_align_requirement:
+                    return Analysis(
+                        is_success=True,
+                        is_goal_achieved=False,  # Still need alignment
+                        is_error=False,
+                        progress_toward_goal=0.7,
+                        confidence=0.9,
+                        next_action_suggestion="Текст выделен жирным, теперь нужно применить выравнивание абзацев"
+                    )
+                # If we did format_document_paragraph (alignment) but still need bold
+                if action.tool_name == "format_document_paragraph" and has_bold_requirement:
+                    return Analysis(
+                        is_success=True,
+                        is_goal_achieved=False,  # Still need bold
+                        is_error=False,
+                        progress_toward_goal=0.7,
+                        confidence=0.9,
+                        next_action_suggestion="Выравнивание применено, теперь нужно выделить заголовок жирным"
+                    )
         
         # Check for goal achieved first (but not for intermediate tools)
         if action.tool_name not in intermediate_tools:

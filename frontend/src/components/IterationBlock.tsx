@@ -18,6 +18,10 @@ export function IterationBlock({
 }: IterationBlockProps) {
   const { thinking, summary, action } = iteration
   
+  // Refs для автоскролла
+  const thinkingContentRef = useRef<HTMLDivElement>(null)
+  const operationContentRef = useRef<HTMLDivElement>(null)
+  
   // Обратный отсчёт времени во время думания
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const startTimeRef = useRef<number | null>(null)
@@ -46,6 +50,20 @@ export function IterationBlock({
   // Время для отображения: во время стриминга - обратный отсчёт, после - финальное время
   const displayTime = thinking.isStreaming ? elapsedSeconds : thinking.durationSec
 
+  // Автоскролл thinking content при стриминге
+  useEffect(() => {
+    if (thinking.isStreaming && thinkingContentRef.current) {
+      thinkingContentRef.current.scrollTop = thinkingContentRef.current.scrollHeight
+    }
+  }, [thinking.content, thinking.isStreaming])
+
+  // Автоскролл operation content при стриминге
+  useEffect(() => {
+    if (operation?.status === 'streaming' && operationContentRef.current) {
+      operationContentRef.current.scrollTop = operationContentRef.current.scrollHeight
+    }
+  }, [operation?.data, operation?.status])
+
   return (
     <div className={`iteration-block ${className}`}>
       {/* Think секция */}
@@ -72,8 +90,8 @@ export function IterationBlock({
         </div>
         
         {!thinking.isCollapsed && thinking.content && (
-          <div className="iteration-think-content">
-            <pre>{thinking.content}</pre>
+          <div className="iteration-think-content" ref={thinkingContentRef}>
+            <pre>{thinking.content.trimStart()}</pre>
           </div>
         )}
       </div>
@@ -127,7 +145,7 @@ export function IterationBlock({
           </div>
           
           {!operation.isCollapsed && (
-            <div className="iteration-operation-content">
+            <div className="iteration-operation-content" ref={operationContentRef}>
               {operation.data.join('\n')}
               {operation.status === 'streaming' && (
                 <span className="text-streaming-cursor">▊</span>

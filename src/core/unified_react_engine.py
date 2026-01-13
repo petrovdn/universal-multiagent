@@ -574,6 +574,28 @@ class UnifiedReActEngine:
                 state.status = "acting"
                 planned_tool = action_plan.get("tool_name", "")
                 
+                # #region agent log - H7: Planned tool for this iteration
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        import json as _json
+                        f.write(_json.dumps({
+                            "location": "unified_react_engine.py:575",
+                            "message": "H7: Planned tool before ANTI-LOOP",
+                            "data": {
+                                "iteration": state.iteration,
+                                "planned_tool": planned_tool,
+                                "description": action_plan.get("description", ""),
+                                "observations_count": len(state.observations),
+                                "observations_tools": [obs.action.tool_name for obs in state.observations]
+                            },
+                            "timestamp": __import__("time").time() * 1000,
+                            "sessionId": self.session_id,
+                            "hypothesisId": "H7"
+                        }) + "\n")
+                except Exception:
+                    pass
+                # #endregion
+                
                 # === Send iteration_plan event ===
                 await self.ws_manager.send_event(
                     self.session_id,
@@ -675,35 +697,136 @@ class UnifiedReActEngine:
                         if obs.action.tool_name == "read_document" and obs.success:
                             prev_doc_id = obs.action.arguments.get("document_id", "")
                             if prev_doc_id == planned_doc_id:
-                                # Document already read - check if formatting task
+                                # Document already read - check if this is a compound task
                                 goal_lower = state.goal.lower()
-                                format_keywords = ["форматир", "красиво", "красив", "оформи", "format"]
-                                is_formatting_task = any(kw in goal_lower for kw in format_keywords)
                                 
-                                # Check if formatting was already done
-                                formatting_done = any(
-                                    obs.action.tool_name == "format_document_text" and obs.success
+                                # Проверяем составную задачу (допиши + форматируй)
+                                modify_keywords = ["допиши", "добавь", "напиши", "вставь"]
+                                format_keywords = ["форматир", "красиво", "красив", "оформи", "format"]
+                                needs_modification = any(kw in goal_lower for kw in modify_keywords)
+                                needs_formatting = any(kw in goal_lower for kw in format_keywords)
+                                
+                                # Проверяем, была ли выполнена модификация (хокку добавлено?)
+                                modify_done = any(
+                                    obs.action.tool_name in ["append_to_document", "insert_into_document", "update_document"] and obs.success
                                     for obs in state.observations
                                 )
                                 
-                                if is_formatting_task and not formatting_done:
-                                    # Redirect to format_document_text
-                                    logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Document already read, redirecting to format_document_text")
+                                # Проверяем какое форматирование уже сделано
+                                bold_count = sum(
+                                    1 for obs in state.observations
+                                    if obs.action.tool_name == "format_document_text" and obs.success
+                                )
+                                paragraph_done = any(
+                                    obs.action.tool_name == "format_document_paragraph" and obs.success
+                                    for obs in state.observations
+                                )
+                                doc_length = self._get_document_length_from_observations(state)
+                                
+                                # #region agent log - H6: ANTI-LOOP read_document redirect
+                                try:
+                                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                                        import json as _json
+                                        f.write(_json.dumps({
+                                            "location": "unified_react_engine.py:ANTI-LOOP",
+                                            "message": "H6: read_document ANTI-LOOP check",
+                                            "data": {
+                                                "needs_modification": needs_modification,
+                                                "modify_done": modify_done,
+                                                "needs_formatting": needs_formatting,
+                                                "bold_count": bold_count,
+                                                "paragraph_done": paragraph_done,
+                                                "iteration": state.iteration
+                                            },
+                                            "timestamp": __import__("time").time() * 1000,
+                                            "sessionId": self.session_id,
+                                            "hypothesisId": "H6"
+                                        }) + "\n")
+                                except Exception:
+                                    pass
+                                # #endregion
+                                
+                                # КРИТИЧЕСКАЯ ЛОГИКА: Если нужна модификация (хокку) И она НЕ сделана
+                                # → НЕ перенаправляем на форматирование! Пусть LLM добавит хокку.
+                                if needs_modification and not modify_done:
+                                    # Блокируем повторное чтение, но НЕ перенаправляем на форматирование
+                                    logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Document read, but modification (haiku) not done yet - blocking read, let LLM add content")
+                                    action_plan = {
+                                        "tool_name": "append_to_document",
+                                        "arguments": {
+                                            "document_id": planned_doc_id,
+                                            "content": ""  # LLM должен сгенерировать
+                                        },
+                                        "description": "Добавление основной мысли (хокку)",
+                                        "reasoning": "Документ уже прочитан, теперь нужно добавить хокку"
+                                    }
+                                    # НЕ меняем planned_tool - позволяем LLM сгенерировать контент
+                                    # Вместо этого просто прерываем цикл ANTI-LOOP
+                                    break
+                                
+                                # Форматирование только если модификация УЖЕ сделана или не нужна
+                                if needs_formatting and (modify_done or not needs_modification) and bold_count == 0:
+                                    # Первый раз: выделяем заголовок жирным
+                                    logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Document already read, formatting title bold")
+                                    doc_text = self._get_document_text_from_observations(state)
+                                    first_range = {"start": 1, "end": min(doc_length, 100), "reason": "заголовок"}
+                                    
+                                    if doc_text:
+                                        try:
+                                            ranges = await self._get_smart_formatting_ranges(doc_text, doc_length)
+                                            if ranges:
+                                                first_range = ranges[0]
+                                        except Exception:
+                                            pass  # Use fallback
+                                    
                                     action_plan = {
                                         "tool_name": "format_document_text",
                                         "arguments": {
                                             "document_id": planned_doc_id,
-                                            "start_index": 1,
-                                            "end_index": 100,
+                                            "start_index": first_range["start"],
+                                            "end_index": first_range["end"],
                                             "bold": True
                                         },
-                                        "description": "Форматирование заголовка жирным",
-                                        "reasoning": "Документ уже прочитан, применяем форматирование"
+                                        "description": f"Выделение жирным: {first_range.get('reason', 'заголовок')}",
+                                        "reasoning": "Умное определение заголовка"
                                     }
                                     planned_tool = "format_document_text"
+                                elif needs_formatting and (modify_done or not needs_modification) and bold_count == 1:
+                                    # Второй раз: выделяем основную мысль (хокку в конце) жирным
+                                    logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Title done, formatting conclusion bold")
+                                    # Выделяем последние ~150 символов (хокку/основная мысль)
+                                    conclusion_start = max(1, doc_length - 150)
+                                    action_plan = {
+                                        "tool_name": "format_document_text",
+                                        "arguments": {
+                                            "document_id": planned_doc_id,
+                                            "start_index": conclusion_start,
+                                            "end_index": doc_length,
+                                            "bold": True
+                                        },
+                                        "description": "Выделение жирным: основная мысль/хокку",
+                                        "reasoning": "Заголовок выделен, теперь выделяем хокку в конце"
+                                    }
+                                    planned_tool = "format_document_text"
+                                elif needs_formatting and (modify_done or not needs_modification) and bold_count >= 2 and not paragraph_done:
+                                    # Потом выравнивание абзацев
+                                    logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Bold done, redirecting to format_document_paragraph")
+                                    action_plan = {
+                                        "tool_name": "format_document_paragraph",
+                                        "arguments": {
+                                            "document_id": planned_doc_id,
+                                            "start_index": 1,
+                                            "end_index": doc_length,
+                                            "alignment": "JUSTIFIED",
+                                            "first_line_indent_pt": 36
+                                        },
+                                        "description": "Выравнивание текста по ширине с красной строкой",
+                                        "reasoning": "Жирный заголовок сделан, теперь выравнивание"
+                                    }
+                                    planned_tool = "format_document_paragraph"
                                 else:
-                                    # Not formatting task or already formatted - FINISH
-                                    logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Document already read/formatted, forcing FINISH")
+                                    # Всё сделано - FINISH
+                                    logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: All formatting done, forcing FINISH")
                                     action_plan = {
                                         "tool_name": "FINISH",
                                         "arguments": {},
@@ -722,31 +845,231 @@ class UnifiedReActEngine:
                     format_keywords = ["форматир", "красиво", "красив", "оформи", "оформить", "format", "выдели", "жирн"]
                     is_formatting_task = any(kw in goal_lower for kw in format_keywords)
                     
-                    if is_formatting_task:
+                    # Проверяем, является ли задача составной
+                    is_compound, phases = self._is_compound_task(state.goal)
+                    
+                    # #region agent log - H1: compound task detection
+                    try:
+                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                            import json as _json
+                            f.write(_json.dumps({
+                                "location": "unified_react_engine.py:730",
+                                "message": "H1: Compound task detection",
+                                "data": {
+                                    "is_compound": is_compound,
+                                    "phases": phases,
+                                    "planned_tool": planned_tool,
+                                    "is_formatting_task": is_formatting_task,
+                                    "iteration": state.iteration,
+                                    "observations_count": len(state.observations)
+                                },
+                                "timestamp": __import__("time").time() * 1000,
+                                "sessionId": self.session_id,
+                                "hypothesisId": "H1"
+                            }) + "\n")
+                    except Exception:
+                        pass
+                    # #endregion
+                    
+                    if is_compound and "modify" in phases:
+                        # Составная задача - проверяем, выполнена ли фаза модификации
+                        modify_done = any(
+                            obs.action.tool_name in text_modifying_tools and obs.success
+                            for obs in state.observations
+                        )
+                        # #region agent log - H3: modify phase check
+                        try:
+                            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                                import json as _json
+                                f.write(_json.dumps({
+                                    "location": "unified_react_engine.py:755",
+                                    "message": "H3: Modify phase check",
+                                    "data": {
+                                        "modify_done": modify_done,
+                                        "planned_tool": planned_tool,
+                                        "will_redirect_to_format": modify_done
+                                    },
+                                    "timestamp": __import__("time").time() * 1000,
+                                    "sessionId": self.session_id,
+                                    "hypothesisId": "H3"
+                                }) + "\n")
+                        except Exception:
+                            pass
+                        # #endregion
+                        
+                        if not modify_done:
+                            # Разрешаем модификацию - это первая фаза составной задачи
+                            logger.info(f"[UnifiedReActEngine] Compound task detected: allowing {planned_tool} for modify phase")
+                            pass  # Не блокируем
+                        else:
+                            # Модификация выполнена - теперь проверяем какое форматирование уже сделано
+                            doc_id = action_plan.get("arguments", {}).get("document_id", "")
+                            
+                            # Считаем сколько раз уже применяли format_document_text
+                            bold_count = sum(
+                                1 for obs in state.observations
+                                if obs.action.tool_name == "format_document_text" and obs.success
+                            )
+                            # Проверяем, было ли уже выполнено форматирование абзацев
+                            paragraph_done = any(
+                                obs.action.tool_name == "format_document_paragraph" and obs.success
+                                for obs in state.observations
+                            )
+                            
+                            doc_length = self._get_document_length_from_observations(state)
+                            
+                            if bold_count == 0:
+                                # Первый раз: выделяем заголовок жирным
+                                logger.warning(f"[UnifiedReActEngine] BLOCK: {planned_tool} blocked - formatting title bold")
+                                doc_text = self._get_document_text_from_observations(state)
+                                if doc_text:
+                                    ranges = await self._get_smart_formatting_ranges(doc_text, doc_length)
+                                    first_range = ranges[0] if ranges else {"start": 1, "end": min(doc_length, 100)}
+                                else:
+                                    first_range = {"start": 1, "end": min(doc_length, 100)}
+                                
+                                action_plan = {
+                                    "tool_name": "format_document_text",
+                                    "arguments": {
+                                        "document_id": doc_id,
+                                        "start_index": first_range["start"],
+                                        "end_index": first_range["end"],
+                                        "bold": True
+                                    },
+                                    "description": f"Выделение жирным: {first_range.get('reason', 'заголовок')}",
+                                    "reasoning": f"Модификация выполнена, форматирование заголовка"
+                                }
+                                planned_tool = "format_document_text"
+                            elif bold_count == 1:
+                                # Второй раз: выделяем основную мысль (хокку в конце)
+                                logger.warning(f"[UnifiedReActEngine] BLOCK: {planned_tool} blocked - formatting conclusion bold")
+                                conclusion_start = max(1, doc_length - 150)
+                                action_plan = {
+                                    "tool_name": "format_document_text",
+                                    "arguments": {
+                                        "document_id": doc_id,
+                                        "start_index": conclusion_start,
+                                        "end_index": doc_length,
+                                        "bold": True
+                                    },
+                                    "description": "Выделение жирным: основная мысль/хокку",
+                                    "reasoning": "Заголовок выделен, теперь выделяем хокку"
+                                }
+                                planned_tool = "format_document_text"
+                            elif bold_count >= 2 and not paragraph_done:
+                                # Потом делаем выравнивание абзацев
+                                logger.warning(f"[UnifiedReActEngine] BLOCK: {planned_tool} blocked - redirecting to format_document_paragraph (alignment)")
+                                action_plan = {
+                                    "tool_name": "format_document_paragraph",
+                                    "arguments": {
+                                        "document_id": doc_id,
+                                        "start_index": 1,
+                                        "end_index": doc_length,
+                                        "alignment": "JUSTIFIED",
+                                        "first_line_indent_pt": 36  # Красная строка ~12.7mm
+                                    },
+                                    "description": "Выравнивание текста по ширине с красной строкой",
+                                    "reasoning": "Жирный заголовок сделан, теперь выравнивание абзацев"
+                                }
+                                planned_tool = "format_document_paragraph"
+                            else:
+                                # Всё форматирование сделано - завершаем
+                                logger.info(f"[UnifiedReActEngine] All formatting done, forcing FINISH")
+                                action_plan = {
+                                    "tool_name": "FINISH",
+                                    "arguments": {},
+                                    "description": "Текст добавлен и отформатирован",
+                                    "reasoning": "Модификация и форматирование завершены"
+                                }
+                                planned_tool = "FINISH"
+                    elif is_formatting_task:
                         # Get document_id from the planned arguments
                         doc_id = action_plan.get("arguments", {}).get("document_id", "")
-                        logger.warning(f"[UnifiedReActEngine] BLOCK: {planned_tool} blocked for formatting task, should use format_document_text instead")
+                        logger.warning(f"[UnifiedReActEngine] BLOCK: {planned_tool} blocked for formatting task, using smart formatting")
                         
-                        # Get document content from previous read_document observation
-                        doc_content = ""
-                        for obs in state.observations:
-                            if obs.action.tool_name == "read_document" and obs.success:
-                                doc_content = str(obs.raw_result)[:500] if obs.raw_result else ""
-                                break
+                        # Умное определение что выделить жирным
+                        doc_length = self._get_document_length_from_observations(state)
+                        doc_text = self._get_document_text_from_observations(state)
+                        if doc_text:
+                            ranges = await self._get_smart_formatting_ranges(doc_text, doc_length)
+                            first_range = ranges[0] if ranges else {"start": 1, "end": min(doc_length, 100)}
+                        else:
+                            first_range = {"start": 1, "end": min(doc_length, 100)}
                         
-                        # Redirect to format_document_text - format title bold
                         action_plan = {
                             "tool_name": "format_document_text",
                             "arguments": {
                                 "document_id": doc_id,
-                                "start_index": 1,  # Start after beginning
-                                "end_index": 100,  # Format first 100 chars (title area)
+                                "start_index": first_range["start"],
+                                "end_index": first_range["end"],
                                 "bold": True
                             },
-                            "description": "Форматирование заголовка жирным шрифтом",
-                            "reasoning": f"Задача форматирования: используем format_document_text вместо {planned_tool}"
+                            "description": f"Выделение жирным: {first_range.get('reason', 'заголовок')}",
+                            "reasoning": f"Задача форматирования: умное определение вместо {planned_tool}"
                         }
                         planned_tool = "format_document_text"
+                
+                # === ANTI-LOOP: Block premature FINISH for formatting tasks ===
+                # If LLM wants FINISH but format_document_paragraph not done yet
+                if planned_tool == "FINISH":
+                    goal_lower = state.goal.lower()
+                    format_keywords = ["форматир", "красиво", "красив", "оформи", "format"]
+                    is_formatting_task = any(kw in goal_lower for kw in format_keywords)
+                    
+                    if is_formatting_task:
+                        paragraph_done = any(
+                            obs.action.tool_name == "format_document_paragraph" and obs.success
+                            for obs in state.observations
+                        )
+                        # #region agent log - H9: Premature FINISH check
+                        try:
+                            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                                import json as _json
+                                f.write(_json.dumps({
+                                    "location": "unified_react_engine.py:FINISH-CHECK",
+                                    "message": "H9: Premature FINISH check",
+                                    "data": {
+                                        "is_formatting_task": is_formatting_task,
+                                        "paragraph_done": paragraph_done,
+                                        "will_redirect": not paragraph_done,
+                                        "iteration": state.iteration
+                                    },
+                                    "timestamp": __import__("time").time() * 1000,
+                                    "sessionId": self.session_id,
+                                    "hypothesisId": "H9"
+                                }) + "\n")
+                        except Exception:
+                            pass
+                        # #endregion
+                        
+                        if not paragraph_done:
+                            # FINISH преждевременный - нужно ещё отформатировать абзацы
+                            logger.warning(f"[UnifiedReActEngine] ANTI-LOOP: Premature FINISH, need format_document_paragraph")
+                            
+                            # Получаем document_id из предыдущих операций
+                            doc_id = ""
+                            doc_length = 100
+                            for obs in state.observations:
+                                if obs.action.tool_name in ["read_document", "append_to_document", "insert_into_document", "format_document_text"]:
+                                    doc_id = obs.action.arguments.get("document_id", "") or obs.action.arguments.get("documentId", "")
+                                    if doc_id:
+                                        break
+                            
+                            if doc_id:
+                                doc_length = self._get_document_length_from_observations(state)
+                                action_plan = {
+                                    "tool_name": "format_document_paragraph",
+                                    "arguments": {
+                                        "document_id": doc_id,
+                                        "start_index": 1,
+                                        "end_index": doc_length,
+                                        "alignment": "JUSTIFIED",
+                                        "first_line_indent_pt": 36
+                                    },
+                                    "description": "Выравнивание текста по ширине с красной строкой",
+                                    "reasoning": "FINISH преждевременный, нужно ещё выровнять абзацы"
+                                }
+                                planned_tool = "format_document_paragraph"
                 
                 # === ANTI-LOOP: Detect repeated get_calendar_events calls ===
                 # FIXED: Do NOT automatically create events! Just FINISH with explanation.
@@ -1130,6 +1453,30 @@ class UnifiedReActEngine:
                 
                 # 5. ADAPT - Make decision
                 state.status = "adapting"
+                
+                # #region agent log - H5: analysis result check
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        import json as _json
+                        f.write(_json.dumps({
+                            "location": "unified_react_engine.py:1251",
+                            "message": "H5: Analysis result for adapt decision",
+                            "data": {
+                                "is_goal_achieved": analysis.is_goal_achieved,
+                                "is_success": analysis.is_success,
+                                "is_error": analysis.is_error,
+                                "progress": analysis.progress_toward_goal,
+                                "next_action_suggestion": analysis.next_action_suggestion,
+                                "iteration": state.iteration,
+                                "tool_name": action_record.tool_name
+                            },
+                            "timestamp": __import__("time").time() * 1000,
+                            "sessionId": self.session_id,
+                            "hypothesisId": "H5"
+                        }) + "\n")
+                except Exception:
+                    pass
+                # #endregion
                 
                 if analysis.is_goal_achieved:
                     logger.info(f"[UnifiedReActEngine] Goal achieved at iteration {state.iteration}")
@@ -2018,6 +2365,140 @@ class UnifiedReActEngine:
         }
         return category_descriptions.get(category, '⚙️ Выполнение действия')
     
+    def _is_compound_task(self, goal: str) -> tuple[bool, list[str]]:
+        """
+        Определяет, является ли задача составной (несколько операций).
+        Возвращает (is_compound, phases) где phases = ['modify', 'format'] и т.д.
+        
+        Args:
+            goal: Текст цели задачи
+            
+        Returns:
+            Tuple[bool, list[str]]: (is_compound, phases)
+        """
+        goal_lower = goal.lower()
+        
+        # Паттерны модификации контента
+        modify_keywords = ["допиши", "добавь", "напиши", "вставь", "создай", "append", "insert", "add"]
+        has_modify = any(kw in goal_lower for kw in modify_keywords)
+        
+        # Паттерны форматирования
+        format_keywords = ["форматир", "красиво", "оформи", "format"]
+        has_format = any(kw in goal_lower for kw in format_keywords)
+        
+        phases = []
+        if has_modify:
+            phases.append("modify")
+        if has_format:
+            phases.append("format")
+        
+        return (len(phases) > 1, phases)
+    
+    def _get_document_length_from_observations(self, state: ReActState) -> int:
+        """
+        Получает длину документа из предыдущих наблюдений read_document.
+        
+        Args:
+            state: Текущее состояние ReAct
+            
+        Returns:
+            Длина документа в символах, или 100 по умолчанию
+        """
+        import re
+        for obs in state.observations:
+            if obs.action.tool_name == "read_document" and obs.success:
+                # Парсим TEXT_LENGTH из результата
+                result_str = str(obs.raw_result)
+                match = re.search(r'TEXT_LENGTH:\s*(\d+)', result_str)
+                if match:
+                    return int(match.group(1))
+                # Альтернативный паттерн: ищем в формате "[TEXT_LENGTH: X characters]"
+                match = re.search(r'\[TEXT_LENGTH:\s*(\d+)', result_str)
+                if match:
+                    return int(match.group(1))
+        return 100  # fallback
+    
+    def _get_document_text_from_observations(self, state: ReActState) -> Optional[str]:
+        """
+        Получает текст документа из предыдущих наблюдений read_document.
+        
+        Returns:
+            Текст документа или None
+        """
+        for obs in state.observations:
+            if obs.action.tool_name == "read_document" and obs.success:
+                result_str = str(obs.raw_result)
+                # Убираем метаданные и оставляем только текст
+                # Формат: "Document content:\n\n{text}\n\n[TEXT_LENGTH: N characters]"
+                if "Document content:" in result_str:
+                    text = result_str.split("Document content:", 1)[1]
+                    # Убираем [TEXT_LENGTH: ...] в конце
+                    import re
+                    text = re.sub(r'\[TEXT_LENGTH:\s*\d+\s*characters?\]', '', text)
+                    return text.strip()
+                return result_str
+        return None
+    
+    async def _get_smart_formatting_ranges(self, document_text: str, doc_length: int) -> list:
+        """
+        Использует fast_llm для определения какие части текста выделить жирным.
+        
+        Args:
+            document_text: Текст документа
+            doc_length: Длина документа
+            
+        Returns:
+            Список диапазонов для выделения жирным: [{"start": N, "end": M, "reason": "..."}]
+        """
+        # Ограничиваем текст для анализа
+        text_for_analysis = document_text[:2000] if len(document_text) > 2000 else document_text
+        
+        prompt = f"""Проанализируй текст и определи какие части нужно выделить жирным шрифтом.
+
+Текст:
+{text_for_analysis}
+
+Выдели жирным:
+1. Заголовок (первая строка если это заголовок)
+2. Ключевые мысли или выводы
+3. Важные термины или понятия
+
+Ответь ТОЛЬКО JSON массивом (без markdown):
+[{{"start": 1, "end": N, "reason": "заголовок"}}]
+
+Где start и end - позиции символов (начиная с 1).
+Максимум 3-4 диапазона. Если заголовок очевиден - достаточно только его."""
+
+        try:
+            from langchain_core.messages import HumanMessage
+            response = await self.fast_llm.ainvoke([HumanMessage(content=prompt)])
+            response_text = response.content if hasattr(response, 'content') else str(response)
+            
+            # Парсим JSON
+            import json
+            import re
+            json_match = re.search(r'\[[\s\S]*\]', response_text)
+            if json_match:
+                ranges = json.loads(json_match.group(0))
+                # Валидация
+                valid_ranges = []
+                for r in ranges:
+                    if isinstance(r, dict) and "start" in r and "end" in r:
+                        start = max(1, int(r["start"]))
+                        end = min(doc_length, int(r["end"]))
+                        if end > start:
+                            valid_ranges.append({"start": start, "end": end, "reason": r.get("reason", "")})
+                return valid_ranges if valid_ranges else [{"start": 1, "end": min(doc_length, 100), "reason": "fallback"}]
+            
+        except Exception as e:
+            logger.warning(f"[UnifiedReActEngine] Smart formatting failed: {e}")
+        
+        # Fallback: первая строка как заголовок
+        first_newline = document_text.find('\n')
+        if first_newline > 0 and first_newline < 200:
+            return [{"start": 1, "end": first_newline, "reason": "first_line"}]
+        return [{"start": 1, "end": min(doc_length, 100), "reason": "fallback"}]
+    
     def _get_short_action_title(self, tool_name: str, args: Dict[str, Any]) -> Optional[str]:
         """
         Get short title for step header based on first action.
@@ -2280,9 +2761,9 @@ class UnifiedReActEngine:
                                     {
                                         "intent_id": self.intent_id,
                                         "iteration_number": self.iteration_number,
-                                        "chunk": new_chunk
-                                    }
-                                )
+                                    "chunk": new_chunk
+                                }
+                            )
                             # Отправляем как intent_thinking_append для streaming в UI
                             await self._send_intent_detail(new_chunk)
         
@@ -3021,13 +3502,15 @@ class UnifiedReActEngine:
         
         # Добавляем историю действий С РЕЗУЛЬТАТАМИ
         if state.action_history and state.observations:
-            context_str += "Уже выполнено (ИСПОЛЬЗУЙ ID и данные из результатов!):\n"
+            context_str += "🔴 ИСТОРИЯ ВЫПОЛНЕННЫХ ДЕЙСТВИЙ (НЕ ПОВТОРЯЙ ИХ!):\n"
             # Берём последние 5 действий с их результатами
             start_idx = max(0, len(state.action_history) - 5)
             last_written_data = None  # Для оптимизации: запоминаем записанные данные
+            completed_tools = []  # Список выполненных инструментов
             for i in range(start_idx, len(state.action_history)):
                 action = state.action_history[i]
-                context_str += f"- {action.tool_name}"
+                completed_tools.append(action.tool_name)
+                context_str += f"✅ {i+1}. {action.tool_name} — ВЫПОЛНЕНО"
                 
                 # Для add_rows/update_cells - показываем САМИ ДАННЫЕ, которые были записаны
                 if action.tool_name in ["add_rows", "update_cells"] and action.arguments:
@@ -3055,6 +3538,10 @@ class UnifiedReActEngine:
             # Если были записаны данные, явно указываем НЕ читать таблицу
             if last_written_data:
                 context_str += "\n⚠️ ВАЖНО: Ты только что записал данные в таблицу. НЕ вызывай sheets_read_range - используй ЗАПИСАННЫЕ ДАННЫЕ выше!\n"
+            
+            # Явное указание не повторять действия
+            context_str += f"\n🛑 НЕ ПОВТОРЯЙ УЖЕ ВЫПОЛНЕННЫЕ ДЕЙСТВИЯ: {', '.join(completed_tools)}\n"
+            context_str += "Если все нужные действия выполнены — используй FINISH!\n"
         
         # Получаем список доступных инструментов
         capability_descriptions = []
@@ -3198,6 +3685,46 @@ class UnifiedReActEngine:
                 HumanMessage(content=prompt)
             ]
             
+            # #region agent log - H10: Full prompt sent to LLM
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    import json as _json
+                    # Извлекаем ключевые секции промпта
+                    goal_start = prompt.find("Цель:")
+                    goal_end = prompt.find("\n", goal_start) if goal_start > 0 else -1
+                    goal_section = prompt[goal_start:goal_end].strip() if goal_start > 0 else "NO GOAL"
+                    
+                    history_start = prompt.find("🔴 ИСТОРИЯ")
+                    history_end = prompt.find("Доступные инструменты:")
+                    history_section = prompt[history_start:history_end].strip() if history_start > 0 else "NO HISTORY SECTION"
+                    
+                    # Имя модели
+                    model_name = getattr(self.fast_llm if state.iteration > 1 else self.llm, 'model_name', 'unknown')
+                    if not model_name or model_name == 'unknown':
+                        model_name = str(type(self.fast_llm if state.iteration > 1 else self.llm).__name__)
+                    
+                    f.write(_json.dumps({
+                        "location": "unified_react_engine.py:_think_and_plan",
+                        "message": "H10: FULL PROMPT TO LLM",
+                        "data": {
+                            "iteration": state.iteration,
+                            "model_name": model_name,
+                            "is_fast_llm": state.iteration > 1,
+                            "goal": goal_section,
+                            "history_section": history_section[:3000],
+                            "action_history_count": len(state.action_history) if state.action_history else 0,
+                            "observations_count": len(state.observations) if state.observations else 0,
+                            "prompt_length": len(prompt),
+                            "full_prompt": prompt[:5000]  # Первые 5000 символов
+                        },
+                        "timestamp": __import__("time").time() * 1000,
+                        "sessionId": self.session_id,
+                        "hypothesisId": "H10"
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
+            
             # Создаём парсер для стриминга thought
             # Передаём intent_id для отправки intent_detail событий
             current_intent_id = getattr(self, '_current_intent_id', None)
@@ -3215,9 +3742,16 @@ class UnifiedReActEngine:
                 iteration_number=state.iteration
             )
             
+            # Выбираем модель: fast_llm для итераций 2+ (ускорение)
+            # Первая итерация требует глубокого анализа, последующие - простое следование плану
+            llm_to_use = self.fast_llm if state.iteration > 1 else self.llm
+            
             # Стримим ответ
             full_response = ""
-            async for chunk in self.llm.astream(messages):
+            _think_start = __import__("time").time()
+            _chunk_count = 0
+            async for chunk in llm_to_use.astream(messages):
+                _chunk_count += 1
                 chunk_text = ""
                 if hasattr(chunk, 'content') and chunk.content:
                     if isinstance(chunk.content, list):
@@ -3239,6 +3773,29 @@ class UnifiedReActEngine:
             
             # Получаем thought из парсера
             thought = parser.get_thought()
+            _think_duration = __import__("time").time() - _think_start
+            
+            # #region agent log - H8: Thinking duration
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    import json as _json
+                    f.write(_json.dumps({
+                        "location": "unified_react_engine.py:_think_and_plan",
+                        "message": "H8: Thinking stream completed",
+                        "data": {
+                            "iteration": state.iteration,
+                            "duration_sec": round(_think_duration, 1),
+                            "chunk_count": _chunk_count,
+                            "thought_len": len(thought) if thought else 0,
+                            "full_response_len": len(full_response)
+                        },
+                        "timestamp": __import__("time").time() * 1000,
+                        "sessionId": self.session_id,
+                        "hypothesisId": "H8"
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
             
             # Remove duplicate patterns from thought
             # Some LLMs (especially Claude 3 Haiku) tend to repeat their analysis
@@ -3325,6 +3882,30 @@ class UnifiedReActEngine:
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
+            
+            # #region agent log - H11: LLM response and parsed action
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    import json as _json
+                    model_name = getattr(self.fast_llm if state.iteration > 1 else self.llm, 'model_name', 'unknown')
+                    f.write(_json.dumps({
+                        "location": "unified_react_engine.py:_think_and_plan",
+                        "message": "H11: LLM RESPONSE - PARSED ACTION",
+                        "data": {
+                            "iteration": state.iteration,
+                            "model_name": model_name,
+                            "thought": thought[:1000] if thought else "",
+                            "action_plan": action_plan,
+                            "tool_name": tool_name,
+                            "full_response": full_response[:2000]
+                        },
+                        "timestamp": __import__("time").time() * 1000,
+                        "sessionId": self.session_id,
+                        "hypothesisId": "H11"
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
             
             # Check for dangerous operations without explicit request
             DANGEROUS_OPERATIONS = {
@@ -3437,7 +4018,7 @@ class UnifiedReActEngine:
             tools_with_operations = {
                 # Calendar (уже есть)
                 'get_calendar_events': {
-                    'title': 'Получаем календарные события',
+                    'title': 'Получаю календарные события',
                     'streaming_title': 'Календарные события',
                     'operation_type': 'read',
                     'file_type': 'calendar'
@@ -3445,7 +4026,7 @@ class UnifiedReActEngine:
                 
                 # Sheets - чтение
                 'get_sheet_data': {
-                    'title': 'Получаем данные из таблицы',
+                    'title': 'Получаю данные из таблицы',
                     'streaming_title': 'Данные таблицы',
                     'operation_type': 'read',
                     'file_type': 'sheets'
@@ -3453,13 +4034,13 @@ class UnifiedReActEngine:
                 
                 # Sheets - запись
                 'add_rows': {
-                    'title': 'Записываем строки в таблицу',
+                    'title': 'Записываю строки в таблицу',
                     'streaming_title': 'Записанные строки',
                     'operation_type': 'write',
                     'file_type': 'sheets'
                 },
                 'update_cells': {
-                    'title': 'Обновляем ячейки в таблице',
+                    'title': 'Обновляю ячейки в таблице',
                     'streaming_title': 'Обновленные ячейки',
                     'operation_type': 'write',
                     'file_type': 'sheets'
@@ -3467,13 +4048,13 @@ class UnifiedReActEngine:
                 
                 # Gmail - чтение
                 'list_emails': {
-                    'title': 'Получаем список писем',
+                    'title': 'Получаю список писем',
                     'streaming_title': 'Письма',
                     'operation_type': 'read',
                     'file_type': 'email'
                 },
                 'search_emails': {
-                    'title': 'Ищем письма',
+                    'title': 'Ищу письма',
                     'streaming_title': 'Найденные письма',
                     'operation_type': 'read',
                     'file_type': 'email'
@@ -3481,7 +4062,7 @@ class UnifiedReActEngine:
                 
                 # Docs - чтение
                 'read_document': {
-                    'title': 'Читаем документ',
+                    'title': 'Читаю документ',
                     'streaming_title': 'Содержимое документа',
                     'operation_type': 'read',
                     'file_type': 'docs'
@@ -3489,7 +4070,7 @@ class UnifiedReActEngine:
                 
                 # Docs - запись
                 'update_document': {
-                    'title': 'Обновляем документ',
+                    'title': 'Обновляю документ',
                     'streaming_title': 'Записанный текст',
                     'operation_type': 'write',
                     'file_type': 'docs'
@@ -3497,7 +4078,7 @@ class UnifiedReActEngine:
                 
                 # Docs - добавление текста
                 'append_to_document': {
-                    'title': 'Добавляем текст',
+                    'title': 'Добавляю текст',
                     'streaming_title': 'Добавляемый текст',
                     'operation_type': 'write',
                     'file_type': 'docs'
@@ -3505,7 +4086,7 @@ class UnifiedReActEngine:
                 
                 # Docs - вставка текста
                 'insert_into_document': {
-                    'title': 'Вставляем текст',
+                    'title': 'Вставляю текст',
                     'streaming_title': 'Вставляемый текст',
                     'operation_type': 'write',
                     'file_type': 'docs'
@@ -3513,7 +4094,7 @@ class UnifiedReActEngine:
                 
                 # Slides - чтение
                 'get_presentation': {
-                    'title': 'Получаем информацию о презентации',
+                    'title': 'Получаю информацию о презентации',
                     'streaming_title': 'Слайды презентации',
                     'operation_type': 'read',
                     'file_type': 'slides'
