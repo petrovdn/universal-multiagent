@@ -1787,15 +1787,61 @@ export class WebSocketClient {
         ensureActiveWorkflow()
         import('../store/chatStore').then(({ useChatStore }) => {
           const chatStore = useChatStore.getState()
-          const { step, type, title, subtitle, fileId, fileUrl, previewData } = event.data
+          const { step, type, title, subtitle, fileId, fileUrl, previewData, file_type, streaming_title } = event.data
           
+          // For instant mode (no step), automatically open tab
+          if (!step && (file_type || type) && (fileId || event.data.file_id)) {
+            const fileType = (file_type || type) as 'sheets' | 'docs' | 'slides' | 'code'
+            const fileIdValue = fileId || event.data.file_id
+            const fileUrlValue = fileUrl || event.data.file_url
+            const fileTitle = streaming_title || title || 'File'
+            
+            console.log('[WebSocket] Auto-opening file tab:', fileType, fileIdValue, fileTitle)
+            
+            // Import workspace store to add tab
+            import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+              const workspaceStore = useWorkspaceStore.getState()
+              const tabs = workspaceStore.tabs
+              
+              // Check if already open
+              const isAlreadyOpen = tabs.some(tab => {
+                if (tab.url === fileUrlValue) return true
+                if (tab.data) {
+                  const tabData = tab.data as any
+                  if (fileType === 'sheets' && tabData.spreadsheetId === fileIdValue) return true
+                  if (fileType === 'docs' && tabData.documentId === fileIdValue) return true
+                  if (fileType === 'slides' && tabData.presentationId === fileIdValue) return true
+                }
+                return false
+              })
+              
+              if (!isAlreadyOpen) {
+                workspaceStore.addTab({
+                  type: fileType,
+                  title: fileTitle,
+                  url: fileUrlValue,
+                  data: fileType === 'sheets' ? { spreadsheetId: fileIdValue } :
+                        fileType === 'docs' ? { documentId: fileIdValue } :
+                        fileType === 'slides' ? { presentationId: fileIdValue } :
+                        fileType === 'code' ? previewData || {} :
+                        {},
+                  closeable: true
+                })
+                console.log('[WebSocket] Tab opened:', fileType, fileTitle)
+              } else {
+                console.log('[WebSocket] Tab already open, skipping')
+              }
+            })
+          }
+          
+          // For workflow steps, set file preview
           if (step) {
             chatStore.setStepFilePreview(step, {
-              type: type as 'sheets' | 'docs' | 'slides' | 'code' | 'email' | 'chart',
-              title: title || 'File',
+              type: (type || file_type) as 'sheets' | 'docs' | 'slides' | 'code' | 'email' | 'chart',
+              title: title || streaming_title || 'File',
               subtitle,
-              fileId: fileId || '',
-              fileUrl,
+              fileId: fileId || event.data.file_id || '',
+              fileUrl: fileUrl || event.data.file_url,
               previewData: previewData || {}
             })
             console.log('[WebSocket] File preview set for step:', step, type, title)
