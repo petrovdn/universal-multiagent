@@ -3379,6 +3379,106 @@ class UnifiedReActEngine:
                     "reasoning": str(e)
                 }
     
+    def _get_relevant_tools(self, goal: str, completed_tools: List[str]) -> List[Dict[str, str]]:
+        """
+        Возвращает только релевантные инструменты для текущей задачи.
+        Максимум 5-7 инструментов вместо 50+.
+        """
+        goal_lower = goal.lower()
+        relevant_tool_names = set()
+        
+        # Определяем категорию задачи и добавляем релевантные инструменты
+        if any(kw in goal_lower for kw in ["документ", "doc", "текст", "сказк", "допиши", "напиши"]):
+            relevant_tool_names.update([
+                "read_document", "append_to_document", "insert_into_document",
+                "update_document", "format_document_text", "format_document_paragraph"
+            ])
+        
+        if any(kw in goal_lower for kw in ["таблиц", "sheet", "excel", "данн"]):
+            relevant_tool_names.update([
+                "sheets_read_range", "get_sheet_data", "add_rows", "update_cells"
+            ])
+        
+        if any(kw in goal_lower for kw in ["календар", "встреч", "событ", "meeting"]):
+            relevant_tool_names.update([
+                "get_calendar_events", "create_event", "delete_event", "schedule_group_meeting"
+            ])
+        
+        if any(kw in goal_lower for kw in ["письм", "email", "почт"]):
+            relevant_tool_names.update([
+                "list_emails", "read_email", "send_email"
+            ])
+        
+        if any(kw in goal_lower for kw in ["файл", "file", "найди", "открой"]):
+            relevant_tool_names.update([
+                "drive_search_files", "workspace_open_file", "search_files"
+            ])
+        
+        # Всегда добавляем FINISH
+        relevant_tool_names.add("FINISH")
+        
+        # Исключаем уже успешно выполненные инструменты (кроме FINISH и форматирования)
+        repeatable_tools = {"FINISH", "format_document_text", "format_document_paragraph"}
+        filtered_names = [t for t in relevant_tool_names 
+                         if t not in completed_tools or t in repeatable_tools]
+        
+        # Собираем описания релевантных инструментов
+        result = []
+        for cap in self.capabilities:
+            if cap.name in filtered_names:
+                result.append({
+                    "name": cap.name,
+                    "description": cap.description[:100]  # Краткое описание
+                })
+        
+        # Добавляем FINISH если его нет
+        if not any(t["name"] == "FINISH" for t in result):
+            result.append({
+                "name": "FINISH",
+                "description": "Завершить задачу, когда все шаги выполнены"
+            })
+        
+        return result[:7]  # Максимум 7 инструментов
+    
+    def _determine_next_step(self, goal: str, completed_tools: List[str], observations: List) -> str:
+        """
+        Определяет следующий логический шаг на основе цели и выполненных действий.
+        """
+        goal_lower = goal.lower()
+        
+        # Проверяем что уже сделано
+        has_read = "read_document" in completed_tools
+        has_append = "append_to_document" in completed_tools
+        has_insert = "insert_into_document" in completed_tools
+        has_update = "update_document" in completed_tools
+        has_format_text = "format_document_text" in completed_tools
+        has_format_para = "format_document_paragraph" in completed_tools
+        
+        # Задачи с документами
+        is_doc_task = any(kw in goal_lower for kw in ["документ", "doc", "текст", "сказк"])
+        is_write_task = any(kw in goal_lower for kw in ["допиши", "добавь", "напиши", "вставь"])
+        is_format_task = any(kw in goal_lower for kw in ["формат", "красив", "оформи", "жирн", "выдели"])
+        
+        if is_doc_task:
+            if not has_read:
+                return "read_document — прочитать содержимое документа"
+            if is_write_task and not (has_append or has_insert or has_update):
+                return "append_to_document — добавить текст в конец документа"
+            if is_format_task and not has_format_text:
+                return "format_document_text — выделить заголовок/ключевые мысли жирным"
+            if is_format_task and has_format_text and not has_format_para:
+                return "format_document_paragraph — применить выравнивание абзацев"
+            return "FINISH — все шаги выполнены, задача завершена"
+        
+        # Задачи с таблицами
+        if any(kw in goal_lower for kw in ["таблиц", "sheet"]):
+            if "sheets_read_range" not in completed_tools and "get_sheet_data" not in completed_tools:
+                return "sheets_read_range — прочитать данные из таблицы"
+            return "FINISH — задача с таблицей выполнена"
+        
+        # По умолчанию
+        return "Определи следующий шаг на основе цели и истории"
+    
     async def _think_and_plan(
         self,
         state: ReActState,
@@ -3392,292 +3492,166 @@ class UnifiedReActEngine:
         Returns:
             Tuple[thought: str, action_plan: Dict[str, Any]]
         """
-        # Строим контекст (объединяем логику из _think и _plan_action)
+        # ========== ОПТИМИЗИРОВАННЫЙ ПРОМПТ С XML-СТРУКТУРОЙ ==========
+        # Perplexity рекомендации:
+        # 1. История действий В НАЧАЛЕ (0-5% позиция) - не в середине!
+        # 2. XML-теги для чёткой структуры
+        # 3. Только релевантные инструменты (3-7, не 50)
+        # 4. 5-7 критических правил (не 100 строк)
+        # 5. Явный next_step
+        
         from datetime import datetime, timedelta
         import pytz
         from src.utils.config_loader import get_config
         tz = pytz.timezone(get_config().timezone)
         now = datetime.now(tz)
         current_date_str = now.strftime("%Y-%m-%d %H:%M")
-        tomorrow = now + timedelta(days=1)
-        tomorrow_str = tomorrow.strftime("%Y-%m-%d")
         
-        context_str = f"📅 ТЕКУЩАЯ ДАТА И ВРЕМЯ: {current_date_str} (завтра = {tomorrow_str})\n\n"
-        context_str += f"Цель: {state.goal}\n\n"
+        # Собираем список выполненных инструментов
+        completed_tools = [a.tool_name for a in state.action_history] if state.action_history else []
         
-        # Добавляем историю разговора
-        if hasattr(context, 'messages') and context.messages:
-            recent_messages = context.messages[-4:]
-            if recent_messages:
-                context_str += "📝 Контекст разговора:\n"
-                for msg in recent_messages:
-                    role = "Пользователь" if msg.get('role') == 'user' else "Ассистент"
-                    content = msg.get('content', '')[:300]
-                    context_str += f"  {role}: {content}\n"
-                context_str += "\n"
+        # Определяем следующий шаг
+        next_step = self._determine_next_step(state.goal, completed_tools, state.observations)
         
-        # Добавляем ПРИКРЕПЛЕННЫЕ ФАЙЛЫ (PRIORITY #1 - должны быть ПЕРВЫМИ!)
-        logger.info(f"[_think_and_plan] Processing file_ids: {file_ids}, count: {len(file_ids) if file_ids else 0}")
-        print(f"[_think_and_plan] Processing file_ids: {file_ids}", flush=True)
-        if hasattr(context, 'uploaded_files'):
-            total_files = len(context.uploaded_files)
-            logger.info(f"[_think_and_plan] Context has {total_files} uploaded files: {list(context.uploaded_files.keys())}")
-            print(f"[_think_and_plan] Context has {total_files} uploaded files: {list(context.uploaded_files.keys())}", flush=True)
+        # Получаем релевантные инструменты (3-7 штук вместо 50)
+        relevant_tools = self._get_relevant_tools(state.goal, completed_tools)
+        tools_str = "\n".join([f"- {t['name']}: {t['description']}" for t in relevant_tools])
+        
+        # ===== СЕКЦИЯ 1: TASK_STATUS (в начале!) =====
+        task_status = f"""<task_status>
+Цель: {state.goal}
+Итерация: {state.iteration} из {self.max_iterations}
+Дата: {current_date_str}
+</task_status>"""
+        
+        # ===== СЕКЦИЯ 2: COMPLETED_ACTIONS (сразу после статуса - критично!) =====
+        completed_section = ""
+        if state.action_history and state.observations:
+            completed_lines = []
+            for i, action in enumerate(state.action_history):
+                obs = state.observations[i] if i < len(state.observations) else None
+                status = "DONE" if obs and obs.success else "FAILED"
+                result_preview = ""
+                if obs and obs.raw_result:
+                    result_preview = f" → {str(obs.raw_result)[:150]}..."
+                completed_lines.append(f"{i+1}. {action.tool_name} — {status}{result_preview}")
+            
+            completed_section = f"""
+<completed_actions>
+ВЫПОЛНЕННЫЕ ДЕЙСТВИЯ (НЕ ПОВТОРЯЙ!):
+{chr(10).join(completed_lines)}
+</completed_actions>"""
+        
+        # ===== СЕКЦИЯ 3: NEXT_REQUIRED_STEP (явное указание) =====
+        blocked_tools = ", ".join(completed_tools) if completed_tools else "нет"
+        next_step_section = f"""
+<next_required_step>
+СЛЕДУЮЩИЙ ШАГ: {next_step}
+ЗАПРЕЩЕНО ПОВТОРЯТЬ: {blocked_tools}
+</next_required_step>"""
+        
+        # ===== СЕКЦИЯ 4: CONTEXT (открытые файлы, прикреплённые файлы) =====
+        context_section = ""
+        
+        # Открытые файлы
+        open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
+        if open_files:
+            files_lines = []
+            for file in open_files:
+                file_type = file.get('type')
+                title = file.get('title', 'Без названия')
+                if file_type == 'docs':
+                    doc_id = file.get('document_id') or file.get('documentId')
+                    if not doc_id and file.get('url'):
+                        url_match = re.search(r'/document/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
+                        if url_match:
+                            doc_id = url_match.group(1)
+                    if doc_id:
+                        files_lines.append(f"- Документ: {title} (ID: {doc_id})")
+                elif file_type == 'sheets':
+                    sheet_id = file.get('spreadsheet_id') or file.get('spreadsheetId')
+                    if sheet_id:
+                        files_lines.append(f"- Таблица: {title} (ID: {sheet_id})")
+            
+            if files_lines:
+                context_section += f"""
+<open_files>
+{chr(10).join(files_lines)}
+</open_files>"""
+        
+        # Прикреплённые файлы
         if file_ids:
             uploaded_files_found = []
             for file_id in file_ids:
                 file_data = context.get_file(file_id)
                 if file_data:
-                    logger.info(f"[_think_and_plan] Found file {file_id}: {file_data.get('filename')}, type: {file_data.get('type')}, has_text: {'text' in file_data}")
-                    print(f"[_think_and_plan] Found file {file_id}: {file_data.get('filename')}, has_text: {'text' in file_data}, text_length: {len(file_data.get('text', ''))}", flush=True)
-                else:
-                    logger.warning(f"[_think_and_plan] File {file_id} NOT found in context!")
-                    print(f"[_think_and_plan] WARNING: File {file_id} NOT found! Available: {list(context.uploaded_files.keys()) if hasattr(context, 'uploaded_files') else 'N/A'}", flush=True)
-                if file_data:
                     uploaded_files_found.append(file_data)
             
             if uploaded_files_found:
-                logger.info(f"[_think_and_plan] Adding {len(uploaded_files_found)} uploaded files to context_str")
-                print(f"[_think_and_plan] Adding {len(uploaded_files_found)} uploaded files to context_str", flush=True)
-                context_str += "\n📎 ПРИКРЕПЛЕННЫЕ ФАЙЛЫ (ПРИОРИТЕТ #1 - используй их ПЕРВЫМ!):\n"
-                context_str += "🚫 КРИТИЧЕСКИ ВАЖНО: НЕ используй инструменты open_file, find_and_open_file, workspace_open_file для этих файлов!\n"
-                context_str += "🚫 Их содержимое УЖЕ здесь ниже - используй текст напрямую!\n"
-                context_str += "🚫 НЕ ищи эти файлы в Google Drive или Workspace - их там нет!\n\n"
+                files_content = []
                 for file_data in uploaded_files_found:
                     filename = file_data.get('filename', 'unknown')
                     file_type = file_data.get('type', '')
-                    if file_type == 'application/pdf' and 'text' in file_data:
-                        pdf_text = file_data.get('text', '')
-                        max_len = 8000
-                        if len(pdf_text) > max_len:
-                            pdf_text = pdf_text[:max_len] + f"\n... (обрезано, полный текст {len(file_data.get('text', ''))} символов)"
-                        context_str += f"- PDF: {filename}\n{pdf_text}\n\n"
-                    elif file_type in ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                                      "application/msword") and 'text' in file_data:
-                        docx_text = file_data.get('text', '')
-                        max_len = 8000
-                        if len(docx_text) > max_len:
-                            docx_text = docx_text[:max_len] + f"\n... (обрезано, полный текст {len(file_data.get('text', ''))} символов)"
-                        context_str += f"- Word документ: {filename}\n{docx_text}\n\n"
-                    elif file_type.startswith('image/'):
-                        context_str += f"- Изображение: {filename} (содержимое уже в сообщении)\n\n"
+                    if 'text' in file_data:
+                        text = file_data.get('text', '')[:3000]
+                        files_content.append(f"Файл: {filename}\n{text}")
                     else:
-                        context_str += f"- Файл: {filename} (тип: {file_type})\n\n"
-                context_str += "🚫 ЗАПРЕЩЕНО: НЕ вызывай open_file, find_and_open_file, workspace_open_file для файлов выше!\n"
-                context_str += "✅ ПРАВИЛЬНО: Используй текст файлов напрямую из секции выше для ответа на вопросы пользователя!\n\n"
-            else:
-                logger.warning(f"[_think_and_plan] file_ids provided ({file_ids}) but no files found in context!")
-                print(f"[_think_and_plan] WARNING: file_ids provided but no files found!", flush=True)
-        else:
-            logger.info(f"[_think_and_plan] No file_ids provided")
-            print(f"[_think_and_plan] No file_ids provided", flush=True)
-        
-        # Добавляем открытые файлы (PRIORITY #2)
-        open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
-        if open_files:
-            context_str += "\n📂 ОТКРЫТЫЕ ФАЙЛЫ В РАБОЧЕЙ ОБЛАСТИ:\n"
-            for file in open_files:
-                file_type = file.get('type')
-                title = file.get('title', 'Без названия')
+                        files_content.append(f"Файл: {filename} (тип: {file_type})")
                 
-                if file_type == 'sheets':
-                    spreadsheet_id = file.get('spreadsheet_id') or file.get('spreadsheetId')
-                    if not spreadsheet_id and file.get('url'):
-                        url_match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
-                        if url_match:
-                            spreadsheet_id = url_match.group(1)
-                    if spreadsheet_id:
-                        context_str += f"- 📊 Таблица: {title} (ID: {spreadsheet_id})\n"
-                        context_str += f"  Используй: sheets_read_range с spreadsheet_id={spreadsheet_id}\n"
-                elif file_type == 'docs':
-                    document_id = file.get('document_id') or file.get('documentId')
-                    if not document_id and file.get('url'):
-                        url_match = re.search(r'/document/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
-                        if url_match:
-                            document_id = url_match.group(1)
-                    if document_id:
-                        context_str += f"- 📄 Документ: {title} (ID: {document_id})\n"
-                        context_str += f"  Используй: read_document с document_id={document_id}\n"
-            context_str += "\n"
+                context_section += f"""
+<attached_files>
+{chr(10).join(files_content)}
+НЕ используй open_file для этих файлов - их содержимое УЖЕ выше!
+</attached_files>"""
         
-        # Добавляем историю действий С РЕЗУЛЬТАТАМИ
-        if state.action_history and state.observations:
-            context_str += "🔴 ИСТОРИЯ ВЫПОЛНЕННЫХ ДЕЙСТВИЙ (НЕ ПОВТОРЯЙ ИХ!):\n"
-            # Берём последние 5 действий с их результатами
-            start_idx = max(0, len(state.action_history) - 5)
-            last_written_data = None  # Для оптимизации: запоминаем записанные данные
-            completed_tools = []  # Список выполненных инструментов
-            for i in range(start_idx, len(state.action_history)):
-                action = state.action_history[i]
-                completed_tools.append(action.tool_name)
-                context_str += f"✅ {i+1}. {action.tool_name} — ВЫПОЛНЕНО"
-                
-                # Для add_rows/update_cells - показываем САМИ ДАННЫЕ, которые были записаны
-                if action.tool_name in ["add_rows", "update_cells"] and action.arguments:
-                    values = action.arguments.get("values")
-                    if values:
-                        # Сохраняем данные для последующего использования
-                        last_written_data = values
-                        context_str += f"\n  📊 ЗАПИСАННЫЕ ДАННЫЕ (используй их напрямую!):\n"
-                        if isinstance(values, list):
-                            for row_idx, row in enumerate(values[:10]):  # Показываем до 10 строк
-                                context_str += f"    {row}\n"
-                            if len(values) > 10:
-                                context_str += f"    ... и ещё {len(values) - 10} строк\n"
-                        else:
-                            context_str += f"    {str(values)[:500]}\n"
-                
-                # Получаем соответствующий observation
-                if i < len(state.observations):
-                    obs = state.observations[i]
-                    if obs and obs.raw_result:
-                        result_str = str(obs.raw_result)[:600]  # Ограничиваем длину
-                        context_str += f"\n  📋 Результат: {result_str}"
-                context_str += "\n"
-            
-            # Если были записаны данные, явно указываем НЕ читать таблицу
-            if last_written_data:
-                context_str += "\n⚠️ ВАЖНО: Ты только что записал данные в таблицу. НЕ вызывай sheets_read_range - используй ЗАПИСАННЫЕ ДАННЫЕ выше!\n"
-            
-            # Явное указание не повторять действия
-            context_str += f"\n🛑 НЕ ПОВТОРЯЙ УЖЕ ВЫПОЛНЕННЫЕ ДЕЙСТВИЯ: {', '.join(completed_tools)}\n"
-            context_str += "Если все нужные действия выполнены — используй FINISH!\n"
-        
-        # Получаем список доступных инструментов
-        capability_descriptions = []
-        for cap in self.capabilities[:50]:
-            capability_descriptions.append(f"- {cap.name}: {cap.description}")
-        tools_str = "\n".join(capability_descriptions)
-        
-        # Формируем объединённый промпт
-        prompt = f"""Ты выполняешь задачу пошагово, используя доступные инструменты.
-
-{context_str}
-
-Доступные инструменты:
+        # ===== СЕКЦИЯ 5: AVAILABLE_TOOLS (только релевантные!) =====
+        tools_section = f"""
+<available_tools>
 {tools_str}
+</available_tools>"""
+        
+        # ===== СЕКЦИЯ 6: CRITICAL_RULES (5-7 правил, не 100 строк) =====
+        rules_section = """
+<critical_rules>
+1. НЕ повторяй действия из <completed_actions> — это приведёт к зацикливанию
+2. После всех шагов вызови FINISH
+3. При ошибке попробуй альтернативу, не повторяй то же действие
+4. Данные из предыдущих шагов УЖЕ в контексте — не читай повторно
+5. Если прикреплены файлы — НЕ открывай их через инструменты
+</critical_rules>"""
+        
+        # ===== СЕКЦИЯ 7: OUTPUT_FORMAT =====
+        format_section = """
+<output_format>
+Ответь СТРОГО в формате:
 
-🚫 КРИТИЧЕСКИ ВАЖНО ДЛЯ ПРИКРЕПЛЕННЫХ ФАЙЛОВ:
-- Если в секции "ПРИКРЕПЛЕННЫЕ ФАЙЛЫ" выше есть файлы с их содержимым, НИКОГДА не используй инструменты:
-  * open_file
-  * find_and_open_file
-  * workspace_open_file
-  * workspace_find_and_open_file
-  * search_files
-  * drive_search_files
-- Содержимое этих файлов УЖЕ в контексте выше - используй его напрямую для ответа на вопросы!
-- Если пользователь спрашивает "что в файле", "что в документе", "а этот файл ты видишь" - отвечай используя текст из секции "ПРИКРЕПЛЕННЫЕ ФАЙЛЫ"!
-- НЕ пытайся открыть эти файлы через инструменты - они уже загружены и их содержимое показано выше!
-- Если в секции "ПРИКРЕПЛЕННЫЕ ФАЙЛЫ" есть Word документ или PDF - весь текст уже там, просто используй его для ответа!
-- НЕ используй инструменты для открытия файлов, если их содержимое уже показано выше - это приведет к ошибке!
-
-ПРАВИЛО МИНИМАЛЬНЫХ УТОЧНЕНИЙ:
-Используй ASK_CLARIFICATION ТОЛЬКО в двух случаях:
-1. Когда НЕВОЗМОЖНО выполнить задание без критически важных данных (например, "отправь письмо" без получателя — письмо физически нельзя отправить)
-2. Когда пользователь САМ просит уточнить или задаёт вопрос ("а что именно?", "уточни")
-
-ВО ВСЕХ ОСТАЛЬНЫХ СЛУЧАЯХ — выполняй задание с имеющимися данными!
-- Если пользователь прикрепил файлы и спрашивает "что видишь?" — опиши содержимое ВСЕХ файлов, НЕ спрашивай "какой файл?"
-- Если запрос частично неясен — выполни то, что можно, и в конце ответа ПРЕДЛОЖИ уточнения
-- Пример правильного ответа: "Вот что я нашёл в файлах: [описание]. Если вас интересует что-то конкретное, уточните — я подберу нужную информацию."
-
-ВАЖНО: Следующие запросы НЕ требуют уточнения (используй текущую дату/время из контекста):
-- "покажи встречи на неделе" → означает текущую неделю (понедельник-воскресенье)
-- "покажи встречи сегодня/завтра" → очевидные даты
-- "что в файлах?", "что видишь?" → опиши ВСЕ прикреплённые файлы
-
-ОСОБЕННО ВАЖНО ДЛЯ КАЛЕНДАРЯ:
-1. **Проверка доступности участников**: Если в запросе указаны участники встречи и время, ТЫ ДОЛЖЕН САМ проверить их доступность через инструмент `get_calendar_events` для каждого участника на указанное время. НЕ спрашивай пользователя о доступности - проверь сам!
-
-2. **Если участник занят**: Если при проверке календаря участника выяснилось, что он занят в указанное время:
-   - Получи список его встреч на этот день через `get_calendar_events`
-   - Используй `ASK_CLARIFICATION` с вопросом: "Участник [email] занят в указанное время. Вот его встречи на [дата]: [список встреч]. Как лучше поступить? (перенести встречу, выбрать другое время, создать встречу несмотря на конфликт)"
-
-3. **Если в запросе "подбери время" или "найди свободное время"**: 
-   - Используй `schedule_group_meeting` для автоматического поиска свободного времени для всех участников
-   - ИЛИ проверь доступность через `get_calendar_events` для каждого участника и найди общее свободное окно
-   - НЕ спрашивай пользователя - найди время сам!
-
-4. **Порядок действий для создания встречи с участниками**:
-   - Шаг 1: Если время указано - проверь доступность участников через `get_calendar_events`
-   - Шаг 2: Если все свободны - создай встречу через `create_event` или `schedule_group_meeting`
-   - Шаг 3: Если кто-то занят - покажи его встречи и спроси, как поступить (через `ASK_CLARIFICATION`)
-
-⚠️ **КРИТИЧЕСКИ ВАЖНО - НЕ ЗАЦИКЛИВАЙСЯ:**
-- НИКОГДА не вызывай `get_calendar_events` более ОДНОГО раза для одного временного диапазона!
-- После ПЕРВОЙ проверки доступности СРАЗУ переходи к следующему шагу:
-  * Если время свободно → вызови `create_event`
-  * Если время занято → вызови `ASK_CLARIFICATION` и сообщи о конфликте
-- Если ты уже получил результат от `get_calendar_events`, НЕ вызывай его снова!
-
-🛑 **КРИТИЧЕСКОЕ ПРАВИЛО - ОПЕРАЦИИ ТОЛЬКО С ЯВНОЙ ПРОСЬБОЙ:**
-Следующие операции НЕЛЬЗЯ выполнять без ЯВНОЙ просьбы пользователя:
-- `create_event` - ТОЛЬКО если пользователь прямо просит "создай встречу", "запланируй", "добавь событие"
-- `delete_event` - ТОЛЬКО если пользователь прямо просит "удали встречу", "отмени событие"
-- `send_email` - ТОЛЬКО если пользователь прямо просит "отправь письмо", "напиши email"
-- `update_document` - ТОЛЬКО если пользователь прямо просит изменить документ
-- `add_rows`, `update_cells` - ТОЛЬКО если пользователь прямо просит записать данные
-
-⚠️ ПРИМЕРЫ НЕПРАВИЛЬНОГО ПОВЕДЕНИЯ:
-- Запрос "какие встречи у меня есть?" → НЕ создавай новые встречи! Только ПОКАЗЫВАЙ существующие!
-- Запрос "какие письма пришли?" → НЕ отправляй письма! Только ПОКАЗЫВАЙ входящие!
-- Запрос "найди встречи с участником X" → Это ПОИСК, НЕ создание! Используй get_calendar_events для поиска!
-
-✅ ПРИМЕРЫ ПРАВИЛЬНОГО ПОВЕДЕНИЯ:
-- "какие встречи у меня на неделе?" → get_calendar_events → покажи список
-- "создай встречу с Иваном завтра" → create_event (пользователь ЯВНО просит создать)
-- "найди встречи с anna@" → get_calendar_events с фильтром → покажи найденные
-
-Примеры когда ASK_CLARIFICATION НУЖЕН (невозможно выполнить без данных):
-- "отправь письмо" → нужен минимум получатель (нельзя отправить в никуда)
-- "создай встречу" → нужно минимум время (нельзя создать без времени)
-
-Примеры когда ASK_CLARIFICATION НЕ НУЖЕН (выполни и предложи):
-- "что видишь?", "что в файлах?" → опиши ВСЕ файлы, в конце предложи уточнить
-- "расскажи о документе" → опиши что есть, предложи углубиться в детали
-
-⚡ **ОПТИМИЗАЦИЯ - НЕ ЧИТАЙ ДАННЫЕ, КОТОРЫЕ ТОЛЬКО ЧТО ЗАПИСАЛ:**
-- Если ты только что вызвал `add_rows` или `update_cells` для записи данных в таблицу, ты УЖЕ ЗНАЕШЬ эти данные!
-- НЕ вызывай `sheets_read_range` или `get_sheet_data` для чтения данных, которые ты сам только что записал.
-- Используй данные напрямую из предыдущего шага для создания документа или отчёта.
-- Читай таблицу ТОЛЬКО если тебе нужны данные, которые были там ДО твоих изменений.
-
-Ответь в формате:
 <thought>
-Краткий анализ ситуации (2-3 предложения на русском):
-1. Что уже сделано?
-2. Что осталось сделать?
-3. Какое следующее действие будет наиболее эффективным?
-Если запрос неполный - укажи, каких данных не хватает.
+1. Что уже сделано? (см. completed_actions)
+2. Что осталось?
+3. Следующее действие?
 </thought>
 <action>
-{{
+{
     "tool_name": "имя_инструмента",
-    "arguments": {{"param1": "value1", "param2": "value2"}},
-    "description": "краткое описание действия",
-    "reasoning": "почему выбрано это действие"
-}}
+    "arguments": {"param": "value"},
+    "description": "что делаем",
+    "reasoning": "почему"
+}
 </action>
 
-Если цель полностью достигнута, используй:
-{{
-    "tool_name": "FINISH",
-    "arguments": {{}},
-    "description": "краткое описание выполненной задачи",
-    "reasoning": "почему задача считается выполненной"
-}}
-
-ТОЛЬКО если НЕВОЗМОЖНО выполнить задание без критических данных (получатель письма, время встречи):
-{{
-    "tool_name": "ASK_CLARIFICATION",
-    "arguments": {{
-        "questions": ["Конкретный вопрос о недостающих данных"]
-    }},
-    "description": "Уточнение критически важных данных",
-    "reasoning": "без этих данных задание невозможно выполнить"
-}}
-
-Отвечай ТОЛЬКО в указанном формате, без дополнительного текста."""
+Для завершения:
+{"tool_name": "FINISH", "arguments": {}, "description": "задача выполнена", "reasoning": "все шаги сделаны"}
+</output_format>"""
+        
+        # ===== СОБИРАЕМ ПРОМПТ =====
+        # Порядок критичен! История СРАЗУ после статуса (первые 10% контекста)
+        prompt = f"""{task_status}
+{completed_section}
+{next_step_section}
+{context_section}
+{tools_section}
+{rules_section}
+{format_section}"""
         
         try:
             messages = [
@@ -3685,37 +3659,26 @@ class UnifiedReActEngine:
                 HumanMessage(content=prompt)
             ]
             
-            # #region agent log - H10: Full prompt sent to LLM
+            # #region agent log - H10: Full prompt sent to LLM (optimized XML structure)
             try:
                 with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                     import json as _json
-                    # Извлекаем ключевые секции промпта
-                    goal_start = prompt.find("Цель:")
-                    goal_end = prompt.find("\n", goal_start) if goal_start > 0 else -1
-                    goal_section = prompt[goal_start:goal_end].strip() if goal_start > 0 else "NO GOAL"
-                    
-                    history_start = prompt.find("🔴 ИСТОРИЯ")
-                    history_end = prompt.find("Доступные инструменты:")
-                    history_section = prompt[history_start:history_end].strip() if history_start > 0 else "NO HISTORY SECTION"
-                    
-                    # Имя модели
-                    model_name = getattr(self.fast_llm if state.iteration > 1 else self.llm, 'model_name', 'unknown')
+                    model_name = getattr(self.llm, 'model_name', 'unknown')
                     if not model_name or model_name == 'unknown':
-                        model_name = str(type(self.fast_llm if state.iteration > 1 else self.llm).__name__)
+                        model_name = str(type(self.llm).__name__)
                     
                     f.write(_json.dumps({
                         "location": "unified_react_engine.py:_think_and_plan",
-                        "message": "H10: FULL PROMPT TO LLM",
+                        "message": "H10: OPTIMIZED XML PROMPT",
                         "data": {
                             "iteration": state.iteration,
                             "model_name": model_name,
-                            "is_fast_llm": state.iteration > 1,
-                            "goal": goal_section,
-                            "history_section": history_section[:3000],
-                            "action_history_count": len(state.action_history) if state.action_history else 0,
-                            "observations_count": len(state.observations) if state.observations else 0,
+                            "is_fast_llm": False,  # Всегда основная модель теперь
+                            "completed_tools": completed_tools,
+                            "next_step": next_step,
+                            "relevant_tools_count": len(relevant_tools),
                             "prompt_length": len(prompt),
-                            "full_prompt": prompt[:5000]  # Первые 5000 символов
+                            "full_prompt": prompt[:3000]
                         },
                         "timestamp": __import__("time").time() * 1000,
                         "sessionId": self.session_id,
@@ -3742,9 +3705,10 @@ class UnifiedReActEngine:
                 iteration_number=state.iteration
             )
             
-            # Выбираем модель: fast_llm для итераций 2+ (ускорение)
-            # Первая итерация требует глубокого анализа, последующие - простое следование плану
-            llm_to_use = self.fast_llm if state.iteration > 1 else self.llm
+            # Используем основную модель для ВСЕХ итераций
+            # Haiku на итерациях 2+ игнорирует историю действий (Lost in the Middle)
+            # Sonnet более надёжно следует инструкциям
+            llm_to_use = self.llm
             
             # Стримим ответ
             full_response = ""
@@ -3887,17 +3851,20 @@ class UnifiedReActEngine:
             try:
                 with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
                     import json as _json
-                    model_name = getattr(self.fast_llm if state.iteration > 1 else self.llm, 'model_name', 'unknown')
+                    model_name = getattr(self.llm, 'model_name', 'unknown')
+                    # Проверяем: повторяет ли модель действие из completed_tools?
+                    is_repeat = tool_name in completed_tools and tool_name not in ["FINISH", "format_document_text", "format_document_paragraph"]
                     f.write(_json.dumps({
                         "location": "unified_react_engine.py:_think_and_plan",
-                        "message": "H11: LLM RESPONSE - PARSED ACTION",
+                        "message": "H11: PARSED ACTION",
                         "data": {
                             "iteration": state.iteration,
                             "model_name": model_name,
-                            "thought": thought[:1000] if thought else "",
-                            "action_plan": action_plan,
                             "tool_name": tool_name,
-                            "full_response": full_response[:2000]
+                            "is_repeat_action": is_repeat,
+                            "completed_tools": completed_tools,
+                            "thought_preview": thought[:500] if thought else "",
+                            "action_plan": action_plan
                         },
                         "timestamp": __import__("time").time() * 1000,
                         "sessionId": self.session_id,
