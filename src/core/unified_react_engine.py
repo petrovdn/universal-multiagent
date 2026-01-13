@@ -574,28 +574,6 @@ class UnifiedReActEngine:
                 state.status = "acting"
                 planned_tool = action_plan.get("tool_name", "")
                 
-                # #region agent log - H7: Planned tool for this iteration
-                try:
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                        import json as _json
-                        f.write(_json.dumps({
-                            "location": "unified_react_engine.py:575",
-                            "message": "H7: Planned tool before ANTI-LOOP",
-                            "data": {
-                                "iteration": state.iteration,
-                                "planned_tool": planned_tool,
-                                "description": action_plan.get("description", ""),
-                                "observations_count": len(state.observations),
-                                "observations_tools": [obs.action.tool_name for obs in state.observations]
-                            },
-                            "timestamp": __import__("time").time() * 1000,
-                            "sessionId": self.session_id,
-                            "hypothesisId": "H7"
-                        }) + "\n")
-                except Exception:
-                    pass
-                # #endregion
-                
                 # === Send iteration_plan event ===
                 await self.ws_manager.send_event(
                     self.session_id,
@@ -1453,30 +1431,6 @@ class UnifiedReActEngine:
                 
                 # 5. ADAPT - Make decision
                 state.status = "adapting"
-                
-                # #region agent log - H5: analysis result check
-                try:
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
-                        import json as _json
-                        f.write(_json.dumps({
-                            "location": "unified_react_engine.py:1251",
-                            "message": "H5: Analysis result for adapt decision",
-                            "data": {
-                                "is_goal_achieved": analysis.is_goal_achieved,
-                                "is_success": analysis.is_success,
-                                "is_error": analysis.is_error,
-                                "progress": analysis.progress_toward_goal,
-                                "next_action_suggestion": analysis.next_action_suggestion,
-                                "iteration": state.iteration,
-                                "tool_name": action_record.tool_name
-                            },
-                            "timestamp": __import__("time").time() * 1000,
-                            "sessionId": self.session_id,
-                            "hypothesisId": "H5"
-                        }) + "\n")
-                except Exception:
-                    pass
-                # #endregion
                 
                 if analysis.is_goal_achieved:
                     logger.info(f"[UnifiedReActEngine] Goal achieved at iteration {state.iteration}")
@@ -3423,12 +3377,26 @@ class UnifiedReActEngine:
                          if t not in completed_tools or t in repeatable_tools]
         
         # Собираем описания релевантных инструментов
+        # Для docs инструментов явно указываем обязательные параметры
+        docs_tool_params = {
+            "append_to_document": "Input: document_id (ID документа), content (текст для добавления). ВАЖНО: НЕ используй маркдаун (**) в content!",
+            "insert_into_document": "Input: document_id, index (позиция), content (текст). ВАЖНО: НЕ используй маркдаун!",
+            "update_document": "Input: document_id, content (новый текст)",
+            "format_document_text": "Input: document_id, start_index (int), end_index (int), bold=true/false. Применяет РЕАЛЬНОЕ форматирование Google Docs (НЕ маркдаун!)",
+            "format_document_paragraph": "Input: document_id, start_index (int), end_index (int), alignment (START/JUSTIFIED), line_spacing (float: 1.15/1.5/2.0), indent_first_line (float в пунктах: 36=стандартная красная строка)"
+        }
+        
         result = []
         for cap in self.capabilities:
             if cap.name in filtered_names:
+                # Для docs инструментов используем явное описание параметров
+                if cap.name in docs_tool_params:
+                    desc = f"{cap.description.split('.')[0]}. {docs_tool_params[cap.name]}"
+                else:
+                    desc = cap.description[:150]  # Увеличиваем лимит
                 result.append({
                     "name": cap.name,
-                    "description": cap.description[:100]  # Краткое описание
+                    "description": desc
                 })
         
         # Добавляем FINISH если его нет
@@ -3520,7 +3488,7 @@ class UnifiedReActEngine:
         # ===== СЕКЦИЯ 1: TASK_STATUS (в начале!) =====
         task_status = f"""<task_status>
 Цель: {state.goal}
-Итерация: {state.iteration} из {self.max_iterations}
+Итерация: {state.iteration} из {state.max_iterations}
 Дата: {current_date_str}
 </task_status>"""
         
@@ -3974,6 +3942,96 @@ class UnifiedReActEngine:
                 return f"Операция {capability_name} заблокирована: пользователь не просил выполнить это действие. Для создания/удаления событий нужен явный запрос."
         
         arguments = action_plan.get("arguments", {})
+        
+        # === SMART BOLD: If format_document_text is called for whole document, use smart ranges ===
+        if capability_name == "format_document_text" and arguments.get("bold"):
+            start_idx = arguments.get("start_index", 0)
+            end_idx = arguments.get("end_index", 0)
+            # #region agent log - H20: Smart bold entry check
+            try:
+                with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                    import json as _json
+                    f.write(_json.dumps({
+                        "location": "unified_react_engine.py:SMART-BOLD-ENTRY",
+                        "message": "H20: Smart bold entry check",
+                    "data": {
+                            "start_idx": start_idx,
+                            "end_idx": end_idx,
+                            "condition_met": start_idx <= 1 and end_idx > 500,
+                            "has_last_document_text": hasattr(self, '_last_document_text'),
+                            "last_document_text_len": len(getattr(self, '_last_document_text', '') or '')
+                        },
+                        "timestamp": __import__("time").time() * 1000,
+                        "sessionId": self.session_id,
+                        "hypothesisId": "H20"
+                    }) + "\n")
+            except: pass
+            # #endregion
+            # If formatting 80%+ of document, apply smart formatting instead
+            if start_idx <= 1 and end_idx > 500:  # Large document, likely "whole doc" request
+                doc_text = None
+                # Try to get document text from context
+                if hasattr(context, 'messages'):
+                    for msg in reversed(context.messages):
+                        if msg.get('role') == 'assistant' and isinstance(msg.get('content'), str):
+                            content = msg['content']
+                            if len(content) > 500:
+                                doc_text = content
+                                break
+                
+                # Get from state observations if available
+                if not doc_text:
+                    # Try to get from MCP call result
+                    doc_id = arguments.get("document_id", "")
+                    if doc_id and hasattr(self, '_last_document_text'):
+                        doc_text = getattr(self, '_last_document_text', None)
+                
+                # #region agent log - H21: Smart bold doc_text check
+                try:
+                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                        import json as _json
+                        f.write(_json.dumps({
+                            "location": "unified_react_engine.py:SMART-BOLD-TEXT",
+                            "message": "H21: Smart bold doc_text check",
+                            "data": {
+                                "doc_text_found": doc_text is not None,
+                                "doc_text_len": len(doc_text) if doc_text else 0,
+                                "doc_text_preview": (doc_text[:100] + "...") if doc_text else None
+                            },
+                            "timestamp": __import__("time").time() * 1000,
+                            "sessionId": self.session_id,
+                            "hypothesisId": "H21"
+                        }) + "\n")
+                except: pass
+                # #endregion
+                
+                if doc_text:
+                    try:
+                        ranges = await self._get_smart_formatting_ranges(doc_text, end_idx)
+                        if ranges and len(ranges) > 0:
+                            logger.info(f"[UnifiedReActEngine] SMART BOLD: Found {len(ranges)} ranges instead of whole doc")
+                            # Apply formatting to all ranges
+                            results = []
+                            for r in ranges:
+                                try:
+                                    range_args = {
+                                        "document_id": arguments.get("document_id"),
+                                        "start_index": r["start"],
+                                        "end_index": r["end"],
+                                        "bold": True
+                                    }
+                                    result = await self.capability_registry.execute(
+                                        capability_name, 
+                                        range_args,
+                                        {"session_id": self.session_id}
+                                    )
+                                    results.append(f"Bold applied to: {r.get('reason', 'range')} ({r['start']}-{r['end']})")
+                                except Exception as e:
+                                    logger.warning(f"[UnifiedReActEngine] Smart bold range failed: {e}")
+                            if results:
+                                return "Successfully applied smart bold formatting:\n" + "\n".join(results)
+                    except Exception as e:
+                        logger.warning(f"[UnifiedReActEngine] Smart bold failed, falling back to original: {e}")
         # Send real progress event BEFORE tool execution
         # For tools that support operations (get_calendar_events, etc.), send operation_start
         operation_id = None
@@ -4353,7 +4411,9 @@ class UnifiedReActEngine:
                     # Only stream for read operations here
                     if capability_name == 'read_document':
                         items, summary = await self._parse_docs_result(str(result), capability_name, arguments)
+                        # Save document text for smart bold formatting
                         if items:
+                            self._last_document_text = "\n".join(items)
                             import asyncio
                             for item in items:
                                 await self.ws_manager.send_operation_data(

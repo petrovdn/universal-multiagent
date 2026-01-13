@@ -571,8 +571,12 @@ class GoogleDocsMCPServer:
                 elif name == "docs_format_text":
                     docs_service = self._get_docs_service()
                     document_id = self._extract_file_id(arguments.get("documentId"))
+                    # Google Docs API body content starts at index 1, not 0
+                    # If user passes 0, we adjust to 1
                     start_index = arguments.get("startIndex")
                     end_index = arguments.get("endIndex")
+                    if start_index == 0:
+                        start_index = 1
                     
                     update_mask = []
                     text_style = {}
@@ -618,10 +622,51 @@ class GoogleDocsMCPServer:
                         }
                     }]
                     
-                    docs_service.documents().batchUpdate(
+                    # #region agent log - H15: Google Docs API format request
+                    try:
+                        import json as _json
+                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                            f.write(_json.dumps({
+                                "location": "google_docs_server.py:docs_format_text",
+                                "message": "H15: Google Docs API format_text request",
+                                "data": {
+                                    "document_id": document_id,
+                                    "start_index": start_index,
+                                    "end_index": end_index,
+                                    "text_style": text_style,
+                                    "update_mask": update_mask,
+                                    "requests": requests
+                                },
+                                "timestamp": __import__("time").time() * 1000,
+                                "sessionId": "debug-session",
+                                "hypothesisId": "H15"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
+                    
+                    api_result = docs_service.documents().batchUpdate(
                         documentId=document_id,
                         body={"requests": requests}
                     ).execute()
+                    
+                    # #region agent log - H16: Google Docs API response
+                    try:
+                        import json as _json
+                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f:
+                            f.write(_json.dumps({
+                                "location": "google_docs_server.py:docs_format_text",
+                                "message": "H16: Google Docs API format_text response",
+                                "data": {
+                                    "document_id": document_id,
+                                    "api_result_keys": list(api_result.keys()) if api_result else None,
+                                    "replies_count": len(api_result.get("replies", [])) if api_result else 0
+                                },
+                                "timestamp": __import__("time").time() * 1000,
+                                "sessionId": "debug-session",
+                                "hypothesisId": "H16"
+                            }) + "\n")
+                    except: pass
+                    # #endregion
                     
                     return [TextContent(
                         type="text",

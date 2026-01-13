@@ -122,22 +122,22 @@ class TaskComplexityAnalyzer:
             is_medium = True
         
         # Определяем уровень сложности
-        # Уменьшены budget_tokens для ускорения thinking (было 2500/1500)
+        # ВАЖНО: Anthropic требует budget_tokens >= 1024 для extended thinking!
         if is_complex:
             level = "complex"
-            budget_tokens = 1500  # Уменьшено с 2500 для ускорения
-            estimated_duration_sec = 8
+            budget_tokens = 2000  # Сложные задачи требуют больше thinking
+            estimated_duration_sec = 10
             use_fast_model = False
         elif is_simple and action_count == 1 and not is_medium:
             level = "simple"
-            budget_tokens = 0
+            budget_tokens = 0  # Простые задачи без thinking
             estimated_duration_sec = 3
             use_fast_model = True
         else:
             # Средняя сложность
             level = "medium"
-            budget_tokens = 1000  # Уменьшено с 1500 для ускорения
-            estimated_duration_sec = 5
+            budget_tokens = 1024  # Минимум для Anthropic extended thinking
+            estimated_duration_sec = 6
             use_fast_model = False
         
         return TaskComplexity(

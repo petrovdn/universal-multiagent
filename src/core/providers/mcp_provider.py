@@ -139,7 +139,29 @@ class MCPToolProvider(ActionProvider):
         if not tool:
             raise ValueError(f"Unknown capability: {capability_name}")
         try:
-            result = await tool.ainvoke(arguments)
+            # Remove internal fields that Pydantic doesn't accept
+            # These are added by unified_react_engine for tracking but MCP tools don't need them
+            clean_arguments = {k: v for k, v in arguments.items() if not k.startswith('_')}
+            
+            # Fix common LLM argument naming mistakes for docs tools
+            # LLM sometimes uses 'text' instead of 'content', 'position' instead of 'index'
+            if capability_name in ['append_to_document', 'insert_into_document', 'update_document']:
+                if 'text' in clean_arguments and 'content' not in clean_arguments:
+                    clean_arguments['content'] = clean_arguments.pop('text')
+                if 'position' in clean_arguments and 'index' not in clean_arguments:
+                    clean_arguments['index'] = clean_arguments.pop('position')
+            
+            # Fix boolean to float conversion for indent_first_line
+            # LLM sometimes passes true instead of 36 (standard indent in points)
+            if capability_name == 'format_document_paragraph':
+                if 'indent_first_line' in clean_arguments:
+                    val = clean_arguments['indent_first_line']
+                    if val is True:
+                        clean_arguments['indent_first_line'] = 36.0  # Standard first-line indent
+                    elif val is False:
+                        clean_arguments['indent_first_line'] = 0.0
+            
+            result = await tool.ainvoke(clean_arguments)
             return result
         except Exception as e:
             logger.error(f"[MCPToolProvider] Execution failed for {capability_name}: {e}")
