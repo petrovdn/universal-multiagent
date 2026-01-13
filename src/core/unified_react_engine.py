@@ -1969,6 +1969,10 @@ class UnifiedReActEngine:
         elif any(w in goal_lower for w in ['таблиц', 'sheet', 'данны']):
             return "Работа с таблицей"
         
+        # Documents - create vs modify
+        elif any(w in goal_lower for w in ['создай документ', 'новый документ']):
+            return ""  # Пустое название, будет заменено на осмысленное при первом действии
+        
         # Files
         elif any(w in goal_lower for w in ['файл', 'документ']):
             return "Поиск файлов"
@@ -2039,6 +2043,12 @@ class UnifiedReActEngine:
                 'keywords': ['запиш', 'запиши', 'записать', 'запиш', 'запись в', 'в таблиц', 'записать в таблиц'],
                 'description': '📋 Запись в таблицу',
                 'category': 'sheets_write'
+            },
+            {
+                'name': 'docs_create',
+                'keywords': ['создай документ', 'новый документ', 'create document'],
+                'description': '📄 Работа с документом',
+                'category': 'docs_create'
             },
             {
                 'name': 'sheets_create',
@@ -2184,6 +2194,7 @@ class UnifiedReActEngine:
             'docs_read': 'files',
             
             # Document operations (Google Docs)
+            'create_document': 'docs_create',
             'update_document': 'docs_write',
             'insert_into_document': 'docs_write',
             'append_to_document': 'docs_write',
@@ -2217,15 +2228,15 @@ class UnifiedReActEngine:
             'email_send': '📧 Отправка письма',
             'calendar_read': '📅 Проверка календаря',
             'calendar_create': '📅 Создание события',
+            'docs_create': '📄 Работа с документом',
             'sheets_create': '📋 Создание таблицы',
             'sheets_read': '📋 Чтение таблицы',
             'sheets_write': '📋 Запись в таблицу',
             'files': '📁 Поиск и чтение файлов',
-            'docs_write': '📄 Обновление документа',
-            'docs_format': '📄 Форматирование документа',
+            'docs_write': '📄 Работа с документом',
+            'docs_format': '📄 Работа с документом',
             'code': '🐍 Выполнение кода',
             'visualization': '📈 Создание графика',
-            'files': '📁 Поиск файлов',
         }
         return category_descriptions.get(category, '⚙️ Выполнение действия')
     
@@ -2375,12 +2386,13 @@ class UnifiedReActEngine:
             Short title like "📄 Чтение документа" or None
         """
         title_map = {
-            'read_document': '📄 Чтение документа',
-            'append_to_document': '📝 Добавление текста',
-            'insert_into_document': '📝 Вставка текста',
-            'update_document': '📄 Обновление документа',
-            'format_document_text': '✨ Форматирование документа',
-            'format_document_paragraph': '✨ Форматирование абзаца',
+            'create_document': '📄 Работа с документом',
+            'read_document': '📄 Работа с документом',
+            'append_to_document': '📄 Работа с документом',
+            'insert_into_document': '📄 Работа с документом',
+            'update_document': '📄 Работа с документом',
+            'format_document_text': '📄 Работа с документом',
+            'format_document_paragraph': '📄 Работа с документом',
             'get_calendar_events': '📅 Получение событий',
             'create_calendar_event': '📅 Создание встречи',
             'list_emails': '📧 Чтение писем',
@@ -3247,10 +3259,26 @@ class UnifiedReActEngine:
         
         # Определяем категорию задачи и добавляем релевантные инструменты
         if any(kw in goal_lower for kw in ["документ", "doc", "текст", "сказк", "допиши", "напиши"]):
-            relevant_tool_names.update([
-                "read_document", "append_to_document", "insert_into_document",
-                "update_document", "format_document_paragraph"
-            ])
+            # Ключевые слова для СОЗДАНИЯ нового документа (приоритетные - проверяем первыми)
+            create_keywords = ["создай документ", "создать документ", "новый документ", "create document", "создай новый", "создай файл"]
+            is_create_doc = any(kw in goal_lower for kw in create_keywords)
+            
+            # Ключевые слова для МОДИФИКАЦИИ существующего (только если НЕТ создания)
+            # Исключаем "добавь в" из modify_keywords, если есть создание - это часть задачи создания
+            modify_keywords = ["измени документ", "открой документ", "в документ", "допиши", "отформатируй", "обнови документ"]
+            # "добавь в" считается модификацией ТОЛЬКО если нет создания
+            if not is_create_doc:
+                modify_keywords.append("добавь в")
+            is_modify_doc = any(kw in goal_lower for kw in modify_keywords) if not is_create_doc else False
+            
+            if is_create_doc:
+                # Создание нового документа — НЕ нужен read_document
+                tools_to_add = ["create_document", "append_to_document", "format_document_paragraph"]
+                relevant_tool_names.update(tools_to_add)
+            else:
+                # Модификация существующего — начинаем с read_document
+                tools_to_add = ["read_document", "append_to_document", "insert_into_document", "update_document", "format_document_paragraph"]
+                relevant_tool_names.update(tools_to_add)
             # Note: format_document_text (bold) removed - we skip bold formatting
         
         if any(kw in goal_lower for kw in ["таблиц", "sheet", "excel", "данн"]):
@@ -3284,6 +3312,7 @@ class UnifiedReActEngine:
         # Собираем описания релевантных инструментов
         # Для docs инструментов явно указываем обязательные параметры
         docs_tool_params = {
+            "create_document": "Input: title (название документа), initial_text (опционально, начальный текст). Возвращает document_id и url.",
             "append_to_document": "Input: document_id (ID документа), content (текст для добавления). ВАЖНО: НЕ используй маркдаун (**) в content!",
             "insert_into_document": "Input: document_id, index (позиция), content (текст). ВАЖНО: НЕ используй маркдаун!",
             "update_document": "Input: document_id, content (новый текст)",
@@ -3319,6 +3348,7 @@ class UnifiedReActEngine:
         goal_lower = goal.lower()
         
         # Проверяем что уже сделано
+        has_create = "create_document" in completed_tools
         has_read = "read_document" in completed_tools
         has_append = "append_to_document" in completed_tools
         has_insert = "insert_into_document" in completed_tools
@@ -3331,15 +3361,30 @@ class UnifiedReActEngine:
         is_write_task = any(kw in goal_lower for kw in ["допиши", "добавь", "напиши", "вставь"])
         is_format_task = any(kw in goal_lower for kw in ["формат", "красив", "оформи", "жирн", "выдели"])
         
+        # Ключевые слова для СОЗДАНИЯ нового документа
+        create_keywords = ["создай документ", "создать документ", "новый документ", "create document", "создай новый", "создай файл"]
+        is_create_doc = any(kw in goal_lower for kw in create_keywords)
+        
         if is_doc_task:
-            if not has_read:
-                return "read_document — прочитать содержимое документа"
-            if is_write_task and not (has_append or has_insert or has_update):
-                return "append_to_document — добавить текст в конец документа"
-            # Skip format_document_text (bold) — go directly to paragraph formatting
-            if is_format_task and not has_format_para:
-                return "format_document_paragraph — применить выравнивание абзацев"
-            return "FINISH — все шаги выполнены, задача завершена"
+            if is_create_doc:
+                # === СОЗДАНИЕ НОВОГО ДОКУМЕНТА ===
+                if not has_create:
+                    return "create_document — создать новый документ"
+                if not has_append:
+                    return "append_to_document — добавить контент в созданный документ"
+                if is_format_task and not has_format_para:
+                    return "format_document_paragraph — отформатировать документ"
+                return "FINISH — документ создан и заполнен"
+            else:
+                # === МОДИФИКАЦИЯ СУЩЕСТВУЮЩЕГО ===
+                if not has_read:
+                    return "read_document — прочитать содержимое документа"
+                if is_write_task and not (has_append or has_insert or has_update):
+                    return "append_to_document — добавить текст в конец документа"
+                # Skip format_document_text (bold) — go directly to paragraph formatting
+                if is_format_task and not has_format_para:
+                    return "format_document_paragraph — применить выравнивание абзацев"
+                return "FINISH — все шаги выполнены, задача завершена"
         
         # Задачи с таблицами
         if any(kw in goal_lower for kw in ["таблиц", "sheet"]):
