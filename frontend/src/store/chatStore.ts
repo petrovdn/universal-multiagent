@@ -377,6 +377,7 @@ interface ChatState {
   setIntentProgress: (workflowId: string, intentId: string, percent: number, elapsed: number, estimated: number) => void
   toggleIntentPhase: (workflowId: string, intentId: string, phase: 'planning' | 'executing') => void
   completeIntent: (workflowId: string, intentId: string, autoCollapse: boolean, summary?: string) => void
+  updateIntentTitle: (workflowId: string, intentId: string, newTitle: string) => void
   toggleIntentCollapse: (workflowId: string, intentId: string) => void
   collapseIntent: (workflowId: string, intentId: string) => void
   collapseAllIntents: (workflowId: string) => void
@@ -1702,6 +1703,26 @@ export const useChatStore = create<ChatState>()(
               [workflowId]: updatedIntents,
             },
             activeIntentId: state.activeIntentId === intentId ? null : state.activeIntentId,
+          }
+        }),
+      
+      updateIntentTitle: (workflowId: string, intentId: string, newTitle: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              return {
+                ...intent,
+                intent: newTitle,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
           }
         }),
       

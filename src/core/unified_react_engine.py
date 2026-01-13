@@ -1071,12 +1071,54 @@ class UnifiedReActEngine:
                 )
                 
                 # === Send iteration_summary event for UI ===
-                # Формируем human-readable summary
-                action_description = action_plan.get("description", "") or f"Выполню {planned_tool}"
+                # Формируем human-readable summary в форме "Что сделаю"
+                action_description = action_plan.get("description", "") or f"выполню {planned_tool}"
+                
+                # Преобразуем "Чтение..." → "Прочитаю...", "Форматирование..." → "Отформатирую..."
+                def to_first_person(text: str) -> str:
+                    replacements = [
+                        ("Чтение", "Прочитаю"),
+                        ("чтение", "прочитаю"),
+                        ("Запись", "Запишу"),
+                        ("запись", "запишу"),
+                        ("Форматирование", "Отформатирую"),
+                        ("форматирование", "отформатирую"),
+                        ("Добавление", "Добавлю"),
+                        ("добавление", "добавлю"),
+                        ("Создание", "Создам"),
+                        ("создание", "создам"),
+                        ("Получение", "Получу"),
+                        ("получение", "получу"),
+                        ("Поиск", "Найду"),
+                        ("поиск", "найду"),
+                        ("Обновление", "Обновлю"),
+                        ("обновление", "обновлю"),
+                    ]
+                    result = text
+                    for old, new in replacements:
+                        if result.startswith(old):
+                            result = new + result[len(old):]
+                            break
+                    return result
+                
+                action_first_person = to_first_person(action_description)
                 
                 if state.iteration == 1:
-                    # Первая итерация - "Я сделаю X для Y"
-                    summary_text = f"→ {action_description}"
+                    # Первая итерация - "Прочитаю X для Y"
+                    summary_text = f"→ {action_first_person}"
+                    
+                    # Обновляем заголовок шага на основе первого действия
+                    # Например: "Чтение документа" вместо полного текста запроса
+                    short_title = self._get_short_action_title(planned_tool, action_plan.get("arguments", {}))
+                    if short_title and self._current_intent_id:
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "intent_title_update",
+                            {
+                                "intent_id": self._current_intent_id,
+                                "title": short_title
+                            }
+                        )
                 else:
                     # Последующие итерации - оценка предыдущего + план
                     prev_result = ""
@@ -1085,18 +1127,20 @@ class UnifiedReActEngine:
                         if last_obs.success:
                             prev_tool = last_obs.action.tool_name
                             if "read" in prev_tool.lower():
-                                prev_result = "Документ прочитан, понял контекст. "
+                                prev_result = "Прочитал, понял контекст. "
                             elif "append" in prev_tool.lower() or "insert" in prev_tool.lower():
                                 prev_result = "Текст добавлен, отлично! "
                             elif "format" in prev_tool.lower():
-                                prev_result = "Форматирование применено. "
+                                prev_result = "Отформатировал. "
                             elif "create" in prev_tool.lower():
-                                prev_result = "Создано успешно. "
+                                prev_result = "Создал. "
                             else:
                                 prev_result = "Готово. "
                         else:
                             prev_result = "Попробую по-другому. "
-                    summary_text = f"→ {prev_result}Теперь {action_description.lower()}"
+                    # Для последующих итераций делаем первую букву строчной
+                    action_lower = action_first_person[0].lower() + action_first_person[1:] if action_first_person else ""
+                    summary_text = f"→ {prev_result}Теперь {action_lower}"
                 
                 await self.ws_manager.send_event(
                     self.session_id,
@@ -2462,6 +2506,34 @@ class UnifiedReActEngine:
             'files': '📁 Поиск файлов',
         }
         return category_descriptions.get(category, '⚙️ Выполнение действия')
+    
+    def _get_short_action_title(self, tool_name: str, args: Dict[str, Any]) -> Optional[str]:
+        """
+        Get short title for step header based on first action.
+        
+        Args:
+            tool_name: Tool name
+            args: Tool arguments
+            
+        Returns:
+            Short title like "📄 Чтение документа" or None
+        """
+        title_map = {
+            'read_document': '📄 Чтение документа',
+            'append_to_document': '📝 Добавление текста',
+            'insert_into_document': '📝 Вставка текста',
+            'update_document': '📄 Обновление документа',
+            'format_document_text': '✨ Форматирование документа',
+            'format_document_paragraph': '✨ Форматирование абзаца',
+            'get_calendar_events': '📅 Получение событий',
+            'create_calendar_event': '📅 Создание встречи',
+            'list_emails': '📧 Чтение писем',
+            'search_emails': '📧 Поиск писем',
+            'get_sheet_data': '📊 Чтение таблицы',
+            'add_rows': '📊 Запись в таблицу',
+            'workspace_search_files': '📁 Поиск файлов',
+        }
+        return title_map.get(tool_name)
     
     def _get_tool_display_name(self, tool_name: str, args: Dict[str, Any]) -> str:
         """
@@ -3960,6 +4032,22 @@ class UnifiedReActEngine:
                     'file_type': 'docs'
                 },
                 
+                # Docs - добавление текста
+                'append_to_document': {
+                    'title': 'Добавляем текст',
+                    'streaming_title': 'Добавляемый текст',
+                    'operation_type': 'write',
+                    'file_type': 'docs'
+                },
+                
+                # Docs - вставка текста
+                'insert_into_document': {
+                    'title': 'Вставляем текст',
+                    'streaming_title': 'Вставляемый текст',
+                    'operation_type': 'write',
+                    'file_type': 'docs'
+                },
+                
                 # Slides - чтение
                 'get_presentation': {
                     'title': 'Получаем информацию о презентации',
@@ -4541,6 +4629,30 @@ class UnifiedReActEngine:
             
             # Стримим содержимое из arguments['content']
             content = arguments.get('content', '')
+            if content:
+                content_lines = content.split('\n')
+                for line in content_lines:
+                    line = line.strip()
+                    if line:
+                        items.append(line)
+        
+        elif capability_name == 'append_to_document':
+            # Для append стримим добавляемый текст из arguments['text']
+            summary = "Текст добавлен"
+            
+            content = arguments.get('text', '')
+            if content:
+                content_lines = content.split('\n')
+                for line in content_lines:
+                    line = line.strip()
+                    if line:
+                        items.append(line)
+        
+        elif capability_name == 'insert_into_document':
+            # Для insert стримим вставляемый текст из arguments['text']
+            summary = "Текст вставлен"
+            
+            content = arguments.get('text', '')
             if content:
                 content_lines = content.split('\n')
                 for line in content_lines:

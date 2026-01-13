@@ -750,6 +750,19 @@ export class WebSocketClient {
         }
         break
       }
+      
+      case 'intent_title_update': {
+        console.log('[WebSocket] Intent title update:', event.data)
+        const titleUpdateState = useChatStore.getState()
+        const titleUpdateWorkflowId = titleUpdateState.activeWorkflowId
+        const titleUpdateIntentId = event.data.intent_id || titleUpdateState.activeIntentId
+        const newTitle = event.data.title || ''
+        
+        if (titleUpdateWorkflowId && titleUpdateIntentId && newTitle) {
+          chatStore.updateIntentTitle(titleUpdateWorkflowId, titleUpdateIntentId, newTitle)
+        }
+        break
+      }
 
       case 'step_thinking_chunk':
         // Ensure active workflow exists

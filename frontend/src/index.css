@@ -5049,19 +5049,18 @@ div[style*="padding: '10px'"] .prose li {
 
 /* Summary секция (стрелка с планом) */
 .iteration-summary {
-  padding: 6px 0 6px 18px;
+  padding: 0 0 0 18px;
   font-size: 13px;
 }
 
 .iteration-summary-text {
-  font-weight: 500;
-  color: var(--accent-primary);
+  color: var(--text-secondary);
 }
 
 /* Action секция */
 .iteration-action {
   margin-left: 18px;
-  margin-top: 4px;
+  margin-top: 0;
 }
 
 .iteration-action-header {
@@ -5118,24 +5117,10 @@ div[style*="padding: '10px'"] .prose li {
   animation-delay: 0.4s;
 }
 
-/* Результат действия */
-.iteration-action-result {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  margin-top: 4px;
-  margin-left: 24px;
+.iteration-action-done {
+  margin-left: 8px;
+  color: var(--success-color, #10b981);
   font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.iteration-result-label {
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-}
-
-.iteration-result-text {
-  color: var(--text-secondary);
 }
 
 /* Связанная операция */

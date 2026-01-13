@@ -60,8 +60,7 @@ export function IterationBlock({
           </span>
           <span className="iteration-think-icon">💭</span>
           <span className="iteration-think-label">
-            {thinking.isStreaming ? 'Думаю' : 'Думал'}
-            {displayTime > 0 && ` (${formatDuration(displayTime)})`}
+            Думаю{displayTime > 0 && ` (${formatDuration(displayTime)})`}
           </span>
           {thinking.isStreaming && (
             <span className="iteration-think-dots">
@@ -89,7 +88,7 @@ export function IterationBlock({
         </div>
       )}
 
-      {/* Act секция (действие) */}
+      {/* Act секция (действие) - на одной строке */}
       {action && (
         <div className="iteration-action">
           <div className="iteration-action-header">
@@ -106,15 +105,10 @@ export function IterationBlock({
                 <span className="dot-3">.</span>
               </span>
             )}
+            {action.status === 'done' && (
+              <span className="iteration-action-done">Выполнено</span>
+            )}
           </div>
-          
-          {/* Результат действия */}
-          {action.result && action.status === 'done' && (
-            <div className="iteration-action-result">
-              <span className="iteration-result-label">↳</span>
-              <span className="iteration-result-text">{action.result}</span>
-            </div>
-          )}
         </div>
       )}
 
