@@ -4742,7 +4742,15 @@ class UnifiedReActEngine:
                                     result_str = str(raw_result)
                                     try:
                                         import json
-                                        if result_str.strip().startswith('{'):
+                                        # Tool может возвращать форматированную строку с JSON внутри
+                                        # Формат: "Spreadsheet '...' contains N sheet(s):\n...\n\nFull data (JSON):\n{...}"
+                                        json_marker = "Full data (JSON):\n"
+                                        if json_marker in result_str:
+                                            json_part = result_str.split(json_marker, 1)[1]
+                                            parsed_result = json.loads(json_part)
+                                            if isinstance(parsed_result, dict) and 'sheets' in parsed_result:
+                                                parsed_data = parsed_result
+                                        elif result_str.strip().startswith('{'):
                                             parsed_result = json.loads(result_str)
                                             if isinstance(parsed_result, dict):
                                                 if 'sheets' in parsed_result:
