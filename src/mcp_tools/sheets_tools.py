@@ -740,8 +740,14 @@ class AddSheetTool(BaseTool):
 class GetAllSheetsDataInput(BaseModel):
     """Input schema for get_all_sheets_data tool."""
     
-    spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID or URL")
+    spreadsheet_id: str = Field(
+        description="Google Sheets spreadsheet ID or URL",
+        alias="table_id"
+    )
     max_rows: int = Field(default=1000, description="Maximum rows to read per sheet (0 = all rows)")
+    
+    class Config:
+        allow_population_by_field_name = True
 
 
 class GetAllSheetsDataTool(BaseTool):
