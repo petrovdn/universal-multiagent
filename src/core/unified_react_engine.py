@@ -2333,28 +2333,17 @@ class UnifiedReActEngine:
                 'category': 'calendar_create'
             },
             {
-                'name': 'sheets_write',
-                'keywords': ['запиш', 'запиши', 'записать', 'запиш', 'запись в', 'в таблиц', 'записать в таблиц'],
-                'description': '📋 Запись в таблицу',
-                'category': 'sheets_write'
+                'name': 'sheets_operation',
+                'keywords': ['таблиц', 'sheet', 'запиш', 'запиши', 'записать', 'запись в', 
+                            'получи данны', 'читай таблиц', 'проанализируй', 'анализ', 'создай таблиц'],
+                'description': '📊 Работа с таблицей',
+                'category': 'sheets'
             },
             {
                 'name': 'docs_create',
                 'keywords': ['создай документ', 'новый документ', 'create document'],
                 'description': '📄 Работа с документом',
                 'category': 'docs_create'
-            },
-            {
-                'name': 'sheets_create',
-                'keywords': ['создай таблиц', 'новую таблиц', 'create sheet'],
-                'description': '📋 Создание таблицы',
-                'category': 'sheets_create'
-            },
-            {
-                'name': 'sheets_read',
-                'keywords': ['таблиц', 'sheet', 'получи данны', 'читай таблиц', 'читай sheet'],
-                'description': '📋 Чтение таблицы',
-                'category': 'sheets_read'
             },
             {
                 'name': 'code_execute',
@@ -2458,20 +2447,21 @@ class UnifiedReActEngine:
             'calendar_update_event': 'calendar_create',
             'calendar_delete_event': 'calendar_create',
             
-            # Sheets - MCP tool names
-            'sheets_create': 'sheets_create',
-            'sheets_read_range': 'sheets_read',
-            'sheets_write_range': 'sheets_write',
-            'sheets_batch_update': 'sheets_write',
+            # Sheets - используем объединённую категорию 'sheets'
+            'sheets_create': 'sheets',
+            'sheets_read_range': 'sheets',
+            'sheets_write_range': 'sheets',
+            'sheets_batch_update': 'sheets',
             # Sheets - LangChain tool names (actual names used by LLM)
-            'get_sheet_data': 'sheets_read',
-            'add_rows': 'sheets_write',
-            'update_cells': 'sheets_write',
-            'create_spreadsheet': 'sheets_create',
-            'get_spreadsheet_info': 'sheets_read',
-            'format_cells': 'sheets_write',
-            'auto_resize_columns': 'sheets_write',
-            'merge_cells': 'sheets_write',
+            'get_sheet_data': 'sheets',
+            'get_all_sheets_data': 'sheets',  # Добавлен маппинг
+            'add_rows': 'sheets',
+            'update_cells': 'sheets',
+            'create_spreadsheet': 'sheets',
+            'get_spreadsheet_info': 'sheets',
+            'format_cells': 'sheets',
+            'auto_resize_columns': 'sheets',
+            'merge_cells': 'sheets',
             
             # Code execution
             'code_execute': 'code',
@@ -2523,9 +2513,10 @@ class UnifiedReActEngine:
             'calendar_read': '📅 Проверка календаря',
             'calendar_create': '📅 Создание события',
             'docs_create': '📄 Работа с документом',
-            'sheets_create': '📋 Создание таблицы',
-            'sheets_read': '📋 Чтение таблицы',
-            'sheets_write': '📋 Запись в таблицу',
+            'sheets': '📊 Работа с таблицей',  # Объединённая категория
+            'sheets_create': '📊 Работа с таблицей',
+            'sheets_read': '📊 Работа с таблицей',
+            'sheets_write': '📊 Работа с таблицей',
             'files': '📁 Поиск и чтение файлов',
             'docs_write': '📄 Работа с документом',
             'docs_format': '📄 Работа с документом',
@@ -2691,8 +2682,14 @@ class UnifiedReActEngine:
             'create_calendar_event': '📅 Создание встречи',
             'list_emails': '📧 Чтение писем',
             'search_emails': '📧 Поиск писем',
-            'get_sheet_data': '📊 Чтение таблицы',
-            'add_rows': '📊 Запись в таблицу',
+            # Sheets - объединённый заголовок для всех операций
+            'get_sheet_data': '📊 Работа с таблицей',
+            'get_all_sheets_data': '📊 Работа с таблицей',
+            'add_rows': '📊 Работа с таблицей',
+            'update_cells': '📊 Работа с таблицей',
+            'create_spreadsheet': '📊 Работа с таблицей',
+            'sheets_read_range': '📊 Работа с таблицей',
+            'sheets_write_range': '📊 Работа с таблицей',
             'workspace_search_files': '📁 Поиск файлов',
         }
         return title_map.get(tool_name)
@@ -3664,11 +3661,28 @@ class UnifiedReActEngine:
         # Для code execution инструментов явно указываем доступные библиотеки
         code_execution_tool_params = {
             "execute_python_code": """⚠️ КРИТИЧЕСКИ ВАЖНО:
-1. Данные УЖЕ переданы в input_data. В коде ИСПОЛЬЗУЙ: sheets_data = data.get("sheets", [])
+1. Данные УЖЕ переданы в переменную 'data'. Используй: sheets_data = data.get("sheets", [])
 2. НЕ ВСТАВЛЯЙ данные в код! НЕ пиши salaries_data = [{'gender': 'М'...}] - это ЗАПРЕЩЕНО!
 3. Библиотеки: ТОЛЬКО math, datetime, json, statistics. БЕЗ pandas/numpy!
 4. ОБЯЗАТЕЛЬНО в конце: result = {"chartData": [...]} - без этого диаграммы не появятся!
-Input: code (Python код), input_data (данные - уже передаются автоматически)."""
+
+📋 СТРУКТУРА ДАННЫХ (sheets):
+sheets_data = data.get("sheets", [])  # Список листов
+# Каждый лист: {"name": "Зарплата", "headers": ["Сотрудник", "Месяц", "Зарплата"], "data": [...], "rows": [...]}
+# sheet["name"] - название листа (НЕ "title"!)
+# sheet["data"] или sheet["rows"] - список словарей с данными:
+#   [{"Сотрудник": "Иванов", "Месяц": "Январь", "Зарплата": "100"}, ...]
+# Доступ к полям: row["Сотрудник"], row["Зарплата"] (НЕ row[0], row[1]!)
+
+Пример кода:
+```python
+sheets_data = data.get("sheets", [])
+salary_sheet = next((s for s in sheets_data if s["name"] == "Зарплата"), None)
+if salary_sheet:
+    for row in salary_sheet["data"]:
+        name = row["Сотрудник"]
+        salary = int(row["Зарплата"])
+```"""
         }
         
         result = []
@@ -4064,11 +4078,30 @@ Input: code (Python код), input_data (данные - уже передают�
         code_execution_rule = ""
         if any(kw in goal_lower for kw in ["расширенный", "большой", "подробный", "глубокий", "полный", "комплексный", "анализ", "проанализируй"]):
             code_execution_rule = """
-6. ⚠️ execute_python_code ПРАВИЛА:
-   - Данные АВТОМАТИЧЕСКИ передаются в input_data. Используй: sheets_data = data.get("sheets", [])
-   - ЗАПРЕЩЕНО вставлять данные в код! НЕ пиши: salaries_data = [{'gender': 'М', 'salary': 1000}...]
-   - Библиотеки: ТОЛЬКО math, datetime, json, statistics. БЕЗ pandas/numpy!
-   - ОБЯЗАТЕЛЬНО в конце кода: result = {"chartData": [...массив диаграмм...]}"""
+6. ⚠️ execute_python_code — ОБЯЗАТЕЛЬНО НАПИШИ КОД!
+   - arguments.code ОБЯЗАТЕЛЕН! Пустые arguments недопустимы!
+   - Данные в переменной 'data': sheets_data = data.get("sheets", [])
+   - Структура листа: {"name": "Зарплата", "data": [{"Сотрудник": "Иванов", "Зарплата": "100"}, ...]}
+   - Доступ: sheet["name"], row["Зарплата"] (НЕ row[0]!)
+   - ЗАПРЕЩЕНО вставлять сами данные в код!
+   
+   ⚠️ ФОРМАТ chartData для ApexCharts:
+   result = {"chartData": [
+       {
+           "title": "Название диаграммы",
+           "chartType": "bar",  # bar, line, pie, donut
+           "series": [{"name": "Данные", "data": [значение1, значение2, ...]}],
+           "options": {"xaxis": {"categories": ["Метка1", "Метка2", ...]}}
+       }
+   ]}
+   
+   ПРИМЕР для сравнения двух групп:
+   result = {"chartData": [{
+       "title": "Сравнение эффективности",
+       "chartType": "bar",
+       "series": [{"name": "Эффективность", "data": [0.28, 0.19]}],
+       "options": {"xaxis": {"categories": ["Мальчики", "Девочки"]}}
+   }]}"""
         
         rules_section = f"""
 <critical_rules>
@@ -4229,13 +4262,25 @@ Input: code (Python код), input_data (данные - уже передают�
                 try:
                     _time_module = __import__("time")
                     with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
+                        # Check if JSON is valid
+                        json_valid = False
+                        json_error = None
+                        try:
+                            import json as _json
+                            _json.loads(action_text)
+                            json_valid = True
+                        except Exception as e:
+                            json_error = str(e)
+                        f.write(_json.dumps({
                             "timestamp": int(_time_module.time() * 1000),
                             "location": "unified_react_engine.py:raw_action_text",
                             "message": "Raw action text before JSON parse",
                             "data": {
-                                "action_text": action_text[:1000],
-                                "action_text_length": len(action_text)
+                                "action_text": action_text[:1500],
+                                "action_text_length": len(action_text),
+                                "action_text_end": action_text[-200:] if len(action_text) > 200 else action_text,
+                                "json_valid": json_valid,
+                                "json_error": json_error
                             },
                             "sessionId": "debug-session",
                             "hypothesisId": "H14"
@@ -4248,9 +4293,39 @@ Input: code (Python код), input_data (данные - уже передают�
                 json_match = re.search(r'\{[\s\S]*\}', action_text)
                 if json_match:
                     json_str = json_match.group(0)
+                    
+                    # Fix: escape real newlines inside "code" value
+                    # LLM sometimes generates code with real \n instead of \\n
+                    def fix_code_newlines(match):
+                        code_value = match.group(1)
+                        # Replace real newlines with escaped
+                        fixed = code_value.replace('\n', '\\n').replace('\r', '\\r')
+                        return f'"code": "{fixed}"'
+                    
+                    json_str = re.sub(r'"code":\s*"((?:[^"\\]|\\.)*)"\s*(?=[,}])', fix_code_newlines, json_str, flags=re.DOTALL)
+                    
                     try:
                         action_plan = json.loads(json_str)
                     except json.JSONDecodeError as json_err:
+                        # #region agent log
+                        try:
+                            _time_module = __import__("time")
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "timestamp": int(_time_module.time() * 1000),
+                                    "location": "unified_react_engine.py:json_parse_error",
+                                    "message": "JSON parse failed, trying fallback",
+                                    "data": {
+                                        "error": str(json_err),
+                                        "json_str_preview": json_str[:500] if json_str else "None",
+                                        "json_str_len": len(json_str) if json_str else 0
+                                    },
+                                    "sessionId": "debug-session",
+                                    "hypothesisId": "JSON1"
+                                }) + '\n')
+                        except Exception:
+                            pass
+                        # #endregion
                         # Fallback на парсинг всего текста
                         action_plan = json.loads(action_text)
                 else:
@@ -4267,6 +4342,23 @@ Input: code (Python код), input_data (данные - уже передают�
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
+            
+            # Validate execute_python_code has code
+            if tool_name == "execute_python_code":
+                code = action_plan.get("arguments", {}).get("code", "")
+                if not code or not code.strip():
+                    # LLM forgot to include code - return error to force retry with code
+                    logger.warning("[UnifiedReActEngine] execute_python_code called without code, forcing retry")
+                    action_plan["arguments"]["code"] = """
+# ОШИБКА: Код не был предоставлен!
+# Необходимо написать Python код для анализа данных.
+# Данные доступны в переменной 'data':
+#   sheets_data = data.get("sheets", [])
+#   sheet = sheets_data[0]  # {"name": "...", "data": [{...}, ...]}
+#   for row in sheet["data"]:
+#       value = row["ColumnName"]
+raise ValueError("Код анализа не был предоставлен. Перепишите action с полным Python кодом в arguments.code")
+"""
             
             # #region agent log
             try:
@@ -4762,6 +4854,90 @@ Input: code (Python код), input_data (данные - уже передают�
                 )
         _registry_start = time.time()
         
+        # Auto-fix: для sheets tools автоматически подставляем spreadsheet_id из open_files
+        sheets_tools = ['get_all_sheets_data', 'get_sheet_data', 'add_rows', 'update_cells', 
+                        'sheets_read_range', 'sheets_write_range']
+        if capability_name in sheets_tools:
+            # #region agent log
+            try:
+                _time_module = __import__("time")
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "timestamp": int(_time_module.time() * 1000),
+                        "location": "unified_react_engine.py:autofix_entry",
+                        "message": "Auto-fix check for sheets tool",
+                        "data": {
+                            "capability_name": capability_name,
+                            "has_spreadsheet_id": 'spreadsheet_id' in arguments,
+                            "spreadsheet_id_value": arguments.get('spreadsheet_id', 'NOT_SET'),
+                            "has_table_id": 'table_id' in arguments,
+                            "table_id_value": arguments.get('table_id', 'NOT_SET'),
+                            "all_argument_keys": list(arguments.keys())
+                        },
+                        "sessionId": "debug-session",
+                        "hypothesisId": "H1,H4"
+                    }) + '\n')
+            except Exception:
+                pass
+            # #endregion
+            
+            if 'spreadsheet_id' not in arguments or not arguments.get('spreadsheet_id'):
+                # Пытаемся найти spreadsheet_id из открытых файлов
+                open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
+                
+                # #region agent log
+                try:
+                    _time_module = __import__("time")
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "timestamp": int(_time_module.time() * 1000),
+                            "location": "unified_react_engine.py:autofix_open_files",
+                            "message": "Checking open_files for spreadsheet_id",
+                            "data": {
+                                "open_files_count": len(open_files),
+                                "open_files_types": [f.get('type') for f in open_files],
+                                "open_files_details": [{"type": f.get('type'), "title": f.get('title'), "spreadsheet_id": f.get('spreadsheet_id'), "spreadsheetId": f.get('spreadsheetId'), "url": f.get('url', '')[:100]} for f in open_files[:3]]
+                            },
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H1,H2"
+                        }) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+                
+                for file in open_files:
+                    if file.get('type') == 'sheets':
+                        spreadsheet_id = file.get('spreadsheet_id') or file.get('spreadsheetId')
+                        # Извлекаем из URL если нет в данных
+                        if not spreadsheet_id and file.get('url'):
+                            url_match = re.search(r'/spreadsheets/d/([a-zA-Z0-9-_]+)', file.get('url', ''))
+                            if url_match:
+                                spreadsheet_id = url_match.group(1)
+                        if spreadsheet_id:
+                            arguments['spreadsheet_id'] = spreadsheet_id
+                            logger.info(f"[Auto-fix] Added spreadsheet_id={spreadsheet_id} from open_files for {capability_name}")
+                            
+                            # #region agent log
+                            try:
+                                _time_module = __import__("time")
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                    f.write(json.dumps({
+                                        "timestamp": int(_time_module.time() * 1000),
+                                        "location": "unified_react_engine.py:autofix_success",
+                                        "message": "Auto-fix SUCCESS - added spreadsheet_id",
+                                        "data": {
+                                            "spreadsheet_id": spreadsheet_id,
+                                            "from_file": file.get('title')
+                                        },
+                                        "sessionId": "debug-session",
+                                        "hypothesisId": "H2"
+                                    }) + '\n')
+                            except Exception:
+                                pass
+                            # #endregion
+                            
+                            break
+        
         # Auto-fix: для execute_python_code автоматически передаём данные из get_all_sheets_data через input_data
         if capability_name == 'execute_python_code' and 'input_data' not in arguments:
             # Ищем результат get_all_sheets_data в предыдущих observations
@@ -4815,6 +4991,22 @@ Input: code (Python код), input_data (данные - уже передают�
                                         pass
                                 
                                 if parsed_data and parsed_data.get('sheets'):
+                                    # Transform raw values to structured data with headers
+                                    for sheet in parsed_data.get('sheets', []):
+                                        values = sheet.get('values', [])
+                                        if values and len(values) > 1:
+                                            headers = values[0]
+                                            rows_as_dicts = []
+                                            for row in values[1:]:
+                                                padded_row = row + [''] * (len(headers) - len(row))
+                                                rows_as_dicts.append(dict(zip(headers, padded_row[:len(headers)])))
+                                            sheet['rows'] = rows_as_dicts
+                                            sheet['headers'] = headers
+                                            sheet['data'] = rows_as_dicts
+                                        elif values:
+                                            sheet['headers'] = values[0] if values else []
+                                            sheet['rows'] = []
+                                            sheet['data'] = []
                                     arguments['input_data'] = parsed_data
                                 
                                 # #region agent log
@@ -4855,8 +5047,77 @@ Input: code (Python код), input_data (данные - уже передают�
                 arguments['_operation_id'] = operation_id
         
         # Registry routes to appropriate provider (MCP or A2A)
+        # #region agent log
+        try:
+            _time_module = __import__("time")
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({
+                    "timestamp": int(_time_module.time() * 1000),
+                    "location": "unified_react_engine.py:before_registry_execute",
+                    "message": "About to call registry.execute",
+                    "data": {
+                        "capability_name": capability_name,
+                        "arguments_keys": list(arguments.keys()),
+                        "has_input_data": 'input_data' in arguments,
+                        "input_data_sheets_count": len(arguments.get('input_data', {}).get('sheets', [])) if arguments.get('input_data') else 0
+                    },
+                    "sessionId": "debug-session",
+                    "hypothesisId": "REG1"
+                }) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        
         result = await self.registry.execute(capability_name, arguments)
         _registry_end = time.time()
+        
+        # #region agent log
+        try:
+            _time_module = __import__("time")
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                result_str = str(result)[:300] if result else "None"
+                f.write(json.dumps({
+                    "timestamp": int(_time_module.time() * 1000),
+                    "location": "unified_react_engine.py:after_registry_execute",
+                    "message": "registry.execute completed",
+                    "data": {
+                        "capability_name": capability_name,
+                        "result_type": type(result).__name__ if result else "None",
+                        "result_preview": result_str,
+                        "is_error": 'error' in result_str.lower() if result_str else False
+                    },
+                    "sessionId": "debug-session",
+                    "hypothesisId": "REG2"
+                }) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        
+        # #region agent log
+        if capability_name in ['get_all_sheets_data', 'get_sheet_data']:
+            try:
+                _time_module = __import__("time")
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    result_str = str(result) if result else "None"
+                    is_error = 'error' in result_str.lower() or 'failed' in result_str.lower() or 'missing' in result_str.lower()
+                    f.write(json.dumps({
+                        "timestamp": int(_time_module.time() * 1000),
+                        "location": "unified_react_engine.py:sheets_tool_result",
+                        "message": "Sheets tool execution result",
+                        "data": {
+                            "capability_name": capability_name,
+                            "result_preview": result_str[:500],
+                            "result_length": len(result_str),
+                            "is_error": is_error,
+                            "final_spreadsheet_id": arguments.get('spreadsheet_id', 'NOT_SET')
+                        },
+                        "sessionId": "debug-session",
+                        "hypothesisId": "H3,H5"
+                    }) + '\n')
+            except Exception:
+                pass
+        # #endregion
+        
         # Process result for operations (parse and stream data)
         if operation_id and self.ws_manager and self.session_id:
             intent_id = getattr(self, '_current_intent_id', None)
@@ -5076,6 +5337,25 @@ Input: code (Python код), input_data (данные - уже передают�
                     
                     # Send chart_dashboard event if we have chartData
                     if chart_data and isinstance(chart_data, list) and len(chart_data) > 0:
+                        # #region agent log
+                        try:
+                            _time_module = __import__("time")
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "timestamp": int(_time_module.time() * 1000),
+                                    "location": "unified_react_engine.py:sending_chart_dashboard",
+                                    "message": "Sending chart_dashboard event",
+                                    "data": {
+                                        "chart_count": len(chart_data),
+                                        "charts_preview": str(chart_data)[:500]
+                                    },
+                                    "sessionId": "debug-session",
+                                    "hypothesisId": "CHART1"
+                                }) + '\n')
+                        except Exception:
+                            pass
+                        # #endregion
+                        
                         await self.ws_manager.send_event(
                             self.session_id,
                             "chart_dashboard",

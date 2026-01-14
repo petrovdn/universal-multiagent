@@ -741,18 +741,16 @@ class GetAllSheetsDataInput(BaseModel):
     """Input schema for get_all_sheets_data tool."""
     
     spreadsheet_id: str = Field(
-        description="Google Sheets spreadsheet ID or URL",
-        alias="table_id"
+        description="Google Sheets spreadsheet ID or URL"
     )
     max_rows: int = Field(default=1000, description="Maximum rows to read per sheet (0 = all rows)")
-    
-    class Config:
-        allow_population_by_field_name = True
 
     @model_validator(mode="before")
     @classmethod
     def _coerce_table_id(cls, values: object) -> object:
+        """Accept both 'spreadsheet_id' and 'table_id' as input."""
         if isinstance(values, dict):
+            # If table_id provided but spreadsheet_id not, use table_id
             if "spreadsheet_id" not in values and "table_id" in values:
                 values = dict(values)
                 values["spreadsheet_id"] = values["table_id"]
@@ -867,21 +865,45 @@ class GetAllSheetsDataTool(BaseTool):
             if not sheets:
                 return f"Spreadsheet '{spreadsheet_title}' has no sheets or sheets are empty."
             
-            # Format response for LLM
+            # Transform raw values to structured data with headers
+            # LLM expects sheet['data'] or sheet['rows'] as list of dicts
+            for sheet in sheets:
+                values = sheet.get('values', [])
+                if values and len(values) > 1:
+                    # First row is headers, rest is data
+                    headers = values[0]
+                    rows_as_dicts = []
+                    for row in values[1:]:
+                        # Pad row with empty strings if shorter than headers
+                        padded_row = row + [''] * (len(headers) - len(row))
+                        rows_as_dicts.append(dict(zip(headers, padded_row[:len(headers)])))
+                    sheet['rows'] = rows_as_dicts  # List of dicts with headers as keys
+                    sheet['headers'] = headers
+                    sheet['data'] = rows_as_dicts  # Alias for 'rows'
+                elif values:
+                    # Only headers, no data
+                    sheet['headers'] = values[0] if values else []
+                    sheet['rows'] = []
+                    sheet['data'] = []
+            
+            # Format response for LLM with headers info
             sheets_info = []
             for sheet in sheets:
                 name = sheet.get("name", "Unknown")
                 row_count = sheet.get("rowCount", 0)
                 col_count = sheet.get("columnCount", 0)
                 values = sheet.get("values", [])
+                headers = sheet.get("headers", [])
                 
+                headers_str = ", ".join(headers) if headers else "no headers"
                 sheets_info.append(
-                    f"Sheet '{name}': {row_count} rows, {col_count} columns, "
+                    f"Sheet '{name}': {row_count} rows, columns: [{headers_str}], "
                     f"{len(values)} data rows"
                 )
             
             summary = f"Spreadsheet '{spreadsheet_title}' contains {len(sheets)} sheet(s):\n"
             summary += "\n".join(f"  - {info}" for info in sheets_info)
+            summary += "\n\n⚠️ ВАЖНО: Используй ТОЛЬКО эти столбцы! НЕ придумывай несуществующие (например 'Пол')!"
             summary += f"\n\nFull data (JSON):\n{json.dumps(result, ensure_ascii=False, indent=2)}"
             
             return summary

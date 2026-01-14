@@ -86,6 +86,44 @@ class PythonCodeExecutionTool(BaseTool):
         timeout: int = 30
     ) -> str:
         """Execute Python code in controlled environment."""
+        # #region agent log
+        try:
+            import time as _time_module
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                sheets_list = input_data.get('sheets', []) if input_data else []
+                sheets_count = len(sheets_list)
+                # Debug: структура первого sheet
+                first_sheet_info = None
+                if sheets_list and len(sheets_list) > 0:
+                    first_sheet = sheets_list[0]
+                    first_sheet_info = {
+                        "type": type(first_sheet).__name__,
+                        "keys": list(first_sheet.keys()) if isinstance(first_sheet, dict) else None,
+                        "has_data": 'data' in first_sheet if isinstance(first_sheet, dict) else False,
+                        "data_type": type(first_sheet.get('data')).__name__ if isinstance(first_sheet, dict) and 'data' in first_sheet else None,
+                        "data_len": len(first_sheet.get('data', [])) if isinstance(first_sheet, dict) else None,
+                        "data_sample": str(first_sheet.get('data', [])[:1])[:150] if isinstance(first_sheet, dict) and first_sheet.get('data') else None
+                    }
+                f.write(json.dumps({
+                    "timestamp": int(_time_module.time() * 1000),
+                    "location": "code_execution_tools.py:_arun:entry",
+                    "message": "execute_python_code called",
+                    "data": {
+                        "has_input_data": input_data is not None,
+                        "input_data_keys": list(input_data.keys()) if input_data else [],
+                        "sheets_count": sheets_count,
+                        "sheets_type": type(sheets_list).__name__,
+                        "first_sheet": first_sheet_info,
+                        "code_length": len(code),
+                        "code_preview": code[:200]
+                    },
+                    "sessionId": "debug-session",
+                    "hypothesisId": "CODE1"
+                }) + "\n")
+        except Exception:
+            pass
+        # #endregion
+        
         try:
             # Prepare execution environment
             # Only allow safe built-ins and libraries
@@ -135,8 +173,55 @@ class PythonCodeExecutionTool(BaseTool):
             
             # Execute with timeout
             def execute_code():
+                # #region agent log
+                try:
+                    import time as _time_module
+                    import traceback as _tb
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "timestamp": int(_time_module.time() * 1000),
+                            "location": "code_execution_tools.py:execute_code:before_exec",
+                            "message": "About to exec code",
+                            "data": {
+                                "data_in_globals": "data" in safe_globals,
+                                "data_type": type(safe_globals.get('data')).__name__,
+                                "data_is_dict": isinstance(safe_globals.get('data'), dict),
+                                "data_keys": list(safe_globals.get('data', {}).keys()) if isinstance(safe_globals.get('data'), dict) else None,
+                                "sheets_type": type(safe_globals.get('data', {}).get('sheets')).__name__ if isinstance(safe_globals.get('data'), dict) else None,
+                                "sheets_len": len(safe_globals.get('data', {}).get('sheets', [])) if isinstance(safe_globals.get('data'), dict) else None
+                            },
+                            "sessionId": "debug-session",
+                            "hypothesisId": "CODE_EXEC1"
+                        }) + "\n")
+                except Exception:
+                    pass
+                # #endregion
+                
                 with redirect_stdout(stdout_capture), redirect_stderr(stderr_capture):
-                    exec(code, safe_globals)
+                    try:
+                        exec(code, safe_globals)
+                    except Exception as exec_error:
+                        # #region agent log
+                        try:
+                            import time as _time_module
+                            import traceback as _tb
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({
+                                    "timestamp": int(_time_module.time() * 1000),
+                                    "location": "code_execution_tools.py:execute_code:exec_error",
+                                    "message": "Exec raised exception",
+                                    "data": {
+                                        "error": str(exec_error),
+                                        "error_type": type(exec_error).__name__,
+                                        "traceback": _tb.format_exc()[:500]
+                                    },
+                                    "sessionId": "debug-session",
+                                    "hypothesisId": "CODE_EXEC2"
+                                }) + "\n")
+                        except Exception:
+                            pass
+                        # #endregion
+                        raise
                 return safe_globals.get('result')
             
             # Run with timeout using asyncio
@@ -196,12 +281,59 @@ class PythonCodeExecutionTool(BaseTool):
             if not response_parts:
                 response_parts.append("Code executed successfully (no result returned - make sure to assign result to 'result' variable)")
             
-            return "\n\n".join(response_parts)
+            final_response = "\n\n".join(response_parts)
+            
+            # #region agent log
+            try:
+                import time as _time_module
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    has_chartData = 'chartData' in str(result) if result else False
+                    f.write(json.dumps({
+                        "timestamp": int(_time_module.time() * 1000),
+                        "location": "code_execution_tools.py:_arun:success",
+                        "message": "execute_python_code completed",
+                        "data": {
+                            "has_result": result is not None,
+                            "result_type": type(result).__name__ if result else "None",
+                            "has_chartData": has_chartData,
+                            "response_length": len(final_response),
+                            "stdout_length": len(stdout_text),
+                            "stderr_length": len(stderr_text)
+                        },
+                        "sessionId": "debug-session",
+                        "hypothesisId": "CODE2"
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
+            
+            return final_response
             
         except ToolExecutionError:
             # Re-raise tool execution errors
             raise
         except Exception as e:
+            # #region agent log
+            try:
+                import time as _time_module
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "timestamp": int(_time_module.time() * 1000),
+                        "location": "code_execution_tools.py:_arun:error",
+                        "message": "execute_python_code failed",
+                        "data": {
+                            "error": str(e),
+                            "error_type": type(e).__name__,
+                            "has_input_data": input_data is not None,
+                            "sheets_count": len(input_data.get('sheets', [])) if input_data else 0
+                        },
+                        "sessionId": "debug-session",
+                        "hypothesisId": "CODE3"
+                    }) + "\n")
+            except Exception:
+                pass
+            # #endregion
+            
             raise ToolExecutionError(
                 f"Code execution failed: {e}",
                 tool_name=self.name
