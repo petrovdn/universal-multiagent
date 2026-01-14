@@ -125,6 +125,7 @@ class PythonCodeExecutionTool(BaseTool):
                 'json': json,
                 'statistics': statistics,  # For mean, median, stdev, etc.
                 'data': input_data or {},
+                'input_data': input_data or {},  # Alias for compatibility
                 'result': None
             }
             
