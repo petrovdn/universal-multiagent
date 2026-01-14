@@ -4215,6 +4215,25 @@ class UnifiedReActEngine:
                 # Очищаем от тегов если есть
                 action_text = re.sub(r'</?action>', '', action_text).strip()
                 
+                # #region agent log
+                try:
+                    _time_module = __import__("time")
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "timestamp": int(_time_module.time() * 1000),
+                            "location": "unified_react_engine.py:raw_action_text",
+                            "message": "Raw action text before JSON parse",
+                            "data": {
+                                "action_text": action_text[:1000],
+                                "action_text_length": len(action_text)
+                            },
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H14"
+                        }) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+                
                 # Парсим JSON
                 json_match = re.search(r'\{[\s\S]*\}', action_text)
                 if json_match:
@@ -4238,6 +4257,27 @@ class UnifiedReActEngine:
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
+            
+            # #region agent log
+            try:
+                _time_module = __import__("time")
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({
+                        "timestamp": int(_time_module.time() * 1000),
+                        "location": "unified_react_engine.py:parsed_action_plan",
+                        "message": "Action plan parsed from LLM response",
+                        "data": {
+                            "tool_name": tool_name,
+                            "arguments": action_plan.get("arguments", {}),
+                            "arguments_type": type(action_plan.get("arguments", {})).__name__,
+                            "full_action_plan": str(action_plan)[:500]
+                        },
+                        "sessionId": "debug-session",
+                        "hypothesisId": "H13"
+                    }) + '\n')
+            except Exception:
+                pass
+            # #endregion
             
             # Check for dangerous operations without explicit request
             DANGEROUS_OPERATIONS = {
