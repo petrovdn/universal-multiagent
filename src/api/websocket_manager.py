@@ -187,6 +187,30 @@ class WebSocketManager:
             intent_id: Optional intent ID this operation belongs to
             iteration_number: Optional iteration number for linking to iteration block
         """
+        # #region agent log
+        try:
+            import time as _time_module
+            import json as _json_module
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(_json_module.dumps({
+                    "timestamp": int(_time_module.time() * 1000),
+                    "location": "websocket_manager.py:send_operation_start",
+                    "message": "send_operation_start called",
+                    "data": {
+                        "session_id": session_id[:20] if session_id else None,
+                        "operation_id": operation_id,
+                        "intent_id": intent_id,
+                        "iteration_number": iteration_number,
+                        "title": title,
+                        "operation_type": operation_type
+                    },
+                    "sessionId": "debug-session",
+                    "hypothesisId": "WS_OP1"
+                }) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        
         await self.send_event(session_id, "operation_start", {
             "operation_id": operation_id,
             "intent_id": intent_id,
@@ -213,6 +237,27 @@ class WebSocketManager:
             operation_id: Operation identifier
             data: Data string to stream
         """
+        # #region agent log
+        try:
+            import time as _time_module
+            import json as _json_module
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(_json_module.dumps({
+                    "timestamp": int(_time_module.time() * 1000),
+                    "location": "websocket_manager.py:send_operation_data",
+                    "message": "send_operation_data called",
+                    "data": {
+                        "session_id": session_id[:20] if session_id else None,
+                        "operation_id": operation_id,
+                        "data_preview": data[:50] if data else None
+                    },
+                    "sessionId": "debug-session",
+                    "hypothesisId": "WS_DATA1"
+                }) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        
         await self.send_event(session_id, "operation_data", {
             "operation_id": operation_id,
             "data": data

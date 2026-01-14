@@ -4718,6 +4718,29 @@ raise ValueError("Код анализа не был предоставлен. П
                         file_id = presentation_id
                         file_url = f"https://docs.google.com/presentation/d/{presentation_id}/preview"
                 
+                # #region agent log
+                try:
+                    _time_module = __import__("time")
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "timestamp": int(_time_module.time() * 1000),
+                            "location": "unified_react_engine.py:before_send_operation_start",
+                            "message": "About to send operation_start",
+                            "data": {
+                                "capability_name": capability_name,
+                                "operation_id": operation_id,
+                                "intent_id": intent_id,
+                                "op_title": op_config.get('title'),
+                                "has_ws_manager": bool(self.ws_manager),
+                                "session_id": self.session_id
+                            },
+                            "sessionId": "debug-session",
+                            "hypothesisId": "OP_START1"
+                        }) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+                
                 await self.ws_manager.send_operation_start(
                     self.session_id,
                     operation_id,
@@ -4730,6 +4753,25 @@ raise ValueError("Код анализа не был предоставлен. П
                     intent_id=intent_id,
                     iteration_number=getattr(self, '_current_iteration', None)
                 )
+                
+                # #region agent log
+                try:
+                    _time_module = __import__("time")
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({
+                            "timestamp": int(_time_module.time() * 1000),
+                            "location": "unified_react_engine.py:after_send_operation_start",
+                            "message": "operation_start sent successfully",
+                            "data": {
+                                "capability_name": capability_name,
+                                "operation_id": operation_id
+                            },
+                            "sessionId": "debug-session",
+                            "hypothesisId": "OP_START2"
+                        }) + '\n')
+                except Exception:
+                    pass
+                # #endregion
                 
                 # === For write operations, stream content IMMEDIATELY from arguments ===
                 # This ensures user sees content being "written" before MCP call completes
