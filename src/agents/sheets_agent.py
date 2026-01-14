@@ -263,8 +263,8 @@ Guidelines:
   
   # Парсинг данных зарплаты
   salary_data = {}
-  if salary_sheet and salary_sheet.get("data"):
-      rows = salary_sheet["data"]
+  if salary_sheet and salary_sheet.get("values"):
+      rows = salary_sheet["values"]
       headers = rows[0] if rows else []
       for row in rows[1:]:
           if len(row) >= 3:
@@ -275,8 +275,8 @@ Guidelines:
   
   # Парсинг данных выработки
   output_data = {}
-  if output_sheet and output_sheet.get("data"):
-      rows = output_sheet["data"]
+  if output_sheet and output_sheet.get("values"):
+      rows = output_sheet["values"]
       for row in rows[1:]:
           if len(row) >= 3:
               name = row[0]
