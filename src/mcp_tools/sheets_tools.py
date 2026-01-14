@@ -248,11 +248,49 @@ class GetSheetDataTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json
+                import time
+                f.write(json.dumps({
+                    "timestamp": int(time.time() * 1000),
+                    "location": "GetSheetDataTool._arun:entry",
+                    "message": "GetSheetDataTool called",
+                    "data": {
+                        "spreadsheet_id": spreadsheet_id,
+                        "range": range,
+                        "sheet_name": sheet_name
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+            # #endregion
+            
             validated_range = validate_spreadsheet_range(range)
             
             # If sheet_name is provided and not in range, prepend it
             if sheet_name and '!' not in validated_range:
                 validated_range = f"{sheet_name}!{validated_range}"
+            
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json
+                import time
+                f.write(json.dumps({
+                    "timestamp": int(time.time() * 1000),
+                    "location": "GetSheetDataTool._arun:validated",
+                    "message": "Range validated",
+                    "data": {
+                        "original_range": range,
+                        "validated_range": validated_range,
+                        "has_sheet_name": sheet_name is not None
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+            # #endregion
             
             args = {
                 "spreadsheetId": spreadsheet_id,
@@ -261,6 +299,25 @@ class GetSheetDataTool(BaseTool):
             
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("sheets_read_range", args, server_name="sheets")
+            
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json
+                import time
+                f.write(json.dumps({
+                    "timestamp": int(time.time() * 1000),
+                    "location": "GetSheetDataTool._arun:result",
+                    "message": "MCP call result",
+                    "data": {
+                        "result_type": type(result).__name__,
+                        "result_length": len(result) if isinstance(result, list) else "N/A",
+                        "has_error": "error" in str(result).lower() if isinstance(result, str) else False
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+            # #endregion
             
             # Handle result - it might be a string (JSON) or dict
             if isinstance(result, str):
@@ -605,6 +662,225 @@ class MergeCellsTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
+class AddSheetInput(BaseModel):
+    """Input schema for add_sheet tool."""
+    
+    spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID")
+    sheet_title: str = Field(description="Title of the new sheet/tab")
+    row_count: Optional[int] = Field(default=1000, description="Number of rows (default: 1000)")
+    column_count: Optional[int] = Field(default=26, description="Number of columns (default: 26)")
+
+
+class AddSheetTool(BaseTool):
+    """Tool for adding a new sheet (tab) to an existing spreadsheet."""
+    
+    name: str = "add_sheet"
+    description: str = """
+    Add a new sheet (tab) to an existing Google Sheets spreadsheet.
+    
+    Input:
+    - spreadsheet_id: The ID of the spreadsheet
+    - sheet_title: Title of the new sheet
+    - row_count: Number of rows (default: 1000)
+    - column_count: Number of columns (default: 26)
+    
+    Returns the new sheet's properties including its ID.
+    """
+    args_schema: type = AddSheetInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        spreadsheet_id: str,
+        sheet_title: str,
+        row_count: Optional[int] = 1000,
+        column_count: Optional[int] = 26
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            args = {
+                "spreadsheetId": spreadsheet_id,
+                "sheetTitle": sheet_title,
+                "rowCount": row_count,
+                "columnCount": column_count
+            }
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("sheets_add_sheet", args, server_name="sheets")
+            
+            # Handle result - it might be a string (JSON) or dict
+            if isinstance(result, str):
+                import json
+                result = json.loads(result)
+            elif isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    import json
+                    result = json.loads(first_item.text)
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    import json
+                    result = json.loads(first_item['text'])
+            
+            new_sheet = result.get("newSheet", {})
+            sheet_id = new_sheet.get("sheetId", "unknown")
+            title = new_sheet.get("title", sheet_title)
+            
+            return f"Successfully created new sheet '{title}' (Sheet ID: {sheet_id}) in spreadsheet"
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to add sheet: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
+class GetAllSheetsDataInput(BaseModel):
+    """Input schema for get_all_sheets_data tool."""
+    
+    spreadsheet_id: str = Field(description="Google Sheets spreadsheet ID or URL")
+    max_rows: int = Field(default=1000, description="Maximum rows to read per sheet (0 = all rows)")
+
+
+class GetAllSheetsDataTool(BaseTool):
+    """Tool for reading data from ALL sheets in a spreadsheet."""
+    
+    name: str = "get_all_sheets_data"
+    description: str = """
+    ⚠️ USE THIS TOOL when analyzing data from spreadsheets with multiple tabs/sheets!
+    
+    Read data from ALL sheets in a Google Sheets spreadsheet in ONE call.
+    This is the PREFERRED tool for:
+    - Analysis tasks requiring data from multiple tabs
+    - Comparing data across different sheets
+    - Creating charts/dashboards from multi-sheet data
+    - Any task where user mentions "несколько вкладок", "две вкладки", "все вкладки"
+    
+    DO NOT use get_sheet_data if you need data from multiple tabs - use this tool instead!
+    
+    Input:
+    - spreadsheet_id: The ID or URL of the spreadsheet
+    - max_rows: Maximum rows to read per sheet (default: 1000, use 0 for all rows)
+    
+    Returns JSON with structure:
+    {
+      "spreadsheetTitle": "...",
+      "sheets": [
+        {"name": "Sheet1", "values": [[...]], "rowCount": N, "columnCount": M},
+        {"name": "Sheet2", "values": [[...]], "rowCount": N, "columnCount": M}
+      ]
+    }
+    
+    Each sheet in the "sheets" array contains:
+    - name: Sheet name/tab name
+    - values: 2D array of cell values (first row is usually headers)
+    - rowCount: Number of rows
+    - columnCount: Number of columns
+    """
+    args_schema: type = GetAllSheetsDataInput
+    
+    @retry_on_mcp_error()
+    async def _arun(self, spreadsheet_id: str, max_rows: int = 1000) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json
+                import time
+                f.write(json.dumps({
+                    "timestamp": int(time.time() * 1000),
+                    "location": "GetAllSheetsDataTool._arun:entry",
+                    "message": "GetAllSheetsDataTool called",
+                    "data": {
+                        "spreadsheet_id": spreadsheet_id,
+                        "max_rows": max_rows
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "B"
+                }) + "\n")
+            # #endregion
+            
+            args = {
+                "spreadsheetId": spreadsheet_id,
+                "maxRows": max_rows
+            }
+            
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("sheets_read_all_sheets", args, server_name="sheets")
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json
+                    import time
+                    f.write(json.dumps({
+                        "timestamp": int(time.time() * 1000),
+                        "location": "GetAllSheetsDataTool._arun:mcp_result",
+                        "message": "MCP call completed",
+                        "data": {
+                            "result_type": type(result).__name__,
+                            "result_length": len(result) if isinstance(result, list) else "N/A"
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "B"
+                    }) + "\n")
+            except (PermissionError, OSError):
+                pass  # Skip logging in sandboxed environments
+            # #endregion
+            
+            # Handle result - it might be a string (JSON) or dict
+            if isinstance(result, str):
+                import json
+                result = json.loads(result)
+            elif isinstance(result, list) and len(result) > 0:
+                # MCP returns TextContent list
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    import json
+                    result = json.loads(first_item.text)
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    import json
+                    result = json.loads(first_item['text'])
+            
+            spreadsheet_title = result.get("spreadsheetTitle", "Unknown")
+            sheets = result.get("sheets", [])
+            
+            if not sheets:
+                return f"Spreadsheet '{spreadsheet_title}' has no sheets or sheets are empty."
+            
+            # Format response for LLM
+            sheets_info = []
+            for sheet in sheets:
+                name = sheet.get("name", "Unknown")
+                row_count = sheet.get("rowCount", 0)
+                col_count = sheet.get("columnCount", 0)
+                values = sheet.get("values", [])
+                
+                sheets_info.append(
+                    f"Sheet '{name}': {row_count} rows, {col_count} columns, "
+                    f"{len(values)} data rows"
+                )
+            
+            summary = f"Spreadsheet '{spreadsheet_title}' contains {len(sheets)} sheet(s):\n"
+            summary += "\n".join(f"  - {info}" for info in sheets_info)
+            summary += f"\n\nFull data (JSON):\n{json.dumps(result, ensure_ascii=False, indent=2)}"
+            
+            return summary
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to get all sheets data: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
 def get_sheets_tools() -> List[BaseTool]:
     """
     Get all Sheets tools.
@@ -617,9 +893,11 @@ def get_sheets_tools() -> List[BaseTool]:
         UpdateCellsTool(),
         CreateSpreadsheetTool(),
         GetSheetDataTool(),
+        GetAllSheetsDataTool(),  # NEW: Read all sheets at once
         GetSpreadsheetInfoTool(),  # Required for getting sheet_id for formatting
         FormatCellsTool(),  # Formatting: bold, italic, colors
         AutoResizeColumnsTool(),  # Auto-resize columns
         MergeCellsTool(),  # Merge cells
+        AddSheetTool(),  # Add new sheet/tab to spreadsheet
     ]
 

@@ -332,6 +332,24 @@ class ProjectLadMCPServer:
                         },
                         "required": ["project_id", "from_date", "to_date"]
                     }
+                ),
+                Tool(
+                    name="projectlad_get_resource_utilization",
+                    description="Get resource utilization (загрузка ресурсов) for a project",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "project_id": {
+                                "type": "string",
+                                "description": "Project ID"
+                            },
+                            "version_id": {
+                                "type": "string",
+                                "description": "Project version ID"
+                            }
+                        },
+                        "required": ["project_id", "version_id"]
+                    }
                 )
             ]
         
@@ -552,6 +570,23 @@ class ProjectLadMCPServer:
                                 "to_date": to_date
                             }
                         }, indent=2, ensure_ascii=False, default=str)
+                    )]
+                
+                # ========== GET RESOURCE UTILIZATION ==========
+                elif name == "projectlad_get_resource_utilization":
+                    project_id = arguments.get("project_id")
+                    version_id = arguments.get("version_id")
+                    
+                    # Получаем загрузку ресурсов
+                    data = await self._api_request(
+                        "GET",
+                        f"/v1/project/version/{version_id}/resource-utilization"
+                    )
+                    
+                    # Возвращаем результат
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(data, indent=2, ensure_ascii=False, default=str)
                     )]
                 
                 else:

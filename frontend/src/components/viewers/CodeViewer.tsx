@@ -42,9 +42,9 @@ export function CodeViewer({ tab }: CodeViewerProps) {
   }
 
   return (
-    <div className="h-full w-full flex flex-col bg-white dark:bg-slate-900">
+    <div className="h-full w-full flex flex-col bg-white dark:bg-slate-900" style={{ height: '100%' }}>
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-slate-700">
+      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
             {filename}
@@ -86,16 +86,24 @@ export function CodeViewer({ tab }: CodeViewerProps) {
       </div>
 
       {/* Code */}
-      <div className="flex-1 overflow-auto">
+      <div 
+        className="flex-1" 
+        style={{ 
+          minHeight: 0,
+          overflowY: 'auto',
+          overflowX: 'auto'
+        }}
+      >
         <SyntaxHighlighter
           language={language}
           style={theme}
           customStyle={{
             margin: 0,
             padding: '1rem',
-            height: '100%',
             fontSize: '14px',
             lineHeight: '1.6',
+            minHeight: '100%',
+            height: 'auto'
           }}
           showLineNumbers
           wrapLines

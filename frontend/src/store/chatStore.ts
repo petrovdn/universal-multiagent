@@ -2184,6 +2184,12 @@ export const useChatStore = create<ChatState>()(
       
       completeOperation: (workflowId: string, intentId: string, operationId: string, summary: string) =>
         set((state) => {
+          // #region agent log
+          try {
+            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:completeOperation',message:'completeOperation called',data:{workflowId,intentId,operationId,summary:summary?.substring(0,100),hasIntentBlock:!!(state.intentBlocks[workflowId]||[]).find(i=>i.id===intentId)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+          } catch {}
+          // #endregion
+          
           const existingIntents = state.intentBlocks[workflowId] || []
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId && intent.operations[operationId]) {

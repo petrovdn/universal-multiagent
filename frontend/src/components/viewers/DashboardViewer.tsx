@@ -1,54 +1,67 @@
-import React, { useState } from 'react'
-import { RefreshCw, ExternalLink, AlertCircle } from 'lucide-react'
+import React, { useMemo } from 'react'
+import Chart from 'react-apexcharts'
+import { Download } from 'lucide-react'
 import type { WorkspaceTab } from '../../types/workspace'
+import type { ChartData } from '../../types/workspace'
 
 interface DashboardViewerProps {
   tab: WorkspaceTab
 }
 
 export function DashboardViewer({ tab }: DashboardViewerProps) {
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const url = tab.url || tab.data?.url
+  const charts = (tab.data?.charts as ChartData[] | undefined) || []
 
-  const handleLoad = () => {
-    setIsLoading(false)
-    setError(null)
-  }
+  const chartConfigs = useMemo(() => {
+    return charts.map((chart, index) => {
+      const defaultOptions = {
+        chart: {
+          id: `chart-${tab.id}-${index}`,
+          toolbar: {
+            show: true,
+            tools: {
+              download: true,
+              selection: true,
+              zoom: true,
+              zoomin: true,
+              zoomout: true,
+              pan: true,
+              reset: true,
+            },
+          },
+        },
+        xaxis: chart.options?.xaxis || {},
+        yaxis: chart.options?.yaxis || {},
+        title: {
+          text: chart.title || `Chart ${index + 1}`,
+          align: 'left' as const,
+          style: {
+            fontSize: '16px',
+            fontWeight: 600,
+          },
+        },
+        ...chart.options,
+      }
 
-  const handleError = () => {
-    setIsLoading(false)
-    setError('Не удалось загрузить дашборд')
-  }
+      return {
+        options: defaultOptions,
+        series: chart.series || [],
+        chartType: chart.chartType || 'line',
+      }
+    })
+  }, [charts, tab.id])
 
-  const handleRefresh = () => {
-    setIsLoading(true)
-    setError(null)
-    const iframe = document.getElementById(`dashboard-iframe-${tab.id}`) as HTMLIFrameElement
-    if (iframe) {
-      iframe.src = iframe.src
-    }
-  }
-
-  const handleOpenExternal = () => {
-    if (url) {
-      window.open(url, '_blank')
-    }
-  }
-
-  if (!url) {
+  if (charts.length === 0) {
     return (
       <div className="h-full w-full flex items-center justify-center">
         <div className="text-center">
-          <AlertCircle className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-          <p className="text-slate-600 dark:text-slate-400">URL дашборда не указан</p>
-          <p className="text-sm text-slate-500 dark:text-slate-500 mt-2">
-            Дашборд должен быть доступен по URL (например, Streamlit или Dash приложение)
-          </p>
+          <p className="text-slate-600 dark:text-slate-400">Диаграммы не загружены</p>
         </div>
       </div>
     )
   }
+
+  // Calculate grid layout: 2 columns for 2-4 charts, 3 columns for 5+ charts
+  const gridCols = charts.length <= 4 ? 2 : 3
 
   return (
     <div className="h-full w-full flex flex-col bg-white dark:bg-slate-900">
@@ -58,45 +71,37 @@ export function DashboardViewer({ tab }: DashboardViewerProps) {
           <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
             {tab.title}
           </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleRefresh}
-            className="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Обновить"
-          >
-            <RefreshCw className="w-4 h-4 text-slate-600 dark:text-slate-400" />
-          </button>
-          <button
-            onClick={handleOpenExternal}
-            className="p-2 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title="Открыть в новой вкладке"
-          >
-            <ExternalLink className="w-4 h-4 text-slate-600 dark:text-slate-400" />
-          </button>
+          <span className="text-xs text-slate-500 dark:text-slate-400">
+            ({charts.length} {charts.length === 1 ? 'диаграмма' : 'диаграмм'})
+          </span>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 relative">
-        {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-slate-50 dark:bg-slate-950 z-10">
-            <div className="text-center">
-              <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-2" />
-              <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+      {/* Charts Grid */}
+      <div className="flex-1 p-6 overflow-auto">
+        <div
+          className={`grid gap-6 ${
+            gridCols === 2 ? 'grid-cols-2' : gridCols === 3 ? 'grid-cols-3' : 'grid-cols-1'
+          }`}
+        >
+          {chartConfigs.map((config, index) => (
+            <div
+              key={index}
+              className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-4"
+            >
+              <div className="h-[400px] min-h-[400px]">
+                <Chart
+                  options={config.options}
+                  series={config.series}
+                  type={config.chartType}
+                  height="100%"
+                  width="100%"
+                />
+              </div>
             </div>
-          </div>
-        )}
-        <iframe
-          id={`dashboard-iframe-${tab.id}`}
-          src={url}
-          className="w-full h-full border-0"
-          onLoad={handleLoad}
-          onError={handleError}
-          title={tab.title}
-        />
+          ))}
+        </div>
       </div>
     </div>
   )
 }
-

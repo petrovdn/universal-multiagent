@@ -130,6 +130,16 @@ class GoogleSheetsMCPServer:
         # If no pattern matched, assume it's already an ID
         return spreadsheet_id_or_url
     
+    @staticmethod
+    def _column_letter(n: int) -> str:
+        """Convert column number (1-based) to Excel column letter (A, B, ..., Z, AA, AB, ...)."""
+        result = ""
+        while n > 0:
+            n -= 1
+            result = chr(65 + (n % 26)) + result
+            n //= 26
+        return result
+    
     def _setup_tools(self):
         """Register MCP tools."""
         
@@ -224,6 +234,25 @@ class GoogleSheetsMCPServer:
                             }
                         },
                         "required": ["spreadsheetId", "ranges"]
+                    }
+                ),
+                Tool(
+                    name="sheets_read_all_sheets",
+                    description="Read data from ALL sheets in a spreadsheet. Returns data from every sheet/tab, perfect for analysis tasks.",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "spreadsheetId": {
+                                "type": "string",
+                                "description": "The ID or URL of the spreadsheet"
+                            },
+                            "maxRows": {
+                                "type": "integer",
+                                "description": "Maximum rows to read per sheet (default: 1000, 0 for all rows)",
+                                "default": 1000
+                            }
+                        },
+                        "required": ["spreadsheetId"]
                     }
                 ),
                 Tool(
@@ -903,6 +932,173 @@ class GoogleSheetsMCPServer:
                                 }
                                 for vr in value_ranges
                             ]
+                        }, indent=2, default=str)
+                    )]
+                
+                elif name == "sheets_read_all_sheets":
+                    spreadsheet_id = self._extract_spreadsheet_id(arguments.get("spreadsheetId"))
+                    max_rows = arguments.get("maxRows", 1000)
+                    
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import time
+                        f.write(json.dumps({
+                            "timestamp": int(time.time() * 1000),
+                            "location": "sheets_read_all_sheets:entry",
+                            "message": "sheets_read_all_sheets called",
+                            "data": {
+                                "spreadsheet_id": spreadsheet_id,
+                                "max_rows": max_rows
+                            },
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "B"
+                        }) + "\n")
+                    # #endregion
+                    
+                    # Get spreadsheet info to find all sheets
+                    spreadsheet = service.spreadsheets().get(
+                        spreadsheetId=spreadsheet_id
+                    ).execute()
+                    
+                    spreadsheet_title = spreadsheet.get('properties', {}).get('title', 'Unknown')
+                    sheets_list = spreadsheet.get('sheets', [])
+                    
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import time
+                        f.write(json.dumps({
+                            "timestamp": int(time.time() * 1000),
+                            "location": "sheets_read_all_sheets:sheets_found",
+                            "message": "Sheets list retrieved",
+                            "data": {
+                                "spreadsheet_title": spreadsheet_title,
+                                "sheets_count": len(sheets_list),
+                                "sheet_names": [s['properties']['title'] for s in sheets_list]
+                            },
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "B"
+                        }) + "\n")
+                    # #endregion
+                    
+                    if not sheets_list:
+                        return [TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "spreadsheetTitle": spreadsheet_title,
+                                "sheets": [],
+                                "error": "No sheets found in spreadsheet"
+                            }, indent=2)
+                        )]
+                    
+                    # Read data from each sheet
+                    all_sheets_data = []
+                    
+                    for sheet in sheets_list:
+                        sheet_title = sheet['properties']['title']
+                        grid_props = sheet['properties'].get('gridProperties', {})
+                        row_count = grid_props.get('rowCount', 0)
+                        col_count = grid_props.get('columnCount', 0)
+                        
+                        # Determine range to read
+                        if max_rows > 0 and max_rows < row_count:
+                            # Use column letter helper to build range
+                            end_col = self._column_letter(col_count)
+                            range_to_read = f"'{sheet_title}'!A1:{end_col}{max_rows}"
+                            actual_rows = max_rows
+                        else:
+                            end_col = self._column_letter(col_count)
+                            range_to_read = f"'{sheet_title}'!A1:{end_col}{row_count}"
+                            actual_rows = row_count
+                        
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            import time
+                            f.write(json.dumps({
+                                "timestamp": int(time.time() * 1000),
+                                "location": "sheets_read_all_sheets:reading_sheet",
+                                "message": "Reading sheet data",
+                                "data": {
+                                    "sheet_title": sheet_title,
+                                    "range_to_read": range_to_read,
+                                    "row_count": row_count,
+                                    "col_count": col_count
+                                },
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "C"
+                            }) + "\n")
+                        # #endregion
+                        
+                        # Read data from this sheet
+                        try:
+                            values_result = service.spreadsheets().values().get(
+                                spreadsheetId=spreadsheet_id,
+                                range=range_to_read,
+                                valueRenderOption="FORMATTED_VALUE"
+                            ).execute()
+                            
+                            values = values_result.get('values', [])
+                            
+                            # #region agent log
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                import time
+                                f.write(json.dumps({
+                                    "timestamp": int(time.time() * 1000),
+                                    "location": "sheets_read_all_sheets:sheet_success",
+                                    "message": "Sheet read successfully",
+                                    "data": {
+                                        "sheet_title": sheet_title,
+                                        "values_count": len(values),
+                                        "first_row_sample": values[0] if values else None
+                                    },
+                                    "sessionId": "debug-session",
+                                    "runId": "run1",
+                                    "hypothesisId": "C"
+                                }) + "\n")
+                            # #endregion
+                            
+                            all_sheets_data.append({
+                                "name": sheet_title,
+                                "values": values,
+                                "rowCount": len(values),
+                                "columnCount": max(len(row) for row in values) if values else 0
+                            })
+                        except Exception as e:
+                            # #region agent log
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                import time
+                                f.write(json.dumps({
+                                    "timestamp": int(time.time() * 1000),
+                                    "location": "sheets_read_all_sheets:sheet_error",
+                                    "message": "Failed to read sheet",
+                                    "data": {
+                                        "sheet_title": sheet_title,
+                                        "range_to_read": range_to_read,
+                                        "error": str(e),
+                                        "error_type": type(e).__name__
+                                    },
+                                    "sessionId": "debug-session",
+                                    "runId": "run1",
+                                    "hypothesisId": "C"
+                                }) + "\n")
+                            # #endregion
+                            
+                            logger.warning(f"Failed to read sheet '{sheet_title}': {e}")
+                            all_sheets_data.append({
+                                "name": sheet_title,
+                                "values": [],
+                                "rowCount": 0,
+                                "columnCount": 0,
+                                "error": str(e)
+                            })
+                    
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "spreadsheetTitle": spreadsheet_title,
+                            "sheets": all_sheets_data
                         }, indent=2, default=str)
                     )]
                 

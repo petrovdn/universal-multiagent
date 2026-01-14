@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 import asyncio
 import json
 import math
+import statistics
 from datetime import datetime
 from io import StringIO
 from contextlib import redirect_stdout, redirect_stderr
@@ -42,8 +43,18 @@ class PythonCodeExecutionTool(BaseTool):
     - Perform complex mathematical operations
     - Process arrays/lists with custom logic
     - Generate data based on patterns
+    - Analyze data and create visualizations (chartData)
     
-    Available libraries: math, datetime, json
+    ⚠️ ВАЖНО: Доступные библиотеки ТОЛЬКО:
+    - math (математические функции)
+    - datetime (работа с датами)
+    - json (работа с JSON)
+    - statistics (статистические функции: mean, median, stdev, etc.)
+    
+    ❌ НЕ используй pandas, numpy, matplotlib, seaborn - они НЕ доступны!
+    ✅ Используй встроенные типы Python: list, dict, set, tuple
+    ✅ Используй statistics для статистических расчетов
+    ✅ Используй math для математических операций
     
     Input:
     - code: Python code to execute
@@ -52,13 +63,18 @@ class PythonCodeExecutionTool(BaseTool):
     
     The code should assign result to 'result' variable.
     
-    Example:
+    Example for data analysis:
     ```python
-    # Convert prices from USD to RUB with VAT
-    prices_usd = data['prices']
-    rate = 95
-    vat = 1.2
-    result = [round(price * rate * vat, 2) for price in prices_usd]
+    import json
+    import statistics
+    
+    # Parse sheets data
+    sheets_data = data.get("sheets", [])
+    # ... analysis code ...
+    result = {
+        "chartData": [...],  # For visualizations
+        "analysis": {...}    # Text analysis results
+    }
     ```
     """
     args_schema: type = PythonCodeExecutionInput
@@ -88,6 +104,7 @@ class PythonCodeExecutionTool(BaseTool):
                     'list': list,
                     'max': max,
                     'min': min,
+                    'print': print,  # Added for debugging and output
                     'range': range,
                     'round': round,
                     'sorted': sorted,
@@ -106,6 +123,7 @@ class PythonCodeExecutionTool(BaseTool):
                 'math': math,
                 'datetime': datetime,
                 'json': json,
+                'statistics': statistics,  # For mean, median, stdev, etc.
                 'data': input_data or {},
                 'result': None
             }
@@ -135,6 +153,18 @@ class PythonCodeExecutionTool(BaseTool):
             # Get captured output
             stdout_text = stdout_capture.getvalue()
             stderr_text = stderr_capture.getvalue()
+            
+            # Auto-fallback: если result не присвоен, проверяем safe_globals
+            if result is None:
+                # Пытаемся найти что-то полезное в safe_globals (кроме служебных переменных)
+                excluded_keys = {'__builtins__', '__name__', '__doc__', '__package__', 'data', 'result'}
+                useful_vars = {k: v for k, v in safe_globals.items() 
+                              if k not in excluded_keys 
+                              and not k.startswith('_')
+                              and v is not None}
+                if useful_vars:
+                    # Если есть полезные переменные, используем их как результат
+                    result = useful_vars if len(useful_vars) > 1 else list(useful_vars.values())[0]
             
             # Format response
             response_parts = []

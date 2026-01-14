@@ -1279,6 +1279,29 @@ Callback to handle streaming events and send to WebSocket."""
             result: Tool execution result
             tool_args: Tool arguments
         """
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json
+                import time
+                f.write(json.dumps({
+                    "timestamp": int(time.time() * 1000),
+                    "location": "AgentWrapper._handle_workspace_events:entry",
+                    "message": "Tool execution result received",
+                    "data": {
+                        "tool_name": tool_name,
+                        "result_length": len(result) if isinstance(result, str) else "N/A",
+                        "result_preview": result[:200] if isinstance(result, str) else str(result)[:200],
+                        "tool_args_keys": list(tool_args.keys()) if isinstance(tool_args, dict) else "N/A"
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "D"
+                }) + "\n")
+        except (PermissionError, OSError):
+            pass  # Skip logging in sandboxed environments
+        # #endregion
+        
         import re
         # Handle create_spreadsheet
         if tool_name == "create_spreadsheet":
@@ -1413,25 +1436,55 @@ Callback to handle streaming events and send to WebSocket."""
             logger.info(f"[AgentWrapper] Sent slides_action event for presentation {presentation_id}")
             
         
-        # Handle execute_python_code - show code in code viewer
+        # Handle execute_python_code - code is already shown in viewer via unified_react_engine
+        # This handler processes results (chartData) after execution
         elif tool_name == "execute_python_code":
-            code = tool_args.get("code", "")
-            if code:
-                # Extract filename from code if it's a script
-                filename = "executed_code.py"
-                if "def " in code or "import " in code:
-                    filename = "script.py"
+            # Code display and streaming is now handled in unified_react_engine before execution
+            # We only need to process results (chartData) here
+            logger.info(f"[AgentWrapper] execute_python_code completed, processing results")
+            
+            # Check if result contains chartData for dashboard visualization
+            try:
+                import json
                 
-                await self.ws_manager.send_event(
-                    session_id,
-                    "code_display",
-                    {
-                        "filename": filename,
-                        "language": "python",
-                        "code": code
-                    }
-                )
-                logger.info(f"[AgentWrapper] Sent code_display event for Python code")
+                # Try to parse result as JSON
+                result_data = None
+                if isinstance(result, str):
+                    # Try to extract JSON from result string
+                    # Result might be formatted as "Result:\n{...}" or just JSON
+                    if result.strip().startswith("{"):
+                        result_data = json.loads(result)
+                    elif "Result:" in result:
+                        # Extract JSON after "Result:"
+                        json_start = result.find("{")
+                        if json_start != -1:
+                            json_end = result.rfind("}") + 1
+                            if json_end > json_start:
+                                result_data = json.loads(result[json_start:json_end])
+                    else:
+                        # Try parsing entire result as JSON
+                        try:
+                            result_data = json.loads(result)
+                        except json.JSONDecodeError:
+                            pass
+                elif isinstance(result, dict):
+                    result_data = result
+                
+                # If we have chartData, send chart_dashboard event
+                if result_data and isinstance(result_data, dict) and "chartData" in result_data:
+                    chart_data = result_data["chartData"]
+                    if isinstance(chart_data, list) and len(chart_data) > 0:
+                        await self.ws_manager.send_event(
+                            session_id,
+                            "chart_dashboard",
+                            {
+                                "title": "Анализ данных",
+                                "charts": chart_data
+                            }
+                        )
+                        logger.info(f"[AgentWrapper] Sent chart_dashboard event with {len(chart_data)} chart(s)")
+            except Exception as e:
+                logger.warning(f"[AgentWrapper] Failed to process chartData from execute_python_code result: {e}")
         
         # Handle add_rows - append rows to spreadsheet
         elif tool_name == "add_rows":

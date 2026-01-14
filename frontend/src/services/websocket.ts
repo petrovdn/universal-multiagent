@@ -1090,7 +1090,76 @@ export class WebSocketClient {
         break
       }
 
+      case 'chart_dashboard': {
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:chart_dashboard',message:'chart_dashboard received',data:{title:event.data.title,charts_count:event.data.charts?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+        
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          const workspaceStore = useWorkspaceStore.getState()
+          const { title, charts } = event.data
+          workspaceStore.addTab({
+            type: 'dashboard',
+            title: title || 'Анализ данных',
+            data: { charts },
+            closeable: true,
+          })
+          console.log('[WebSocket] Chart dashboard:', title, charts?.length, 'charts')
+        })
+        break
+      }
+
+      case 'code_display_start': {
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          const workspaceStore = useWorkspaceStore.getState()
+          const { filename, language } = event.data
+          // Initialize code tab with empty code (will be streamed)
+          workspaceStore.addTab({
+            type: 'code',
+            title: filename || 'Code',
+            data: { language: language || 'python', code: '', filename },
+            closeable: true,
+          })
+          console.log('[WebSocket] Code display started:', filename, language)
+        })
+        break
+      }
+
+      case 'code_chunk': {
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          const workspaceStore = useWorkspaceStore.getState()
+          const { filename, code } = event.data
+          // Find existing code tab and update it with streamed code
+          const tabs = workspaceStore.tabs
+          const codeTab = tabs.find(t => t.type === 'code' && t.data?.filename === filename)
+          if (codeTab) {
+            workspaceStore.updateTab(codeTab.id, {
+              data: { ...codeTab.data, code } as any
+            })
+          }
+        })
+        break
+      }
+
+      case 'code_display_complete': {
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          const workspaceStore = useWorkspaceStore.getState()
+          const { filename, code } = event.data
+          // Finalize code tab with complete code
+          const tabs = workspaceStore.tabs
+          const codeTab = tabs.find(t => t.type === 'code' && t.data?.filename === filename)
+          if (codeTab) {
+            workspaceStore.updateTab(codeTab.id, {
+              data: { ...codeTab.data, code } as any
+            })
+          }
+          console.log('[WebSocket] Code display completed:', filename, code.length, 'chars')
+        })
+        break
+      }
+
       case 'code_display': {
+        // Legacy: Support for non-streaming code display
         import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
           const workspaceStore = useWorkspaceStore.getState()
           const { filename, language, code } = event.data
@@ -1100,7 +1169,7 @@ export class WebSocketClient {
             data: { language: language || 'python', code, filename },
             closeable: true,
           })
-          console.log('[WebSocket] Code display:', filename, language)
+          console.log('[WebSocket] Code display (legacy):', filename, language)
         })
         break
       }
@@ -1125,32 +1194,16 @@ export class WebSocketClient {
         console.log('[WebSocket] Thinking started:', event.data)
         const thinkingId = event.data.thinking_id || `thinking-${Date.now()}`
         
-        // Create thinking block but don't show it immediately
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking_started',message:'Thinking started event received',data:{thinkingId:thinkingId, showImmediately:true},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+        // #endregion
+        
+        // Create thinking block and show it IMMEDIATELY (no delay)
         chatStore.startThinking(thinkingId)
+        chatStore.setActiveThinking(thinkingId)
         chatStore.setAgentTyping(true)
         
-        // Store thinking ID for delayed activation
-        this.pendingThinkingId = thinkingId
-        
-        // Clear any existing timer
-        if (this.thinkingDelayTimer) {
-          clearTimeout(this.thinkingDelayTimer)
-        }
-        
-        // Set timer to show thinking block after 1.5 seconds
-        this.thinkingDelayTimer = setTimeout(() => {
-          const stateBeforeCheck = useChatStore.getState()
-          const blockBeforeCheck = stateBeforeCheck.thinkingBlocks[thinkingId]
-          // Only show if response hasn't completed yet
-          const state = useChatStore.getState()
-          const block = state.thinkingBlocks[thinkingId]
-          if (this.pendingThinkingId === thinkingId && state.activeThinkingId !== thinkingId && block?.status !== 'completed') {
-            chatStore.setActiveThinking(thinkingId)
-            console.log('[WebSocket] Showing thinking block after 2s delay')
-          } else {
-          }
-          this.thinkingDelayTimer = null
-        }, 1500)
+        console.log('[WebSocket] Showing thinking block immediately')
         
         break
       }
@@ -1173,6 +1226,11 @@ export class WebSocketClient {
         const stateBeforeComplete = useChatStore.getState()
         console.log('[WebSocket] Thinking completed:', event.data)
         const thinkingId = event.data.thinking_id || useChatStore.getState().activeThinkingId
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:thinking_completed',message:'Thinking completed event received',data:{thinkingId:thinkingId, autoCollapse:event.data.auto_collapse, hasPendingTimer:!!this.thinkingDelayTimer},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+        // #endregion
+        
         if (thinkingId) {
           // Cancel timer if it's for this thinkingId
           if (this.thinkingDelayTimer && this.pendingThinkingId === thinkingId) {
@@ -1402,6 +1460,11 @@ export class WebSocketClient {
       
       case 'operation_end': {
         console.log('[WebSocket] Operation ended:', event.data)
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:operation_end',message:'operation_end received',data:{operation_id:event.data.operation_id,summary:event.data.summary,activeWorkflowId:useChatStore.getState().activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        
         const state = useChatStore.getState()
         const workflowId = state.activeWorkflowId
         const intentId = state.activeIntentId
@@ -1485,6 +1548,10 @@ export class WebSocketClient {
       case 'react_thinking': {
         // ReAct thinking phase - FALLBACK: update thinking block
         console.log('[WebSocket] ReAct thinking (fallback to thinking):', event.data)
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:react_thinking',message:'react_thinking received',data:{thought:event.data.thought?.substring(0,100),activeThinkingId:useChatStore.getState().activeThinkingId,activeWorkflowId:useChatStore.getState().activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
         
         // Update thinking block if exists, or create new one
         const thinkingState = useChatStore.getState()

@@ -299,8 +299,71 @@ class BaseAgent:
             response = await llm_with_tools.ainvoke(response.messages)
             return {"messages": [response]}
         
-        # Create tool node
-        tool_node = ToolNode(self.tools)
+        # Create tool node with logging
+        async def tool_node_with_logging(state: AgentState):
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json
+                    import time
+                    messages = state.get("messages", [])
+                    last_msg = messages[-1] if messages else None
+                    tool_calls = []
+                    if hasattr(last_msg, 'tool_calls') and last_msg.tool_calls:
+                        tool_calls = [{"name": tc.get("name"), "args": tc.get("args", {})} for tc in last_msg.tool_calls]
+                    elif hasattr(last_msg, 'content') and isinstance(last_msg.content, list):
+                        for item in last_msg.content:
+                            if hasattr(item, 'type') and item.type == "tool_use":
+                                tool_calls.append({"name": getattr(item, 'name', 'unknown'), "id": getattr(item, 'id', 'unknown')})
+                    
+                    f.write(json.dumps({
+                        "timestamp": int(time.time() * 1000),
+                        "location": "BaseAgent.tool_node:entry",
+                        "message": "Tool node executing",
+                        "data": {
+                            "agent_name": self.name,
+                            "tool_calls": tool_calls,
+                            "tools_available": [t.name for t in self.tools],
+                            "has_get_all_sheets_data": "get_all_sheets_data" in [t.name for t in self.tools]
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "E"
+                    }) + "\n")
+            except (PermissionError, OSError):
+                pass  # Skip logging in sandboxed environments
+            # #endregion
+            
+            # Call original tool node
+            tool_node = ToolNode(self.tools)
+            result = await tool_node.ainvoke(state)
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json
+                    import time
+                    result_messages = result.get("messages", [])
+                    f.write(json.dumps({
+                        "timestamp": int(time.time() * 1000),
+                        "location": "BaseAgent.tool_node:exit",
+                        "message": "Tool node completed",
+                        "data": {
+                            "agent_name": self.name,
+                            "result_messages_count": len(result_messages),
+                            "last_result_preview": str(result_messages[-1].content)[:200] if result_messages else "N/A"
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "E"
+                    }) + "\n")
+            except (PermissionError, OSError):
+                pass  # Skip logging in sandboxed environments
+            # #endregion
+            
+            return result
+        
+        tool_node = tool_node_with_logging
         
         # Build graph
         workflow = StateGraph(AgentState)

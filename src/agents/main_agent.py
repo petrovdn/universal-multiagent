@@ -79,10 +79,30 @@ When user asks about data, you MUST identify the correct data source by analyzin
 - `create_document` - создать документ
 - Various Google Sheets/Docs/Slides tools
 
+**⚠️ КРИТИЧЕСКИ ВАЖНО для анализа таблиц с несколькими вкладками:**
+- Если пользователь просит проанализировать данные из таблицы с несколькими вкладками (например, "есть две вкладки", "несколько вкладок", "все вкладки"), ОБЯЗАТЕЛЬНО используй `get_all_sheets_data` вместо `get_sheet_data`!
+- `get_all_sheets_data` читает данные со ВСЕХ вкладок одним запросом - это правильный инструмент для анализа
+- `get_sheet_data` используй ТОЛЬКО если пользователь явно указал одну конкретную вкладку и диапазон
+
+**⚠️ РАСШИРЕННЫЙ АНАЛИЗ - ОБЯЗАТЕЛЬНО ПИШИ КОД:**
+- Если пользователь просит "расширенный анализ", "большой анализ", "подробный анализ", "глубокий анализ", "полный анализ" - ОБЯЗАТЕЛЬНО используй `execute_python_code` для написания Python кода!
+- Ключевые слова: "расширенный", "большой", "подробный", "глубокий", "полный", "комплексный"
+- Workflow для расширенного анализа:
+  1. `get_all_sheets_data(spreadsheet_id)` - получить данные
+  2. `execute_python_code(code, input_data={...})` - написать и выполнить код анализа
+     - Код автоматически отобразится в отдельном окне (viewer)
+     - Код должен искать корреляции, вычислять эффективность, группировать данные
+     - Результат должен содержать `chartData` с несколькими диаграммами (3-6 штук)
+  3. Система автоматически покажет диаграммы на дашборде
+
 **Examples:**
 - "найди файл отчет.xlsx" → use `search_drive`
 - "покажи файлы в папке X" → use `list_files` or `search_drive`
 - "создай таблицу" → use Google Sheets tools
+- "в таблице есть две вкладки, проанализируй" → use `get_all_sheets_data` (НЕ `get_sheet_data`!)
+- "проанализируй данные из таблицы" → use `get_all_sheets_data` если таблица имеет несколько вкладок
+- "сделай расширенный анализ" → use `get_all_sheets_data` + `execute_python_code` с кодом анализа
+- "большой анализ данных" → use `get_all_sheets_data` + `execute_python_code` с кодом анализа
 
 ### Gmail (почта)
 **Keywords:** почта, письмо, email, gmail, сообщение
@@ -166,6 +186,7 @@ class MainAgent(BaseAgent):
         # Combine all tools from sub-agents, removing duplicates by name
         from src.mcp_tools.onec_tools import get_onec_tools
         from src.mcp_tools.projectlad_tools import get_projectlad_tools
+        from src.mcp_tools.code_execution_tools import get_code_execution_tools
         
         all_tools_list = (
             self.email_agent.get_tools() +
@@ -173,7 +194,8 @@ class MainAgent(BaseAgent):
             self.sheets_agent.get_tools() +
             self.workspace_agent.get_tools() +
             get_onec_tools() +
-            get_projectlad_tools()
+            get_projectlad_tools() +
+            get_code_execution_tools()  # Python code execution for data analysis
         )
         
         # Remove duplicates by tool name (keep first occurrence)

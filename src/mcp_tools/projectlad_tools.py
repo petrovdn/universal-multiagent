@@ -518,6 +518,180 @@ class GetIndicatorAnalyticsTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
+class GetResourceUtilizationInput(BaseModel):
+    """Input schema for projectlad_get_resource_utilization tool."""
+    
+    project_id: str = Field(description="Project ID")
+    version_id: str = Field(description="Project version ID")
+
+
+class GetResourceUtilizationTool(BaseTool):
+    """Tool for getting resource utilization (загрузка ресурсов) from Project Lad."""
+    
+    name: str = "projectlad_get_resource_utilization"
+    description: str = """
+    Get resource utilization (загрузка ресурсов) for a project from Project Lad.
+    
+    Returns detailed information about resource allocation by month, including:
+    - Resource name (ФИО сотрудника)
+    - Month (Месяц)
+    - Hours (Часы загрузки)
+    
+    Input:
+    - project_id: Project ID
+    - version_id: Project version ID
+    
+    Returns aggregated resource utilization by month in human-readable format.
+    """
+    args_schema: type = GetResourceUtilizationInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        project_id: str,
+        version_id: str
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            if not project_id:
+                raise ValidationError("project_id is required")
+            if not version_id:
+                raise ValidationError("version_id is required")
+            
+            mcp_manager = get_mcp_manager()
+            
+            # Получаем данные загрузки ресурсов
+            utilization_args = {
+                "project_id": project_id,
+                "version_id": version_id
+            }
+            
+            utilization_result = await mcp_manager.call_tool(
+                "projectlad_get_resource_utilization",
+                utilization_args,
+                server_name="projectlad"
+            )
+            
+            # Получаем имена ресурсов через analytics
+            analytics_args = {
+                "project_id": project_id,
+                "version_id": version_id,
+                "from_date": "2025-01-01",
+                "to_date": "2025-12-31"
+            }
+            
+            analytics_result = await mcp_manager.call_tool(
+                "projectlad_get_indicator_analytics",
+                analytics_args,
+                server_name="projectlad"
+            )
+            
+            # Парсим результаты
+            if isinstance(utilization_result, str):
+                import json
+                utilization_result = json.loads(utilization_result)
+            
+            if isinstance(analytics_result, str):
+                import json
+                analytics_result = json.loads(analytics_result)
+            
+            utilization_data = utilization_result.get("result", {})
+            analytics_data = analytics_result.get("result", [])
+            
+            # Создаем маппинг resource_id -> имя
+            resource_names = {}
+            if isinstance(analytics_data, list):
+                for item in analytics_data:
+                    if "ресурс" in item.get("indicator_title", "").lower():
+                        resource_id = item.get("analytics_element_id")
+                        name = item.get("analytic_title")
+                        if resource_id and name:
+                            resource_names[resource_id] = name
+            
+            # Агрегируем данные по ресурсам и месяцам
+            from datetime import datetime
+            from collections import defaultdict
+            
+            resource_month_hours = defaultdict(lambda: defaultdict(int))
+            
+            # Обрабатываем каждую работу
+            for work_id, assignments in utilization_data.items():
+                if not isinstance(assignments, list):
+                    continue
+                
+                for assignment in assignments:
+                    resource_id = assignment.get("resource_id")
+                    start_date_str = assignment.get("start_date")
+                    end_date_str = assignment.get("end_date")
+                    hours_per_day = assignment.get("value", 0)
+                    
+                    if not all([resource_id, start_date_str, end_date_str]):
+                        continue
+                    
+                    # Парсим даты
+                    start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+                    end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
+                    
+                    # Получаем имя ресурса
+                    resource_name = resource_names.get(resource_id, resource_id)
+                    
+                    # Итерируем по дням и агрегируем по месяцам
+                    from datetime import timedelta
+                    current_date = start_date
+                    while current_date < end_date:
+                        month_key = current_date.strftime("%Y-%m")  # "2025-06"
+                        resource_month_hours[resource_name][month_key] += hours_per_day
+                        
+                        # Переход к следующему дню
+                        current_date = current_date + timedelta(days=1)
+            
+            # Форматируем результат
+            if not resource_month_hours:
+                return f"No resource utilization data found for project {project_id}"
+            
+            summary = f"Resource utilization for project (version {version_id}):\n\n"
+            summary += f"Found {len(resource_month_hours)} resource(s):\n\n"
+            
+            # Словарь для перевода месяцев
+            month_names = {
+                "01": "Январь", "02": "Февраль", "03": "Март",
+                "04": "Апрель", "05": "Май", "06": "Июнь",
+                "07": "Июль", "08": "Август", "09": "Сентябрь",
+                "10": "Октябрь", "11": "Ноябрь", "12": "Декабрь"
+            }
+            
+            for resource_name in sorted(resource_month_hours.keys()):
+                months_data = resource_month_hours[resource_name]
+                total_hours = sum(months_data.values())
+                
+                summary += f"• {resource_name}: {total_hours} ч.\n"
+                
+                for month_key in sorted(months_data.keys()):
+                    year, month = month_key.split("-")
+                    month_name = month_names.get(month, month)
+                    hours = months_data[month_key]
+                    summary += f"  - {month_name} {year}: {hours} ч.\n"
+                
+                summary += "\n"
+            
+            return summary
+            
+        except ValidationError as e:
+            raise ToolExecutionError(
+                f"Validation failed: {e.message}",
+                tool_name=self.name,
+                tool_args={"project_id": project_id, "version_id": version_id}
+            ) from e
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to get resource utilization: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
 def get_projectlad_tools() -> List[BaseTool]:
     """
     Get all Project Lad tools.
@@ -532,6 +706,7 @@ def get_projectlad_tools() -> List[BaseTool]:
         GetMilestonesTool(),
         GetIndicatorsTool(),
         GetIndicatorAnalyticsTool(),
+        GetResourceUtilizationTool(),  # NEW: Resource utilization
     ]
 
 
