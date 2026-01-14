@@ -1279,29 +1279,6 @@ Callback to handle streaming events and send to WebSocket."""
             result: Tool execution result
             tool_args: Tool arguments
         """
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json
-                import time
-                f.write(json.dumps({
-                    "timestamp": int(time.time() * 1000),
-                    "location": "AgentWrapper._handle_workspace_events:entry",
-                    "message": "Tool execution result received",
-                    "data": {
-                        "tool_name": tool_name,
-                        "result_length": len(result) if isinstance(result, str) else "N/A",
-                        "result_preview": result[:200] if isinstance(result, str) else str(result)[:200],
-                        "tool_args_keys": list(tool_args.keys()) if isinstance(tool_args, dict) else "N/A"
-                    },
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "D"
-                }) + "\n")
-        except (PermissionError, OSError):
-            pass  # Skip logging in sandboxed environments
-        # #endregion
-        
         import re
         # Handle create_spreadsheet
         if tool_name == "create_spreadsheet":

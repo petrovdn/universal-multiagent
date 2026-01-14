@@ -248,49 +248,11 @@ class GetSheetDataTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json
-                import time
-                f.write(json.dumps({
-                    "timestamp": int(time.time() * 1000),
-                    "location": "GetSheetDataTool._arun:entry",
-                    "message": "GetSheetDataTool called",
-                    "data": {
-                        "spreadsheet_id": spreadsheet_id,
-                        "range": range,
-                        "sheet_name": sheet_name
-                    },
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-            # #endregion
-            
             validated_range = validate_spreadsheet_range(range)
             
             # If sheet_name is provided and not in range, prepend it
             if sheet_name and '!' not in validated_range:
                 validated_range = f"{sheet_name}!{validated_range}"
-            
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json
-                import time
-                f.write(json.dumps({
-                    "timestamp": int(time.time() * 1000),
-                    "location": "GetSheetDataTool._arun:validated",
-                    "message": "Range validated",
-                    "data": {
-                        "original_range": range,
-                        "validated_range": validated_range,
-                        "has_sheet_name": sheet_name is not None
-                    },
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-            # #endregion
             
             args = {
                 "spreadsheetId": spreadsheet_id,
@@ -299,25 +261,6 @@ class GetSheetDataTool(BaseTool):
             
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("sheets_read_range", args, server_name="sheets")
-            
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json
-                import time
-                f.write(json.dumps({
-                    "timestamp": int(time.time() * 1000),
-                    "location": "GetSheetDataTool._arun:result",
-                    "message": "MCP call result",
-                    "data": {
-                        "result_type": type(result).__name__,
-                        "result_length": len(result) if isinstance(result, list) else "N/A",
-                        "has_error": "error" in str(result).lower() if isinstance(result, str) else False
-                    },
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-            # #endregion
             
             # Handle result - it might be a string (JSON) or dict
             if isinstance(result, str):
@@ -798,24 +741,6 @@ class GetAllSheetsDataTool(BaseTool):
     async def _arun(self, spreadsheet_id: str, max_rows: int = 1000) -> str:
         """Execute the tool asynchronously."""
         try:
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json
-                import time
-                f.write(json.dumps({
-                    "timestamp": int(time.time() * 1000),
-                    "location": "GetAllSheetsDataTool._arun:entry",
-                    "message": "GetAllSheetsDataTool called",
-                    "data": {
-                        "spreadsheet_id": spreadsheet_id,
-                        "max_rows": max_rows
-                    },
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "B"
-                }) + "\n")
-            # #endregion
-            
             args = {
                 "spreadsheetId": spreadsheet_id,
                 "maxRows": max_rows
@@ -823,27 +748,6 @@ class GetAllSheetsDataTool(BaseTool):
             
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("sheets_read_all_sheets", args, server_name="sheets")
-            
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    import json
-                    import time
-                    f.write(json.dumps({
-                        "timestamp": int(time.time() * 1000),
-                        "location": "GetAllSheetsDataTool._arun:mcp_result",
-                        "message": "MCP call completed",
-                        "data": {
-                            "result_type": type(result).__name__,
-                            "result_length": len(result) if isinstance(result, list) else "N/A"
-                        },
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "B"
-                    }) + "\n")
-            except (PermissionError, OSError):
-                pass  # Skip logging in sandboxed environments
-            # #endregion
             
             # Handle result - it might be a string (JSON) or dict
             if isinstance(result, str):

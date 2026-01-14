@@ -583,26 +583,6 @@ class UnifiedReActEngine:
                 self._current_iteration = state.iteration  # Store for use in _execute_action
                 logger.info(f"[UnifiedReActEngine] Starting iteration {state.iteration}")
                 
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:iteration_start",
-                            "message": "Iteration loop started",
-                            "data": {
-                                "iteration": state.iteration,
-                                "max_iterations": state.max_iterations,
-                                "completed_actions": len(state.action_history)
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H9"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
-                
                 # === Send iteration_start event for UI ===
                 # ВАЖНО: Используем _task_intent_id (первый intent) для ВСЕХ итераций,
                 # чтобы они показывались под одним блоком, а не в разных phase-блоках
@@ -623,51 +603,9 @@ class UnifiedReActEngine:
                 # Real progress: no fake messages, just actual work
                 _think_plan_start = time.time()
                 
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:before_think_and_plan",
-                            "message": "About to call _think_and_plan",
-                            "data": {
-                                "iteration": state.iteration,
-                                "completed_actions_count": len(state.action_history),
-                                "observations_count": len(state.observations),
-                                "last_observation_preview": str(state.observations[-1].raw_result)[:300] if state.observations else "none"
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H6"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
-                
                 # Объединённый вызов: анализ + планирование
                 thought, action_plan = await self._think_and_plan(state, context, file_ids)
                 _think_plan_end = time.time()
-                
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:after_think_and_plan",
-                            "message": "_think_and_plan completed",
-                            "data": {
-                                "iteration": state.iteration,
-                                "thought_length": len(thought) if thought else 0,
-                                "planned_tool": action_plan.get("tool_name", ""),
-                                "duration_sec": _think_plan_end - _think_plan_start
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H6"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
                 state.current_thought = thought
                 state.add_reasoning_step("think", thought)
                 await self._stream_reasoning("react_thinking", {
@@ -1384,55 +1322,12 @@ class UnifiedReActEngine:
                 
                 _exec_action_start = time.time()
                 
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:before_execute_action",
-                            "message": "About to execute action",
-                            "data": {
-                                "iteration": state.iteration,
-                                "tool_name": action_plan.get("tool_name"),
-                                "arguments": str(action_plan.get("arguments", {}))[:500],
-                                "has_spreadsheet_id": "spreadsheet_id" in str(action_plan.get("arguments", {}))
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H11"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
-                
                 # Сохраняем state для доступа в _execute_action (для auto-fix input_data)
                 self._current_state = state
                 
                 try:
                     result = await self._execute_action(action_plan, context)
                     _exec_action_end = time.time()
-                    
-                    # #region agent log
-                    try:
-                        _time_module = __import__("time")
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "timestamp": int(_time_module.time() * 1000),
-                                "location": "unified_react_engine.py:after_execute_action",
-                                "message": "Action execution completed",
-                                "data": {
-                                    "iteration": state.iteration,
-                                    "tool_name": action_plan.get("tool_name"),
-                                    "result_type": type(result).__name__,
-                                    "result_length": len(str(result)) if result else 0,
-                                    "duration_sec": _exec_action_end - _exec_action_start
-                                },
-                                "sessionId": "debug-session",
-                                "hypothesisId": "H8"
-                            }) + '\n')
-                    except Exception:
-                        pass
-                    # #endregion
                     
                     # === Send iteration_action_complete event for UI ===
                     result_summary = "Выполнено"
@@ -1480,45 +1375,6 @@ class UnifiedReActEngine:
                 # 4. OBSERVE - Analyze result
                 state.status = "observing"
                 
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:observing_start",
-                            "message": "Entering observing state",
-                            "data": {
-                                "iteration": state.iteration,
-                                "tool_name": action_record.tool_name
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H8"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
-                
-                # Log result for execute_python_code
-                if action_record.tool_name == "execute_python_code":
-                    try:
-                        _time_module = __import__("time")
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "timestamp": int(_time_module.time() * 1000),
-                                "location": "unified_react_engine.py:add_observation",
-                                "message": "Adding observation for execute_python_code",
-                                "data": {
-                                    "result_type": type(result).__name__,
-                                    "result_length": len(str(result)) if result else 0,
-                                    "result_preview": str(result)[:500] if result else "None"
-                                },
-                                "sessionId": "debug-session",
-                                "hypothesisId": "R4"
-                            }) + '\n')
-                    except Exception:
-                        pass
-                
                 observation = state.add_observation(
                     action_record,
                     result,
@@ -1529,26 +1385,6 @@ class UnifiedReActEngine:
                     "iteration": state.iteration
                 })
                 
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:before_result_analyzer",
-                            "message": "About to call result_analyzer.analyze",
-                            "data": {
-                                "iteration": state.iteration,
-                                "action_name": action_record.action_name,
-                                "result_preview": str(result)[:500]
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H7"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
-                
                 # Analyze result
                 analysis = await self.result_analyzer.analyze(
                     action_record,
@@ -1556,26 +1392,6 @@ class UnifiedReActEngine:
                     state.goal,
                     state.observations[:-1]
                 )
-                
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:after_result_analyzer",
-                            "message": "result_analyzer.analyze completed",
-                            "data": {
-                                "iteration": state.iteration,
-                                "is_success": analysis.is_success,
-                                "error_message": analysis.error_message if analysis.error_message else "none"
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H7"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
                 
                 # Update observation with analysis
                 observation.success = analysis.is_success
@@ -1610,25 +1426,6 @@ class UnifiedReActEngine:
                         logger.info(f"[UnifiedReActEngine] Error #{consecutive_errors}, retrying (max 3 attempts)...")
                         # Добавляем информацию об ошибке в reasoning для следующей итерации
                         error_info = analysis.error_message or "Action failed"
-                        try:
-                            import json
-                            _time_module = __import__("time")
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "timestamp": int(_time_module.time() * 1000),
-                                    "location": "unified_react_engine.py:retry_counter",
-                                    "message": "Retry triggered",
-                                    "data": {
-                                        "consecutive_errors": consecutive_errors,
-                                        "max_retries": 3,
-                                        "error_message": error_info[:200],
-                                        "last_tool": state.action_history[-1].tool_name if state.action_history else "none"
-                                    },
-                                    "sessionId": "debug-session",
-                                    "hypothesisId": "E1"
-                                }) + '\n')
-                        except Exception:
-                            pass
                         state.add_reasoning_step("adapt", f"Error encountered: {error_info[:100]}", {
                             "error": error_info,
                             "retry_count": consecutive_errors
@@ -1792,19 +1589,6 @@ class UnifiedReActEngine:
         
         for pattern in simple_patterns:
             if re.match(pattern, goal_lower):
-                log_data = {
-                    "location": "unified_react_engine.py:535",
-                    "message": "_needs_tools: simple pattern matched - returning False",
-                    "data": {"pattern": pattern, "goal": goal},
-                    "timestamp": time.time() * 1000,
-                    "sessionId": self.session_id,
-                    "runId": "run1",
-                    "hypothesisId": "H_NEEDS_TOOLS"
-                }
-                try:
-                        f.write(json.dumps(log_data, default=str) + "\n")
-                except Exception:
-                    pass
                 return False
         
         # Check for simple generative patterns (poems, jokes, greetings, etc.) - no tools needed
@@ -1830,19 +1614,6 @@ class UnifiedReActEngine:
         for pattern in simple_generative_patterns:
             match = re.search(pattern, goal_lower)
             if match:
-                log_data = {
-                    "location": "unified_react_engine.py:588",
-                    "message": "_needs_tools: generative pattern matched - returning False",
-                    "data": {"pattern": pattern, "goal": goal, "matched_text": match.group(0)},
-                    "timestamp": time.time() * 1000,
-                    "sessionId": self.session_id,
-                    "runId": "run1",
-                    "hypothesisId": "H_NEEDS_TOOLS"
-                }
-                try:
-                        f.write(json.dumps(log_data, default=str) + "\n")
-                except Exception:
-                    pass
                 return False
         
         # Check for specific calendar-related patterns
@@ -1859,19 +1630,6 @@ class UnifiedReActEngine:
         
         for pattern in calendar_patterns:
             if re.search(pattern, goal_lower):
-                log_data = {
-                    "location": "unified_react_engine.py:578",
-                    "message": "_needs_tools: calendar pattern matched - returning True",
-                    "data": {"pattern": pattern, "goal": goal},
-                    "timestamp": time.time() * 1000,
-                    "sessionId": self.session_id,
-                    "runId": "run1",
-                    "hypothesisId": "H_NEEDS_TOOLS"
-                }
-                try:
-                        f.write(json.dumps(log_data, default=str) + "\n")
-                except Exception:
-                    pass
                 return True
         
         # === NEW: Check for follow-up/clarification queries that reference previous context ===
@@ -1959,40 +1717,9 @@ class UnifiedReActEngine:
             response_text = str(response.content).strip().upper()
             
             llm_result = "ДА" in response_text or "YES" in response_text
-            
-            log_data = {
-                "location": "unified_react_engine.py:669",
-                "message": "_needs_tools: LLM decision",
-                "data": {
-                    "goal": goal,
-                    "llm_response": response_text,
-                    "llm_result": llm_result
-                },
-                "timestamp": time.time() * 1000,
-                "sessionId": self.session_id,
-                "runId": "run1",
-                "hypothesisId": "H_NEEDS_TOOLS"
-            }
-            try:
-                    f.write(json.dumps(log_data, default=str) + "\n")
-            except Exception:
-                pass
             return llm_result
         except Exception as e:
             logger.error(f"[UnifiedReActEngine] Error checking if tools needed: {e}")
-            log_data = {
-                "location": "unified_react_engine.py:673",
-                "message": "_needs_tools: error occurred, defaulting to True",
-                "data": {"goal": goal, "error": str(e)},
-                "timestamp": time.time() * 1000,
-                "sessionId": self.session_id,
-                "runId": "run1",
-                "hypothesisId": "H_NEEDS_TOOLS"
-            }
-            try:
-                    f.write(json.dumps(log_data, default=str) + "\n")
-            except Exception:
-                pass
             # Default to using tools if check fails
             return True
     
@@ -3049,36 +2776,7 @@ class UnifiedReActEngine:
             print(f"[_think] No file_ids provided and no files in context", flush=True)
         
         # Add open files context (PRIORITY #2)
-        import json
-        import time
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
-        log_data_think = {
-            "location": "unified_react_engine.py:1350",
-            "message": "H2,H4: _think - open_files from context",
-            "data": {
-                "has_get_open_files": hasattr(context, 'get_open_files'),
-                "open_files_count": len(open_files),
-                "open_files": open_files,
-                "open_files_details": [
-                    {
-                        "type": f.get('type'),
-                        "title": f.get('title'),
-                        "document_id": f.get('document_id'),
-                        "spreadsheet_id": f.get('spreadsheet_id'),
-                        "url": f.get('url')
-                    }
-                    for f in open_files
-                ]
-            },
-            "timestamp": time.time() * 1000,
-            "sessionId": self.session_id,
-            "runId": "run1",
-            "hypothesisId": "H2,H4"
-        }
-        try:
-                f.write(json.dumps(log_data_think, default=str) + "\n")
-        except Exception:
-            pass
         if open_files:
             context_str += "\n📂 ОТКРЫТЫЕ ФАЙЛЫ В РАБОЧЕЙ ОБЛАСТИ:\n"
             for file in open_files:
@@ -3109,26 +2807,6 @@ class UnifiedReActEngine:
                         context_str += f"  Используй: read_document с document_id={document_id}\n"
             
             context_str += "\n⚠️ ВАЖНО: Файлы УЖЕ открыты, используй их ID напрямую, НЕ ищи через search!\n"
-        
-        open_files_context_added_think = "📂 Открытые файлы" in context_str if open_files else False
-        log_data_think_prompt = {
-            "location": "unified_react_engine.py:1380",
-            "message": "H2: _think - context added to prompt",
-            "data": {
-                "open_files_in_context": open_files_context_added_think,
-                "context_str_length": len(context_str),
-                "context_str_snippet": context_str[-500:] if len(context_str) > 500 else context_str,
-                "open_files_count_in_prompt": context_str.count("📂 Открытые файлы") if open_files else 0
-            },
-            "timestamp": time.time() * 1000,
-            "sessionId": self.session_id,
-            "runId": "run1",
-            "hypothesisId": "H2"
-        }
-        try:
-                f.write(json.dumps(log_data_think_prompt, default=str) + "\n")
-        except Exception:
-            pass
         if state.action_history:
             context_str += "\nВыполненные действия:\n"
             for i, action in enumerate(state.action_history[-5:], 1):
@@ -3295,33 +2973,6 @@ class UnifiedReActEngine:
         import json
         import time
         open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
-        log_data_plan = {
-            "location": "unified_react_engine.py:1520",
-            "message": "H1,H2,H4: _plan_action - open_files from context",
-            "data": {
-                "has_get_open_files": hasattr(context, 'get_open_files'),
-                "open_files_count": len(open_files),
-                "open_files": open_files,
-                "open_files_details": [
-                    {
-                        "type": f.get('type'),
-                        "title": f.get('title'),
-                        "document_id": f.get('document_id'),
-                        "spreadsheet_id": f.get('spreadsheet_id'),
-                        "url": f.get('url')
-                    }
-                    for f in open_files
-                ]
-            },
-            "timestamp": time.time() * 1000,
-            "sessionId": self.session_id,
-            "runId": "run1",
-            "hypothesisId": "H1,H2,H4"
-        }
-        try:
-                f.write(json.dumps(log_data_plan, default=str) + "\n")
-        except Exception:
-            pass
         if open_files:
             context_str += "\n📂 ОТКРЫТЫЕ ФАЙЛЫ В РАБОЧЕЙ ОБЛАСТИ (ПРИОРИТЕТ #2):\n"
             for file in open_files:
@@ -3361,26 +3012,6 @@ class UnifiedReActEngine:
             context_str += "3. НЕ создавай шаг 'Найти файл' в плане - файл УЖЕ открыт, просто используй его ID напрямую!\n"
             context_str += "4. Для ДОКУМЕНТОВ используй инструмент read_document с параметром document_id=<ID из списка выше>\n"
             context_str += "5. Для ТАБЛИЦ используй инструмент sheets_read_range с параметрами spreadsheet_id=<ID из списка выше>, range='A1:Z100'\n"
-        
-        open_files_context_added = "📂 Открытые файлы" in context_str if open_files else False
-        log_data_prompt = {
-            "location": "unified_react_engine.py:1540",
-            "message": "H1: _plan_action - context added to prompt",
-            "data": {
-                "open_files_in_context": open_files_context_added,
-                "context_str_length": len(context_str),
-                "context_str_snippet": context_str[-500:] if len(context_str) > 500 else context_str,
-                "open_files_count_in_prompt": context_str.count("📂 Открытые файлы") if open_files else 0
-            },
-            "timestamp": time.time() * 1000,
-            "sessionId": self.session_id,
-            "runId": "run1",
-            "hypothesisId": "H1"
-        }
-        try:
-                f.write(json.dumps(log_data_prompt, default=str) + "\n")
-        except Exception:
-            pass
         prompt = f"""Ты планируешь следующее действие для достижения цели.
 
 {context_str}
@@ -3584,25 +3215,6 @@ class UnifiedReActEngine:
             # Проверяем, просит ли пользователь записать данные
             is_write_request = any(kw in goal_lower for kw in ["запиш", "добав", "обнов", "измен"])
             
-            try:
-                import json
-                _time_module = __import__("time")
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "timestamp": int(_time_module.time() * 1000),
-                        "location": "unified_react_engine.py:_get_relevant_tools",
-                        "message": "Sheets tools selection",
-                        "data": {
-                            "goal": goal_lower[:100],
-                            "needs_multi_sheet": needs_multi_sheet,
-                            "is_write_request": is_write_request
-                        },
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H1"
-                    }) + '\n')
-            except Exception:
-                pass
-            
             if needs_multi_sheet:
                 # Для анализа нескольких вкладок используем get_all_sheets_data
                 # НЕ добавляем add_rows/update_cells - это инструменты для записи, не для анализа!
@@ -3731,23 +3343,6 @@ if salary_sheet:
                 for t in result:
                     if t["name"] == "get_all_sheets_data":
                         prioritized.append(t)
-                        try:
-                            import json
-                            _time_module = __import__("time")
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "timestamp": int(_time_module.time() * 1000),
-                                    "location": "unified_react_engine.py:_get_relevant_tools:priority",
-                                    "message": "get_all_sheets_data prioritized FIRST",
-                                    "data": {
-                                        "goal": goal_lower_for_priority[:100],
-                                        "completed_tools": list(completed_tools)
-                                    },
-                                    "sessionId": "debug-session",
-                                    "hypothesisId": "A1"
-                                }) + '\n')
-                        except Exception:
-                            pass
                         break
             # 2. Затем execute_python_code (для расширенного анализа)
             if any(kw in goal_lower_for_priority for kw in ["расширенный", "большой", "подробный", "глубокий", "полный", "комплексный"]):
@@ -3833,24 +3428,6 @@ if salary_sheet:
             if needs_multi_sheet:
                 # Для анализа нескольких вкладок ОБЯЗАТЕЛЬНО используем get_all_sheets_data ПЕРВЫМ
                 if "get_all_sheets_data" not in completed_tools:
-                    try:
-                        import json
-                        _time_module = __import__("time")
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "timestamp": int(_time_module.time() * 1000),
-                                "location": "unified_react_engine.py:_determine_next_step",
-                                "message": "Next step determined: get_all_sheets_data",
-                                "data": {
-                                    "goal": goal_lower[:100],
-                                    "needs_multi_sheet": needs_multi_sheet,
-                                    "completed_tools": list(completed_tools)
-                                },
-                                "sessionId": "debug-session",
-                                "hypothesisId": "H2"
-                            }) + '\n')
-                    except Exception:
-                        pass
                     return "get_all_sheets_data — получить данные со всех вкладок таблицы (ОБЯЗАТЕЛЬНО для анализа нескольких вкладок!)"
             else:
                 # Для простого чтения одной вкладки
@@ -3937,27 +3514,6 @@ if salary_sheet:
                             result_preview = f" → {result_str[:2000]}..."
                         else:
                             result_preview = f" → {result_str[:500]}..."
-                        
-                        # Log what we're including in completed_actions
-                        try:
-                            _time_module = __import__("time")
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "timestamp": int(_time_module.time() * 1000),
-                                    "location": "unified_react_engine.py:completed_actions",
-                                    "message": "Including execute_python_code result in completed_actions",
-                                    "data": {
-                                        "result_length": len(result_str),
-                                        "preview_length": len(result_preview),
-                                        "has_chartData": "chartData" in result_str,
-                                        "has_Result": "Result:" in result_str,
-                                        "preview": result_preview[:200]
-                                    },
-                                    "sessionId": "debug-session",
-                                    "hypothesisId": "R5"
-                                }) + '\n')
-                        except Exception:
-                            pass
                     else:
                         result_preview = f" → {str(obs.raw_result)[:150]}..."
                 completed_lines.append(f"{i+1}. {action.tool_name} — {status}{result_preview}")
@@ -4287,37 +3843,6 @@ if salary_sheet:
                 # Очищаем от тегов если есть
                 action_text = re.sub(r'</?action>', '', action_text).strip()
                 
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        # Check if JSON is valid
-                        json_valid = False
-                        json_error = None
-                        try:
-                            import json as _json
-                            _json.loads(action_text)
-                            json_valid = True
-                        except Exception as e:
-                            json_error = str(e)
-                        f.write(_json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:raw_action_text",
-                            "message": "Raw action text before JSON parse",
-                            "data": {
-                                "action_text": action_text[:1500],
-                                "action_text_length": len(action_text),
-                                "action_text_end": action_text[-200:] if len(action_text) > 200 else action_text,
-                                "json_valid": json_valid,
-                                "json_error": json_error
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H14"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
-                
                 # Парсим JSON
                 json_match = re.search(r'\{[\s\S]*\}', action_text)
                 if json_match:
@@ -4336,25 +3861,6 @@ if salary_sheet:
                     try:
                         action_plan = json.loads(json_str)
                     except json.JSONDecodeError as json_err:
-                        # #region agent log
-                        try:
-                            _time_module = __import__("time")
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "timestamp": int(_time_module.time() * 1000),
-                                    "location": "unified_react_engine.py:json_parse_error",
-                                    "message": "JSON parse failed, trying fallback",
-                                    "data": {
-                                        "error": str(json_err),
-                                        "json_str_preview": json_str[:500] if json_str else "None",
-                                        "json_str_len": len(json_str) if json_str else 0
-                                    },
-                                    "sessionId": "debug-session",
-                                    "hypothesisId": "JSON1"
-                                }) + '\n')
-                        except Exception:
-                            pass
-                        # #endregion
                         # Fallback на парсинг всего текста
                         action_plan = json.loads(action_text)
                 else:
@@ -4388,27 +3894,6 @@ if salary_sheet:
 #       value = row["ColumnName"]
 raise ValueError("Код анализа не был предоставлен. Перепишите action с полным Python кодом в arguments.code")
 """
-            
-            # #region agent log
-            try:
-                _time_module = __import__("time")
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "timestamp": int(_time_module.time() * 1000),
-                        "location": "unified_react_engine.py:parsed_action_plan",
-                        "message": "Action plan parsed from LLM response",
-                        "data": {
-                            "tool_name": tool_name,
-                            "arguments": action_plan.get("arguments", {}),
-                            "arguments_type": type(action_plan.get("arguments", {})).__name__,
-                            "full_action_plan": str(action_plan)[:500]
-                        },
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H13"
-                    }) + '\n')
-            except Exception:
-                pass
-            # #endregion
             
             # Check for dangerous operations without explicit request
             DANGEROUS_OPERATIONS = {
@@ -4532,27 +4017,6 @@ raise ValueError("Код анализа не был предоставлен. П
                 return f"Операция {capability_name} заблокирована: пользователь не просил выполнить это действие. Для создания/удаления событий нужен явный запрос."
         
         arguments = action_plan.get("arguments", {})
-        
-        # #region agent log
-        try:
-            _time_module = __import__("time")
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({
-                    "timestamp": int(_time_module.time() * 1000),
-                    "location": "unified_react_engine.py:_execute_action_entry",
-                    "message": "Action execution started",
-                    "data": {
-                        "capability_name": capability_name,
-                        "arguments_keys": list(arguments.keys()) if isinstance(arguments, dict) else [],
-                        "arguments_preview": str(arguments)[:500] if arguments else "{}",
-                        "has_code_arg": "code" in arguments if isinstance(arguments, dict) else False
-                    },
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H4"
-                }) + '\n')
-        except Exception:
-            pass
-        # #endregion
         
         # Send real progress event BEFORE tool execution
         # For tools that support operations (get_calendar_events, etc.), send operation_start
@@ -4692,26 +4156,6 @@ raise ValueError("Код анализа не был предоставлен. П
                 operation_id = f"op-{int(time.time() * 1000)}"
                 op_config = tools_with_operations[capability_name]
                 
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:operation_id_created",
-                            "message": "Operation ID created",
-                            "data": {
-                                "capability_name": capability_name,
-                                "operation_id": operation_id,
-                                "op_config_title": op_config.get('title', 'N/A')
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H2"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
-                
                 # Extract file_id and form file_url for automatic file opening
                 file_id = None
                 file_url = None
@@ -4756,29 +4200,6 @@ raise ValueError("Код анализа не был предоставлен. П
                         file_id = presentation_id
                         file_url = f"https://docs.google.com/presentation/d/{presentation_id}/preview"
                 
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:before_send_operation_start",
-                            "message": "About to send operation_start",
-                            "data": {
-                                "capability_name": capability_name,
-                                "operation_id": operation_id,
-                                "intent_id": intent_id,
-                                "op_title": op_config.get('title'),
-                                "has_ws_manager": bool(self.ws_manager),
-                                "session_id": self.session_id
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "OP_START1"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
-                
                 await self.ws_manager.send_operation_start(
                     self.session_id,
                     operation_id,
@@ -4791,25 +4212,6 @@ raise ValueError("Код анализа не был предоставлен. П
                     intent_id=intent_id,
                     iteration_number=getattr(self, '_current_iteration', None)
                 )
-                
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:after_send_operation_start",
-                            "message": "operation_start sent successfully",
-                            "data": {
-                                "capability_name": capability_name,
-                                "operation_id": operation_id
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "OP_START2"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
                 
                 # === For write operations, stream content IMMEDIATELY from arguments ===
                 # This ensures user sees content being "written" before MCP call completes
@@ -4834,27 +4236,6 @@ raise ValueError("Код анализа не был предоставлен. П
                 # This ensures user sees code being "written" before execution starts
                 if capability_name == 'execute_python_code':
                     code = arguments.get('code', '')
-                    # #region agent log
-                    try:
-                        _time_module = __import__("time")
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "timestamp": int(_time_module.time() * 1000),
-                                "location": "unified_react_engine.py:code_streaming_check",
-                                "message": "Checking code streaming conditions",
-                                "data": {
-                                    "has_code": bool(code),
-                                    "code_length": len(code) if code else 0,
-                                    "has_operation_id": bool(operation_id),
-                                    "operation_id_value": operation_id,
-                                    "will_stream": bool(code and operation_id)
-                                },
-                                "sessionId": "debug-session",
-                                "hypothesisId": "S1"
-                            }) + '\n')
-                    except Exception:
-                        pass
-                    # #endregion
                     if code and operation_id:
                         # First, send code_display_start event to initialize code viewer (right panel)
                         await self.ws_manager.send_event(
@@ -4903,24 +4284,6 @@ raise ValueError("Код анализа не был предоставлен. П
                                 "code": code
                             }
                         )
-                        
-                        # Log code streaming complete
-                        try:
-                            _time_module = __import__("time")
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "timestamp": int(_time_module.time() * 1000),
-                                    "location": "unified_react_engine.py:code_streaming_complete",
-                                    "message": "Code streaming completed",
-                                    "data": {
-                                        "code_length": len(code),
-                                        "lines_count": len(code_lines)
-                                    },
-                                    "sessionId": "debug-session",
-                                    "hypothesisId": "S2"
-                                }) + '\n')
-                        except Exception:
-                            pass
             elif intent_id:
                 # Legacy: Send intent_detail for other tools (without dots - they will be added by frontend if needed)
                 await self.ws_manager.send_event(
@@ -4938,52 +4301,9 @@ raise ValueError("Код анализа не был предоставлен. П
         sheets_tools = ['get_all_sheets_data', 'get_sheet_data', 'add_rows', 'update_cells', 
                         'sheets_read_range', 'sheets_write_range']
         if capability_name in sheets_tools:
-            # #region agent log
-            try:
-                _time_module = __import__("time")
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json.dumps({
-                        "timestamp": int(_time_module.time() * 1000),
-                        "location": "unified_react_engine.py:autofix_entry",
-                        "message": "Auto-fix check for sheets tool",
-                        "data": {
-                            "capability_name": capability_name,
-                            "has_spreadsheet_id": 'spreadsheet_id' in arguments,
-                            "spreadsheet_id_value": arguments.get('spreadsheet_id', 'NOT_SET'),
-                            "has_table_id": 'table_id' in arguments,
-                            "table_id_value": arguments.get('table_id', 'NOT_SET'),
-                            "all_argument_keys": list(arguments.keys())
-                        },
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H1,H4"
-                    }) + '\n')
-            except Exception:
-                pass
-            # #endregion
-            
             if 'spreadsheet_id' not in arguments or not arguments.get('spreadsheet_id'):
                 # Пытаемся найти spreadsheet_id из открытых файлов
                 open_files = context.get_open_files() if hasattr(context, 'get_open_files') else []
-                
-                # #region agent log
-                try:
-                    _time_module = __import__("time")
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(json.dumps({
-                            "timestamp": int(_time_module.time() * 1000),
-                            "location": "unified_react_engine.py:autofix_open_files",
-                            "message": "Checking open_files for spreadsheet_id",
-                            "data": {
-                                "open_files_count": len(open_files),
-                                "open_files_types": [f.get('type') for f in open_files],
-                                "open_files_details": [{"type": f.get('type'), "title": f.get('title'), "spreadsheet_id": f.get('spreadsheet_id'), "spreadsheetId": f.get('spreadsheetId'), "url": f.get('url', '')[:100]} for f in open_files[:3]]
-                            },
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H1,H2"
-                        }) + '\n')
-                except Exception:
-                    pass
-                # #endregion
                 
                 for file in open_files:
                     if file.get('type') == 'sheets':
@@ -4996,26 +4316,6 @@ raise ValueError("Код анализа не был предоставлен. П
                         if spreadsheet_id:
                             arguments['spreadsheet_id'] = spreadsheet_id
                             logger.info(f"[Auto-fix] Added spreadsheet_id={spreadsheet_id} from open_files for {capability_name}")
-                            
-                            # #region agent log
-                            try:
-                                _time_module = __import__("time")
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    f.write(json.dumps({
-                                        "timestamp": int(_time_module.time() * 1000),
-                                        "location": "unified_react_engine.py:autofix_success",
-                                        "message": "Auto-fix SUCCESS - added spreadsheet_id",
-                                        "data": {
-                                            "spreadsheet_id": spreadsheet_id,
-                                            "from_file": file.get('title')
-                                        },
-                                        "sessionId": "debug-session",
-                                        "hypothesisId": "H2"
-                                    }) + '\n')
-                            except Exception:
-                                pass
-                            # #endregion
-                            
                             break
         
         # Auto-fix: для execute_python_code автоматически передаём данные из get_all_sheets_data через input_data
@@ -5089,29 +4389,6 @@ raise ValueError("Код анализа не был предоставлен. П
                                             sheet['data'] = []
                                     arguments['input_data'] = parsed_data
                                 
-                                # #region agent log
-                                try:
-                                    _time_module = __import__("time")
-                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                        f.write(json.dumps({
-                                            "timestamp": int(_time_module.time() * 1000),
-                                            "location": "unified_react_engine.py:auto_input_data",
-                                            "message": "Auto-added input_data from get_all_sheets_data",
-                                            "data": {
-                                                "found_action": action.tool_name,
-                                                "raw_result_type": type(raw_result).__name__,
-                                                "raw_result_preview": str(raw_result)[:200] if raw_result else "None",
-                                                "parsed_data_keys": list(parsed_data.keys()) if parsed_data else [],
-                                                "has_input_data": "input_data" in arguments,
-                                                "input_data_sheets_count": len(arguments.get('input_data', {}).get('sheets', [])) if 'input_data' in arguments else 0
-                                            },
-                                            "sessionId": "debug-session",
-                                            "hypothesisId": "H12"
-                                        }) + '\n')
-                                except Exception:
-                                    pass
-                                # #endregion
-                                
                                 if 'input_data' in arguments:
                                     break
         
@@ -5127,76 +4404,8 @@ raise ValueError("Код анализа не был предоставлен. П
                 arguments['_operation_id'] = operation_id
         
         # Registry routes to appropriate provider (MCP or A2A)
-        # #region agent log
-        try:
-            _time_module = __import__("time")
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({
-                    "timestamp": int(_time_module.time() * 1000),
-                    "location": "unified_react_engine.py:before_registry_execute",
-                    "message": "About to call registry.execute",
-                    "data": {
-                        "capability_name": capability_name,
-                        "arguments_keys": list(arguments.keys()),
-                        "has_input_data": 'input_data' in arguments,
-                        "input_data_sheets_count": len(arguments.get('input_data', {}).get('sheets', [])) if arguments.get('input_data') else 0
-                    },
-                    "sessionId": "debug-session",
-                    "hypothesisId": "REG1"
-                }) + '\n')
-        except Exception:
-            pass
-        # #endregion
-        
         result = await self.registry.execute(capability_name, arguments)
         _registry_end = time.time()
-        
-        # #region agent log
-        try:
-            _time_module = __import__("time")
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                result_str = str(result)[:300] if result else "None"
-                f.write(json.dumps({
-                    "timestamp": int(_time_module.time() * 1000),
-                    "location": "unified_react_engine.py:after_registry_execute",
-                    "message": "registry.execute completed",
-                    "data": {
-                        "capability_name": capability_name,
-                        "result_type": type(result).__name__ if result else "None",
-                        "result_preview": result_str,
-                        "is_error": 'error' in result_str.lower() if result_str else False
-                    },
-                    "sessionId": "debug-session",
-                    "hypothesisId": "REG2"
-                }) + '\n')
-        except Exception:
-            pass
-        # #endregion
-        
-        # #region agent log
-        if capability_name in ['get_all_sheets_data', 'get_sheet_data']:
-            try:
-                _time_module = __import__("time")
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    result_str = str(result) if result else "None"
-                    is_error = 'error' in result_str.lower() or 'failed' in result_str.lower() or 'missing' in result_str.lower()
-                    f.write(json.dumps({
-                        "timestamp": int(_time_module.time() * 1000),
-                        "location": "unified_react_engine.py:sheets_tool_result",
-                        "message": "Sheets tool execution result",
-                        "data": {
-                            "capability_name": capability_name,
-                            "result_preview": result_str[:500],
-                            "result_length": len(result_str),
-                            "is_error": is_error,
-                            "final_spreadsheet_id": arguments.get('spreadsheet_id', 'NOT_SET')
-                        },
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H3,H5"
-                    }) + '\n')
-            except Exception:
-                pass
-        # #endregion
         
         # Process result for operations (parse and stream data)
         if operation_id and self.ws_manager and self.session_id:
@@ -5309,25 +4518,6 @@ raise ValueError("Код анализа не был предоставлен. П
                     # Now process results and send operation_end
                     result_str = str(result) if result else ""
                     
-                    # Log result for debugging
-                    try:
-                        _time_module = __import__("time")
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "timestamp": int(_time_module.time() * 1000),
-                                "location": "unified_react_engine.py:execute_python_code_result",
-                                "message": "Code execution result received",
-                                "data": {
-                                    "result_length": len(result_str),
-                                    "result_preview": result_str[:500],
-                                    "has_result": bool(result_str)
-                                },
-                                "sessionId": "debug-session",
-                                "hypothesisId": "R1"
-                            }) + '\n')
-                    except Exception:
-                        pass
-                    
                     # Try to extract chartData from result and send to frontend
                     chart_data = None
                     result_data = None
@@ -5361,85 +4551,11 @@ raise ValueError("Код анализа не был предоставлен. П
                         
                         if result_data and isinstance(result_data, dict) and "chartData" in result_data:
                             chart_data = result_data["chartData"]
-                            
-                            # Log chartData extraction
-                            try:
-                                _time_module = __import__("time")
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    f.write(json.dumps({
-                                        "timestamp": int(_time_module.time() * 1000),
-                                        "location": "unified_react_engine.py:chartData_extracted",
-                                        "message": "chartData extracted from result",
-                                        "data": {
-                                            "charts_count": len(chart_data) if isinstance(chart_data, list) else 0,
-                                            "has_chartData": bool(chart_data)
-                                        },
-                                        "sessionId": "debug-session",
-                                        "hypothesisId": "R2"
-                                    }) + '\n')
-                            except Exception:
-                                pass
-                        else:
-                            # #region agent log
-                            try:
-                                _time_module = __import__("time")
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    f.write(json.dumps({
-                                        "timestamp": int(_time_module.time() * 1000),
-                                        "location": "unified_react_engine.py:no_chartData_found",
-                                        "message": "NO chartData in result_data",
-                                        "data": {
-                                            "has_result_data": bool(result_data),
-                                            "result_keys": list(result_data.keys()) if isinstance(result_data, dict) else [],
-                                            "result_type": str(type(result_data).__name__),
-                                            "result_preview": str(result_data)[:300] if result_data else "None"
-                                        },
-                                        "sessionId": "debug-session",
-                                        "hypothesisId": "H2"
-                                    }) + '\n')
-                            except Exception:
-                                pass
-                            # #endregion
                     except Exception as e:
-                        # Log extraction error
-                        try:
-                            _time_module = __import__("time")
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "timestamp": int(_time_module.time() * 1000),
-                                    "location": "unified_react_engine.py:chartData_extraction_error",
-                                    "message": "Failed to extract chartData",
-                                    "data": {
-                                        "error": str(e),
-                                        "result_preview": result_str[:200]
-                                    },
-                                    "sessionId": "debug-session",
-                                    "hypothesisId": "R3"
-                                }) + '\n')
-                        except Exception:
-                            pass
+                        pass
                     
                     # Send chart_dashboard event if we have chartData
                     if chart_data and isinstance(chart_data, list) and len(chart_data) > 0:
-                        # #region agent log
-                        try:
-                            _time_module = __import__("time")
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({
-                                    "timestamp": int(_time_module.time() * 1000),
-                                    "location": "unified_react_engine.py:sending_chart_dashboard",
-                                    "message": "Sending chart_dashboard event",
-                                    "data": {
-                                        "chart_count": len(chart_data),
-                                        "charts_preview": str(chart_data)[:500]
-                                    },
-                                    "sessionId": "debug-session",
-                                    "hypothesisId": "CHART1"
-                                }) + '\n')
-                        except Exception:
-                            pass
-                        # #endregion
-                        
                         await self.ws_manager.send_event(
                             self.session_id,
                             "chart_dashboard",
@@ -5456,27 +4572,6 @@ raise ValueError("Код анализа не был предоставлен. П
                     summary = "Код выполнен успешно"
                     if chart_data:
                         summary = f"Код выполнен, создано {len(chart_data)} диаграмм"
-                    
-                    # #region agent log
-                    try:
-                        _time_module = __import__("time")
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({
-                                "timestamp": int(_time_module.time() * 1000),
-                                "location": "unified_react_engine.py:before_operation_end",
-                                "message": "About to send operation_end for execute_python_code",
-                                "data": {
-                                    "operation_id": operation_id,
-                                    "summary": summary,
-                                    "has_chart_data": bool(chart_data),
-                                    "chart_count": len(chart_data) if chart_data else 0
-                                },
-                                "sessionId": "debug-session",
-                                "hypothesisId": "H1"
-                            }) + '\n')
-                    except Exception:
-                        pass
-                    # #endregion
                     
                     await self.ws_manager.send_operation_end(
                         self.session_id,
