@@ -4726,22 +4726,38 @@ class UnifiedReActEngine:
                         if action_idx < len(current_state.action_history):
                             action = current_state.action_history[action_idx]
                             if action.tool_name == 'get_all_sheets_data':
+                                parsed_data = None
+                                
                                 # raw_result может быть уже объектом или строкой
-                                if isinstance(raw_result, (list, dict)):
-                                    # Уже объект - используем напрямую
-                                    if isinstance(raw_result, list) and len(raw_result) > 0:
-                                        arguments['input_data'] = {"sheets": raw_result}
+                                if isinstance(raw_result, dict):
+                                    # Уже объект - проверяем наличие sheets
+                                    if 'sheets' in raw_result:
+                                        parsed_data = raw_result  # {"spreadsheetTitle": ..., "sheets": [...]}
+                                    else:
+                                        parsed_data = {"sheets": [raw_result]}
+                                elif isinstance(raw_result, list):
+                                    parsed_data = {"sheets": raw_result}
                                 else:
                                     # Строка - пытаемся распарсить
                                     result_str = str(raw_result)
                                     try:
                                         import json
-                                        if result_str.startswith('[') or result_str.startswith('{'):
+                                        if result_str.strip().startswith('{'):
                                             parsed_result = json.loads(result_str)
-                                            if isinstance(parsed_result, list) and len(parsed_result) > 0:
-                                                arguments['input_data'] = {"sheets": parsed_result}
+                                            if isinstance(parsed_result, dict):
+                                                if 'sheets' in parsed_result:
+                                                    parsed_data = parsed_result
+                                                else:
+                                                    parsed_data = {"sheets": [parsed_result]}
+                                        elif result_str.strip().startswith('['):
+                                            parsed_result = json.loads(result_str)
+                                            if isinstance(parsed_result, list):
+                                                parsed_data = {"sheets": parsed_result}
                                     except Exception:
                                         pass
+                                
+                                if parsed_data and parsed_data.get('sheets'):
+                                    arguments['input_data'] = parsed_data
                                 
                                 # #region agent log
                                 try:
@@ -4752,8 +4768,10 @@ class UnifiedReActEngine:
                                             "location": "unified_react_engine.py:auto_input_data",
                                             "message": "Auto-added input_data from get_all_sheets_data",
                                             "data": {
-                                                "found_action": action.tool_name if action_idx < len(current_state.action_history) else "none",
+                                                "found_action": action.tool_name,
                                                 "raw_result_type": type(raw_result).__name__,
+                                                "raw_result_preview": str(raw_result)[:200] if raw_result else "None",
+                                                "parsed_data_keys": list(parsed_data.keys()) if parsed_data else [],
                                                 "has_input_data": "input_data" in arguments,
                                                 "input_data_sheets_count": len(arguments.get('input_data', {}).get('sheets', [])) if 'input_data' in arguments else 0
                                             },
