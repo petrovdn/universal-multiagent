@@ -101,9 +101,7 @@ export function CodeViewer({ tab }: CodeViewerProps) {
             margin: 0,
             padding: '1rem',
             fontSize: '14px',
-            lineHeight: '1.6',
-            minHeight: '100%',
-            height: 'auto'
+            lineHeight: '1.6'
           }}
           showLineNumbers
           wrapLines

@@ -1488,38 +1488,59 @@ export class WebSocketClient {
       }
       
       case 'operation_data': {
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:operation_data',message:'operation_data received',data:{operation_id:event.data.operation_id,data_preview:event.data.data?.substring(0,30)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'FE_DATA1'})}).catch(()=>{});
-        // #endregion
-        
         console.log('[WebSocket] Operation data:', event.data)
         const state = useChatStore.getState()
         const workflowId = state.activeWorkflowId
-        const intentId = state.activeIntentId
         const operationId = event.data.operation_id
         const data = event.data.data
         
-        if (workflowId && intentId && operationId && data) {
-          chatStore.addOperationData(workflowId, intentId, operationId, data)
+        // Ищем intent, в котором находится операция (может быть не activeIntentId!)
+        let targetIntentId: string | null = null
+        if (workflowId) {
+          const intents = state.intentBlocks[workflowId] || []
+          for (const intent of intents) {
+            if (intent.operations[operationId]) {
+              targetIntentId = intent.id
+              break
+            }
+          }
+        }
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:operation_data',message:'operation_data received',data:{operation_id:operationId,data_preview:data?.substring(0,30),activeIntentId:state.activeIntentId,targetIntentId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'FE_DATA1'})}).catch(()=>{});
+        // #endregion
+        
+        if (workflowId && targetIntentId && operationId && data) {
+          chatStore.addOperationData(workflowId, targetIntentId, operationId, data)
         }
         break
       }
       
       case 'operation_end': {
         console.log('[WebSocket] Operation ended:', event.data)
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:operation_end',message:'operation_end received',data:{operation_id:event.data.operation_id,summary:event.data.summary,activeWorkflowId:useChatStore.getState().activeWorkflowId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
-        // #endregion
-        
         const state = useChatStore.getState()
         const workflowId = state.activeWorkflowId
-        const intentId = state.activeIntentId
         const operationId = event.data.operation_id
         const summary = event.data.summary
         
-        if (workflowId && intentId && operationId && summary) {
-          chatStore.completeOperation(workflowId, intentId, operationId, summary)
+        // Ищем intent, в котором находится операция
+        let targetIntentId: string | null = null
+        if (workflowId) {
+          const intents = state.intentBlocks[workflowId] || []
+          for (const intent of intents) {
+            if (intent.operations[operationId]) {
+              targetIntentId = intent.id
+              break
+            }
+          }
+        }
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:operation_end',message:'operation_end received',data:{operation_id:operationId,summary,activeIntentId:state.activeIntentId,targetIntentId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        
+        if (workflowId && targetIntentId && operationId && summary) {
+          chatStore.completeOperation(workflowId, targetIntentId, operationId, summary)
         }
         break
       }

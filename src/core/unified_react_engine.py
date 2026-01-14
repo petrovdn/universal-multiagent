@@ -607,6 +607,8 @@ class UnifiedReActEngine:
                 # ВАЖНО: Используем _task_intent_id (первый intent) для ВСЕХ итераций,
                 # чтобы они показывались под одним блоком, а не в разных phase-блоках
                 iteration_intent_id = getattr(self, '_task_intent_id', None) or self._current_intent_id
+                # Сохраняем для использования в операциях - операция должна быть в том же intent, что и итерация
+                self._iteration_intent_id = iteration_intent_id
                 await self.ws_manager.send_event(
                     self.session_id,
                     "iteration_start",
@@ -1216,6 +1218,8 @@ class UnifiedReActEngine:
                             )
                             logger.info(f"[UnifiedReActEngine] Phase transition: {self._current_phase_category} -> {new_category}")
                         self._current_phase_category = new_category
+                        # Обновляем _task_intent_id для новой фазы - итерации будут в новом intent
+                        # Операции ищут свой intent через lookup, поэтому всё работает корректно
                         self._task_intent_id = self._current_intent_id
                     elif self._current_phase_category is None:
                         # First tool usage - set initial category
@@ -4530,7 +4534,16 @@ raise ValueError("Код анализа не был предоставлен. П
         operation_id = None
         if self.ws_manager and self.session_id:
             display_name = self._get_tool_display_name(capability_name, arguments)
-            intent_id = getattr(self, '_current_intent_id', None)
+            
+            # Для операций используем intent, который содержит текущую итерацию
+            # iteration_intent_id - это тот intent, который используется для iteration_start (см. строку 609)
+            iteration_intent_id = getattr(self, '_task_intent_id', None) or getattr(self, '_current_intent_id', None)
+            
+            # Но! Если была смена фазы и _task_intent_id обновился, 
+            # то текущая итерация может быть в СТАРОМ intent
+            # Поэтому для операций берём intent, который использовался для последнего iteration_start
+            # Это сохраняется в _iteration_intent_id
+            intent_id = getattr(self, '_iteration_intent_id', None) or iteration_intent_id
             
             # Check if this tool supports operations (returns list of items)
             tools_with_operations = {

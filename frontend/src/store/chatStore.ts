@@ -2034,6 +2034,13 @@ export const useChatStore = create<ChatState>()(
       startIterationAction: (workflowId: string, intentId: string, iterationNumber: number, title: string, operationId?: string) =>
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []
+          const foundIntent = existingIntents.find(i => i.id === intentId)
+          const foundIteration = foundIntent?.iterations.find(iter => iter.iterationNumber === iterationNumber)
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startIterationAction',message:'Linking operationId to iteration',data:{workflowId,intentId,iterationNumber,operationId,foundIntent:!!foundIntent,foundIteration:!!foundIteration,allIntentIds:existingIntents.map(i=>i.id),iterationsInIntent:foundIntent?.iterations.map(i=>i.iterationNumber)||[]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'LINK1'})}).catch(()=>{});
+          // #endregion
+          
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
               const updatedIterations = intent.iterations.map(iter => {
@@ -2111,6 +2118,12 @@ export const useChatStore = create<ChatState>()(
       ) =>
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []
+          const foundIntent = existingIntents.find(i => i.id === intentId)
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startOperation',message:'Creating operation',data:{workflowId,operationId,intentId,foundIntent:!!foundIntent,allIntentIds:existingIntents.map(i=>i.id),iterationsCount:foundIntent?.iterations.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'OP_CREATE1'})}).catch(()=>{});
+          // #endregion
+          
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
               // Последовательная свёртка: при появлении operation сворачиваем thinking текущей итерации
