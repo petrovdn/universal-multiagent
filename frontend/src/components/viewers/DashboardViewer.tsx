@@ -11,20 +11,6 @@ interface DashboardViewerProps {
 export function DashboardViewer({ tab }: DashboardViewerProps) {
   const charts = (tab.data?.charts as ChartData[] | undefined) || []
 
-  // #region agent log
-  React.useEffect(() => {
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DashboardViewer.tsx:charts_received',message:'Charts data received',data:{chartsCount: charts.length, chartsPreview: charts.map((c,i) => ({index: i, title: c.title, chartType: c.chartType, seriesLen: c.series?.length, seriesType: typeof c.series, firstSeries: JSON.stringify(c.series?.[0]).slice(0,100)}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'DASH1'})}).catch(()=>{});
-    // Listen for ApexCharts errors
-    const errorHandler = (e: ErrorEvent) => {
-      if (e.message?.includes('apex') || e.message?.includes('Cannot read properties')) {
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DashboardViewer.tsx:apex_error',message:'ApexCharts error caught',data:{error: e.message, filename: e.filename, lineno: e.lineno},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-      }
-    };
-    window.addEventListener('error', errorHandler);
-    return () => window.removeEventListener('error', errorHandler);
-  }, [charts])
-  // #endregion
-
   const chartConfigs = useMemo(() => {
     return charts.map((chart: any, index: number) => {
       const chartType = chart.chartType || 'line'
@@ -126,10 +112,6 @@ export function DashboardViewer({ tab }: DashboardViewerProps) {
         })
       }
 
-      // #region agent log
-      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DashboardViewer.tsx:chart_config_'+index,message:'Chart '+index+' final config',data:{index,title:chart.title,chartType,safeSeries:JSON.stringify(safeSeries).slice(0,200),finalXaxis:JSON.stringify(defaultOptions.xaxis),hasCategories:!!defaultOptions.xaxis?.categories,labels:defaultOptions.labels,seriesLen:safeSeries?.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H_FIX'})}).catch(()=>{});
-      // #endregion
-
       return {
         options: defaultOptions,
         series: safeSeries,
@@ -175,20 +157,9 @@ export function DashboardViewer({ tab }: DashboardViewerProps) {
       <div 
         className="p-4"
         style={{ position: 'absolute', top: '41px', left: 0, right: 0, bottom: 0, overflow: 'auto' }}
-        ref={(el) => {
-          // #region agent log
-          if (el) {
-            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DashboardViewer.tsx:scrollContainer',message:'Scroll container dimensions',data:{clientHeight: el.clientHeight, scrollHeight: el.scrollHeight, offsetHeight: el.offsetHeight, hasOverflow: el.scrollHeight > el.clientHeight},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'DASH3'})}).catch(()=>{});
-          }
-          // #endregion
-        }}
       >
         <div className="grid grid-cols-2 gap-4" style={{ minHeight: 'min-content' }}>
-          {chartConfigs.map((config, index) => {
-            // #region agent log
-            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'DashboardViewer.tsx:render_chart_'+index,message:'Rendering chart '+index,data:{index,chartType:config.chartType,seriesJSON:JSON.stringify(config.series),optionsXaxis:JSON.stringify(config.options?.xaxis),optionsLabels:config.options?.labels,optionsChart:JSON.stringify(config.options?.chart)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H_RENDER2'})}).catch(()=>{});
-            // #endregion
-            return (
+          {chartConfigs.map((config, index) => (
               <div
                 key={index}
                 className="bg-white dark:bg-slate-800 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 p-3"
@@ -204,8 +175,7 @@ export function DashboardViewer({ tab }: DashboardViewerProps) {
                   />
                 </div>
               </div>
-            )
-          })}
+          ))}
         </div>
       </div>
     </div>
