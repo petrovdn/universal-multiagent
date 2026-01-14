@@ -4982,16 +4982,27 @@ class UnifiedReActEngine:
                     result_data = None
                     try:
                         import json
-                        # Result might be formatted as "Result:\n{...}" or just JSON
+                        import ast
+                        # Result might be formatted as "Result:\n{...}" or just dict repr
+                        # Python exec returns dict with single quotes, not JSON!
+                        dict_str = ""
                         if result_str.strip().startswith("{"):
-                            result_data = json.loads(result_str)
+                            dict_str = result_str.strip()
                         elif "Result:" in result_str:
-                            # Extract JSON after "Result:"
+                            # Extract dict after "Result:"
                             json_start = result_str.find("{")
                             if json_start != -1:
                                 json_end = result_str.rfind("}") + 1
                                 if json_end > json_start:
-                                    result_data = json.loads(result_str[json_start:json_end])
+                                    dict_str = result_str[json_start:json_end]
+                        
+                        if dict_str:
+                            # Try ast.literal_eval first (handles Python dict repr)
+                            try:
+                                result_data = ast.literal_eval(dict_str)
+                            except (ValueError, SyntaxError):
+                                # Fallback to json.loads
+                                result_data = json.loads(dict_str)
                         
                         if result_data and isinstance(result_data, dict) and "chartData" in result_data:
                             chart_data = result_data["chartData"]
