@@ -215,25 +215,10 @@ class UnifiedReActEngine:
         Returns:
             Execution result
         """
-        # #region agent log
-        import json as _json_log, time as _time_log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-                _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:217","message":"Execute called with goal","data":{"goal_raw":goal,"goal_length":len(goal),"has_nbsp":"\u00a0" in goal},"sessionId":"debug-session","hypothesisId":"H3"})+'\n')
-        except: pass
-        # #endregion
-        
         # Нормализуем неразрывные пробелы (U+00A0) в обычные пробелы
         # Это критично для keyword matching в DANGEROUS_OPERATIONS и других проверках
         if goal:
             goal = goal.replace('\u00a0', ' ').replace('\xa0', ' ')
-        
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-                _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:235","message":"Goal normalized","data":{"goal_normalized":goal,"has_nbsp_after":"\u00a0" in goal},"sessionId":"debug-session","hypothesisId":"H3"})+'\n')
-        except: pass
-        # #endregion
         
         file_ids = file_ids or []
         
@@ -362,10 +347,6 @@ class UnifiedReActEngine:
                 tool_args["description"] = description
             if args.get("location"):
                 tool_args["location"] = args["location"]
-            
-            # #region agent log
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import json; f.write(json.dumps({"timestamp": __import__("time").time_ns() // 1000000, "location": "unified_react_engine.py:365", "message": "Confirmation: direct tool call", "data": {"tool_name": "schedule_group_meeting", "confirmed": True, "slot_start": slot_start, "has_description": bool(description), "description_len": len(description) if description else 0, "working_hours_start": tool_args.get("working_hours_start"), "working_hours_end": tool_args.get("working_hours_end")}, "sessionId": "debug-session", "hypothesisId": "H8"}) + "\n")
-            # #endregion
             
             # Execute tool directly
             try:
@@ -3412,14 +3393,6 @@ class UnifiedReActEngine:
                     "name": cap.name,
                     "description": desc
                 })
-                
-                # #region agent log
-                import json as _json_log, time as _time_log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-                        _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:3330","message":"Tool description provided to LLM","data":{"tool_name":cap.name,"description":desc},"sessionId":"debug-session","hypothesisId":"H1"})+'\n')
-                except: pass
-                # #endregion
         
         # Добавляем FINISH если его нет
         if not any(t["name"] == "FINISH" for t in result):
@@ -3779,10 +3752,6 @@ class UnifiedReActEngine:
             remaining_buffer = parser.get_remaining_buffer()
             response_text = remaining_buffer if remaining_buffer else full_response
             
-            # #region agent log
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: f.write(_json.dumps({"timestamp": int(_time.time() * 1000), "location": "unified_react_engine.py:3741", "message": "Before JSON parsing", "data": {"full_response_len": len(full_response), "full_response_snippet": full_response[:1000], "remaining_buffer_len": len(remaining_buffer) if remaining_buffer else 0}, "sessionId": "debug-session", "hypothesisId": "H7"}) + "\n")
-            # #endregion
-            
             # Ищем action блок
             action_match = re.search(r'<action>([\s\S]*?)</action>', response_text, re.DOTALL)
             if not action_match:
@@ -3800,13 +3769,7 @@ class UnifiedReActEngine:
                     json_str = json_match.group(0)
                     try:
                         action_plan = json.loads(json_str)
-                        # #region agent log
-                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import time as _time_parse; f.write(_json.dumps({"timestamp": int(_time_parse.time() * 1000), "location": "unified_react_engine.py:3757", "message": "JSON parsed successfully", "data": {"json_str_len": len(json_str), "json_str_snippet": json_str[:500], "tool_name": action_plan.get("tool_name"), "confirmed": action_plan.get("arguments", {}).get("confirmed")}, "sessionId": "debug-session", "hypothesisId": "H7"}) + "\n")
-                        # #endregion
                     except json.JSONDecodeError as json_err:
-                        # #region agent log
-                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import time as _time_parse; f.write(_json.dumps({"timestamp": int(_time_parse.time() * 1000), "location": "unified_react_engine.py:3758", "message": "JSON parse error in json_match", "data": {"json_str_len": len(json_str), "json_str_snippet": json_str[:500], "error": str(json_err)}, "sessionId": "debug-session", "hypothesisId": "H7"}) + "\n")
-                        # #endregion
                         # Fallback на парсинг всего текста
                         action_plan = json.loads(action_text)
                 else:
@@ -3823,15 +3786,6 @@ class UnifiedReActEngine:
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
-            
-            # #region agent log
-            import json as _json_log, time as _time_log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-                    _arguments = action_plan.get("arguments",{})
-                    _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:3710","message":"Action plan parsed from LLM","data":{"tool_name":tool_name,"arguments":_arguments,"has_title":"title" in _arguments,"has_working_hours":"working_hours_start" in _arguments,"working_hours_start":_arguments.get("working_hours_start"),"goal_has_lunch":"обед" in state.goal.lower()},"sessionId":"debug-session","hypothesisId":"H6"})+'\n')
-            except: pass
-            # #endregion
             
             # Check for dangerous operations without explicit request
             DANGEROUS_OPERATIONS = {
@@ -3877,14 +3831,6 @@ class UnifiedReActEngine:
         except Exception as e:
             logger.error(f"[UnifiedReActEngine] Error in _think_and_plan: {e}")
             
-            # #region agent log
-            import json as _json_log, time as _time_log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-                    _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:3770","message":"Error in _think_and_plan - using fallback","data":{"error":str(e),"error_type":type(e).__name__,"goal":state.goal[:100]},"sessionId":"debug-session","hypothesisId":"H2"})+'\n')
-            except: pass
-            # #endregion
-            
             # Fallback
             fallback_thought = f"Анализирую ситуацию... (итерация {state.iteration})"
             
@@ -3924,13 +3870,6 @@ class UnifiedReActEngine:
                     "description": "Ошибка планирования: нет доступных инструментов",
                     "reasoning": str(e)
                 }
-            
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
-                    _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:3815","message":"Fallback plan selected","data":{"fallback_tool":fallback_plan["tool_name"],"reasoning":fallback_plan["reasoning"]},"sessionId":"debug-session","hypothesisId":"H2"})+'\n')
-            except: pass
-            # #endregion
             
             return fallback_thought, fallback_plan
     

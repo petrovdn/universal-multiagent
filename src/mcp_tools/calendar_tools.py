@@ -497,9 +497,6 @@ class GetCalendarEventsTool(BaseTool):
                 date_range_parsed = False
                 try:
                     range_start, range_end = parse_date_range(start_time, timezone)
-                    # #region agent log
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import json as _json, time as _time; f.write(_json.dumps({"timestamp": int(_time.time() * 1000), "location": "calendar_tools.py:499", "message": "parse_date_range success", "data": {"start_time": start_time, "range_start": range_start.isoformat(), "range_end": range_end.isoformat()}, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-                    # #endregion
                     args["timeMin"] = range_start.isoformat()
                     date_range_parsed = True
                     # If end_time not specified, use range end
@@ -516,17 +513,11 @@ class GetCalendarEventsTool(BaseTool):
                             args["timeMax"] = end_dt.isoformat()
                 except ValidationError:
                     # Not a date range, use parse_datetime (existing logic)
-                    # #region agent log
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import json as _json, time as _time; f.write(_json.dumps({"timestamp": int(_time.time() * 1000), "location": "calendar_tools.py:514", "message": "parse_date_range failed, using parse_datetime", "data": {"start_time": start_time}, "sessionId": "debug-session", "hypothesisId": "H1"}) + "\n")
-                    # #endregion
                     pass
                 
                 # Only call parse_datetime if date_range didn't work
                 if not date_range_parsed:
                     start_dt = parse_datetime(start_time, timezone)
-                    # #region agent log
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import json as _json, time as _time; f.write(_json.dumps({"timestamp": int(_time.time() * 1000), "location": "calendar_tools.py:520", "message": "parse_datetime used for start_time", "data": {"start_time": start_time, "start_dt": start_dt.isoformat()}, "sessionId": "debug-session", "hypothesisId": "H4"}) + "\n")
-                    # #endregion
                     args["timeMin"] = start_dt.isoformat()
                 
                 # If end_time not specified and start_time is "сегодня" or "завтра", set end to end of that day
@@ -556,9 +547,6 @@ class GetCalendarEventsTool(BaseTool):
                 args["timeMax"] = end_dt.isoformat()
             
             mcp_manager = get_mcp_manager()
-            # #region agent log
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import json as _json, time as _time; f.write(_json.dumps({"timestamp": int(_time.time() * 1000), "location": "calendar_tools.py:550", "message": "Calling list_events with args", "data": {"args": args, "max_results": max_results, "effective_max_results": effective_max_results}, "sessionId": "debug-session", "hypothesisId": "H2"}) + "\n")
-            # #endregion
             result = await mcp_manager.call_tool("list_events", args, server_name="calendar")
             
             # Handle MCP result format (TextContent list or dict)
@@ -583,18 +571,12 @@ class GetCalendarEventsTool(BaseTool):
                     result = {"items": [], "count": 0}
             
             events = result.get("items", []) if isinstance(result, dict) else []
-            # #region agent log
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import json as _json, time as _time; f.write(_json.dumps({"timestamp": int(_time.time() * 1000), "location": "calendar_tools.py:585", "message": "Events received from API", "data": {"events_count": len(events), "attendee_filter": attendee_filter}, "sessionId": "debug-session", "hypothesisId": "H3"}) + "\n")
-            # #endregion
             
             # Apply attendee filter if provided
             if attendee_filter:
                 try:
                     filter_config = parse_attendee_filter(attendee_filter)
                     events = filter_events_by_attendees(events, filter_config)
-                    # #region agent log
-                    with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import json as _json, time as _time; f.write(_json.dumps({"timestamp": int(_time.time() * 1000), "location": "calendar_tools.py:591", "message": "Events after attendee filter", "data": {"filtered_count": len(events)}, "sessionId": "debug-session", "hypothesisId": "H5"}) + "\n")
-                    # #endregion
                 except ValidationError as e:
                     # If filter parsing fails, log warning but continue with all events
                     logger.warning(f"[GetCalendarEventsTool] Failed to parse attendee filter '{attendee_filter}': {e}")
@@ -609,10 +591,6 @@ class GetCalendarEventsTool(BaseTool):
             
             # Build detailed response with event information
             response_parts = [f"Found {count} event(s):"]
-            
-            # #region agent log
-            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import json as _json, time as _time; f.write(_json.dumps({"timestamp": int(_time.time() * 1000), "location": "calendar_tools.py:605", "message": "Building response", "data": {"count": count, "max_results": max_results, "will_show": min(count, max_results)}, "sessionId": "debug-session", "hypothesisId": "H5"}) + "\n")
-            # #endregion
             
             for i, event in enumerate(events[:max_results], 1):
                 if isinstance(event, dict):
