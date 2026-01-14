@@ -2836,7 +2836,7 @@ class UnifiedReActEngine:
         def __init__(self, ws_manager: WebSocketManager, session_id: str, intent_id: Optional[str] = None, iteration_number: int = 1):
             self.ws_manager = ws_manager
             self.session_id = session_id
-            self.intent_id = intent_id  # Для отправки intent_thinking_append
+            self.intent_id = intent_id  # УДАЛЕНО: больше не используется для intent_thinking_append (оставлено для совместимости)
             self.iteration_number = iteration_number  # Для iteration_thinking_chunk
             self.buffer = ""
             self.thought_started = False
@@ -2886,11 +2886,10 @@ class UnifiedReActEngine:
                                 "chunk": final_new_part
                             }
                         )
-                        # Отправляем как intent_detail для UI
-                        await self._send_intent_detail(final_new_part.strip(), force_flush=True)
+                        # УДАЛЕНО: intent_thinking_append - используем только thinking_chunk
                     else:
-                        # Даже если chunk пустой, flush буфер
-                        await self._send_intent_detail("", force_flush=True)
+                        # Пустой chunk - ничего не отправляем
+                        pass
                     
                     # FIX: Присваиваем, а не добавляем (было: self.thought_content += thought_chunk)
                     self.thought_content = full_thought
@@ -2931,31 +2930,9 @@ class UnifiedReActEngine:
                                     "chunk": new_chunk
                                 }
                             )
-                            # Отправляем как intent_thinking_append для streaming в UI
-                            await self._send_intent_detail(new_chunk)
+                            # УДАЛЕНО: intent_thinking_append - используем только iteration_thinking_chunk
         
-        async def _send_intent_detail(self, text: str, force_flush: bool = False) -> None:
-            """Отправляет intent_thinking_append с текстом thinking если есть intent_id.
-            
-            Отправляет текст как есть для append к существующему thinkingText.
-            Без буферизации по предложениям - просто streaming.
-            
-            Args:
-                text: Новый chunk текста
-                force_flush: Если True, flush буфера (игнорируется в новой реализации)
-            """
-            if not self.intent_id or not text:
-                return
-            import json as _json
-            # Просто отправляем текст как есть для append
-            await self.ws_manager.send_event(
-                self.session_id,
-                "intent_thinking_append",
-                {
-                    "intent_id": self.intent_id,
-                    "text": text  # Текст как есть, фронтенд аппендит
-                }
-            )
+        # УДАЛЕНО: _send_intent_detail - старая система intent_thinking_append больше не используется
         
         def get_thought(self) -> str:
             """Возвращает извлечённый thought."""
@@ -4106,19 +4083,13 @@ class UnifiedReActEngine:
             ]
             
             # Создаём парсер для стриминга thought
-            # Передаём intent_id для отправки intent_detail событий
-            current_intent_id = getattr(self, '_current_intent_id', None)
-            
-            # REMOVED: intent_thinking_clear was causing the plan to disappear!
-            # When thinkingText is cleared and phase is 'executing', 
-            # showPlanningSection becomes false and the entire section vanishes.
-            # Instead, we let the thinking text accumulate between iterations,
-            # which shows the full reasoning process to the user.
+            # УДАЛЕНО: intent_id - старая система intent_thinking_append больше не используется
+            # Используем только iteration_thinking_chunk для IterationBlock
             
             parser = self.StreamingThoughtParser(
                 self.ws_manager, 
                 self.session_id,
-                intent_id=current_intent_id,
+                intent_id=None,  # УДАЛЕНО: больше не используем intent_thinking_append
                 iteration_number=state.iteration
             )
             

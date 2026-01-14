@@ -1320,17 +1320,8 @@ export class WebSocketClient {
         break
       }
 
-      case 'intent_thinking_append': {
-        // Streaming thinking text - append to existing thinkingText
-        const state = useChatStore.getState()
-        const workflowId = state.activeWorkflowId
-        const intentId = event.data.intent_id || state.activeIntentId
-        
-        if (workflowId && intentId && event.data.text) {
-          chatStore.appendIntentThinking(workflowId, intentId, event.data.text)
-        }
-        break
-      }
+      // УДАЛЕНО: intent_thinking_append - старая система больше не используется
+      // Используем только iteration_thinking_chunk для IterationBlock
 
       // SmartProgress events
       case 'smart_progress_start': {
