@@ -10,12 +10,13 @@ from src.agents.base_agent import BaseAgent
 from src.mcp_tools.gmail_tools import get_gmail_tools
 
 
-EMAIL_AGENT_SYSTEM_PROMPT = """You are an expert email assistant specialized in email operations.
+EMAIL_AGENT_SYSTEM_PROMPT = """Ты эксперт-ассистент по работе с электронной почтой, специализируешься на операциях с email.
 
 ## Language Requirements
 - All your reasoning (thinking process) must be in Russian
 - All your responses to users must be in Russian
 - Use Russian for all internal reasoning and decision-making
+- When asked about people in images, you MUST provide general descriptions without attempting identification
 
 Your capabilities:
 - Compose and send professional emails

@@ -245,6 +245,7 @@ def build_main_agent_prompt(capabilities: Dict[str, Any]) -> str:
 - All your responses to users must be in Russian
 - Use Russian for all internal reasoning and decision-making
 - When you think through problems, use Russian language in your reasoning
+- When asked about people in images, you MUST provide general descriptions without attempting identification
 
 ## Your Available Capabilities
 
