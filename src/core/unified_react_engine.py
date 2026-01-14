@@ -3663,7 +3663,12 @@ class UnifiedReActEngine:
         
         # Для code execution инструментов явно указываем доступные библиотеки
         code_execution_tool_params = {
-            "execute_python_code": "⚠️ ВАЖНО: Используй ТОЛЬКО библиотеки math, datetime, json, statistics. НЕ используй pandas, numpy, или другие внешние библиотеки! Input: code (string - Python код для выполнения), description (optional - описание что делает код). Результат должен содержать chartData для визуализации."
+            "execute_python_code": """⚠️ КРИТИЧЕСКИ ВАЖНО:
+1. Данные УЖЕ переданы в input_data. В коде ИСПОЛЬЗУЙ: sheets_data = data.get("sheets", [])
+2. НЕ ВСТАВЛЯЙ данные в код! НЕ пиши salaries_data = [{'gender': 'М'...}] - это ЗАПРЕЩЕНО!
+3. Библиотеки: ТОЛЬКО math, datetime, json, statistics. БЕЗ pandas/numpy!
+4. ОБЯЗАТЕЛЬНО в конце: result = {"chartData": [...]} - без этого диаграммы не появятся!
+Input: code (Python код), input_data (данные - уже передаются автоматически)."""
         }
         
         result = []
@@ -4058,7 +4063,12 @@ class UnifiedReActEngine:
         # === ИСПРАВЛЕНИЕ C: Явный список библиотек для execute_python_code ===
         code_execution_rule = ""
         if any(kw in goal_lower for kw in ["расширенный", "большой", "подробный", "глубокий", "полный", "комплексный", "анализ", "проанализируй"]):
-            code_execution_rule = "\n6. ⚠️ ДЛЯ execute_python_code: Используй ТОЛЬКО библиотеки math, datetime, json, statistics. НЕ используй pandas, numpy, или другие внешние библиотеки! Если код использует pandas - перепиши его используя только встроенные библиотеки Python и statistics."
+            code_execution_rule = """
+6. ⚠️ execute_python_code ПРАВИЛА:
+   - Данные АВТОМАТИЧЕСКИ передаются в input_data. Используй: sheets_data = data.get("sheets", [])
+   - ЗАПРЕЩЕНО вставлять данные в код! НЕ пиши: salaries_data = [{'gender': 'М', 'salary': 1000}...]
+   - Библиотеки: ТОЛЬКО math, datetime, json, statistics. БЕЗ pandas/numpy!
+   - ОБЯЗАТЕЛЬНО в конце кода: result = {"chartData": [...массив диаграмм...]}"""
         
         rules_section = f"""
 <critical_rules>
