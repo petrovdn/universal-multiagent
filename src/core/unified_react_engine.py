@@ -215,6 +215,26 @@ class UnifiedReActEngine:
         Returns:
             Execution result
         """
+        # #region agent log
+        import json as _json_log, time as _time_log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+                _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:217","message":"Execute called with goal","data":{"goal_raw":goal,"goal_length":len(goal),"has_nbsp":"\u00a0" in goal},"sessionId":"debug-session","hypothesisId":"H3"})+'\n')
+        except: pass
+        # #endregion
+        
+        # Нормализуем неразрывные пробелы (U+00A0) в обычные пробелы
+        # Это критично для keyword matching в DANGEROUS_OPERATIONS и других проверках
+        if goal:
+            goal = goal.replace('\u00a0', ' ').replace('\xa0', ' ')
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+                _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:235","message":"Goal normalized","data":{"goal_normalized":goal,"has_nbsp_after":"\u00a0" in goal},"sessionId":"debug-session","hypothesisId":"H3"})+'\n')
+        except: pass
+        # #endregion
+        
         file_ids = file_ids or []
         
         # === Check for pending confirmation ===
@@ -320,26 +340,77 @@ class UnifiedReActEngine:
                         # Fallback: use original description as-is
                         pass
             
-            # Build goal that explicitly uses schedule_group_meeting with confirmed=True
-            # IMPORTANT: Use schedule_group_meeting, NOT create_event directly
-            # DO NOT use create_event - it is blocked. Use schedule_group_meeting instead.
-            new_goal = f"Вызови schedule_group_meeting для создания встречи '{args.get('title', 'Встреча')}' с участниками {attendees_str} на время {slot_start}, длительность {args.get('duration', '1h')}. Параметры вызова: confirmed=True, slot_start='{slot_start}'"
+            # DIRECT TOOL CALL: Instead of passing to LLM (which fails with long descriptions),
+            # directly call schedule_group_meeting with confirmed=True
+            logger.info(f"[UnifiedReActEngine] Calling schedule_group_meeting directly with confirmed=True")
             
+            # Prepare arguments for direct tool call
+            tool_args = {
+                "title": args.get("title", "Встреча"),
+                "attendees": args.get("attendees", []),
+                "duration": args.get("duration", "1h"),
+                "slot_start": slot_start,
+                "confirmed": True
+            }
+            
+            # Add optional parameters
+            if args.get("working_hours_start") is not None:
+                tool_args["working_hours_start"] = args["working_hours_start"]
+            if args.get("working_hours_end") is not None:
+                tool_args["working_hours_end"] = args["working_hours_end"]
             if description:
-                new_goal += f", description='{description}'"
-                new_goal += f". ВАЖНО: обязательно передай description='{description}' в schedule_group_meeting!"
-            
+                tool_args["description"] = description
             if args.get("location"):
-                new_goal += f", location='{args['location']}'"
+                tool_args["location"] = args["location"]
             
-            new_goal += ". НЕ используй create_event - он заблокирован."
+            # #region agent log
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import json; f.write(json.dumps({"timestamp": __import__("time").time_ns() // 1000000, "location": "unified_react_engine.py:365", "message": "Confirmation: direct tool call", "data": {"tool_name": "schedule_group_meeting", "confirmed": True, "slot_start": slot_start, "has_description": bool(description), "description_len": len(description) if description else 0, "working_hours_start": tool_args.get("working_hours_start"), "working_hours_end": tool_args.get("working_hours_end")}, "sessionId": "debug-session", "hypothesisId": "H8"}) + "\n")
+            # #endregion
             
-            logger.info(f"[UnifiedReActEngine] Created ReAct goal from confirmation: {new_goal[:200]}")
-            logger.info(f"[UnifiedReActEngine] Description extracted: {description[:100] if description else 'None'}")
-            
-            # Continue with ReAct execution (will call schedule_group_meeting with confirmed=True)
-            # Modify goal to trigger ReAct
-            goal = new_goal
+            # Execute tool directly
+            try:
+                result = await self._execute_action(
+                    action_plan={"tool_name": "schedule_group_meeting", "arguments": tool_args},
+                    context=context
+                )
+                
+                logger.info(f"[UnifiedReActEngine] Direct tool call result type: {type(result)}, value: {str(result)[:200]}")
+                
+                # schedule_group_meeting returns a string, not a dict
+                if isinstance(result, str):
+                    response_text = result
+                elif isinstance(result, dict) and "response" in result:
+                    response_text = result["response"]
+                else:
+                    response_text = str(result)
+                
+                logger.info(f"[UnifiedReActEngine] About to send final_result event with response: {response_text[:100]}")
+                
+                # Send final_result event through WebSocket directly (not via _stream_reasoning)
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "final_result",
+                    {
+                        "content": response_text,
+                        "status": "success"
+                    }
+                )
+                
+                logger.info(f"[UnifiedReActEngine] final_result event sent successfully")
+                
+                # Add assistant message to context
+                context.add_message("assistant", response_text)
+                
+                # Return success message
+                return {
+                    "agent": self.__class__.__name__,
+                    "response": response_text,
+                    "status": "success"
+                }
+            except Exception as e:
+                logger.error(f"[UnifiedReActEngine] Direct tool call failed: {e}")
+                # Fallback to ReAct if direct call fails
+                goal = f"Создай встречу '{tool_args['title']}' с участниками {attendees_str} на время {slot_start}"
         
         # === Smart file resolution for follow-up questions ===
         # Priority: 1) Conversation history, 2) Entity memory keywords, 3) General patterns
@@ -3319,18 +3390,36 @@ class UnifiedReActEngine:
             "format_document_paragraph": "Input: document_id, start_index (int), end_index (int), alignment (START/JUSTIFIED), line_spacing (float: 1.15/1.5/2.0), indent_first_line (float в пунктах: 36=стандартная красная строка)"
         }
         
+        # Для calendar инструментов явно указываем обязательные параметры
+        calendar_tool_params = {
+            "schedule_group_meeting": "Input: title (ОБЯЗАТЕЛЬНО! заголовок встречи), attendees (list of emails), duration (default '50m'), description (optional), working_hours_start (hour 0-23, default 9, для 'после обеда' используй 13), working_hours_end (hour 0-23, default 18), confirmed (False для поиска времени, True для создания), slot_start (required when confirmed=True). ПРОЦЕСС: 1) Вызов с confirmed=False → находит время, 2) Показываешь пользователю → ждешь подтверждения, 3) Вызов с confirmed=True + slot_start → создает встречу",
+            "create_event": "Input: title (ОБЯЗАТЕЛЬНО!), start_time (ISO format), attendees (optional list), description (optional), location (optional)",
+            "get_calendar_events": "Input: start_time (ОБЯЗАТЕЛЬНО! используй '15 января' или '2026-01-15' для конкретной даты), end_time (optional), max_results (default 10), attendee_filter (optional). Примеры: start_time='15 января', start_time='сегодня', start_time='на неделе'"
+        }
+        
         result = []
         for cap in self.capabilities:
             if cap.name in filtered_names:
                 # Для docs инструментов используем явное описание параметров
                 if cap.name in docs_tool_params:
                     desc = f"{cap.description.split('.')[0]}. {docs_tool_params[cap.name]}"
+                # Для calendar инструментов используем явное описание параметров
+                elif cap.name in calendar_tool_params:
+                    desc = f"{cap.description.split('.')[0]}. {calendar_tool_params[cap.name]}"
                 else:
                     desc = cap.description[:150]  # Увеличиваем лимит
                 result.append({
                     "name": cap.name,
                     "description": desc
                 })
+                
+                # #region agent log
+                import json as _json_log, time as _time_log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+                        _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:3330","message":"Tool description provided to LLM","data":{"tool_name":cap.name,"description":desc},"sessionId":"debug-session","hypothesisId":"H1"})+'\n')
+                except: pass
+                # #endregion
         
         # Добавляем FINISH если его нет
         if not any(t["name"] == "FINISH" for t in result):
@@ -3391,6 +3480,20 @@ class UnifiedReActEngine:
             if "sheets_read_range" not in completed_tools and "get_sheet_data" not in completed_tools:
                 return "sheets_read_range — прочитать данные из таблицы"
             return "FINISH — задача с таблицей выполнена"
+        
+        # Задачи с календарем
+        if any(kw in goal_lower for kw in ["календар", "встреч", "событ", "meeting", "назначь"]):
+            has_schedule = "schedule_group_meeting" in completed_tools
+            has_create_event = "create_event" in completed_tools
+            
+            # Проверяем групповую встречу (несколько участников) vs одиночное событие
+            has_attendees = "@" in goal
+            
+            if has_attendees and not has_schedule:
+                return "schedule_group_meeting (confirmed=False) — найти свободное время для всех участников"
+            elif not has_create_event:
+                return "create_event — создать событие в календаре"
+            return "FINISH — встреча запланирована"
         
         # По умолчанию
         return "Определи следующий шаг на основе цели и истории"
@@ -3676,6 +3779,10 @@ class UnifiedReActEngine:
             remaining_buffer = parser.get_remaining_buffer()
             response_text = remaining_buffer if remaining_buffer else full_response
             
+            # #region agent log
+            with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: f.write(_json.dumps({"timestamp": int(_time.time() * 1000), "location": "unified_react_engine.py:3741", "message": "Before JSON parsing", "data": {"full_response_len": len(full_response), "full_response_snippet": full_response[:1000], "remaining_buffer_len": len(remaining_buffer) if remaining_buffer else 0}, "sessionId": "debug-session", "hypothesisId": "H7"}) + "\n")
+            # #endregion
+            
             # Ищем action блок
             action_match = re.search(r'<action>([\s\S]*?)</action>', response_text, re.DOTALL)
             if not action_match:
@@ -3693,7 +3800,13 @@ class UnifiedReActEngine:
                     json_str = json_match.group(0)
                     try:
                         action_plan = json.loads(json_str)
-                    except json.JSONDecodeError:
+                        # #region agent log
+                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import time as _time_parse; f.write(_json.dumps({"timestamp": int(_time_parse.time() * 1000), "location": "unified_react_engine.py:3757", "message": "JSON parsed successfully", "data": {"json_str_len": len(json_str), "json_str_snippet": json_str[:500], "tool_name": action_plan.get("tool_name"), "confirmed": action_plan.get("arguments", {}).get("confirmed")}, "sessionId": "debug-session", "hypothesisId": "H7"}) + "\n")
+                        # #endregion
+                    except json.JSONDecodeError as json_err:
+                        # #region agent log
+                        with open("/Users/Dima/universal-multiagent/.cursor/debug.log", "a") as f: import time as _time_parse; f.write(_json.dumps({"timestamp": int(_time_parse.time() * 1000), "location": "unified_react_engine.py:3758", "message": "JSON parse error in json_match", "data": {"json_str_len": len(json_str), "json_str_snippet": json_str[:500], "error": str(json_err)}, "sessionId": "debug-session", "hypothesisId": "H7"}) + "\n")
+                        # #endregion
                         # Fallback на парсинг всего текста
                         action_plan = json.loads(action_text)
                 else:
@@ -3710,6 +3823,15 @@ class UnifiedReActEngine:
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
+            
+            # #region agent log
+            import json as _json_log, time as _time_log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+                    _arguments = action_plan.get("arguments",{})
+                    _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:3710","message":"Action plan parsed from LLM","data":{"tool_name":tool_name,"arguments":_arguments,"has_title":"title" in _arguments,"has_working_hours":"working_hours_start" in _arguments,"working_hours_start":_arguments.get("working_hours_start"),"goal_has_lunch":"обед" in state.goal.lower()},"sessionId":"debug-session","hypothesisId":"H6"})+'\n')
+            except: pass
+            # #endregion
             
             # Check for dangerous operations without explicit request
             DANGEROUS_OPERATIONS = {
@@ -3754,16 +3876,46 @@ class UnifiedReActEngine:
             
         except Exception as e:
             logger.error(f"[UnifiedReActEngine] Error in _think_and_plan: {e}")
+            
+            # #region agent log
+            import json as _json_log, time as _time_log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+                    _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:3770","message":"Error in _think_and_plan - using fallback","data":{"error":str(e),"error_type":type(e).__name__,"goal":state.goal[:100]},"sessionId":"debug-session","hypothesisId":"H2"})+'\n')
+            except: pass
+            # #endregion
+            
             # Fallback
             fallback_thought = f"Анализирую ситуацию... (итерация {state.iteration})"
             
-            if self.capabilities:
-                fallback_cap = self.capabilities[0]
+            # Вместо первого capability, используем релевантный для задачи
+            goal_lower = state.goal.lower() if state.goal else ""
+            fallback_tool = None
+            
+            # Определяем подходящий инструмент на основе ключевых слов
+            if any(kw in goal_lower for kw in ["встреч", "календар", "meeting", "назначь"]):
+                # Календарные задачи - ищем schedule_group_meeting или create_event
+                for cap in self.capabilities:
+                    if cap.name in ["schedule_group_meeting", "create_event", "get_calendar_events"]:
+                        fallback_tool = cap
+                        break
+            elif any(kw in goal_lower for kw in ["документ", "doc", "текст"]):
+                # Документы
+                for cap in self.capabilities:
+                    if cap.name in ["read_document", "create_document"]:
+                        fallback_tool = cap
+                        break
+            
+            # Если не нашли специфичный, используем первый доступный
+            if not fallback_tool and self.capabilities:
+                fallback_tool = self.capabilities[0]
+            
+            if fallback_tool:
                 fallback_plan = {
-                    "tool_name": fallback_cap.name,
+                    "tool_name": fallback_tool.name,
                     "arguments": {},
-                    "description": f"Fallback: использование {fallback_cap.name}",
-                    "reasoning": f"Ошибка планирования: {str(e)}. Используется fallback инструмент."
+                    "description": f"Fallback: использование {fallback_tool.name}",
+                    "reasoning": f"Ошибка планирования: {str(e)}. Используется fallback инструмент для задачи."
                 }
             else:
                 fallback_plan = {
@@ -3772,6 +3924,13 @@ class UnifiedReActEngine:
                     "description": "Ошибка планирования: нет доступных инструментов",
                     "reasoning": str(e)
                 }
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _f:
+                    _f.write(_json_log.dumps({"timestamp":int(_time_log.time()*1000),"location":"unified_react_engine.py:3815","message":"Fallback plan selected","data":{"fallback_tool":fallback_plan["tool_name"],"reasoning":fallback_plan["reasoning"]},"sessionId":"debug-session","hypothesisId":"H2"})+'\n')
+            except: pass
+            # #endregion
             
             return fallback_thought, fallback_plan
     
@@ -5045,6 +5204,8 @@ class UnifiedReActEngine:
                                 "slot_start": slot_start,
                                 "description": description,
                                 "location": action.arguments.get("location"),
+                                "working_hours_start": action.arguments.get("working_hours_start"),  # Сохраняем для повторного использования
+                                "working_hours_end": action.arguments.get("working_hours_end"),
                                 "original_goal": state.goal  # Save original goal for ReAct
                             }
                         }
