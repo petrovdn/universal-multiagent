@@ -46,10 +46,12 @@ export interface WorkspaceStore {
 // Chart data structure for ChartViewer
 export interface ChartData {
   chartType: 'line' | 'bar' | 'pie' | 'area' | 'scatter' | 'donut' | 'radialBar'
+  title?: string
+  labels?: string[]
   series: Array<{
     name: string
     data: number[] | Array<[number, number]>
-  }>
+  }> | number[]
   options?: any // ApexCharts options
 }
 

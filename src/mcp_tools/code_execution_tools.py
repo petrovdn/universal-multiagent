@@ -92,30 +92,36 @@ class PythonCodeExecutionTool(BaseTool):
             with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
                 sheets_list = input_data.get('sheets', []) if input_data else []
                 sheets_count = len(sheets_list)
-                # Debug: структура первого sheet
-                first_sheet_info = None
-                if sheets_list and len(sheets_list) > 0:
-                    first_sheet = sheets_list[0]
-                    first_sheet_info = {
-                        "type": type(first_sheet).__name__,
-                        "keys": list(first_sheet.keys()) if isinstance(first_sheet, dict) else None,
-                        "has_data": 'data' in first_sheet if isinstance(first_sheet, dict) else False,
-                        "data_type": type(first_sheet.get('data')).__name__ if isinstance(first_sheet, dict) and 'data' in first_sheet else None,
-                        "data_len": len(first_sheet.get('data', [])) if isinstance(first_sheet, dict) else None,
-                        "data_sample": str(first_sheet.get('data', [])[:1])[:150] if isinstance(first_sheet, dict) and first_sheet.get('data') else None
-                    }
+                # Debug: структура каждого sheet + уникальные значения в колонках
+                sheets_info = []
+                for sheet in sheets_list[:3]:  # Первые 3 листа
+                    if isinstance(sheet, dict):
+                        data_rows = sheet.get('data', [])
+                        headers = sheet.get('headers', [])
+                        # Собираем уникальные значения для каждой колонки (для диагностики фильтров)
+                        unique_vals = {}
+                        for h in headers[:5]:
+                            vals = set()
+                            for row in data_rows[:10]:
+                                if isinstance(row, dict) and h in row:
+                                    vals.add(str(row[h]))
+                            unique_vals[h] = list(vals)[:5]
+                        sheets_info.append({
+                            "name": sheet.get('name', 'unknown'),
+                            "headers": headers,
+                            "rows_count": len(data_rows),
+                            "unique_values_sample": unique_vals
+                        })
                 f.write(json.dumps({
                     "timestamp": int(_time_module.time() * 1000),
                     "location": "code_execution_tools.py:_arun:entry",
                     "message": "execute_python_code called",
                     "data": {
                         "has_input_data": input_data is not None,
-                        "input_data_keys": list(input_data.keys()) if input_data else [],
                         "sheets_count": sheets_count,
-                        "sheets_type": type(sheets_list).__name__,
-                        "first_sheet": first_sheet_info,
+                        "sheets_info": sheets_info,
                         "code_length": len(code),
-                        "code_preview": code[:200]
+                        "code_full": code  # Полный код для анализа
                     },
                     "sessionId": "debug-session",
                     "hypothesisId": "CODE1"
@@ -287,7 +293,26 @@ class PythonCodeExecutionTool(BaseTool):
             try:
                 import time as _time_module
                 with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    has_chartData = 'chartData' in str(result) if result else False
+                    chart_data_info = []
+                    if isinstance(result, dict) and 'chartData' in result:
+                        for i, chart in enumerate(result['chartData'][:8]):
+                            chart_info = {
+                                "index": i,
+                                "title": chart.get('title', 'no title'),
+                                "chartType": chart.get('chartType', 'unknown'),
+                                "series_count": len(chart.get('series', [])),
+                            }
+                            # Для bar/line - проверяем data в series
+                            if isinstance(chart.get('series'), list) and len(chart.get('series', [])) > 0:
+                                series0 = chart['series'][0]
+                                if isinstance(series0, dict):
+                                    chart_info["series0_name"] = series0.get('name')
+                                    chart_info["series0_data"] = series0.get('data', [])[:5]
+                                    chart_info["series0_data_len"] = len(series0.get('data', []))
+                                else:
+                                    # pie/donut - series is array of values
+                                    chart_info["series_values"] = chart['series'][:5]
+                            chart_data_info.append(chart_info)
                     f.write(json.dumps({
                         "timestamp": int(_time_module.time() * 1000),
                         "location": "code_execution_tools.py:_arun:success",
@@ -295,10 +320,9 @@ class PythonCodeExecutionTool(BaseTool):
                         "data": {
                             "has_result": result is not None,
                             "result_type": type(result).__name__ if result else "None",
-                            "has_chartData": has_chartData,
-                            "response_length": len(final_response),
-                            "stdout_length": len(stdout_text),
-                            "stderr_length": len(stderr_text)
+                            "chartData_count": len(result.get('chartData', [])) if isinstance(result, dict) else 0,
+                            "charts_info": chart_data_info,
+                            "response_length": len(final_response)
                         },
                         "sessionId": "debug-session",
                         "hypothesisId": "CODE2"

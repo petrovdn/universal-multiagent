@@ -4089,23 +4089,48 @@ if salary_sheet:
    - Доступ: sheet["name"], row["Зарплата"] (НЕ row[0]!)
    - ЗАПРЕЩЕНО вставлять сами данные в код!
    
+   ⚠️ ОПРЕДЕЛЕНИЕ ПОЛА ПО РУССКОЙ ФАМИЛИИ:
+   - Женские фамилии ЗАКАНЧИВАЮТСЯ на "а" или "я": Овцова, Сидорова, Хрюшечкина
+   - Мужские фамилии НЕ заканчиваются на "а"/"я": Петров, Козаков, Иванов
+   - ПРАВИЛЬНЫЙ КОД:
+     def is_female(name):
+         return name.strip().lower().endswith(('а', 'я'))
+     
+     for row in data:
+         if is_female(row['Сотрудник']):
+             girls_data.append(row)
+         else:
+             boys_data.append(row)
+   
+   - НЕ используй 'ОВ' in name — это НЕПРАВИЛЬНО! (Овцова содержит ОВ, но это девочка!)
+   
+   ⚠️ СОЗДАЙ 6-8 РАЗНЫХ ДИАГРАММ! Используй разные типы:
+   - "bar" — столбчатая диаграмма для сравнения
+   - "line" — линейный график для динамики по времени
+   - "pie" — круговая диаграмма для долей
+   - "donut" — кольцевая диаграмма
+   
+   📊 ПРИМЕРЫ ДИАГРАММ для данных о зарплатах/выработке:
+   1. "Зарплата мальчиков по месяцам" (line)
+   2. "Зарплата девочек по месяцам" (line)
+   3. "Выработка мальчиков по месяцам" (line)
+   4. "Выработка девочек по месяцам" (line)
+   5. "Сравнение средней зарплаты" (bar)
+   6. "Сравнение средней выработки" (bar)
+   7. "Доля зарплаты по группам" (pie)
+   8. "Эффективность по группам" (donut)
+   
+   ⚠️ ЗАЩИТА ОТ division by zero:
+   - Перед делением ПРОВЕРЯЙ что список не пустой: if len(boys) > 0: avg = sum(boys) / len(boys) else: avg = 0
+   
    ⚠️ ФОРМАТ chartData для ApexCharts:
    result = {"chartData": [
-       {
-           "title": "Название диаграммы",
-           "chartType": "bar",  # bar, line, pie, donut
-           "series": [{"name": "Данные", "data": [значение1, значение2, ...]}],
-           "options": {"xaxis": {"categories": ["Метка1", "Метка2", ...]}}
-       }
+       {"title": "Название", "chartType": "line", "series": [{"name": "Мальчики", "data": [100, 110, 120]}], "options": {"xaxis": {"categories": ["Янв", "Фев", "Мар"]}}},
+       {"title": "Название2", "chartType": "bar", "series": [{"name": "Значения", "data": [50, 60]}], "options": {"xaxis": {"categories": ["Группа1", "Группа2"]}}},
+       {"title": "Доли", "chartType": "pie", "series": [45, 55], "options": {"labels": ["Мальчики", "Девочки"]}}
    ]}
    
-   ПРИМЕР для сравнения двух групп:
-   result = {"chartData": [{
-       "title": "Сравнение эффективности",
-       "chartType": "bar",
-       "series": [{"name": "Эффективность", "data": [0.28, 0.19]}],
-       "options": {"xaxis": {"categories": ["Мальчики", "Девочки"]}}
-   }]}"""
+   ⚠️ ВАЖНО для pie/donut: series — это массив чисел [45, 55], НЕ объектов! labels в options!"""
         
         rules_section = f"""
 <critical_rules>
@@ -5326,9 +5351,13 @@ raise ValueError("Код анализа не был предоставлен. П
                             # Try ast.literal_eval first (handles Python dict repr)
                             try:
                                 result_data = ast.literal_eval(dict_str)
-                            except (ValueError, SyntaxError):
+                            except (ValueError, SyntaxError) as e1:
                                 # Fallback to json.loads
-                                result_data = json.loads(dict_str)
+                                try:
+                                    result_data = json.loads(dict_str)
+                                except json.JSONDecodeError as e2:
+                                    # Log parsing error
+                                    logger.warning(f"[UnifiedReActEngine] Failed to parse chartData. ast error: {e1}, json error: {e2}, dict_str[:100]: {dict_str[:100]}")
                         
                         if result_data and isinstance(result_data, dict) and "chartData" in result_data:
                             chart_data = result_data["chartData"]
