@@ -604,11 +604,14 @@ class UnifiedReActEngine:
                 # #endregion
                 
                 # === Send iteration_start event for UI ===
+                # ВАЖНО: Используем _task_intent_id (первый intent) для ВСЕХ итераций,
+                # чтобы они показывались под одним блоком, а не в разных phase-блоках
+                iteration_intent_id = getattr(self, '_task_intent_id', None) or self._current_intent_id
                 await self.ws_manager.send_event(
                     self.session_id,
                     "iteration_start",
                     {
-                        "intent_id": self._current_intent_id,
+                        "intent_id": iteration_intent_id,
                         "iteration_number": state.iteration
                     }
                 )
@@ -2836,7 +2839,7 @@ class UnifiedReActEngine:
         def __init__(self, ws_manager: WebSocketManager, session_id: str, intent_id: Optional[str] = None, iteration_number: int = 1):
             self.ws_manager = ws_manager
             self.session_id = session_id
-            self.intent_id = intent_id  # УДАЛЕНО: больше не используется для intent_thinking_append (оставлено для совместимости)
+            self.intent_id = intent_id  # Для отправки intent_thinking_append
             self.iteration_number = iteration_number  # Для iteration_thinking_chunk
             self.buffer = ""
             self.thought_started = False
@@ -2886,10 +2889,11 @@ class UnifiedReActEngine:
                                 "chunk": final_new_part
                             }
                         )
-                        # УДАЛЕНО: intent_thinking_append - используем только thinking_chunk
+                        # Отправляем как intent_detail для UI
+                        await self._send_intent_detail(final_new_part.strip(), force_flush=True)
                     else:
-                        # Пустой chunk - ничего не отправляем
-                        pass
+                        # Даже если chunk пустой, flush буфер
+                        await self._send_intent_detail("", force_flush=True)
                     
                     # FIX: Присваиваем, а не добавляем (было: self.thought_content += thought_chunk)
                     self.thought_content = full_thought
@@ -2930,9 +2934,31 @@ class UnifiedReActEngine:
                                     "chunk": new_chunk
                                 }
                             )
-                            # УДАЛЕНО: intent_thinking_append - используем только iteration_thinking_chunk
+                            # Отправляем как intent_thinking_append для streaming в UI
+                            await self._send_intent_detail(new_chunk)
         
-        # УДАЛЕНО: _send_intent_detail - старая система intent_thinking_append больше не используется
+        async def _send_intent_detail(self, text: str, force_flush: bool = False) -> None:
+            """Отправляет intent_thinking_append с текстом thinking если есть intent_id.
+            
+            Отправляет текст как есть для append к существующему thinkingText.
+            Без буферизации по предложениям - просто streaming.
+            
+            Args:
+                text: Новый chunk текста
+                force_flush: Если True, flush буфера (игнорируется в новой реализации)
+            """
+            if not self.intent_id or not text:
+                return
+            import json as _json
+            # Просто отправляем текст как есть для append
+            await self.ws_manager.send_event(
+                self.session_id,
+                "intent_thinking_append",
+                {
+                    "intent_id": self.intent_id,
+                    "text": text  # Текст как есть, фронтенд аппендит
+                }
+            )
         
         def get_thought(self) -> str:
             """Возвращает извлечённый thought."""
@@ -4083,13 +4109,14 @@ class UnifiedReActEngine:
             ]
             
             # Создаём парсер для стриминга thought
-            # УДАЛЕНО: intent_id - старая система intent_thinking_append больше не используется
-            # Используем только iteration_thinking_chunk для IterationBlock
+            # ВАЖНО: Используем _task_intent_id (первый intent) для ВСЕХ итераций,
+            # чтобы все iteration_thinking_chunk шли в один intent block
+            iteration_intent_id = getattr(self, '_task_intent_id', None) or getattr(self, '_current_intent_id', None)
             
             parser = self.StreamingThoughtParser(
                 self.ws_manager, 
                 self.session_id,
-                intent_id=None,  # УДАЛЕНО: больше не используем intent_thinking_append
+                intent_id=iteration_intent_id,
                 iteration_number=state.iteration
             )
             

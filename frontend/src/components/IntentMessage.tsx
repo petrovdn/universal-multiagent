@@ -1,6 +1,6 @@
 import React from 'react'
 import { IntentBlock, useChatStore } from '../store/chatStore'
-// УДАЛЕНО: PlanningBlock - старая система больше не используется
+import { PlanningBlock } from './PlanningBlock'
 import { OperationBlock } from './OperationBlock'
 import { IterationBlock } from './IterationBlock'
 
@@ -30,9 +30,9 @@ export function IntentMessage({
   const hasOperations = block.operations && Object.keys(block.operations).length > 0
   const hasIterations = block.iterations && block.iterations.length > 0
 
-  // УДАЛЕНО: showPlanningSection - старая система PlanningBlock больше не используется
-  // Используем только IterationBlock с "Думаю" для отображения thinking
-  const showPlanningSection = false  // Всегда false - PlanningBlock удалён
+  // НОВЫЙ ФОРМАТ: Если есть iterations, используем их вместо старых секций
+  // Показывать секцию "Планирую" если есть thinking или в фазе planning (только если НЕТ iterations)
+  const showPlanningSection = !hasIterations && (hasThinkingText || isPlanning)
   
   // #region agent log
   if (typeof window !== 'undefined') {
@@ -56,8 +56,25 @@ export function IntentMessage({
         {stepNumber !== undefined ? `Шаг ${stepNumber}: ${block.intent}` : block.intent}
       </div>
       
-      {/* УДАЛЕНО: PlanningBlock - старая система больше не используется */}
-      {/* Используем только IterationBlock с "Думаю" для отображения thinking */}
+      {/* План итерации убран - теперь отображается внутри iterations */}
+      
+      {/* Фаза 1: Планирую - используем PlanningBlock */}
+      {showPlanningSection && (
+        <div style={{ marginBottom: '8px' }}>
+          <PlanningBlock
+            content={block.thinkingText || ''}
+            isStreaming={isPlanning}
+            estimatedSeconds={estimatedSeconds}
+            initialCollapsed={block.planningCollapsed}
+            onCollapseChange={(collapsed) => {
+              // Только если состояние действительно изменилось
+              if (onTogglePlanningCollapse && collapsed !== block.planningCollapsed) {
+                onTogglePlanningCollapse()
+              }
+            }}
+          />
+        </div>
+      )}
       
       {/* Фаза 2: Выполняю - операции и детали */}
       {showExecutingSection && (

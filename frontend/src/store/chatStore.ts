@@ -1877,6 +1877,16 @@ export const useChatStore = create<ChatState>()(
           const existingIntents = state.intentBlocks[workflowId] || []
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
+              // Проверяем, существует ли уже итерация с таким номером
+              const existingIteration = intent.iterations.find(iter => iter.iterationNumber === iterationNumber)
+              if (existingIteration) {
+                // Итерация уже существует - не создаём дубликат
+                // #region agent log
+                fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startIteration',message:'Iteration already exists, skipping',data:{iterationNumber:iterationNumber, intentId:intentId, existingIterationsCount:intent.iterations.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ITER3'})}).catch(()=>{});
+                // #endregion
+                return intent
+              }
+              
               // Сворачиваем ВСЕ предыдущие итерации при появлении новой
               const collapsedIterations = intent.iterations.map(iter => ({
                 ...iter,
@@ -1905,6 +1915,10 @@ export const useChatStore = create<ChatState>()(
                   isCollapsed: false, // Новая итерация развёрнута
                 },
               }
+              
+              // #region agent log
+              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startIteration',message:'Creating new iteration',data:{iterationNumber:iterationNumber, intentId:intentId, previousIterationsCount:collapsedIterations.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ITER4'})}).catch(()=>{});
+              // #endregion
               
               return {
                 ...intent,

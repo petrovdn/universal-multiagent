@@ -674,6 +674,10 @@ export class WebSocketClient {
         const iterStartIntentId = event.data.intent_id || iterStartState.activeIntentId
         const iterNumber = event.data.iteration_number || 1
         
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:iteration_start',message:'iteration_start received',data:{iterNumber:iterNumber, iterStartWorkflowId:iterStartWorkflowId, iterStartIntentId:iterStartIntentId, eventIntentId:event.data.intent_id, existingIterationsCount:iterStartState.intentBlocks[iterStartWorkflowId||'']?.find((i:any)=>i.id===iterStartIntentId)?.iterations?.length || 0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ITER1'})}).catch(()=>{});
+        // #endregion
+        
         if (iterStartWorkflowId && iterStartIntentId) {
           chatStore.startIteration(iterStartWorkflowId, iterStartIntentId, iterNumber)
         }
@@ -687,6 +691,12 @@ export class WebSocketClient {
         const iterThinkIntentId = event.data.intent_id || iterThinkState.activeIntentId
         const iterThinkNumber = event.data.iteration_number || 1
         const chunk = event.data.chunk || ''
+        
+        // #region agent log
+        const intentBlock = iterThinkState.intentBlocks[iterThinkWorkflowId||'']?.find((i:any)=>i.id===iterThinkIntentId)
+        const existingIteration = intentBlock?.iterations?.find((iter:any)=>iter.iterationNumber===iterThinkNumber)
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:iteration_thinking_chunk',message:'iteration_thinking_chunk received',data:{iterThinkNumber:iterThinkNumber, chunkLength:chunk.length, hasWorkflow:!!iterThinkWorkflowId, hasIntent:!!iterThinkIntentId, foundIntentBlock:!!intentBlock, foundIteration:!!existingIteration, existingContent:existingIteration?.thinking?.content?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ITER2'})}).catch(()=>{});
+        // #endregion
         
         if (iterThinkWorkflowId && iterThinkIntentId && chunk) {
           chatStore.appendIterationThinking(iterThinkWorkflowId, iterThinkIntentId, iterThinkNumber, chunk)
@@ -1320,8 +1330,17 @@ export class WebSocketClient {
         break
       }
 
-      // УДАЛЕНО: intent_thinking_append - старая система больше не используется
-      // Используем только iteration_thinking_chunk для IterationBlock
+      case 'intent_thinking_append': {
+        // Streaming thinking text - append to existing thinkingText
+        const state = useChatStore.getState()
+        const workflowId = state.activeWorkflowId
+        const intentId = event.data.intent_id || state.activeIntentId
+        
+        if (workflowId && intentId && event.data.text) {
+          chatStore.appendIntentThinking(workflowId, intentId, event.data.text)
+        }
+        break
+      }
 
       // SmartProgress events
       case 'smart_progress_start': {
