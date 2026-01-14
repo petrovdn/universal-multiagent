@@ -5,7 +5,7 @@ Provides validated interfaces to spreadsheet operations.
 
 from typing import Optional, List, Dict, Any
 from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from src.utils.mcp_loader import get_mcp_manager
 from src.utils.validators import validate_spreadsheet_range
@@ -748,6 +748,15 @@ class GetAllSheetsDataInput(BaseModel):
     
     class Config:
         allow_population_by_field_name = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_table_id(cls, values: object) -> object:
+        if isinstance(values, dict):
+            if "spreadsheet_id" not in values and "table_id" in values:
+                values = dict(values)
+                values["spreadsheet_id"] = values["table_id"]
+        return values
 
 
 class GetAllSheetsDataTool(BaseTool):
