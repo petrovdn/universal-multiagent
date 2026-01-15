@@ -64,9 +64,11 @@ export function ProfileMenu({ isOpen, onClose }: ProfileMenuProps) {
       await logout()
       setCurrentUser(null)
       onClose()
-      window.location.href = '/'
     } catch (err) {
       console.error('Logout error:', err)
+    } finally {
+      // Переходим в режим авторизации
+      window.location.href = '/'
     }
   }
 

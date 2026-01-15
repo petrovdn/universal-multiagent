@@ -8,7 +8,7 @@ interface SettingsMenuProps {
 }
 
 export function SettingsMenu({ isOpen, onClose }: SettingsMenuProps) {
-  const { theme, setTheme } = useSettingsStore()
+  const { theme } = useSettingsStore()
   const menuRef = useRef<HTMLDivElement>(null)
 
   // Close menu when clicking outside
@@ -25,10 +25,6 @@ export function SettingsMenu({ isOpen, onClose }: SettingsMenuProps) {
       document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [isOpen, onClose])
-
-  const toggleTheme = () => {
-    setTheme(theme === 'light' ? 'dark' : 'light')
-  }
 
   if (!isOpen) return null
 
@@ -50,8 +46,9 @@ export function SettingsMenu({ isOpen, onClose }: SettingsMenuProps) {
             <span>Тема</span>
           </div>
           <button
-            onClick={toggleTheme}
+            disabled
             className="settings-toggle-button"
+            style={{ cursor: 'not-allowed', opacity: 0.6 }}
           >
             {theme === 'dark' ? 'Тёмная' : 'Светлая'}
             <ChevronDown className="w-3.5 h-3.5 ml-1" />
