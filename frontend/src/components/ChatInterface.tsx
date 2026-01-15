@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain, Square, X } from 'lucide-react'
+import { Send, Loader2, Sparkles, Plus, Paperclip, ChevronDown, Brain, Square, X, Mic, MicOff } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
 import { useSettingsStore, ExecutionMode } from '../store/settingsStore'
 import { useModelStore } from '../store/modelStore'
@@ -36,6 +36,7 @@ export function ChatInterface() {
   const [shouldScrollToNew, setShouldScrollToNew] = useState(false)
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([])
   const [filePreviewModal, setFilePreviewModal] = useState<{name: string, content: string, type: string, preview?: string} | null>(null)
+  const [isListening, setIsListening] = useState(false)
   const currentInteractionRef = useRef<HTMLDivElement>(null)
   const lastUserMessageCountRef = useRef<number>(0)
   const isCollapsingRef = useRef<boolean>(false)
@@ -44,6 +45,8 @@ export function ChatInterface() {
   const modeDropdownRef = useRef<HTMLDivElement>(null)
   const modelDropdownRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const finalTextRef = useRef<string>('')
   const stickyPlanSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const stickyResultSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map())
   const stepsSectionRefs = useRef<Map<string, HTMLDivElement>>(new Map())
@@ -753,6 +756,97 @@ export function ChatInterface() {
     setIsSending(false)
     setAgentTyping(false)
   }
+  
+  const startListening = useCallback(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      alert('Ваш браузер не поддерживает голосовой ввод. Пожалуйста, используйте Chrome или Edge.')
+      return
+    }
+    
+    // Останавливаем предыдущую запись, если она активна
+    if (recognitionRef.current) {
+      recognitionRef.current.stop()
+    }
+    
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'ru-RU'
+    recognition.continuous = true
+    recognition.interimResults = true
+    
+    // Инициализируем накопленный текст текущим значением input
+    finalTextRef.current = input
+    
+    recognition.onresult = (event) => {
+      let finalTranscript = ''
+      let interimTranscript = ''
+      
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + ' '
+        } else {
+          interimTranscript = transcript
+        }
+      }
+      
+      // Добавляем финальные результаты к накопленному тексту
+      if (finalTranscript) {
+        finalTextRef.current += finalTranscript
+      }
+      
+      // Показываем накопленный финальный текст + текущий промежуточный
+      setInput(finalTextRef.current + (interimTranscript ? ' ' + interimTranscript : ''))
+    }
+    
+    recognition.onerror = (event) => {
+      console.error('[ChatInterface] Speech recognition error:', event.error)
+      setIsListening(false)
+      
+      if (event.error === 'no-speech') {
+        // Тихая ошибка - просто останавливаем запись
+        recognition.stop()
+      } else if (event.error === 'not-allowed') {
+        alert('Доступ к микрофону запрещён. Пожалуйста, разрешите доступ в настройках браузера.')
+      } else {
+        alert(`Ошибка распознавания речи: ${event.error}`)
+      }
+    }
+    
+    recognition.onend = () => {
+      setIsListening(false)
+      recognitionRef.current = null
+    }
+    
+    try {
+      recognitionRef.current = recognition
+      recognition.start()
+      setIsListening(true)
+    } catch (error) {
+      console.error('[ChatInterface] Failed to start speech recognition:', error)
+      setIsListening(false)
+      alert('Не удалось начать запись. Проверьте, что микрофон подключён и разрешён доступ.')
+    }
+  }, [input])
+  
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop()
+      recognitionRef.current = null
+    }
+    setIsListening(false)
+    finalTextRef.current = '' // Сбрасываем накопленный текст
+  }, [])
+  
+  // Cleanup при размонтировании компонента
+  useEffect(() => {
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop()
+        recognitionRef.current = null
+      }
+    }
+  }, [])
   
   const handleExecutionModeChange = async (mode: ExecutionMode) => {
     setExecutionMode(mode)
@@ -1497,6 +1591,21 @@ export function ChatInterface() {
                 title="Прикрепить файл (изображение, PDF или Word)"
               >
                 <Paperclip className="w-3 h-3" />
+              </button>
+              
+              {/* Voice Input Button */}
+              <button
+                type="button"
+                onClick={isListening ? stopListening : startListening}
+                className={`input-icon-button ${isListening ? 'recording' : ''}`}
+                title={isListening ? 'Остановить запись' : 'Голосовой ввод'}
+                disabled={isSending || isAgentTyping}
+              >
+                {isListening ? (
+                  <MicOff className="w-3 h-3 text-red-500" />
+                ) : (
+                  <Mic className="w-3 h-3" />
+                )}
               </button>
 
               {/* Spacer */}

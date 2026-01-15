@@ -3910,6 +3910,29 @@ div[style*="padding: '10px'"] .prose li {
   color: var(--text-secondary);
 }
 
+.input-icon-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.input-icon-button:disabled:hover {
+  background: transparent;
+  color: var(--text-tertiary);
+}
+
+.input-icon-button.recording {
+  animation: pulse-recording 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-recording {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
 /* ============================================
    CHAT INPUT
    ============================================ */
