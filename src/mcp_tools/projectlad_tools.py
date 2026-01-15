@@ -553,6 +553,24 @@ class GetResourceUtilizationTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json
+                import time
+                f.write(json.dumps({
+                    "timestamp": int(time.time() * 1000),
+                    "location": "projectlad_tools.py:GetResourceUtilizationTool._arun:entry",
+                    "message": "Tool called with parameters",
+                    "data": {
+                        "project_id": project_id,
+                        "version_id": version_id
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+            # #endregion
+            
             if not project_id:
                 raise ValidationError("project_id is required")
             if not version_id:
@@ -571,6 +589,24 @@ class GetResourceUtilizationTool(BaseTool):
                 utilization_args,
                 server_name="projectlad"
             )
+            
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json
+                import time
+                f.write(json.dumps({
+                    "timestamp": int(time.time() * 1000),
+                    "location": "projectlad_tools.py:GetResourceUtilizationTool._arun:utilization_response",
+                    "message": "Received utilization response",
+                    "data": {
+                        "result_type": type(utilization_result).__name__,
+                        "result_preview": str(utilization_result)[:500]
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "B"
+                }) + "\n")
+            # #endregion
             
             # Получаем имена ресурсов через analytics
             analytics_args = {
@@ -597,6 +633,27 @@ class GetResourceUtilizationTool(BaseTool):
             
             utilization_data = utilization_result.get("result", {})
             analytics_data = analytics_result.get("result", [])
+            
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json
+                import time
+                f.write(json.dumps({
+                    "timestamp": int(time.time() * 1000),
+                    "location": "projectlad_tools.py:GetResourceUtilizationTool._arun:parsed_data",
+                    "message": "Parsed utilization and analytics data",
+                    "data": {
+                        "utilization_data_type": type(utilization_data).__name__,
+                        "utilization_keys": list(utilization_data.keys()) if isinstance(utilization_data, dict) else None,
+                        "utilization_count": len(utilization_data) if utilization_data else 0,
+                        "analytics_count": len(analytics_data) if isinstance(analytics_data, list) else 0,
+                        "analytics_preview": analytics_data[:2] if isinstance(analytics_data, list) else str(analytics_data)[:200]
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "D"
+                }) + "\n")
+            # #endregion
             
             # Создаем маппинг resource_id -> имя
             resource_names = {}
@@ -647,10 +704,45 @@ class GetResourceUtilizationTool(BaseTool):
             
             # Форматируем результат
             if not resource_month_hours:
+                # #region agent log
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json
+                    import time
+                    f.write(json.dumps({
+                        "timestamp": int(time.time() * 1000),
+                        "location": "projectlad_tools.py:GetResourceUtilizationTool._arun:no_data",
+                        "message": "No resource hours aggregated",
+                        "data": {
+                            "resource_names_count": len(resource_names),
+                            "utilization_data_keys": list(utilization_data.keys()) if isinstance(utilization_data, dict) else []
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "E"
+                    }) + "\n")
+                # #endregion
                 return f"No resource utilization data found for project {project_id}"
             
             summary = f"Resource utilization for project (version {version_id}):\n\n"
             summary += f"Found {len(resource_month_hours)} resource(s):\n\n"
+            
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json
+                import time
+                f.write(json.dumps({
+                    "timestamp": int(time.time() * 1000),
+                    "location": "projectlad_tools.py:GetResourceUtilizationTool._arun:success",
+                    "message": "Successfully aggregated resource hours",
+                    "data": {
+                        "total_resources": len(resource_month_hours),
+                        "resource_names": list(resource_month_hours.keys())[:5]
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "E"
+                }) + "\n")
+            # #endregion
             
             # Словарь для перевода месяцев
             month_names = {

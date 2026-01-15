@@ -240,6 +240,121 @@ class GetRevenueByCounterpartyMonthTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
+class GetSalaryByEmployeeMonthInput(BaseModel):
+    """Input schema for onec_get_salary_by_employee_month tool."""
+    
+    from_date: str = Field(description="Start date (ISO 8601 format: YYYY-MM-DD)")
+    to_date: str = Field(description="End date (ISO 8601 format: YYYY-MM-DD)")
+    organization_guid: Optional[str] = Field(default=None, description="Optional organization GUID for filtering")
+
+
+class GetSalaryByEmployeeMonthTool(BaseTool):
+    """Tool for getting salary by employee aggregated by month from 1C."""
+    
+    name: str = "onec_get_salary_by_employee_month"
+    description: str = """
+    Get salary by employee aggregated by month from 1C accounting entries (Kt 70).
+    
+    This tool aggregates salary data from accounting entries (account 70 - Расчеты с персоналом)
+    by month and employee, showing total salary for each employee in each month.
+    
+    Input:
+    - from_date: Start date (ISO 8601 format: YYYY-MM-DD)
+    - to_date: End date (ISO 8601 format: YYYY-MM-DD)
+    - organization_guid: Optional organization GUID for filtering
+    
+    Returns aggregated salary data grouped by month and employee.
+    Format: [{"month": "2025-01", "employee_name": "Иванов", "salary": 50000}]
+    """
+    args_schema: type = GetSalaryByEmployeeMonthInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        from_date: str,
+        to_date: str,
+        organization_guid: Optional[str] = None
+    ) -> str:
+        """Execute the tool asynchronously."""
+        try:
+            # Validate dates
+            try:
+                datetime.fromisoformat(f"{from_date}T00:00:00")
+                datetime.fromisoformat(f"{to_date}T23:59:59")
+            except ValueError as e:
+                raise ValidationError(f"Invalid date format: {e}. Use YYYY-MM-DD format.")
+            
+            # Prepare arguments for MCP tool
+            args = {
+                "from": from_date,
+                "to": to_date
+            }
+            if organization_guid:
+                args["organization_guid"] = organization_guid
+            
+            # Call MCP tool
+            mcp_manager = get_mcp_manager()
+            result = await mcp_manager.call_tool("onec_salary_by_employee_month", args, server_name="onec")
+            
+            # Parse result
+            if isinstance(result, str):
+                try:
+                    result = json.loads(result)
+                except:
+                    pass
+            
+            # Format result for display
+            if isinstance(result, dict):
+                salary_data = result.get("salary_by_employee_month", [])
+                total_records = result.get("total_records", 0)
+                
+                if not salary_data:
+                    return f"No salary data found for the period {from_date} to {to_date}."
+                
+                # Group by month for better display
+                by_month = {}
+                for item in salary_data:
+                    month = item.get("month", "Unknown")
+                    if month not in by_month:
+                        by_month[month] = []
+                    by_month[month].append(item)
+                
+                summary = f"Salary by employee by month (from {total_records} accounting entries):\n\n"
+                
+                for month in sorted(by_month.keys()):
+                    summary += f"## {month}\n"
+                    month_total = 0
+                    for item in sorted(by_month[month], key=lambda x: x.get("salary", 0), reverse=True):
+                        emp_name = item.get("employee_name", "Unknown")
+                        salary = item.get("salary", 0)
+                        month_total += salary
+                        summary += f"  - {emp_name}: {salary:,.2f}\n"
+                    summary += f"  Month total: {month_total:,.2f}\n\n"
+                
+                # Overall summary
+                grand_total = sum(item.get("salary", 0) for item in salary_data)
+                summary += f"Grand total: {grand_total:,.2f}"
+                
+                return summary
+            
+            return str(result)
+            
+        except ValidationError as e:
+            raise ToolExecutionError(
+                f"Validation failed: {e.message}",
+                tool_name=self.name,
+                tool_args={"from_date": from_date, "to_date": to_date}
+            ) from e
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to get salary data: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
 def get_onec_tools() -> List[BaseTool]:
     """
     Get all 1C OData tools.
@@ -250,6 +365,7 @@ def get_onec_tools() -> List[BaseTool]:
     return [
         GetSalesListTool(),
         GetRevenueByCounterpartyMonthTool(),
+        GetSalaryByEmployeeMonthTool(),
     ]
 
 

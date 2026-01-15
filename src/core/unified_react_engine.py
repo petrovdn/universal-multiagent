@@ -142,10 +142,34 @@ class UnifiedReActEngine:
             if provider.provider_type.value == "mcp_tool":
                 # MCP provider has direct access to BaseTool instances
                 if hasattr(provider, 'tools'):
+                    # #region debug log
+                    import json
+                    slides_tool_names_before = [t.name for t in tools if 'slide' in t.name.lower() or 'presentation' in t.name.lower()]
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"location": "unified_react_engine.py:144", "message": "Before adding provider tools", "data": {"tools_count": len(tools), "slides_tools_before": slides_tool_names_before, "provider_tools_count": len(provider.tools), "hypothesisId": "B"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                    except: pass
+                    # #endregion
                     tools.extend(provider.tools.values())
+                    # #region debug log
+                    slides_tool_names_after = [t.name for t in tools if 'slide' in t.name.lower() or 'presentation' in t.name.lower()]
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"location": "unified_react_engine.py:146", "message": "After adding provider tools", "data": {"tools_count": len(tools), "slides_tools_after": slides_tool_names_after, "hypothesisId": "B"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                    except: pass
+                    # #endregion
                 break
         
         logger.info(f"[UnifiedReActEngine] Built {len(tools)} tools for LLM planning")
+        # #region debug log
+        import json
+        all_tool_names = [t.name for t in tools]
+        slides_tool_names_final = [name for name in all_tool_names if 'slide' in name.lower() or 'presentation' in name.lower()]
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "unified_react_engine.py:149", "message": "Final tools for LLM", "data": {"total_tools": len(tools), "slides_tool_names": slides_tool_names_final, "all_tool_names": all_tool_names[:10], "hypothesisId": "B"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+        except: pass
+        # #endregion
         return tools
     
     def _create_fast_llm(self) -> BaseChatModel:
@@ -1567,6 +1591,8 @@ class UnifiedReActEngine:
             'обнови', 'update', 'измени', 'change', 'изменение',
             'удали', 'delete', 'очисти', 'clear', 'удаление',
             'скопируй', 'copy', 'перенеси', 'move', 'перемести',
+            # Presentation keywords - CRITICAL for slides/presentation tasks
+            'презентац', 'presentation', 'слайд', 'slide', 'доклад', 'сделай',
             # Document formatting keywords - CRITICAL for formatting tasks
             'отформатируй', 'форматируй', 'format', 'оформи', 'оформить',
             'красиво', 'красив',  # "красиво оформить", "сделай красиво"
@@ -2897,10 +2923,34 @@ class UnifiedReActEngine:
         """Plan next action based on thought."""
         # Get capability descriptions (filtered by allowed categories)
         capability_descriptions = []
-        for cap in self.capabilities[:50]:  # Limit to first 50
+        # #region debug log
+        import json
+        slides_capabilities = [cap for cap in self.capabilities if 'slide' in cap.name.lower() or 'presentation' in cap.name.lower()]
+        slides_indices = [i for i, cap in enumerate(self.capabilities) if 'slide' in cap.name.lower() or 'presentation' in cap.name.lower()]
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "unified_react_engine.py:2923", "message": "Capabilities in _plan_action", "data": {"total_capabilities": len(self.capabilities), "slides_capabilities": [{"name": c.name, "description": c.description[:50], "index": i} for i, c in enumerate(self.capabilities) if 'slide' in c.name.lower() or 'presentation' in c.name.lower()], "slides_indices": slides_indices, "limit": 50, "hypothesisId": "E"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+        except: pass
+        # #endregion
+        
+        # CRITICAL FIX: Prioritize slides tools to ensure they're in the first 50
+        # Sort capabilities to put slides tools first
+        sorted_capabilities = sorted(
+            self.capabilities,
+            key=lambda cap: (0 if ('slide' in cap.name.lower() or 'presentation' in cap.name.lower()) else 1, cap.name)
+        )
+        
+        for cap in sorted_capabilities[:50]:  # Limit to first 50, but slides tools are prioritized
             capability_descriptions.append(f"- {cap.name}: {cap.description}")
         
         tools_str = "\n".join(capability_descriptions)
+        # #region debug log
+        slides_in_tools_str = [desc for desc in capability_descriptions if 'slide' in desc.lower() or 'presentation' in desc.lower()]
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "unified_react_engine.py:2935", "message": "Tools string for LLM", "data": {"total_descriptions": len(capability_descriptions), "slides_in_string": slides_in_tools_str[:5], "tools_str_length": len(tools_str), "hypothesisId": "E"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+        except: pass
+        # #endregion
         
         # Build context
         context_str = f"Цель: {state.goal}\n\n"
@@ -3634,6 +3684,23 @@ if salary_sheet:
         if needs_extended_analysis and has_get_all_sheets:
             special_rules += "\n8. ⚠️ РАСШИРЕННЫЙ АНАЛИЗ: После get_all_sheets_data сразу используй execute_python_code для написания кода анализа! НЕ пытайся читать данные повторно!"
         
+        # Правило для создания презентаций
+        needs_presentation = any(kw in goal_lower_check for kw in ["презентаци", "слайд", "доклад", "presentation", "slides"])
+        if needs_presentation:
+            special_rules += """
+9. 🎨 СОЗДАНИЕ ПРЕЗЕНТАЦИЙ — ОБЯЗАТЕЛЬНЫЕ ШАГИ:
+   - create_presentation — создать презентацию (возвращает presentation_id и first_slide_id)
+   - create_slide — добавить слайд (нужен presentation_id, layout: TITLE_AND_BODY, TITLE_ONLY, BLANK)
+   - insert_slide_text — добавить текст на слайд (нужен presentation_id, page_id, text, placeholder_type: TITLE/BODY/SUBTITLE)
+   
+   ⚠️ ВАЖНО: Презентация с 1 слайдом НЕ ЗАВЕРШЕНА! Добавь 3-5 слайдов с содержанием:
+   1. Титульный слайд (уже создан при create_presentation)
+   2. Введение/Обзор
+   3. Основные пункты (2-3 слайда)
+   4. Заключение
+   
+   ⚠️ ПОРЯДОК: create_presentation → (create_slide → insert_slide_text) × N раз → FINISH"""
+        
         # === ИСПРАВЛЕНИЕ C: Явный список библиотек для execute_python_code ===
         code_execution_rule = ""
         if any(kw in goal_lower for kw in ["расширенный", "большой", "подробный", "глубокий", "полный", "комплексный", "анализ", "проанализируй"]):
@@ -3988,6 +4055,14 @@ raise ValueError("Код анализа не был предоставлен. П
     ) -> Any:
         """Execute action through CapabilityRegistry (provider-agnostic)."""
         capability_name = action_plan.get("tool_name")
+        # #region debug log
+        import json
+        is_slides_related = capability_name and ('slide' in capability_name.lower() or 'presentation' in capability_name.lower())
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "unified_react_engine.py:4038", "message": "_execute_action called", "data": {"capability_name": capability_name, "is_slides_related": is_slides_related, "hypothesisId": "G"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+        except: pass
+        # #endregion
         if not capability_name:
             logger.warning("[UnifiedReActEngine] No tool_name in action_plan, skipping execution")
             return ""
@@ -4120,11 +4195,35 @@ raise ValueError("Код анализа не был предоставлен. П
                     'file_type': 'docs'
                 },
                 
+                # Slides - создание
+                'create_presentation': {
+                    'title': 'Создаю презентацию',
+                    'streaming_title': 'Новая презентация',
+                    'operation_type': 'write',
+                    'file_type': 'slides'
+                },
+                
                 # Slides - чтение
                 'get_presentation': {
                     'title': 'Получаю информацию о презентации',
                     'streaming_title': 'Слайды презентации',
                     'operation_type': 'read',
+                    'file_type': 'slides'
+                },
+                
+                # Slides - добавление слайда
+                'create_slide': {
+                    'title': 'Добавляю слайд',
+                    'streaming_title': 'Новый слайд',
+                    'operation_type': 'write',
+                    'file_type': 'slides'
+                },
+                
+                # Slides - вставка текста
+                'insert_slide_text': {
+                    'title': 'Добавляю текст на слайд',
+                    'streaming_title': 'Текст слайда',
+                    'operation_type': 'write',
                     'file_type': 'slides'
                 },
                 
@@ -4722,22 +4821,91 @@ raise ValueError("Код анализа не был предоставлен. П
                         )
             
             # Slides operations
-            elif capability_name == 'get_presentation':
+            elif capability_name in ['create_presentation', 'create_presentation_from_doc', 'get_presentation']:
                 try:
-                    items, summary = await self._parse_slides_result(str(result), capability_name, arguments)
-                    if items:
-                        for item in items:
-                            await self.ws_manager.send_operation_data(
+                    if capability_name in ['create_presentation', 'create_presentation_from_doc']:
+                        # Extract presentation_id and title from result for auto-opening
+                        result_str = str(result)
+                        
+                        # #region debug log
+                        import json
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({"location": "unified_react_engine.py:4776", "message": "create_presentation result", "data": {"result_str": result_str[:500], "capability_name": capability_name, "hypothesisId": "F"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                        except: pass
+                        # #endregion
+                        
+                        # Try multiple patterns for presentation_id
+                        pres_id_match = (
+                            re.search(r'presentation_id["\']?\s*[:=]\s*["\']?([a-zA-Z0-9-_]+)', result_str) or
+                            re.search(r'presentationId["\']?\s*[:=]\s*["\']?([a-zA-Z0-9-_]+)', result_str) or
+                            re.search(r'ID:\s*([a-zA-Z0-9-_]+)', result_str) or
+                            re.search(r'\(ID:\s*([a-zA-Z0-9-_]+)\)', result_str)
+                        )
+                        
+                        # Try multiple patterns for title
+                        title_match = (
+                            re.search(r"title[\"']?\s*[:=]\s*[\"']([^\"']+)[\"']", result_str) or
+                            re.search(r"'([^']+)'\s*created", result_str) or
+                            re.search(r'Presentation\s*["\']([^"\']+)["\']', result_str)
+                        )
+                        
+                        # #region debug log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(json.dumps({"location": "unified_react_engine.py:4795", "message": "Parsed presentation info", "data": {"pres_id_found": bool(pres_id_match), "title_found": bool(title_match), "pres_id": pres_id_match.group(1) if pres_id_match else None, "title": title_match.group(1) if title_match else None, "hypothesisId": "F"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                        except: pass
+                        # #endregion
+                        
+                        if pres_id_match:
+                            presentation_id = pres_id_match.group(1)
+                            presentation_title = title_match.group(1) if title_match else arguments.get('title', 'Презентация')
+                            
+                            # Extract URL if present
+                            url_match = re.search(r'url["\']?\s*[:=]\s*["\']?(https?://[^\s"\']+)', result_str, re.IGNORECASE)
+                            presentation_url = url_match.group(1) if url_match else f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+                            
+                            # Send file_preview event for frontend to open tab
+                            await self.ws_manager.send_event(
                                 self.session_id,
-                                operation_id,
-                                item
+                                "file_preview",
+                                {
+                                    "file_type": "slides",
+                                    "file_id": presentation_id,
+                                    "file_url": presentation_url,
+                                    "streaming_title": presentation_title,
+                                    "title": presentation_title
+                                }
                             )
-                    if summary:
+                            
+                            # #region debug log
+                            try:
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                    f.write(json.dumps({"location": "unified_react_engine.py:4820", "message": "Sent file_preview for slides", "data": {"presentation_id": presentation_id, "title": presentation_title, "url": presentation_url, "hypothesisId": "F"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                            except: pass
+                            # #endregion
+                        
+                        summary = "✓ Презентация создана"
                         await self.ws_manager.send_operation_end(
                             self.session_id,
                             operation_id,
                             summary
                         )
+                    elif capability_name == 'get_presentation':
+                        items, summary = await self._parse_slides_result(str(result), capability_name, arguments)
+                        if items:
+                            for item in items:
+                                await self.ws_manager.send_operation_data(
+                                    self.session_id,
+                                    operation_id,
+                                    item
+                                )
+                        if summary:
+                            await self.ws_manager.send_operation_end(
+                                self.session_id,
+                                operation_id,
+                                summary
+                            )
                 except Exception as e:
                     logger.warning(f"[UnifiedReActEngine] Failed to process slides operation for {capability_name}: {e}", exc_info=True)
                     result_summary = self._get_result_summary(capability_name, result)

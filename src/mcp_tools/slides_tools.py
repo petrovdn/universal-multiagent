@@ -213,6 +213,14 @@ class CreateSlideTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
+            # #region debug log
+            import json as json_debug
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json_debug.dumps({"location": "slides_tools.py:216", "message": "create_slide called with args", "data": {"presentation_id": presentation_id, "layout": layout, "hypothesisId": "SLIDE_ARGS"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+            except: pass
+            # #endregion
+            
             args = {"presentationId": presentation_id, "layout": layout}
             if insertion_index is not None:
                 args["insertionIndex"] = insertion_index
@@ -233,9 +241,26 @@ class CreateSlideTool(BaseTool):
                 import json
                 result = json.loads(result)
             
+            # #region debug log
+            import json as json_debug
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json_debug.dumps({"location": "slides_tools.py:237", "message": "create_slide API result", "data": {"result_type": str(type(result)), "result": str(result)[:500], "hypothesisId": "SLIDE_API"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+            except: pass
+            # #endregion
             
-            slide_id = result.get("slideId")
-            
+            # Try multiple ways to get slide_id
+            slide_id = None
+            if isinstance(result, dict):
+                slide_id = result.get("slideId") or result.get("slide_id") or result.get("objectId") or result.get("pageObjectId")
+                # Check if result has nested structure
+                if not slide_id and "replies" in result:
+                    replies = result.get("replies", [])
+                    if replies and isinstance(replies, list) and len(replies) > 0:
+                        first_reply = replies[0]
+                        if isinstance(first_reply, dict):
+                            create_slide = first_reply.get("createSlide", {})
+                            slide_id = create_slide.get("objectId")
             
             if not slide_id:
                 raise ToolExecutionError(

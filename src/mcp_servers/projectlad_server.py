@@ -577,11 +577,48 @@ class ProjectLadMCPServer:
                     project_id = arguments.get("project_id")
                     version_id = arguments.get("version_id")
                     
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json as json_mod
+                        import time
+                        f.write(json_mod.dumps({
+                            "timestamp": int(time.time() * 1000),
+                            "location": "projectlad_server.py:call_tool:resource_utilization",
+                            "message": "MCP server handling resource utilization request",
+                            "data": {
+                                "project_id": project_id,
+                                "version_id": version_id
+                            },
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "B"
+                        }) + "\n")
+                    # #endregion
+                    
                     # Получаем загрузку ресурсов
                     data = await self._api_request(
                         "GET",
                         f"/v1/project/version/{version_id}/resource-utilization"
                     )
+                    
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json as json_mod
+                        import time
+                        f.write(json_mod.dumps({
+                            "timestamp": int(time.time() * 1000),
+                            "location": "projectlad_server.py:call_tool:api_response",
+                            "message": "API response received",
+                            "data": {
+                                "response_keys": list(data.keys()) if isinstance(data, dict) else None,
+                                "has_result": "result" in data if isinstance(data, dict) else False,
+                                "result_type": type(data.get("result")).__name__ if isinstance(data, dict) else None
+                            },
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "B"
+                        }) + "\n")
+                    # #endregion
                     
                     # Возвращаем результат
                     return [TextContent(

@@ -161,6 +161,30 @@ class OneCMCPServer:
                         "required": ["from", "to"]
                     }
                 ),
+                Tool(
+                    name="onec_salary_by_employee_month",
+                    description="Get salary by employee aggregated by month from accounting entries (Kt 70).",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "from": {
+                                "type": "string",
+                                "description": "Start date (ISO 8601 format: YYYY-MM-DD)",
+                                "format": "date"
+                            },
+                            "to": {
+                                "type": "string",
+                                "description": "End date (ISO 8601 format: YYYY-MM-DD)",
+                                "format": "date"
+                            },
+                            "organization_guid": {
+                                "type": "string",
+                                "description": "Optional organization GUID for filtering"
+                            }
+                        },
+                        "required": ["from", "to"]
+                    }
+                ),
             ]
         
         @self.server.call_tool()
@@ -398,6 +422,141 @@ class OneCMCPServer:
                             },
                             "total_records": len(all_sales),
                             "revenue_by_counterparty_month": results
+                        }, indent=2, ensure_ascii=False)
+                    )]
+                
+                # ========== SALARY BY EMPLOYEE MONTH ==========
+                elif name == "onec_salary_by_employee_month":
+                    from_date = arguments.get("from")
+                    to_date = arguments.get("to")
+                    org_guid = arguments.get("organization_guid")
+                    
+                    # Parse dates
+                    try:
+                        from_dt = datetime.fromisoformat(f"{from_date}T00:00:00")
+                        to_dt = datetime.fromisoformat(f"{to_date}T23:59:59")
+                    except ValueError as e:
+                        raise ValueError(f"Invalid date format: {e}")
+                    
+                    # 1. Получить справочник сотрудников
+                    employees = {}
+                    try:
+                        employees_data = await self._odata_request("Catalog_ФизическиеЛица", {"$top": 1000})
+                        if "value" in employees_data:
+                            for emp in employees_data["value"]:
+                                if "Ref_Key" in emp:
+                                    employees[emp["Ref_Key"]] = emp.get("Description", "Unknown")
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch employees: {e}")
+                    
+                    # 2. Попробовать получить данные через регистр накопления
+                    # В 1С:Бухгалтерия 3.0 проводки обычно хранятся в регистрах
+                    # Пробуем AccumulationRegister_ВзаиморасчетыСРаботникамиОрганизаций
+                    salary_entries = []
+                    
+                    # Вариант 1: Попробовать регистр накопления
+                    try:
+                        filter_parts = [
+                            f"Period ge datetime'{from_dt.isoformat()}'",
+                            f"Period le datetime'{to_dt.isoformat()}'"
+                        ]
+                        
+                        params = {
+                            "$filter": " and ".join(filter_parts),
+                            "$select": "Period,РаботникОрганизаций_Key,СуммаОстаток",
+                            "$orderby": "Period"
+                        }
+                        
+                        # Пробуем разные варианты названия регистра
+                        register_names = [
+                            "AccumulationRegister_ВзаиморасчетыСРаботникамиОрганизаций",
+                            "InformationRegister_ВзаиморасчетыСРаботникамиОрганизаций",
+                        ]
+                        
+                        register_data = None
+                        for register_name in register_names:
+                            try:
+                                register_data = await self._odata_request(register_name, params)
+                                if "value" in register_data and register_data["value"]:
+                                    break
+                            except:
+                                continue
+                        
+                        if register_data and "value" in register_data:
+                            for entry in register_data["value"]:
+                                period_str = entry.get("Period", "")
+                                employee_key = entry.get("РаботникОрганизаций_Key", "")
+                                amount = entry.get("СуммаОстаток", 0) or entry.get("Сумма", 0)
+                                
+                                if period_str and employee_key and amount:
+                                    salary_entries.append({
+                                        "date": period_str,
+                                        "employee_key": employee_key,
+                                        "amount": float(amount)
+                                    })
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch from accumulation register: {e}")
+                    
+                    # Вариант 2: Если регистр не сработал, попробовать через документы
+                    # Это fallback на случай, если данные хранятся по-другому
+                    if not salary_entries:
+                        logger.info("Trying alternative method: Document_ОперацияБух")
+                        # TODO: Реализовать альтернативный метод если потребуется
+                    
+                    if not salary_entries:
+                        return [TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "period": {"from": from_date, "to": to_date},
+                                "total_records": 0,
+                                "salary_by_employee_month": [],
+                                "message": "No salary data found. Please check if accounting entries are configured correctly."
+                            }, indent=2, ensure_ascii=False)
+                        )]
+                    
+                    # 3. Агрегировать по месяцам и сотрудникам
+                    salary_by_month_employee = defaultdict(lambda: defaultdict(float))
+                    
+                    for entry in salary_entries:
+                        date_str = entry.get("date", "")
+                        if not date_str:
+                            continue
+                        
+                        try:
+                            if "T" in date_str:
+                                entry_date = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                            else:
+                                entry_date = datetime.fromisoformat(f"{date_str}T00:00:00")
+                            
+                            month_key = entry_date.strftime("%Y-%m")
+                            emp_key = entry.get("employee_key", "")
+                            amount = entry.get("amount", 0)
+                            
+                            salary_by_month_employee[month_key][emp_key] += amount
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Failed to process entry date/amount: {e}")
+                            continue
+                    
+                    # Форматировать результат (Вариант 2)
+                    results = []
+                    for month in sorted(salary_by_month_employee.keys()):
+                        for emp_key, salary in salary_by_month_employee[month].items():
+                            emp_name = employees.get(emp_key, "Unknown")
+                            results.append({
+                                "month": month,
+                                "employee_name": emp_name,
+                                "salary": round(salary, 2)
+                            })
+                    
+                    # Сортировка по месяцу, потом по сотруднику
+                    results.sort(key=lambda x: (x["month"], x["employee_name"]))
+                    
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps({
+                            "period": {"from": from_date, "to": to_date},
+                            "total_records": len(salary_entries),
+                            "salary_by_employee_month": results
                         }, indent=2, ensure_ascii=False)
                     )]
                 

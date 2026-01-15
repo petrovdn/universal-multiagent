@@ -52,7 +52,21 @@ class MCPToolProvider(ActionProvider):
             
             # Load slides tools
             from src.mcp_tools.slides_tools import get_slides_tools
-            tools.extend(get_slides_tools())
+            # #region debug log
+            import json
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"location": "mcp_provider.py:54", "message": "Loading slides tools", "data": {"hypothesisId": "A"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+            except: pass
+            # #endregion
+            slides_tools_list = get_slides_tools()
+            # #region debug log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"location": "mcp_provider.py:56", "message": "Slides tools loaded", "data": {"count": len(slides_tools_list), "tool_names": [t.name for t in slides_tools_list], "hypothesisId": "A"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+            except: pass
+            # #endregion
+            tools.extend(slides_tools_list)
             
             # Load docs tools
             from src.mcp_tools.docs_tools import get_docs_tools
@@ -87,6 +101,14 @@ class MCPToolProvider(ActionProvider):
                     self.tools[tool.name] = tool
                 else:
                     logger.warning(f"[MCPToolProvider] Duplicate tool name: {tool.name}")
+            # #region debug log
+            import json
+            slides_tool_names = [name for name in self.tools.keys() if 'slide' in name.lower() or 'presentation' in name.lower()]
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(json.dumps({"location": "mcp_provider.py:87", "message": "Final tools registry", "data": {"total_tools": len(self.tools), "slides_tool_names": slides_tool_names, "hypothesisId": "A"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+            except: pass
+            # #endregion
                     
         except Exception as e:
             logger.error(f"[MCPToolProvider] Failed to load some tools: {e}", exc_info=True)
@@ -108,6 +130,15 @@ class MCPToolProvider(ActionProvider):
                 
                 # Classify tool
                 category = self._classify_tool(name)
+                
+                # #region debug log
+                if 'slide' in name.lower() or 'presentation' in name.lower():
+                    import json
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"location": "mcp_provider.py:110", "message": "Classifying slides tool", "data": {"tool_name": name, "category": category.value, "hypothesisId": "D"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                    except: pass
+                # #endregion
                 
                 # Get service name
                 service = self._get_service(name)

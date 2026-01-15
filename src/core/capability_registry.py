@@ -77,6 +77,15 @@ class CapabilityRegistry:
         """
         result = []
         
+        # #region debug log
+        import json
+        slides_caps_before_filter = [cap for provider, cap in self._capability_map.values() if 'slide' in cap.name.lower() or 'presentation' in cap.name.lower()]
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "capability_registry.py:78", "message": "Before filtering capabilities", "data": {"total_caps": len(self._capability_map), "slides_caps_before": [{"name": c.name, "category": c.category.value, "service": c.service} for c in slides_caps_before_filter], "requested_categories": [c.value for c in categories] if categories else None, "hypothesisId": "C"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+        except: pass
+        # #endregion
+        
         for provider, cap in self._capability_map.values():
             # Filter by category
             if categories and cap.category not in categories:
@@ -87,6 +96,14 @@ class CapabilityRegistry:
                 continue
             
             result.append(cap)
+        
+        # #region debug log
+        slides_caps_after_filter = [cap for cap in result if 'slide' in cap.name.lower() or 'presentation' in cap.name.lower()]
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"location": "capability_registry.py:89", "message": "After filtering capabilities", "data": {"total_result": len(result), "slides_caps_after": [{"name": c.name, "category": c.category.value, "service": c.service} for c in slides_caps_after_filter], "hypothesisId": "C"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+        except: pass
+        # #endregion
         
         return result
     

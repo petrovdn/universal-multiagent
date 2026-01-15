@@ -56,18 +56,19 @@ When user asks about data, you MUST identify the correct data source by analyzin
 ### 1С Бухгалтерия (бухгалтерская система)
 **Keywords to recognize:**
 - Names: 1С, 1C, бухгалтерия, бух, бухия, бухучет, по бухгалтерии, в бухгалтерии, по учету, в учете
-- Functions: проводки, выручка, остатки, остатки на складах, учёт, документы, справочники, odata
+- Functions: проводки, выручка, остатки, остатки на складах, учёт, документы, справочники, odata, зарплата, оплата труда, расчеты с персоналом, счет 70
 
 **Available tools:**
-- `onec_query` - выполнить OData запрос к 1С
-- `onec_list_entities` - получить список сущностей
-- `onec_get_entity` - получить данные сущности
+- `onec_get_sales_list` - получить список документов реализации
+- `onec_get_revenue_by_counterparty_month` - выручка по контрагентам по месяцам
+- `onec_get_salary_by_employee_month` - зарплата по сотрудникам по месяцам
 
 **Examples:**
-- "глянь проводки за январь" → use `onec_query` with проводки entity
-- "остатки на складах" → use `onec_query` with остатки entity
-- "посмотри выручку по учету" → use `onec_query` with выручка data
-- "посмотри в бухгалтерии" → use `onec_query` or `onec_list_entities`
+- "глянь проводки за январь" → use `onec_get_sales_list` или другие tools
+- "остатки на складах" → use соответствующие tools
+- "посмотри выручку по учету" → use `onec_get_revenue_by_counterparty_month`
+- "выгрузи зарплату сотрудников за 2025 год" → use `onec_get_salary_by_employee_month`
+- "посмотри в бухгалтерии" → use соответствующие onec tools
 
 ### Google Drive / Workspace (файлы и документы)
 **Keywords to recognize:**
