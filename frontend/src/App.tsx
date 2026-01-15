@@ -10,7 +10,7 @@ const APP_VERSION = '5.0.0'
 const VERSION_KEY = 'app-version'
 
 function App() {
-  const { theme, setIntegrationStatus } = useSettingsStore()
+  const { theme, setIntegrationStatus, setTheme } = useSettingsStore()
   const [notification, setNotification] = useState<{ type: 'success' | 'error', message: string } | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isCheckingAuth, setIsCheckingAuth] = useState(true)
@@ -45,6 +45,8 @@ function App() {
       console.log('[App] getCurrentUser success:', user)
       setIsAuthenticated(true)
       setCurrentUsername(user.username)
+      // Устанавливаем светлую тему после успешной авторизации
+      setTheme('light')
     } catch (err: any) {
       console.error('[App] checkAuth error:', err)
       // If it's a 404 (session not found) or 401 (unauthorized), show login
@@ -78,6 +80,8 @@ function App() {
     setIsAuthenticated(true)
     setCurrentUsername(username)
     setIsCheckingAuth(false)
+    // Устанавливаем светлую тему после успешной авторизации
+    setTheme('light')
     // Trigger auth status change event for Header
     window.dispatchEvent(new CustomEvent('auth-status-changed'))
     // Update session if needed
