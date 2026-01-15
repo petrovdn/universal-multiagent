@@ -13,7 +13,12 @@ export function Header() {
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       const target = event.target as HTMLElement
-      if (!target.closest('.header-menu-button') && !target.closest('.menu-dropdown')) {
+      if (!target.closest('.header-menu-button') && 
+          !target.closest('.menu-dropdown') && 
+          !target.closest('.help-menu-dropdown') &&
+          !target.closest('.settings-menu-dropdown') &&
+          !target.closest('.apps-menu-dropdown') &&
+          !target.closest('.profile-menu-dropdown')) {
         setActiveMenu(null)
       }
     }
@@ -78,7 +83,12 @@ export function Header() {
 
           <div className="relative">
             <button
-              onClick={() => toggleMenu('help')}
+              onClick={() => {
+                // #region debug log
+                fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'Header.tsx:81',message:'Help button clicked',data:{activeMenu},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                // #endregion
+                toggleMenu('help')
+              }}
               className={`header-menu-button ${activeMenu === 'help' ? 'active' : ''}`}
               title="Помощь"
             >
