@@ -165,6 +165,60 @@ class MCPToolProvider(ActionProvider):
                     elif val is False:
                         clean_arguments['indent_first_line'] = 0.0
             
+            # Fix attendee_filter: LLM sometimes passes array instead of string
+            # Convert ["marat", "churukhov"] to "marat и churukhov"
+            if capability_name == 'get_calendar_events' and 'attendee_filter' in clean_arguments:
+                attendee_filter = clean_arguments['attendee_filter']
+                # #region debug log: attendee_filter before fix
+                import json
+                from datetime import datetime
+                try:
+                    log_path = "/Users/Dima/universal-multiagent/.cursor/debug.log"
+                    log_entry = {
+                        "id": f"log_{int(datetime.now().timestamp() * 1000)}",
+                        "timestamp": int(datetime.now().timestamp() * 1000),
+                        "location": "mcp_provider.py:167",
+                        "message": "attendee_filter before conversion",
+                        "data": {
+                            "capability_name": capability_name,
+                            "attendee_filter_type": type(attendee_filter).__name__,
+                            "attendee_filter_value": attendee_filter
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "post-fix",
+                        "hypothesisId": "FIX"
+                    }
+                    with open(log_path, "a", encoding="utf-8") as f:
+                        f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+                # #endregion
+                if isinstance(attendee_filter, list):
+                    # Join array with " и " (AND operator) for Russian
+                    original_value = attendee_filter
+                    clean_arguments['attendee_filter'] = ' и '.join(str(item) for item in attendee_filter)
+                    logger.info(f"[MCPToolProvider] Converted attendee_filter from array to string: {clean_arguments['attendee_filter']}")
+                    # #region debug log: attendee_filter after fix
+                    try:
+                        log_entry = {
+                            "id": f"log_{int(datetime.now().timestamp() * 1000)}",
+                            "timestamp": int(datetime.now().timestamp() * 1000),
+                            "location": "mcp_provider.py:175",
+                            "message": "attendee_filter after conversion",
+                            "data": {
+                                "original": original_value,
+                                "converted": clean_arguments['attendee_filter']
+                            },
+                            "sessionId": "debug-session",
+                            "runId": "post-fix",
+                            "hypothesisId": "FIX"
+                        }
+                        with open(log_path, "a", encoding="utf-8") as f:
+                            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
+                    except Exception:
+                        pass
+                    # #endregion
+            
             result = await tool.ainvoke(clean_arguments)
             return result
         except Exception as e:
