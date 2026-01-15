@@ -99,7 +99,6 @@ export function ChatInterface() {
     
     if (isFirstLoad) {
       sessionStorage.setItem('chat-initialized', 'true')
-      console.log('[ChatInterface] First page load - clearing old session')
       startNewSession()
       wsClient.disconnect()
     }
@@ -120,7 +119,6 @@ export function ChatInterface() {
   useEffect(() => {
     if (isAgentTyping) {
       const timeout = setTimeout(() => {
-        console.warn('[ChatInterface] Agent typing timeout - resetting state')
         setAgentTyping(false)
       }, 60000) // 60 seconds timeout
       
@@ -130,9 +128,7 @@ export function ChatInterface() {
   
   // Fetch models on mount
   useEffect(() => {
-    console.log('[ChatInterface] Fetching models on mount')
     fetchModels().catch((err) => {
-      console.error('[ChatInterface] Error fetching models:', err)
     })
   }, [])
   
@@ -168,8 +164,6 @@ export function ChatInterface() {
     // Обновляем счетчик
     lastUserMessageCountRef.current = currentUserMessageCount
     
-    console.log('[ChatInterface] Attempting to scroll to new user message')
-    
     // Функция для выполнения прокрутки с повторными попытками
     const attemptScroll = (attempt: number) => {
       if (!currentInteractionRef.current || !messagesContainerRef.current) {        return
@@ -196,8 +190,6 @@ export function ChatInterface() {
         setTimeout(() => attemptScroll(attempt + 1), 100)
         return
       }
-      
-      console.log('[ChatInterface] Scrolling to new message')
       
       container.scrollTo({
         top: Math.max(0, scrollTop),
@@ -422,7 +414,6 @@ export function ChatInterface() {
         setCurrentSession(sessionId)
         wsClient.connect(sessionId)
       } catch (error) {
-        console.error('[ChatInterface] Failed to create session for file upload:', error)
         alert('Не удалось создать сессию для загрузки файла')
         return
       }
@@ -478,7 +469,6 @@ export function ChatInterface() {
           content
         }])
       } catch (error: any) {
-        console.error('[ChatInterface] File upload error:', error)
         const errorMessage = error?.response?.data?.detail || error?.message || 'Неизвестная ошибка'
         alert(`Ошибка загрузки файла "${file.name}": ${errorMessage}`)
       }
@@ -548,10 +538,6 @@ export function ChatInterface() {
         }
       })
     
-    console.log('[ChatInterface] Sending message:', userMessage, 'with files:', fileIds, 'open files:', openFiles)
-    console.log('[ChatInterface] Current session:', currentSession)
-    console.log('[ChatInterface] WebSocket connected:', wsClient.isConnected())
-    
     setInput('')
     setIsSending(true)
 
@@ -559,7 +545,6 @@ export function ChatInterface() {
     // The workflow will be managed per user message through metadata
 
     // Add user message immediately to show it in UI
-    // Save files in metadata before clearing attachedFiles
     const userMsgTimestamp = new Date().toISOString()
     addMessage({
       role: 'user',
@@ -597,10 +582,8 @@ export function ChatInterface() {
       // Try WebSocket first if session exists and connection is open
       // WebSocket supports file_ids and open_files
       if (currentSession && wsClient.isConnected()) {
-        console.log('[ChatInterface] Using WebSocket to send message', { fileIds: fileIds.length, openFiles: openFiles.length })
         const sent = wsClient.sendMessage(userMessage, fileIds.length > 0 ? fileIds : undefined, openFiles.length > 0 ? openFiles : undefined)
         if (!sent) {
-          console.warn('[ChatInterface] WebSocket send failed, falling back to REST API')
           await sendMessage({
             message: userMessage,
             session_id: currentSession,
@@ -611,10 +594,7 @@ export function ChatInterface() {
         }
       } else if (currentSession) {
         // Session exists but WebSocket not connected, try to reconnect and use REST API as fallback
-        console.warn('[ChatInterface] WebSocket not connected, using REST API')
         wsClient.connect(currentSession)
-        
-        console.log('[ChatInterface] Sending via REST API (fallback)')
         const response = await sendMessage({
           message: userMessage,
           session_id: currentSession,
@@ -625,7 +605,6 @@ export function ChatInterface() {
         
         // Handle REST API response when WebSocket is not connected
         if (response?.result?.response) {
-          console.log('[ChatInterface] Adding assistant message from REST API response')
           // For query mode, save to workflow finalResult instead of regular messages
           if (executionMode === 'query') {
             const workflowId = messages.find(m => m.role === 'user')?.timestamp
@@ -639,19 +618,14 @@ export function ChatInterface() {
               timestamp: new Date().toISOString(),
             })
           }
-        } else {
-          console.warn('[ChatInterface] REST API response missing result.response', { response })
         }
       } else {
         // Create new session FIRST, then connect WebSocket, then send message
-        console.log('[ChatInterface] Creating new session first')
         const sessionData = await createSession(executionMode, selectedModel || undefined)
         const newSessionId = sessionData.session_id
-        console.log('[ChatInterface] New session created:', newSessionId)
         setCurrentSession(newSessionId)
         
         // Connect WebSocket BEFORE sending message
-        console.log('[ChatInterface] Connecting WebSocket to new session')
         wsClient.connect(newSessionId)
         
         // Wait for WebSocket to connect (backend waits up to 5 seconds)
@@ -660,22 +634,19 @@ export function ChatInterface() {
           await new Promise(resolve => setTimeout(resolve, 100))
           if (wsClient.isConnected()) {
             connected = true
-            console.log('[ChatInterface] WebSocket connected after', i * 100, 'ms')
             break
           }
         }
         
         if (!connected) {
-          console.warn('[ChatInterface] WebSocket did not connect within 6 seconds, proceeding anyway')
+          // WebSocket did not connect within 6 seconds, proceeding anyway
         }
         
         // Now send message via WebSocket (preferred) or REST API (fallback)
         // WebSocket supports file_ids and open_files
         if (wsClient.isConnected()) {
-          console.log('[ChatInterface] Sending message via WebSocket', { fileIds: fileIds.length, openFiles: openFiles.length })
           const sent = wsClient.sendMessage(userMessage, fileIds.length > 0 ? fileIds : undefined, openFiles.length > 0 ? openFiles : undefined)
           if (!sent) {
-            console.warn('[ChatInterface] WebSocket send failed, using REST API fallback')
             const response = await sendMessage({
               message: userMessage,
               session_id: newSessionId,
@@ -694,7 +665,6 @@ export function ChatInterface() {
             }
           }
         } else {
-          console.log('[ChatInterface] Using REST API (WebSocket not connected)')
           const response = await sendMessage({
             message: userMessage,
             session_id: newSessionId,
@@ -714,7 +684,6 @@ export function ChatInterface() {
         }
       }
     } catch (error: any) {
-      console.error('[ChatInterface] Error sending message:', error)
       const errorMessage = error?.response?.data?.detail || error?.message || 'Неизвестная ошибка'
       addMessage({
         role: 'system',
@@ -751,7 +720,6 @@ export function ChatInterface() {
   }
   
   const handleStopGeneration = () => {
-    console.log('[ChatInterface] Stopping generation')
     wsClient.stopGeneration()
     setIsSending(false)
     setAgentTyping(false)
@@ -800,7 +768,6 @@ export function ChatInterface() {
     }
     
     recognition.onerror = (event) => {
-      console.error('[ChatInterface] Speech recognition error:', event.error)
       setIsListening(false)
       
       if (event.error === 'no-speech') {
@@ -823,7 +790,6 @@ export function ChatInterface() {
       recognition.start()
       setIsListening(true)
     } catch (error) {
-      console.error('[ChatInterface] Failed to start speech recognition:', error)
       setIsListening(false)
       alert('Не удалось начать запись. Проверьте, что микрофон подключён и разрешён доступ.')
     }
@@ -881,7 +847,6 @@ export function ChatInterface() {
       try {
         await setSessionModel(currentSession, modelId)
       } catch (error) {
-        console.error('[ChatInterface] Failed to set session model:', error)
         const previousModel = models.find(m => m.id !== modelId && m.id === selectedModel) || models[0]
         if (previousModel) {
           setSelectedModel(previousModel.id)
@@ -1181,20 +1146,7 @@ export function ChatInterface() {
             return null
           }
           
-          console.log('[ChatInterface] Rendering assistant messages', { 
-            count: assistantMessagesArray.length, 
-            messageIds: assistantMessagesArray.map(m => m.id),
-            executionMode 
-          })
-          
           return assistantMessagesArray.map((assistantMsg) => {
-            console.log('[ChatInterface] Processing assistant message', { 
-              id: assistantMsg.id, 
-              reasoningBlocksCount: assistantMsg.reasoningBlocks.length,
-              answerBlocksCount: assistantMsg.answerBlocks.length,
-              executionMode
-            })
-            
             // CRITICAL: For ReAct mode, render reasoning blocks directly using CollapsibleBlock (same as Plan mode)
             // This check MUST come FIRST, before all other checks, to ensure ReAct blocks are rendered
             // For Query and Agent modes, only show reasoning if showReasoning setting is enabled
@@ -1203,12 +1155,6 @@ export function ChatInterface() {
               (executionMode === 'agent' && useSettingsStore.getState().showReasoning)
             
             if (shouldShowReasoning && assistantMsg.reasoningBlocks.length > 0) {
-              console.log('[ChatInterface] ReAct mode - rendering reasoning blocks directly', { 
-                messageId: assistantMsg.id, 
-                executionMode,
-                reasoningBlocksCount: assistantMsg.reasoningBlocks.length
-              })
-              
               return (
                 <div 
                   key={assistantMsg.id} 
@@ -1278,12 +1224,10 @@ export function ChatInterface() {
                 // For simple tasks, don't render ChatMessage (reasoning/answer blocks)
                 // The result will be shown in FinalResultBlock instead
                 if (isSimpleTask) {
-                  console.log('[ChatInterface] Skipping assistant message - simple task with workflow', { messageId: assistantMsg.id })
                   return null
                 }
                 
                 // For multi-step workflows, also don't render ChatMessage
-                console.log('[ChatInterface] Skipping assistant message - multi-step workflow', { messageId: assistantMsg.id })
                 return null
               }
               
@@ -1307,18 +1251,8 @@ export function ChatInterface() {
           )
           const hasContent = hasReasoningContent || hasAnswerContent
           
-          console.log('[ChatInterface] Checking content for assistant message (non-ReAct)', {
-            messageId: assistantMsg.id,
-            reasoningBlocksCount: assistantMsg.reasoningBlocks.length,
-            reasoningBlocksContent: assistantMsg.reasoningBlocks.map(b => ({ id: b.id, contentLength: b.content?.length || 0, contentPreview: b.content?.substring(0, 50) })),
-            hasReasoningContent,
-            hasAnswerContent,
-            hasContent
-          })
-          
           // Если нет реального контента, не рендерим wrapper (ChatMessage вернет null)
           if (!hasContent) {
-            console.log('[ChatInterface] No content, skipping assistant message', { messageId: assistantMsg.id })
             return null
           }
           
@@ -1365,23 +1299,9 @@ export function ChatInterface() {
             return willRenderReasoning || willRenderAnswer
           })()
           
-          console.log('[ChatInterface] willChatMessageRender check (non-ReAct)', {
-            messageId: assistantMsg.id,
-            willChatMessageRender,
-            hasContent,
-            hasValidReasoning,
-            hasValidAnswer,
-            willRenderReasoning,
-            willRenderAnswer,
-            executionMode
-          })
-          
           if (!willChatMessageRender) {
-            console.log('[ChatInterface] ChatMessage will not render, skipping', { messageId: assistantMsg.id })
             return null
           }
-          
-          console.log('[ChatInterface] Rendering assistant message with ChatMessage', { messageId: assistantMsg.id })
           
           return (
             <div key={assistantMsg.id} className="assistant-message-wrapper" data-message-id={assistantMsg.id}>

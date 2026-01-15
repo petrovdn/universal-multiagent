@@ -253,18 +253,26 @@ class GetSalaryByEmployeeMonthTool(BaseTool):
     
     name: str = "onec_get_salary_by_employee_month"
     description: str = """
-    Get salary by employee aggregated by month from 1C accounting entries (Kt 70).
+    ⭐ ПРИОРИТЕТНЫЙ TOOL: Получить зарплату сотрудников по месяцам из 1С:Бухгалтерия.
     
-    This tool aggregates salary data from accounting entries (account 70 - Расчеты с персоналом)
-    by month and employee, showing total salary for each employee in each month.
+    Используй этот tool для ВСЕХ запросов о зарплате, оплате труда, расчетах с персоналом из 1С.
+    
+    Агрегирует данные из проводок по счету 70 (Расчеты с персоналом по оплате труда) по месяцам и сотрудникам.
+    Показывает общую сумму зарплаты для каждого сотрудника в каждом месяце.
+    
+    Ключевые слова для распознавания: зарплата, оплата труда, заработная плата, расчеты с персоналом, счет 70, сотрудники, из 1С.
     
     Input:
-    - from_date: Start date (ISO 8601 format: YYYY-MM-DD)
-    - to_date: End date (ISO 8601 format: YYYY-MM-DD)
-    - organization_guid: Optional organization GUID for filtering
+    - from_date: Начальная дата (формат ISO 8601: YYYY-MM-DD), например "2025-01-01"
+    - to_date: Конечная дата (формат ISO 8601: YYYY-MM-DD), например "2025-12-31"
+    - organization_guid: Опциональный GUID организации для фильтрации
     
-    Returns aggregated salary data grouped by month and employee.
+    Returns: Агрегированные данные по зарплате, сгруппированные по месяцам и сотрудникам.
     Format: [{"month": "2025-01", "employee_name": "Иванов", "salary": 50000}]
+    
+    Примеры использования:
+    - "выгрузи из 1С зарплату сотрудников" → from_date="2025-01-01", to_date="2025-12-31"
+    - "зарплата за 2026 год" → from_date="2026-01-01", to_date="2026-12-31"
     """
     args_schema: type = GetSalaryByEmployeeMonthInput
     

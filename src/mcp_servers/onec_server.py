@@ -454,7 +454,7 @@ class OneCMCPServer:
                     # Пробуем AccumulationRegister_ВзаиморасчетыСРаботникамиОрганизаций
                     salary_entries = []
                     
-                    # Вариант 1: Попробовать регистр накопления
+                    # Вариант 1: Попробовать регистр накопления (правильное название из метаданных)
                     try:
                         filter_parts = [
                             f"Period ge datetime'{from_dt.isoformat()}'",
@@ -463,14 +463,15 @@ class OneCMCPServer:
                         
                         params = {
                             "$filter": " and ".join(filter_parts),
-                            "$select": "Period,РаботникОрганизаций_Key,СуммаОстаток",
+                            "$select": "Period,Сотрудник_Key,СуммаОстаток,Сумма",
                             "$orderby": "Period"
                         }
                         
-                        # Пробуем разные варианты названия регистра
+                        # Правильное название из метаданных
                         register_names = [
-                            "AccumulationRegister_ВзаиморасчетыСРаботникамиОрганизаций",
-                            "InformationRegister_ВзаиморасчетыСРаботникамиОрганизаций",
+                            "AccumulationRegister_ВзаиморасчетыССотрудниками",  # Правильное название!
+                            "AccumulationRegister_БухгалтерскиеВзаиморасчетыССотрудниками",
+                            "AccumulationRegister_НачисленияУдержанияПоСотрудникам",
                         ]
                         
                         register_data = None
@@ -478,14 +479,19 @@ class OneCMCPServer:
                             try:
                                 register_data = await self._odata_request(register_name, params)
                                 if "value" in register_data and register_data["value"]:
+                                    logger.info(f"Found data in {register_name}")
                                     break
-                            except:
+                            except Exception as e:
+                                logger.debug(f"Failed to fetch from {register_name}: {e}")
                                 continue
                         
                         if register_data and "value" in register_data:
                             for entry in register_data["value"]:
                                 period_str = entry.get("Period", "")
-                                employee_key = entry.get("РаботникОрганизаций_Key", "")
+                                # Пробуем разные варианты полей сотрудника
+                                employee_key = (entry.get("Сотрудник_Key") or 
+                                               entry.get("Работник_Key") or
+                                               entry.get("РаботникОрганизаций_Key") or "")
                                 amount = entry.get("СуммаОстаток", 0) or entry.get("Сумма", 0)
                                 
                                 if period_str and employee_key and amount:
@@ -497,11 +503,295 @@ class OneCMCPServer:
                     except Exception as e:
                         logger.warning(f"Failed to fetch from accumulation register: {e}")
                     
-                    # Вариант 2: Если регистр не сработал, попробовать через документы
-                    # Это fallback на случай, если данные хранятся по-другому
+                    # Вариант 2: Если регистр не сработал, попробовать через регистр остатков
+                    # AccountingRegister_Хозрасчетный содержит RecordSet с проводками
                     if not salary_entries:
-                        logger.info("Trying alternative method: Document_ОперацияБух")
-                        # TODO: Реализовать альтернативный метод если потребуется
+                        logger.info("Trying alternative method: AccountingRegister_Хозрасчетный + Document_ОперацияБух")
+                        try:
+                            # #region debug log
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                import json as json_module
+                                f.write(json_module.dumps({
+                                    "timestamp": datetime.now().isoformat(),
+                                    "location": "onec_server.py:502",
+                                    "message": "Starting alternative method for salary extraction",
+                                    "data": {"from_date": from_date, "to_date": to_date},
+                                    "sessionId": "debug-session",
+                                    "runId": "run1",
+                                    "hypothesisId": "A"
+                                }) + "\n")
+                            # #endregion
+                            # Получаем регистр остатков и связываем с документами
+                            # Сначала получаем документы операций за период
+                            docs_params = {
+                                "$filter": f"Date ge datetime'{from_dt.isoformat()}' and Date le datetime'{to_dt.isoformat()}' and Posted eq true",
+                                "$top": 100,
+                                "$orderby": "Date desc"
+                            }
+                            
+                            # Пробуем получить без фильтра по дате (может быть ошибка 500)
+                            try:
+                                docs_data = await self._odata_request("Document_ОперацияБух", docs_params)
+                                # #region debug log
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                    import json as json_module
+                                    f.write(json_module.dumps({
+                                        "timestamp": datetime.now().isoformat(),
+                                        "location": "onec_server.py:520",
+                                        "message": "Got documents with date filter",
+                                        "data": {"count": len(docs_data.get("value", [])) if "value" in docs_data else 0},
+                                        "sessionId": "debug-session",
+                                        "runId": "run1",
+                                        "hypothesisId": "A"
+                                    }) + "\n")
+                                # #endregion
+                            except Exception as e:
+                                # Если ошибка, пробуем без фильтра
+                                logger.warning(f"Failed to get docs with filter, trying without: {e}")
+                                docs_data = await self._odata_request("Document_ОперацияБух", {"$top": 50, "$orderby": "Date desc"})
+                                # #region debug log
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                    import json as json_module
+                                    f.write(json_module.dumps({
+                                        "timestamp": datetime.now().isoformat(),
+                                        "location": "onec_server.py:530",
+                                        "message": "Got documents without date filter",
+                                        "data": {"count": len(docs_data.get("value", [])) if "value" in docs_data else 0, "error": str(e)},
+                                        "sessionId": "debug-session",
+                                        "runId": "run1",
+                                        "hypothesisId": "A"
+                                    }) + "\n")
+                                # #endregion
+                            
+                            if "value" in docs_data:
+                                docs = docs_data["value"]
+                                # #region debug log
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                    import json as json_module
+                                    f.write(json_module.dumps({
+                                        "timestamp": datetime.now().isoformat(),
+                                        "location": "onec_server.py:535",
+                                        "message": "Processing documents",
+                                        "data": {"total_docs": len(docs), "first_doc_keys": list(docs[0].keys())[:10] if docs else []},
+                                        "sessionId": "debug-session",
+                                        "runId": "run1",
+                                        "hypothesisId": "A"
+                                    }) + "\n")
+                                # #endregion
+                                
+                                # Фильтруем по дате в коде
+                                filtered_docs = []
+                                for doc in docs:
+                                    doc_date_str = doc.get("Date", "")
+                                    if doc_date_str:
+                                        try:
+                                            if "T" in doc_date_str:
+                                                doc_date = datetime.fromisoformat(doc_date_str.replace("Z", "+00:00"))
+                                            else:
+                                                doc_date = datetime.fromisoformat(f"{doc_date_str}T00:00:00")
+                                            
+                                            if from_dt <= doc_date <= to_dt:
+                                                filtered_docs.append(doc)
+                                        except:
+                                            pass
+                                
+                                # #region debug log
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                    import json as json_module
+                                    f.write(json_module.dumps({
+                                        "timestamp": datetime.now().isoformat(),
+                                        "location": "onec_server.py:555",
+                                        "message": "Filtered documents by date",
+                                        "data": {"filtered_count": len(filtered_docs)},
+                                        "sessionId": "debug-session",
+                                        "runId": "run1",
+                                        "hypothesisId": "A"
+                                    }) + "\n")
+                                # #endregion
+                                
+                                # Для каждого документа получаем проводки из регистра остатков
+                                account_70_guid = None
+                                try:
+                                    # Пробуем получить GUID счета 70
+                                    account_data = await self._odata_request("ChartOfAccounts_Хозрасчетный", {"$filter": "Code eq '70'", "$top": 1})
+                                    if "value" in account_data and account_data["value"]:
+                                        account_70_guid = account_data["value"][0].get("Ref_Key")
+                                        # #region debug log
+                                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                            import json as json_module
+                                            f.write(json_module.dumps({
+                                                "timestamp": datetime.now().isoformat(),
+                                                "location": "onec_server.py:565",
+                                                "message": "Got account 70 GUID",
+                                                "data": {"account_70_guid": account_70_guid},
+                                                "sessionId": "debug-session",
+                                                "runId": "run1",
+                                                "hypothesisId": "A"
+                                            }) + "\n")
+                                        # #endregion
+                                except Exception as e:
+                                    logger.warning(f"Failed to get account 70 GUID: {e}")
+                                    # #region debug log
+                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                        import json as json_module
+                                        f.write(json_module.dumps({
+                                            "timestamp": datetime.now().isoformat(),
+                                            "location": "onec_server.py:575",
+                                            "message": "Failed to get account 70 GUID",
+                                            "data": {"error": str(e)},
+                                            "sessionId": "debug-session",
+                                            "runId": "run1",
+                                            "hypothesisId": "A"
+                                        }) + "\n")
+                                    # #endregion
+                                
+                                # Получаем все записи из регистра остатков и фильтруем по документам
+                                try:
+                                    register_entries = await self._odata_request("AccountingRegister_Хозрасчетный", {"$top": 1000})
+                                    
+                                    # #region debug log
+                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                        import json as json_module
+                                        f.write(json_module.dumps({
+                                            "timestamp": datetime.now().isoformat(),
+                                            "location": "onec_server.py:580",
+                                            "message": "Got register entries",
+                                            "data": {"count": len(register_entries.get("value", [])) if "value" in register_entries else 0},
+                                            "sessionId": "debug-session",
+                                            "runId": "run1",
+                                            "hypothesisId": "A"
+                                        }) + "\n")
+                                    # #endregion
+                                    
+                                    if "value" in register_entries:
+                                        # Извлекаем все проводки из RecordSet
+                                        all_movements = []
+                                        doc_keys_set = {doc.get("Ref_Key", "") for doc in filtered_docs}
+                                        
+                                        for entry in register_entries["value"]:
+                                            recorder = entry.get("Recorder", "")
+                                            if recorder in doc_keys_set:
+                                                record_set = entry.get("RecordSet", [])
+                                                for mov in record_set:
+                                                    mov["_Recorder"] = recorder
+                                                    all_movements.append(mov)
+                                        
+                                        # #region debug log
+                                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                            import json as json_module
+                                            f.write(json_module.dumps({
+                                                "timestamp": datetime.now().isoformat(),
+                                                "location": "onec_server.py:600",
+                                                "message": "Extracted movements from RecordSet",
+                                                "data": {"total_movements": len(all_movements)},
+                                                "sessionId": "debug-session",
+                                                "runId": "run1",
+                                                "hypothesisId": "A"
+                                            }) + "\n")
+                                        # #endregion
+                                        
+                                        # Ищем проводки с Кт 70
+                                        for mov in all_movements:
+                                            account_cr_key = mov.get("AccountCr_Key", "")
+                                            
+                                            if account_cr_key == account_70_guid or (account_70_guid is None and "70" in str(account_cr_key)):
+                                                amount = mov.get("Сумма", 0)
+                                                period = mov.get("Period", "")
+                                                recorder = mov.get("_Recorder", "")
+                                                
+                                                # Получаем дату документа
+                                                doc_date = None
+                                                for doc in filtered_docs:
+                                                    if doc.get("Ref_Key", "") == recorder:
+                                                        doc_date = doc.get("Date", "")
+                                                        break
+                                                
+                                                # Ищем сотрудника в полях проводки
+                                                employee_key = None
+                                                for key in mov.keys():
+                                                    if ("Сотрудник" in key or "Работник" in key or "ФизическоеЛицо" in key) and "_Key" in key:
+                                                        employee_key = mov.get(key)
+                                                        break
+                                                
+                                                # Если сотрудник не найден в RecordSet, пробуем получить из документа
+                                                if not employee_key:
+                                                    # Пробуем получить документ с расширением
+                                                    try:
+                                                        # Пробуем разные варианты расширения
+                                                        for expand_name in ["Хозрасчетный", "ДвиженияПоСчетамБухучета"]:
+                                                            try:
+                                                                doc_expanded = await self._odata_request(
+                                                                    f"Document_ОперацияБух(guid'{recorder}')",
+                                                                    {"$expand": expand_name}
+                                                                )
+                                                                
+                                                                # Ищем расширенную табличную часть
+                                                                movements_expanded = None
+                                                                for key in doc_expanded.keys():
+                                                                    if expand_name in key or "Движен" in key or "Хозрасчет" in key:
+                                                                        movements_expanded = doc_expanded.get(key, [])
+                                                                        break
+                                                                
+                                                                if movements_expanded:
+                                                                    # Ищем соответствующую проводку
+                                                                    for mov_exp in movements_expanded:
+                                                                        mov_exp_account_cr = (mov_exp.get("СчетКт_Key", "") or 
+                                                                                             mov_exp.get("AccountCr_Key", ""))
+                                                                        
+                                                                        if mov_exp_account_cr == account_cr_key:
+                                                                            # Ищем сотрудника в субконто
+                                                                            for key in mov_exp.keys():
+                                                                                if ("Сотрудник" in key or "Работник" in key or "ФизическоеЛицо" in key) and "_Key" in key:
+                                                                                    employee_key = mov_exp.get(key)
+                                                                                    break
+                                                                            
+                                                                            if employee_key:
+                                                                                break
+                                                                    
+                                                                    if employee_key:
+                                                                        break
+                                                            except:
+                                                                continue
+                                                    except:
+                                                        pass
+                                                
+                                                if employee_key and amount and (doc_date or period):
+                                                    salary_entries.append({
+                                                        "date": doc_date or period,
+                                                        "employee_key": employee_key,
+                                                        "amount": float(amount)
+                                                    })
+                                                    
+                                                    # #region debug log
+                                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                                        import json as json_module
+                                                        f.write(json_module.dumps({
+                                                            "timestamp": datetime.now().isoformat(),
+                                                            "location": "onec_server.py:720",
+                                                            "message": "Added salary entry",
+                                                            "data": {"employee_key": employee_key, "amount": amount, "total": len(salary_entries)},
+                                                            "sessionId": "debug-session",
+                                                            "runId": "run1",
+                                                            "hypothesisId": "A"
+                                                        }) + "\n")
+                                                    # #endregion
+                                except Exception as e:
+                                    logger.warning(f"Failed to get movements from register: {e}")
+                                    # #region debug log
+                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                        import json as json_module
+                                        f.write(json_module.dumps({
+                                            "timestamp": datetime.now().isoformat(),
+                                            "location": "onec_server.py:735",
+                                            "message": "Failed to get movements from register",
+                                            "data": {"error": str(e)},
+                                            "sessionId": "debug-session",
+                                            "runId": "run1",
+                                            "hypothesisId": "A"
+                                        }) + "\n")
+                                    # #endregion
+                        except Exception as e:
+                            logger.warning(f"Failed to fetch from accounting register: {e}")
                     
                     if not salary_entries:
                         return [TextContent(

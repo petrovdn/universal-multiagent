@@ -3255,6 +3255,22 @@ class UnifiedReActEngine:
                 }
     
     def _get_relevant_tools(self, goal: str, completed_tools: List[str]) -> List[Dict[str, str]]:
+        # #region debug log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_module
+                f.write(json_module.dumps({
+                    "timestamp": datetime.now().isoformat(),
+                    "location": "unified_react_engine.py:_get_relevant_tools",
+                    "message": "Getting relevant tools",
+                    "data": {"goal": goal, "completed_tools": completed_tools},
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
         """
         Возвращает только релевантные инструменты для текущей задачи.
         Максимум 5-7 инструментов вместо 50+.
@@ -3318,6 +3334,84 @@ class UnifiedReActEngine:
                 "get_calendar_events", "create_event", "delete_event", "schedule_group_meeting"
             ])
         
+        # 1С Бухгалтерия tools - ПРИОРИТЕТ для запросов о зарплате
+        # Проверяем наличие упоминания 1С или бухгалтерии
+        has_1c_keyword = any(kw in goal_lower for kw in ["1с", "1c", "бухгалтери", "учет", "одata", "из 1с", "из 1c"])
+        # Проверяем наличие упоминания зарплаты
+        has_salary_keyword = any(kw in goal_lower for kw in ["зарплат", "оплат", "труд", "сотрудник", "персонал", "счет 70", "выгрузи"])
+        
+        # #region debug log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_module
+                f.write(json_module.dumps({
+                    "timestamp": datetime.now().isoformat(),
+                    "location": "unified_react_engine.py:1c_salary_check",
+                    "message": "Checking 1C salary keywords",
+                    "data": {
+                        "goal": goal,
+                        "goal_lower": goal_lower,
+                        "has_1c_keyword": has_1c_keyword,
+                        "has_salary_keyword": has_salary_keyword,
+                        "should_add_salary_tool": has_1c_keyword and has_salary_keyword
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
+        if has_1c_keyword:
+            # Для запросов о зарплате - приоритет onec_get_salary_by_employee_month
+            if has_salary_keyword:
+                relevant_tool_names.add("onec_get_salary_by_employee_month")
+                # #region debug log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json as json_module
+                        f.write(json_module.dumps({
+                            "timestamp": datetime.now().isoformat(),
+                            "location": "unified_react_engine.py:salary_tool_added",
+                            "message": "Salary tool added to relevant_tool_names",
+                            "data": {
+                                "relevant_tool_names_after": list(relevant_tool_names)
+                            },
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "A"
+                        }) + "\n")
+                except:
+                    pass
+                # #endregion
+            # Для запросов о выручке
+            if any(kw in goal_lower for kw in ["выручк", "доход", "продаж"]):
+                relevant_tool_names.add("onec_get_revenue_by_counterparty_month")
+            # Для запросов о продажах/документах
+            if any(kw in goal_lower for kw in ["продаж", "реализац", "документ"]):
+                relevant_tool_names.add("onec_get_sales_list")
+            
+            # #region debug log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_module
+                    f.write(json_module.dumps({
+                        "timestamp": datetime.now().isoformat(),
+                        "location": "unified_react_engine.py:1c_tools_filter",
+                        "message": "1C tools added to relevant",
+                        "data": {
+                            "goal": goal,
+                            "relevant_1c_tools": [t for t in relevant_tool_names if t.startswith("onec_")]
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "A"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
+        
         if any(kw in goal_lower for kw in ["письм", "email", "почт"]):
             relevant_tool_names.update([
                 "list_emails", "read_email", "send_email"
@@ -3340,10 +3434,51 @@ class UnifiedReActEngine:
         # Всегда добавляем FINISH
         relevant_tool_names.add("FINISH")
         
+        # #region debug log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_module
+                f.write(json_module.dumps({
+                    "timestamp": datetime.now().isoformat(),
+                    "location": "unified_react_engine.py:before_filtering",
+                    "message": "Before filtering completed tools",
+                    "data": {
+                        "relevant_tool_names": list(relevant_tool_names),
+                        "completed_tools": completed_tools,
+                        "has_salary_tool": "onec_get_salary_by_employee_month" in relevant_tool_names
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
         # Исключаем уже успешно выполненные инструменты (кроме FINISH и форматирования абзацев)
         repeatable_tools = {"FINISH", "format_document_paragraph"}
         filtered_names = [t for t in relevant_tool_names 
                          if t not in completed_tools or t in repeatable_tools]
+        
+        # #region debug log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_module
+                f.write(json_module.dumps({
+                    "timestamp": datetime.now().isoformat(),
+                    "location": "unified_react_engine.py:after_filtering",
+                    "message": "After filtering completed tools",
+                    "data": {
+                        "filtered_names": filtered_names,
+                        "has_salary_tool": "onec_get_salary_by_employee_month" in filtered_names
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
         
         # Собираем описания релевантных инструментов
         # Для docs инструментов явно указываем обязательные параметры
@@ -3360,6 +3495,28 @@ class UnifiedReActEngine:
             "schedule_group_meeting": "Input: title (ОБЯЗАТЕЛЬНО! заголовок встречи), attendees (list of emails), duration (default '50m'), description (optional), working_hours_start (hour 0-23, default 9, для 'после обеда' используй 13), working_hours_end (hour 0-23, default 18), confirmed (False для поиска времени, True для создания), slot_start (required when confirmed=True). ПРОЦЕСС: 1) Вызов с confirmed=False → находит время, 2) Показываешь пользователю → ждешь подтверждения, 3) Вызов с confirmed=True + slot_start → создает встречу",
             "create_event": "Input: title (ОБЯЗАТЕЛЬНО!), start_time (ISO format), attendees (optional list), description (optional), location (optional)",
             "get_calendar_events": "Input: start_time (ОБЯЗАТЕЛЬНО! используй '15 января' или '2026-01-15' для конкретной даты), end_time (optional), max_results (default 10), attendee_filter (optional). Примеры: start_time='15 января', start_time='сегодня', start_time='на неделе'"
+        }
+        
+        # Для 1С salary tool - приоритетное описание
+        onec_salary_tool_params = {
+            "onec_get_salary_by_employee_month": """⭐ ПРИОРИТЕТНЫЙ TOOL для запросов о зарплате из 1С!
+            
+Используй этот tool для ВСЕХ запросов о зарплате, оплате труда, расчетах с персоналом из 1С:Бухгалтерия.
+
+Агрегирует данные из проводок по счету 70 (Расчеты с персоналом по оплате труда) по месяцам и сотрудникам.
+
+Input:
+- from_date: Начальная дата (формат: YYYY-MM-DD), например "2025-01-01" или "2026-01-01"
+- to_date: Конечная дата (формат: YYYY-MM-DD), например "2025-12-31" или "2026-12-31"
+- organization_guid: Опционально, GUID организации
+
+Returns: Данные по зарплате, сгруппированные по месяцам и сотрудникам.
+Format: [{"month": "2025-12", "employee_name": "Артем Малышев", "salary": 50000}, ...]
+
+Примеры использования:
+- "выгрузи из 1С зарплату сотрудников" → from_date="2025-01-01", to_date="2025-12-31"
+- "зарплата за 2026 год" → from_date="2026-01-01", to_date="2026-12-31"
+- Если период не указан, используй текущий год или последние 12 месяцев"""
         }
         
         # Для code execution инструментов явно указываем доступные библиотеки
@@ -3390,6 +3547,29 @@ if salary_sheet:
         }
         
         result = []
+        # #region debug log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_module
+                available_cap_names = [cap.name for cap in self.capabilities]
+                f.write(json_module.dumps({
+                    "timestamp": datetime.now().isoformat(),
+                    "location": "unified_react_engine.py:building_result",
+                    "message": "Building result from capabilities",
+                    "data": {
+                        "filtered_names": list(filtered_names),
+                        "available_capabilities_count": len(self.capabilities),
+                        "has_salary_capability": "onec_get_salary_by_employee_month" in available_cap_names,
+                        "salary_in_filtered": "onec_get_salary_by_employee_month" in filtered_names
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
         for cap in self.capabilities:
             if cap.name in filtered_names:
                 # Для docs инструментов используем явное описание параметров
@@ -3401,6 +3581,9 @@ if salary_sheet:
                 # Для code execution инструментов используем явное описание параметров
                 elif cap.name in code_execution_tool_params:
                     desc = f"{cap.description.split('.')[0]}. {code_execution_tool_params[cap.name]}"
+                # Для 1С salary tool используем приоритетное описание
+                elif cap.name in onec_salary_tool_params:
+                    desc = onec_salary_tool_params[cap.name]
                 else:
                     desc = cap.description[:200]  # Расширенный лимит до 200 символов
                 result.append({
@@ -3465,7 +3648,29 @@ if salary_sheet:
                         prioritized.append(t)
             result = prioritized
         
-        return result[:7]  # Максимум 7 инструментов
+        final_result = result[:7]  # Максимум 7 инструментов
+        
+        # #region debug log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_module
+                f.write(json_module.dumps({
+                    "timestamp": datetime.now().isoformat(),
+                    "location": "unified_react_engine.py:_get_relevant_tools_end",
+                    "message": "Final tools list",
+                    "data": {
+                        "final_tools": [t["name"] for t in final_result],
+                        "has_salary_tool": any(t["name"] == "onec_get_salary_by_employee_month" for t in final_result)
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        
+        return final_result
     
     def _determine_next_step(self, goal: str, completed_tools: List[str], observations: List) -> str:
         """
