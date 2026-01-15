@@ -13,27 +13,6 @@ from email.utils import parseaddr
 
 from src.utils.exceptions import ValidationError
 
-# #region debug log helper
-def _debug_log(location: str, message: str, data: dict, hypothesis_id: str = "A"):
-    """Write debug log to NDJSON file."""
-    try:
-        log_path = "/Users/Dima/universal-multiagent/.cursor/debug.log"
-        log_entry = {
-            "id": f"log_{int(datetime.now().timestamp() * 1000)}",
-            "timestamp": int(datetime.now().timestamp() * 1000),
-            "location": location,
-            "message": message,
-            "data": data,
-            "sessionId": "debug-session",
-            "runId": "run1",
-            "hypothesisId": hypothesis_id
-        }
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass  # Silently fail if logging fails
-# #endregion
-
 
 # Email validation regex (RFC 5322 compliant)
 EMAIL_REGEX = re.compile(
@@ -507,12 +486,6 @@ def parse_attendee_filter(
     Raises:
         ValidationError: If filter string cannot be parsed
     """
-    # #region debug log: parse entry
-    _debug_log("validators.py:466", "parse_attendee_filter entry", {
-        "filter_str": filter_str
-    }, "A")
-    # #endregion
-    
     if not filter_str or not filter_str.strip():
         raise ValidationError("Attendee filter is required", field="attendee_filter")
     
@@ -576,19 +549,10 @@ def parse_attendee_filter(
             value=filter_str
         )
     
-    result = {
+    return {
         "operator": operator,
         "patterns": patterns
     }
-    
-    # #region debug log: parse result
-    _debug_log("validators.py:551", "parse_attendee_filter result", {
-        "filter_str": filter_str,
-        "result": result
-    }, "A")
-    # #endregion
-    
-    return result
 
 
 def validate_date_not_past(date: datetime, field_name: str = "date") -> datetime:

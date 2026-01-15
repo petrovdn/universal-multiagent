@@ -10,28 +10,6 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
-
-# #region debug log helper
-def _debug_log(location: str, message: str, data: dict, hypothesis_id: str = "A"):
-    """Write debug log to NDJSON file."""
-    try:
-        import os
-        log_path = "/Users/Dima/universal-multiagent/.cursor/debug.log"
-        log_entry = {
-            "id": f"log_{int(datetime.now().timestamp() * 1000)}",
-            "timestamp": int(datetime.now().timestamp() * 1000),
-            "location": location,
-            "message": message,
-            "data": data,
-            "sessionId": "debug-session",
-            "runId": "run1",
-            "hypothesisId": hypothesis_id
-        }
-        with open(log_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(log_entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass  # Silently fail if logging fails
-# #endregion
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
@@ -299,13 +277,6 @@ def filter_events_by_attendees(
     Returns:
         Filtered list of events.
     """
-    # #region debug log: filter entry
-    _debug_log("calendar_tools.py:265", "filter_events_by_attendees entry", {
-        "events_count": len(events),
-        "filter_config": filter_config
-    }, "E")
-    # #endregion
-    
     if not events:
         return []
     
@@ -318,14 +289,6 @@ def filter_events_by_attendees(
     filtered_events = []
     
     for event in events:
-        # #region debug log: event processing
-        event_attendees = event.get("attendees", [])
-        _debug_log("calendar_tools.py:291", "Processing event", {
-            "event_summary": event.get("summary", ""),
-            "attendees_count": len(event_attendees),
-            "attendees_sample": [{"email": a.get("email", ""), "displayName": a.get("displayName", "")} for a in event_attendees[:3]] if event_attendees else []
-        }, "A")
-        # #endregion
         # Get all attendees from event
         attendees = event.get("attendees", [])
         if not attendees:
@@ -343,14 +306,6 @@ def filter_events_by_attendees(
                     attendee_emails.append(email)
                 if display_name:
                     attendee_names.append(display_name)
-        
-        # #region debug log: extracted attendees
-        _debug_log("calendar_tools.py:308", "Extracted attendees", {
-            "attendee_emails": attendee_emails,
-            "attendee_names": attendee_names,
-            "patterns": patterns
-        }, "A")
-        # #endregion
         
         # Check if event matches filter
         matches = []
@@ -397,16 +352,6 @@ def filter_events_by_attendees(
             
             matches.append(matched)
         
-        # #region debug log: pattern matching result
-        _debug_log("calendar_tools.py:353", "Pattern matching result", {
-            "event_summary": event.get("summary", ""),
-            "patterns": patterns,
-            "matches": matches,
-            "operator": operator,
-            "will_include": (all(matches) if operator == "AND" else any(matches))
-        }, "A")
-        # #endregion
-        
         # Apply operator
         if operator == "AND":
             # All patterns must match
@@ -416,13 +361,6 @@ def filter_events_by_attendees(
             # At least one pattern must match
             if any(matches):
                 filtered_events.append(event)
-    
-    # #region debug log: filter result
-    _debug_log("calendar_tools.py:365", "filter_events_by_attendees result", {
-        "filtered_count": len(filtered_events),
-        "original_count": len(events)
-    }, "E")
-    # #endregion
     
     return filtered_events
 
@@ -488,15 +426,6 @@ class GetCalendarEventsTool(BaseTool):
     ) -> str:
         """Execute the tool asynchronously."""
         try:
-            # #region debug log: entry params
-            _debug_log("calendar_tools.py:420", "GetCalendarEventsTool._arun entry", {
-                "start_time": start_time,
-                "end_time": end_time,
-                "max_results": max_results,
-                "attendee_filter": attendee_filter
-            }, "C")
-            # #endregion
-            
             timezone = get_config().timezone
             tz = pytz.timezone(timezone)
             now = datetime.now(tz)
@@ -643,61 +572,19 @@ class GetCalendarEventsTool(BaseTool):
             
             events = result.get("items", []) if isinstance(result, dict) else []
             
-            # #region debug log: events before filter
-            _debug_log("calendar_tools.py:573", "Events before filtering", {
-                "total_events": len(events),
-                "first_event_attendees": events[0].get("attendees", [])[:3] if events else [],
-                "first_event_summary": events[0].get("summary", "") if events else ""
-            }, "D")
-            # #endregion
-            
             # Apply attendee filter if provided
             if attendee_filter:
                 try:
                     filter_config = parse_attendee_filter(attendee_filter)
-                    # #region debug log: filter config
-                    _debug_log("calendar_tools.py:578", "Filter config parsed", {
-                        "filter_config": filter_config,
-                        "attendee_filter": attendee_filter
-                    }, "A")
-                    # #endregion
                     events = filter_events_by_attendees(events, filter_config)
-                    # #region debug log: events after filter
-                    _debug_log("calendar_tools.py:580", "Events after filtering", {
-                        "filtered_count": len(events),
-                        "original_count": len(result.get("items", [])) if isinstance(result, dict) else 0
-                    }, "E")
-                    # #endregion
                 except ValidationError as e:
                     # If filter parsing fails, log warning but continue with all events
                     logger.warning(f"[GetCalendarEventsTool] Failed to parse attendee filter '{attendee_filter}': {e}")
-                    # #region debug log: filter parse error
-                    _debug_log("calendar_tools.py:582", "Filter parse error", {
-                        "error": str(e),
-                        "attendee_filter": attendee_filter
-                    }, "A")
-                    # #endregion
-            
-            # #region debug log: date range args
-            _debug_log("calendar_tools.py:548", "Date range args for API", {
-                "timeMin": args.get("timeMin"),
-                "timeMax": args.get("timeMax"),
-                "maxResults": args.get("maxResults")
-            }, "B")
-            # #endregion
             
             # FIXED: Use filtered events count, not original API count
             count = len(events) if isinstance(events, list) else 0            
             # If no events after filtering, return clear message
             if count == 0:
-                # #region debug log: no events found
-                _debug_log("calendar_tools.py:587", "No events found", {
-                    "count": count,
-                    "attendee_filter": attendee_filter,
-                    "start_time": start_time,
-                    "end_time": end_time
-                }, "F")
-                # #endregion
                 if attendee_filter:
                     return f"Found 0 events matching attendee filter '{attendee_filter}'. No events with this attendee in the specified time range."
                 return "Found 0 events in the specified time range."
