@@ -32,7 +32,27 @@ class ListProjectsTool(BaseTool):
     - permission_filter: Optional permission filter
     - with_groups: Include project groups (default: False)
     
-    Returns list of projects with their IDs, titles, and metadata.
+    **CRITICAL**: This tool returns BOTH project_id AND version_id for each project!
+    
+    **Response structure**:
+    Each project contains:
+    - id: project_id (UUID format, e.g., "IzNRF5kByOLXRJ_0k2_Cc")
+    - title: project name (e.g., "Atlas — веб-платформа")
+    - version_id: current version ID (UUID format, e.g., "j9CgXe1pncf4eKpgRBg5r")
+    - children: nested projects (if any)
+    
+    **IMPORTANT for nested projects like "Atlas"**:
+    - If project is nested (inside "Портфель: Разработка продуктов"), look in children array
+    - Each child project ALSO has id, title, and version_id fields
+    
+    **Example**: To find "Atlas" project:
+    1. Call projectlad_list_projects
+    2. Look in main projects or their children arrays
+    3. Find project with title containing "Atlas"
+    4. Extract BOTH id (project_id) and version_id from that project object
+    5. Use these IDs for projectlad_get_resource_utilization
+    
+    Returns list of projects with their IDs, titles, version_ids, and metadata.
     """
     args_schema: type = ListProjectsInput
     
@@ -53,11 +73,45 @@ class ListProjectsTool(BaseTool):
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("projectlad_list_projects", args, server_name="projectlad")
             
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_module, time
+                    f.write(json_module.dumps({"location": "projectlad_tools.py:list_projects:raw_result", "message": "Raw result from projectlad_list_projects", "data": {"result_type": type(result).__name__, "result_preview": str(result)[:500], "hypothesisId": "K"}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                    f.flush()
+            except Exception as e:
+                pass
+            # #endregion
+            
             if isinstance(result, str):
                 try:
                     result = json.loads(result)
                 except:
                     pass
+            
+            # Handle MCP response format - list of TextContent objects
+            if isinstance(result, list) and len(result) > 0:
+                # If it's a list of MCP TextContent objects
+                if hasattr(result[0], 'text'):
+                    try:
+                        result = json.loads(result[0].text)
+                    except:
+                        pass
+                elif isinstance(result[0], dict) and 'text' in result[0]:
+                    try:
+                        result = json.loads(result[0]['text'])
+                    except:
+                        pass
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_module, time
+                    f.write(json_module.dumps({"location": "projectlad_tools.py:list_projects:after_parse", "message": "Result after MCP parsing", "data": {"result_type": type(result).__name__, "is_dict": isinstance(result, dict), "has_projects": "projects" in result if isinstance(result, dict) else False, "hypothesisId": "K"}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                    f.flush()
+            except Exception as e:
+                pass
+            # #endregion
             
             if isinstance(result, dict):
                 projects = result.get("projects", result.get("result", []))
@@ -65,13 +119,56 @@ class ListProjectsTool(BaseTool):
                     return "No projects found."
                 
                 summary = f"Found {len(projects)} project(s):\n\n"
-                for i, project in enumerate(projects[:20], 1):
-                    project_id = project.get("id", "N/A")
-                    title = project.get("title", project.get("name", "Untitled"))
-                    summary += f"{i}. {title} (ID: {project_id})\n"
                 
-                if len(projects) > 20:
-                    summary += f"\n... and {len(projects) - 20} more projects."
+                def format_project(project, level=0):
+                    """Format project with nested children, showing project_id AND version_id."""
+                    indent = "  " * level
+                    project_id = project.get("id", "N/A")
+                    # API returns "current_version_id", not "version_id"
+                    version_id = project.get("version_id") or project.get("current_version_id", "N/A")
+                    title = project.get("title", project.get("name", "Untitled"))
+                    
+                    result = f"{indent}• {title}\n"
+                    result += f"{indent}  project_id: {project_id}\n"
+                    result += f"{indent}  version_id: {version_id}\n"
+                    
+                    # Process children if any
+                    children = project.get("children", [])
+                    if children:
+                        result += f"{indent}  ──────────────────────────\n"
+                        result += f"{indent}  ВЛОЖЕННЫЕ ПРОЕКТЫ (Children):\n"
+                        result += f"{indent}  ──────────────────────────\n"
+                        for child in children:
+                            result += format_project(child, level + 1)
+                    
+                    return result
+                
+                for i, project in enumerate(projects[:10], 1):
+                    summary += f"{i}. " + format_project(project)
+                    summary += "\n"
+                
+                if len(projects) > 10:
+                    summary += f"... and {len(projects) - 10} more projects."
+                
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json as json_module, time
+                        # Ищем проект Atlas в children
+                        atlas_found = None
+                        for proj in projects:
+                            if 'atlas' in proj.get('title', '').lower():
+                                atlas_found = {"project": proj.get('title'), "id": proj.get('id'), "version_id": proj.get('version_id')}
+                                break
+                            for child in proj.get('children', []):
+                                if 'atlas' in child.get('title', '').lower():
+                                    atlas_found = {"project": child.get('title'), "id": child.get('id'), "version_id": child.get('version_id'), "parent": proj.get('title')}
+                                    break
+                        f.write(json_module.dumps({"location": "projectlad_tools.py:list_projects:formatted_result", "message": "Formatted result for LLM", "data": {"summary_length": len(summary), "summary_preview": summary[:300], "projects_count": len(projects), "atlas_found": atlas_found, "hypothesisId": "K"}, "timestamp": int(time.time() * 1000), "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                        f.flush()
+                except Exception as e:
+                    pass
+                # #endregion
                 
                 return summary
             
@@ -439,6 +536,9 @@ class GetIndicatorAnalyticsTool(BaseTool):
     description: str = """
     Get indicator analytics with various data slices by period from Project Lad.
     
+    **NOTE**: This tool is for project indicators (metrics, KPIs), NOT for resource/employee workload.
+    For employee hours/workload, use projectlad_get_resource_utilization instead.
+    
     Input:
     - project_id: Project ID
     - from_date: Start date (ISO 8601 format: YYYY-MM-DD)
@@ -530,16 +630,30 @@ class GetResourceUtilizationTool(BaseTool):
     
     name: str = "projectlad_get_resource_utilization"
     description: str = """
-    Get resource utilization (загрузка ресурсов) for a project from Project Lad.
+    **PRIMARY TOOL** for getting resource/employee workload data (загрузка ресурсов/сотрудников) from Project Lad.
+    
+    **IMPORTANT**: This is the ONLY tool that returns actual employee hours and workload data.
+    Do NOT use projectlad_get_indicators or projectlad_get_indicator_analytics for this - they return different data.
+    
+    **Use this tool when user asks about:**
+    - Resource workload / загрузка ресурсов
+    - Employee hours / часы сотрудников  
+    - Staff allocation / распределение персонала
+    - Team capacity / загрузка команды
+    - How many hours employees work on project / сколько часов работают сотрудники
+    
+    **WORKFLOW**: You MUST have both project_id and version_id before calling this tool:
+    1. If you only have project name (e.g., "Atlas"), first call projectlad_list_projects to get project_id and version_id
+    2. Then call this tool with both IDs
+    
+    **Input (BOTH REQUIRED)**:
+    - project_id: Project ID (UUID format, NOT project name)
+    - version_id: Project version ID (UUID format)
     
     Returns detailed information about resource allocation by month, including:
     - Resource name (ФИО сотрудника)
     - Month (Месяц)
     - Hours (Часы загрузки)
-    
-    Input:
-    - project_id: Project ID
-    - version_id: Project version ID
     
     Returns aggregated resource utilization by month in human-readable format.
     """
@@ -631,8 +745,51 @@ class GetResourceUtilizationTool(BaseTool):
                 import json
                 analytics_result = json.loads(analytics_result)
             
-            utilization_data = utilization_result.get("result", {})
-            analytics_data = analytics_result.get("result", [])
+            # MCP server возвращает список напрямую, а не обернутый в {"result": [...]}
+            # Если результат - это список TextContent объектов от MCP, берем первый элемент
+            if isinstance(utilization_result, list) and len(utilization_result) > 0:
+                # Если это MCP response с TextContent
+                if hasattr(utilization_result[0], 'text'):
+                    import json
+                    utilization_data = json.loads(utilization_result[0].text)
+                elif isinstance(utilization_result[0], dict) and 'text' in utilization_result[0]:
+                    import json
+                    utilization_data = json.loads(utilization_result[0]['text'])
+                else:
+                    # Это уже распарсенный список данных
+                    utilization_data = utilization_result
+            elif isinstance(utilization_result, dict):
+                # Старый формат: {"result": [...]}
+                utilization_data = utilization_result.get("result", {})
+            else:
+                utilization_data = utilization_result
+            
+            # Если utilization_data - это обёртка {"message": "", "result": {...}}, берем result
+            if isinstance(utilization_data, dict) and "result" in utilization_data and "message" in utilization_data:
+                utilization_data = utilization_data["result"]
+            
+            # То же для analytics_result
+            if isinstance(analytics_result, list) and len(analytics_result) > 0:
+                if hasattr(analytics_result[0], 'text'):
+                    import json
+                    analytics_data = json.loads(analytics_result[0].text)
+                elif isinstance(analytics_result[0], dict) and 'text' in analytics_result[0]:
+                    import json
+                    analytics_data = json.loads(analytics_result[0]['text'])
+                else:
+                    analytics_data = analytics_result
+            elif isinstance(analytics_result, dict):
+                analytics_data = analytics_result.get("result", [])
+            else:
+                analytics_data = analytics_result
+            
+            # Если analytics_data - это обёртка {"message": "", "result": {...}}, берем result
+            if isinstance(analytics_data, dict) and "result" in analytics_data and "message" in analytics_data:
+                analytics_data = analytics_data["result"]
+            
+            # Если analytics_data - это обёртка {"analytics": [...]}, берем список
+            if isinstance(analytics_data, dict) and "analytics" in analytics_data:
+                analytics_data = analytics_data["analytics"]
             
             # #region agent log
             with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
@@ -657,13 +814,78 @@ class GetResourceUtilizationTool(BaseTool):
             
             # Создаем маппинг resource_id -> имя
             resource_names = {}
+            
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json
+                import time
+                f.write(json.dumps({
+                    "timestamp": int(time.time() * 1000),
+                    "location": "projectlad_tools.py:GetResourceUtilizationTool._arun:analytics_structure",
+                    "message": "Analytics data structure before mapping",
+                    "data": {
+                        "analytics_type": type(analytics_data).__name__,
+                        "analytics_len": len(analytics_data) if isinstance(analytics_data, list) else None,
+                        "analytics_preview": analytics_data[:3] if isinstance(analytics_data, list) else str(analytics_data)[:500]
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+                f.flush()
+            # #endregion
+            
             if isinstance(analytics_data, list):
                 for item in analytics_data:
-                    if "ресурс" in item.get("indicator_title", "").lower():
+                    indicator_title = item.get("indicator_title", "")
+                    
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        import json
+                        import time
+                        f.write(json.dumps({
+                            "timestamp": int(time.time() * 1000),
+                            "location": "projectlad_tools.py:GetResourceUtilizationTool._arun:analytics_item",
+                            "message": "Processing analytics item",
+                            "data": {
+                                "indicator_title": indicator_title,
+                                "has_resource_keyword": "ресурс" in indicator_title.lower(),
+                                "analytics_element_id": item.get("analytics_element_id"),
+                                "analytic_title": item.get("analytic_title"),
+                                "item_keys": list(item.keys())
+                            },
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "B"
+                        }) + "\n")
+                        f.flush()
+                    # #endregion
+                    
+                    if "ресурс" in indicator_title.lower():
                         resource_id = item.get("analytics_element_id")
                         name = item.get("analytic_title")
                         if resource_id and name:
                             resource_names[resource_id] = name
+            
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json
+                import time
+                f.write(json.dumps({
+                    "timestamp": int(time.time() * 1000),
+                    "location": "projectlad_tools.py:GetResourceUtilizationTool._arun:resource_names_mapping",
+                    "message": "Resource names mapping created",
+                    "data": {
+                        "mapping_size": len(resource_names),
+                        "resource_ids": list(resource_names.keys())[:10],
+                        "resource_names_preview": {k: v for k, v in list(resource_names.items())[:5]}
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "C"
+                }) + "\n")
+                f.flush()
+            # #endregion
             
             # Агрегируем данные по ресурсам и месяцам
             from datetime import datetime
@@ -671,36 +893,76 @@ class GetResourceUtilizationTool(BaseTool):
             
             resource_month_hours = defaultdict(lambda: defaultdict(int))
             
-            # Обрабатываем каждую работу
-            for work_id, assignments in utilization_data.items():
-                if not isinstance(assignments, list):
+            # Обрабатываем данные - они могут быть в двух форматах:
+            # Формат 1: {work_id: [{resource_id, start_date, end_date, value}, ...], ...}
+            # Формат 2: [{work_id, resource_id, start_date, end_date, value}, ...]
+            
+            assignments_list = []
+            if isinstance(utilization_data, dict):
+                # Формат 1: словарь с work_id -> список assignments
+                for work_id, assignments in utilization_data.items():
+                    if isinstance(assignments, list):
+                        assignments_list.extend(assignments)
+            elif isinstance(utilization_data, list):
+                # Формат 2: плоский список assignments
+                assignments_list = utilization_data
+            
+            # Обрабатываем каждый assignment
+            for assignment in assignments_list:
+                if not isinstance(assignment, dict):
                     continue
                 
-                for assignment in assignments:
-                    resource_id = assignment.get("resource_id")
-                    start_date_str = assignment.get("start_date")
-                    end_date_str = assignment.get("end_date")
-                    hours_per_day = assignment.get("value", 0)
-                    
-                    if not all([resource_id, start_date_str, end_date_str]):
-                        continue
-                    
-                    # Парсим даты
+                resource_id = assignment.get("resource_id")
+                start_date_str = assignment.get("start_date")
+                end_date_str = assignment.get("end_date")
+                hours_per_day = assignment.get("value", 0)
+                
+                # #region agent log
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json
+                    import time
+                    resource_name_from_mapping = resource_names.get(resource_id, resource_id)
+                    f.write(json.dumps({
+                        "timestamp": int(time.time() * 1000),
+                        "location": "projectlad_tools.py:GetResourceUtilizationTool._arun:assignment_processing",
+                        "message": "Processing assignment",
+                        "data": {
+                            "resource_id": resource_id,
+                            "found_in_mapping": resource_id in resource_names,
+                            "resource_name": resource_name_from_mapping,
+                            "start_date": start_date_str,
+                            "end_date": end_date_str,
+                            "hours_per_day": hours_per_day
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "D"
+                    }) + "\n")
+                    f.flush()
+                # #endregion
+                
+                if not all([resource_id, start_date_str, end_date_str]):
+                    continue
+                
+                # Парсим даты
+                try:
                     start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
                     end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
+                except (ValueError, AttributeError):
+                    continue
+                
+                # Получаем имя ресурса
+                resource_name = resource_names.get(resource_id, resource_id)
+                
+                # Итерируем по дням и агрегируем по месяцам
+                from datetime import timedelta
+                current_date = start_date
+                while current_date < end_date:
+                    month_key = current_date.strftime("%Y-%m")  # "2025-06"
+                    resource_month_hours[resource_name][month_key] += hours_per_day
                     
-                    # Получаем имя ресурса
-                    resource_name = resource_names.get(resource_id, resource_id)
-                    
-                    # Итерируем по дням и агрегируем по месяцам
-                    from datetime import timedelta
-                    current_date = start_date
-                    while current_date < end_date:
-                        month_key = current_date.strftime("%Y-%m")  # "2025-06"
-                        resource_month_hours[resource_name][month_key] += hours_per_day
-                        
-                        # Переход к следующему дню
-                        current_date = current_date + timedelta(days=1)
+                    # Переход к следующему дню
+                    current_date = current_date + timedelta(days=1)
             
             # Форматируем результат
             if not resource_month_hours:

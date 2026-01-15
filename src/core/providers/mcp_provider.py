@@ -82,8 +82,23 @@ class MCPToolProvider(ActionProvider):
             # Load Project Lad tools
             try:
                 from src.mcp_tools.projectlad_tools import get_projectlad_tools
-                tools.extend(get_projectlad_tools())
-            except ImportError:
+                projectlad_tools_list = get_projectlad_tools()
+                # #region agent log
+                import json
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"location": "mcp_provider.py:projectlad_load", "message": "ProjectLad tools loaded", "data": {"count": len(projectlad_tools_list), "tool_names": [t.name for t in projectlad_tools_list], "hypothesisId": "A"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                except: pass
+                # #endregion
+                tools.extend(projectlad_tools_list)
+            except ImportError as e:
+                # #region agent log
+                import json
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(json.dumps({"location": "mcp_provider.py:projectlad_error", "message": "ProjectLad tools not available", "data": {"error": str(e), "hypothesisId": "A"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                except: pass
+                # #endregion
                 logger.debug("[MCPToolProvider] ProjectLad tools not available")
             
             # Load code execution tools
@@ -173,6 +188,13 @@ class MCPToolProvider(ActionProvider):
             # Remove internal fields that Pydantic doesn't accept
             # These are added by unified_react_engine for tracking but MCP tools don't need them
             clean_arguments = {k: v for k, v in arguments.items() if not k.startswith('_')}
+            
+            # Fix ProjectLad argument naming inconsistency
+            # LLM sometimes uses 'project_version_id' (like in other ProjectLad tools)
+            # instead of 'version_id' (which is what GetResourceUtilizationInput expects)
+            if capability_name == 'projectlad_get_resource_utilization':
+                if 'project_version_id' in clean_arguments and 'version_id' not in clean_arguments:
+                    clean_arguments['version_id'] = clean_arguments.pop('project_version_id')
             
             # Fix common LLM argument naming mistakes for docs tools
             # LLM sometimes uses 'text' instead of 'content', 'position' instead of 'index'

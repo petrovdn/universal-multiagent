@@ -165,9 +165,10 @@ class UnifiedReActEngine:
         import json
         all_tool_names = [t.name for t in tools]
         slides_tool_names_final = [name for name in all_tool_names if 'slide' in name.lower() or 'presentation' in name.lower()]
+        projectlad_tool_names = [name for name in all_tool_names if 'projectlad' in name.lower()]
         try:
             with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "unified_react_engine.py:149", "message": "Final tools for LLM", "data": {"total_tools": len(tools), "slides_tool_names": slides_tool_names_final, "all_tool_names": all_tool_names[:10], "hypothesisId": "B"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
+                f.write(json.dumps({"location": "unified_react_engine.py:149", "message": "Final tools for LLM", "data": {"total_tools": len(tools), "slides_tool_names": slides_tool_names_final, "projectlad_tool_names": projectlad_tool_names, "all_tool_names": all_tool_names[:10], "hypothesisId": "B"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
         except: pass
         # #endregion
         return tools
@@ -1726,7 +1727,7 @@ class UnifiedReActEngine:
 - Файлы: "открой файл", "найди документ"
 - Таблицы: "данные из таблицы", "значения в ячейках"
 - 1С/Бухгалтерия: "проводки", "остатки на складах", "выручка"
-- Project Lad: "проекты", "портфель", "диаграмма ганта", "вехи"
+- Project Lad: "проекты", "портфель", "диаграмма ганта", "вехи", "загрузка ресурсов", "часы сотрудников", "workload"
 
 ВАЖНО: 
 - Если это УТОЧНЯЮЩИЙ вопрос (например "а на следующей неделе?", "а за прошлый месяц?", "еще покажи") 
@@ -1743,6 +1744,10 @@ class UnifiedReActEngine:
             response_text = str(response.content).strip().upper()
             
             llm_result = "ДА" in response_text or "YES" in response_text
+            
+            # Log the result
+            logger.info(f"[_needs_tools] goal='{goal[:50]}...', llm_response='{response_text[:100]}', needs_tools={llm_result}")
+            
             return llm_result
         except Exception as e:
             logger.error(f"[UnifiedReActEngine] Error checking if tools needed: {e}")
@@ -2933,23 +2938,31 @@ class UnifiedReActEngine:
         except: pass
         # #endregion
         
-        # CRITICAL FIX: Prioritize slides tools to ensure they're in the first 50
-        # Sort capabilities to put slides tools first
+        # CRITICAL FIX: Prioritize slides and projectlad tools to ensure they're in the first 50
+        # Sort capabilities to put slides and projectlad tools first
         sorted_capabilities = sorted(
             self.capabilities,
-            key=lambda cap: (0 if ('slide' in cap.name.lower() or 'presentation' in cap.name.lower()) else 1, cap.name)
+            key=lambda cap: (
+                0 if ('slide' in cap.name.lower() or 'presentation' in cap.name.lower()) else
+                1 if 'projectlad' in cap.name.lower() else
+                2, 
+                cap.name
+            )
         )
         
         for cap in sorted_capabilities[:50]:  # Limit to first 50, but slides tools are prioritized
             capability_descriptions.append(f"- {cap.name}: {cap.description}")
         
         tools_str = "\n".join(capability_descriptions)
-        # #region debug log
-        slides_in_tools_str = [desc for desc in capability_descriptions if 'slide' in desc.lower() or 'presentation' in desc.lower()]
+        # #region agent log
+        projectlad_in_tools = [desc for desc in capability_descriptions if 'projectlad' in desc.lower()]
         try:
             with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "unified_react_engine.py:2935", "message": "Tools string for LLM", "data": {"total_descriptions": len(capability_descriptions), "slides_in_string": slides_in_tools_str[:5], "tools_str_length": len(tools_str), "hypothesisId": "E"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-        except: pass
+                import json, time
+                f.write(json.dumps({"location": "unified_react_engine.py:_plan_action:tools_str", "message": "Tools for LLM in _plan_action", "data": {"total_tools": len(capability_descriptions), "projectlad_tools": projectlad_in_tools, "goal": state.goal, "hypothesisId": "I"}, "timestamp": int(time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                f.flush()
+        except Exception as e:
+            logger.error(f"Failed to write debug log: {e}")
         # #endregion
         
         # Build context
@@ -3118,6 +3131,12 @@ class UnifiedReActEngine:
 2. format_document_paragraph(end_index=X) → выравнивание для ВСЕГО документа
 3. FINISH
 
+⚠️ КРИТИЧЕСКИ ВАЖНО для PROJECT LAD (управление проектами):
+- "загрузка ресурсов" / "часы сотрудников" / "workload" = projectlad_get_resource_utilization
+- ❌ ЗАПРЕЩЕНО: projectlad_get_indicators (это для метрик проекта, НЕ для ресурсов)
+- ❌ ЗАПРЕЩЕНО: projectlad_get_indicator_analytics (это для аналитики метрик, НЕ для ресурсов)
+- ✅ ПРАВИЛЬНО: projectlad_get_resource_utilization - ТОЛЬКО этот tool для загрузки сотрудников!
+
 Выбери ОДИН инструмент и укажи параметры для его вызова. Ответь в формате JSON:
 {{
     "tool_name": "имя_инструмента",
@@ -3176,6 +3195,16 @@ class UnifiedReActEngine:
                 ]
             
             response = await self.llm.ainvoke(messages)
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_module, time
+                    f.write(json_module.dumps({"location": "unified_react_engine.py:_plan_action:llm_response", "message": "LLM response in _plan_action", "data": {"response_content": str(response.content)[:500], "goal": state.goal, "hypothesisId": "J"}, "timestamp": int(time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                    f.flush()
+            except Exception as e:
+                logger.error(f"Failed to write debug log: {e}")
+            # #endregion
             
             # Handle different response formats
             if isinstance(response.content, list):
@@ -3299,6 +3328,15 @@ class UnifiedReActEngine:
                 "drive_search_files", "workspace_open_file", "search_files"
             ])
         
+        # Project Lad - управление проектами
+        if any(kw in goal_lower for kw in ["project", "lad", "проект", "портфель", "загрузк", "ресурс", "workload", "часы сотрудник"]):
+            # Для загрузки ресурсов нужны оба инструмента - сначала найти проект, потом получить данные
+            relevant_tool_names.update([
+                "projectlad_list_projects",  # Чтобы найти project_id и version_id
+                "projectlad_get_resource_utilization",  # Чтобы получить загрузку
+                "projectlad_get_project_works"  # На случай если проект вложенный
+            ])
+        
         # Всегда добавляем FINISH
         relevant_tool_names.add("FINISH")
         
@@ -3378,8 +3416,28 @@ if salary_sheet:
             })
         
         # === ИСПРАВЛЕНИЕ A: Приоритизация инструментов ===
-        # Если это анализ нескольких вкладок - get_all_sheets_data должен быть ПЕРВЫМ
         goal_lower_for_priority = goal.lower()
+        
+        # Приоритет 1: Запросы о зарплате из 1С
+        needs_salary_priority = any(kw in goal_lower_for_priority for kw in [
+            "зарплат", "оплат", "труд", "сотрудник", "персонал",
+            "выгрузи из 1с", "выгрузи из 1c", "из 1с", "из 1c",
+            "счет 70", "расчеты с персоналом"
+        ]) and any(kw in goal_lower_for_priority for kw in ["1с", "1c", "бухгалтери", "учет"])
+        
+        if needs_salary_priority and "onec_get_salary_by_employee_month" not in completed_tools:
+            prioritized = []
+            # 1. Сначала добавляем onec_get_salary_by_employee_month
+            salary_tool = next((t for t in result if t["name"] == "onec_get_salary_by_employee_month"), None)
+            if salary_tool:
+                prioritized.append(salary_tool)
+                result = [t for t in result if t["name"] != "onec_get_salary_by_employee_month"]
+            
+            # 2. Затем остальные tools
+            prioritized.extend(result)
+            result = prioritized
+        
+        # Приоритет 2: Анализ нескольких вкладок - get_all_sheets_data должен быть ПЕРВЫМ
         needs_multi_sheet_priority = any(kw in goal_lower_for_priority for kw in [
             "несколько вкладок", "две вкладки", "все вкладки", 
             "проанализируй", "анализ", "расширенный", "большой", 
@@ -3539,6 +3597,17 @@ if salary_sheet:
         # Получаем релевантные инструменты (3-7 штук вместо 50)
         relevant_tools = self._get_relevant_tools(state.goal, completed_tools)
         tools_str = "\n".join([f"- {t['name']}: {t['description']}" for t in relevant_tools])
+        
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_module, time
+                projectlad_tools = [t for t in relevant_tools if 'projectlad' in t['name'].lower()]
+                f.write(json_module.dumps({"location": "unified_react_engine.py:_think_and_plan:relevant_tools", "message": "Relevant tools from _get_relevant_tools", "data": {"total_tools": len(relevant_tools), "tool_names": [t['name'] for t in relevant_tools], "projectlad_tools": projectlad_tools, "goal": state.goal, "hypothesisId": "I"}, "timestamp": int(time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                f.flush()
+        except Exception as e:
+            logger.error(f"Failed to write debug log: {e}")
+        # #endregion
         
         # ===== СЕКЦИЯ 1: TASK_STATUS (в начале!) =====
         task_status = f"""<task_status>
@@ -3700,6 +3769,39 @@ if salary_sheet:
    4. Заключение
    
    ⚠️ ПОРЯДОК: create_presentation → (create_slide → insert_slide_text) × N раз → FINISH"""
+        
+        # Правило для Project Lad
+        needs_projectlad = any(kw in goal_lower_check for kw in ["project", "lad", "проект", "портфель", "загрузк", "ресурс", "workload", "часы сотрудник"])
+        if needs_projectlad:
+            special_rules += """
+10. 📊 PROJECT LAD — ОБЯЗАТЕЛЬНЫЙ ПОРЯДОК ДЛЯ ЗАГРУЗКИ РЕСУРСОВ:
+   ⚠️ КРИТИЧЕСКИ ВАЖНО: Для получения загрузки ресурсов нужны project_id И version_id!
+   
+   ПРАВИЛЬНЫЙ ПОРЯДОК:
+   1. Вызови projectlad_list_projects
+   2. В ответе ищи КОНКРЕТНЫЙ проект по НАЗВАНИЮ (например "Atlas")
+   3. Если проект ВЛОЖЕННЫЙ (находится в секции "ВЛОЖЕННЫЕ ПРОЕКТЫ (Children)"):
+      - НЕ используй данные родительского проекта!
+      - Используй данные ВЛОЖЕННОГО проекта (находится под разделителем ──────)
+   4. Копируй project_id и version_id ТОЧНО как показано для НУЖНОГО проекта
+   
+   ПРИМЕР ответа projectlad_list_projects:
+   • Портфель: Разработка продуктов
+     project_id: 20DCveXE7Cf88cBuui9Fx  ← НЕ ИСПОЛЬЗУЙ ЭТО для Atlas!
+     version_id: UOz6dC2GB5n25jbBwmQ0B   ← НЕ ИСПОЛЬЗУЙ ЭТО для Atlas!
+     ──────────────────────────
+     ВЛОЖЕННЫЕ ПРОЕКТЫ (Children):
+     ──────────────────────────
+      • Atlas — веб-платформа
+        project_id: IzNRF5kByOLXRJ_0k2_Cc  ← ИСПОЛЬЗУЙ ЭТО для Atlas!
+        version_id: koNwJOYXf8vrk4x0aqsIl   ← ИСПОЛЬЗУЙ ЭТО для Atlas!
+   
+   ⚠️ ДЛЯ ВЛОЖЕННОГО ПРОЕКТА "Atlas":
+   - project_id: IzNRF5kByOLXRJ_0k2_Cc (НЕ 20DCveXE7Cf88cBuui9Fx!)
+   - version_id: koNwJOYXf8vrk4x0aqsIl (НЕ UOz6dC2GB5n25jbBwmQ0B!)
+   
+   ❌ ЗАПРЕЩЕНО: Использовать project_id/version_id родительского проекта для вложенного проекта!
+   ✅ ПРАВИЛЬНО: Всегда бери данные КОНКРЕТНОГО проекта который запрашивается, а не его родителя!"""
         
         # === ИСПРАВЛЕНИЕ C: Явный список библиотек для execute_python_code ===
         code_execution_rule = ""
@@ -3944,6 +4046,16 @@ if salary_sheet:
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_module, time
+                    f.write(json_module.dumps({"location": "unified_react_engine.py:_think_and_plan:action_plan", "message": "Action plan from LLM", "data": {"tool_name": tool_name, "arguments": action_plan.get("arguments", {}), "description": action_plan.get("description", ""), "reasoning": action_plan.get("reasoning", "")[:200], "thought_preview": thought[:200] if thought else "", "goal": state.goal, "hypothesisId": "J"}, "timestamp": int(time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                    f.flush()
+            except Exception as e:
+                logger.error(f"Failed to write debug log: {e}")
+            # #endregion
             
             # Validate execute_python_code has code
             if tool_name == "execute_python_code":
