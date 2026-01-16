@@ -5243,14 +5243,6 @@ raise ValueError("Код анализа не был предоставлен. П
             # Sheets operations
             elif capability_name in ['get_sheet_data', 'get_all_sheets_data', 'add_rows', 'update_cells']:
                 try:
-                    # #region agent log
-                    try:
-                        import json as _json, time as _time
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(_json.dumps({"location": "unified_react_engine.py:_execute_action:sheets_operation", "message": "Processing sheets operation", "data": {"capability_name": capability_name, "operation_id": operation_id, "result_preview": str(result)[:200] if result else None, "hypothesisId": "SHEETS1"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                    except: pass
-                    # #endregion
-                    
                     items, summary = await self._parse_sheets_result(str(result), capability_name, arguments)
                     if items:
                         for item in items:
@@ -5265,13 +5257,6 @@ raise ValueError("Код анализа не был предоставлен. П
                             operation_id,
                             summary
                         )
-                        # #region agent log
-                        try:
-                            import json as _json, time as _time
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(_json.dumps({"location": "unified_react_engine.py:_execute_action:sheets_operation_end", "message": "Sent operation_end for sheets operation", "data": {"capability_name": capability_name, "operation_id": operation_id, "summary": summary, "hypothesisId": "SHEETS2"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                        except: pass
-                        # #endregion
                 except Exception as e:
                     logger.warning(f"[UnifiedReActEngine] Failed to process sheets operation for {capability_name}: {e}", exc_info=True)
                     result_summary = self._get_result_summary(capability_name, result)
@@ -5281,13 +5266,6 @@ raise ValueError("Код анализа не был предоставлен. П
                             operation_id,
                             result_summary
                         )
-                        # #region agent log
-                        try:
-                            import json as _json, time as _time
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(_json.dumps({"location": "unified_react_engine.py:_execute_action:sheets_operation_end_error", "message": "Sent operation_end after error", "data": {"capability_name": capability_name, "operation_id": operation_id, "error": str(e), "summary": result_summary, "hypothesisId": "SHEETS3"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                        except: pass
-                        # #endregion
             
             # Gmail operations
             elif capability_name in ['list_emails', 'search_emails']:
