@@ -939,23 +939,6 @@ class GoogleSheetsMCPServer:
                     spreadsheet_id = self._extract_spreadsheet_id(arguments.get("spreadsheetId"))
                     max_rows = arguments.get("maxRows", 1000)
                     
-                    # #region agent log
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        import time
-                        f.write(json.dumps({
-                            "timestamp": int(time.time() * 1000),
-                            "location": "sheets_read_all_sheets:entry",
-                            "message": "sheets_read_all_sheets called",
-                            "data": {
-                                "spreadsheet_id": spreadsheet_id,
-                                "max_rows": max_rows
-                            },
-                            "sessionId": "debug-session",
-                            "runId": "run1",
-                            "hypothesisId": "B"
-                        }) + "\n")
-                    # #endregion
-                    
                     # Get spreadsheet info to find all sheets
                     spreadsheet = service.spreadsheets().get(
                         spreadsheetId=spreadsheet_id
@@ -963,24 +946,6 @@ class GoogleSheetsMCPServer:
                     
                     spreadsheet_title = spreadsheet.get('properties', {}).get('title', 'Unknown')
                     sheets_list = spreadsheet.get('sheets', [])
-                    
-                    # #region agent log
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        import time
-                        f.write(json.dumps({
-                            "timestamp": int(time.time() * 1000),
-                            "location": "sheets_read_all_sheets:sheets_found",
-                            "message": "Sheets list retrieved",
-                            "data": {
-                                "spreadsheet_title": spreadsheet_title,
-                                "sheets_count": len(sheets_list),
-                                "sheet_names": [s['properties']['title'] for s in sheets_list]
-                            },
-                            "sessionId": "debug-session",
-                            "runId": "run1",
-                            "hypothesisId": "B"
-                        }) + "\n")
-                    # #endregion
                     
                     if not sheets_list:
                         return [TextContent(
@@ -1012,25 +977,6 @@ class GoogleSheetsMCPServer:
                             range_to_read = f"'{sheet_title}'!A1:{end_col}{row_count}"
                             actual_rows = row_count
                         
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            import time
-                            f.write(json.dumps({
-                                "timestamp": int(time.time() * 1000),
-                                "location": "sheets_read_all_sheets:reading_sheet",
-                                "message": "Reading sheet data",
-                                "data": {
-                                    "sheet_title": sheet_title,
-                                    "range_to_read": range_to_read,
-                                    "row_count": row_count,
-                                    "col_count": col_count
-                                },
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "C"
-                            }) + "\n")
-                        # #endregion
-                        
                         # Read data from this sheet
                         try:
                             values_result = service.spreadsheets().values().get(
@@ -1041,24 +987,6 @@ class GoogleSheetsMCPServer:
                             
                             values = values_result.get('values', [])
                             
-                            # #region agent log
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                import time
-                                f.write(json.dumps({
-                                    "timestamp": int(time.time() * 1000),
-                                    "location": "sheets_read_all_sheets:sheet_success",
-                                    "message": "Sheet read successfully",
-                                    "data": {
-                                        "sheet_title": sheet_title,
-                                        "values_count": len(values),
-                                        "first_row_sample": values[0] if values else None
-                                    },
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "C"
-                                }) + "\n")
-                            # #endregion
-                            
                             all_sheets_data.append({
                                 "name": sheet_title,
                                 "values": values,
@@ -1066,25 +994,6 @@ class GoogleSheetsMCPServer:
                                 "columnCount": max(len(row) for row in values) if values else 0
                             })
                         except Exception as e:
-                            # #region agent log
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                import time
-                                f.write(json.dumps({
-                                    "timestamp": int(time.time() * 1000),
-                                    "location": "sheets_read_all_sheets:sheet_error",
-                                    "message": "Failed to read sheet",
-                                    "data": {
-                                        "sheet_title": sheet_title,
-                                        "range_to_read": range_to_read,
-                                        "error": str(e),
-                                        "error_type": type(e).__name__
-                                    },
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "C"
-                                }) + "\n")
-                            # #endregion
-                            
                             logger.warning(f"Failed to read sheet '{sheet_title}': {e}")
                             all_sheets_data.append({
                                 "name": sheet_title,

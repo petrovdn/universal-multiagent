@@ -265,159 +265,20 @@ class PlanModeAdapter:
         """
         logger.info(f"[PlanModeAdapter] execute() called for goal: {goal[:100]}")
         
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                log_entry = {
-                    "location": "mode_adapters.py:plan_execute_start",
-                    "message": "PlanModeAdapter.execute() called",
-                    "data": {
-                        "session_id": self.session_id,
-                        "goal_length": len(goal) if goal else 0,
-                        "goal_preview": goal[:100] if goal else ""
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H3"
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception:
-            pass
-        # #endregion
-        
         # Phase 1: Research (read-only)
         logger.info(f"[PlanModeAdapter] Starting research phase")
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                log_entry = {
-                    "location": "mode_adapters.py:before_research_phase",
-                    "message": "Before _research_phase()",
-                    "data": {
-                        "session_id": self.session_id
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H4"
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception:
-            pass
-        # #endregion
-        
         research_result = await self._research_phase(goal, context, file_ids)
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                log_entry = {
-                    "location": "mode_adapters.py:after_research_phase",
-                    "message": "After _research_phase()",
-                    "data": {
-                        "session_id": self.session_id,
-                        "has_result": bool(research_result.get('final_result')) if research_result else False
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H4"
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception:
-            pass
-        # #endregion
-        
         logger.info(f"[PlanModeAdapter] Research phase completed: has_result={bool(research_result.get('final_result'))}")
-        
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                log_entry = {
-                    "location": "mode_adapters.py:before_plan_generation",
-                    "message": "Before plan generation",
-                    "data": {
-                        "session_id": self.session_id,
-                        "has_research_result": bool(research_result),
-                        "research_result_keys": list(research_result.keys()) if research_result else []
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H8"
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception as e:
-            logger.error(f"Failed to write debug log: {e}")
-        # #endregion
         
         # Phase 2: Generate Plan
         logger.info(f"[PlanModeAdapter] Starting plan generation")
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                log_entry = {
-                    "location": "mode_adapters.py:before_generate_plan_call",
-                    "message": "Before _generate_plan() call",
-                    "data": {
-                        "session_id": self.session_id
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H8"
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception as e:
-            logger.error(f"Failed to write debug log: {e}")
-        # #endregion
-        
         try:
             plan = await self._generate_plan(goal, research_result, context)
-            
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    log_entry = {
-                        "location": "mode_adapters.py:after_generate_plan_call",
-                        "message": "After _generate_plan() call",
-                        "data": {
-                            "session_id": self.session_id,
-                            "has_plan": bool(plan),
-                            "plan_keys": list(plan.keys()) if plan else [],
-                            "plan_length": len(plan.get('plan', '')) if plan else 0
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H8"
-                    }
-                    f.write(json.dumps(log_entry) + '\n')
-            except Exception as e:
-                logger.error(f"Failed to write debug log: {e}")
-            # #endregion
         except Exception as e:
             logger.error(f"[PlanModeAdapter] Error in _generate_plan: {e}", exc_info=True)
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    log_entry = {
-                        "location": "mode_adapters.py:generate_plan_error",
-                        "message": "Error in _generate_plan()",
-                        "data": {
-                            "session_id": self.session_id,
-                            "error": str(e),
-                            "error_type": type(e).__name__
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H8"
-                    }
-                    f.write(json.dumps(log_entry) + '\n')
-            except Exception:
-                pass
-            # #endregion
             raise
         logger.info(f"[PlanModeAdapter] Plan generated: has_plan={bool(plan.get('plan'))}, plan_length={len(plan.get('plan', ''))}, steps_count={len(plan.get('steps', []))}")
         
@@ -444,27 +305,6 @@ class PlanModeAdapter:
         """Phase 1: Research existing code/data (read-only)."""
         logger.info(f"[PlanModeAdapter] Starting research phase for: {goal}")
         
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                log_entry = {
-                    "location": "mode_adapters.py:_research_phase_start",
-                    "message": "_research_phase() called",
-                    "data": {
-                        "session_id": self.session_id,
-                        "goal": goal[:100] if goal else ""
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H4"
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception:
-            pass
-        # #endregion
-        
         config = ReActConfig(
             mode="plan",
             allowed_categories=[CapabilityCategory.READ],
@@ -488,45 +328,7 @@ class PlanModeAdapter:
         try:
             research_goal = f"Исследуй существующий код и данные для задачи: {goal}"
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    log_entry = {
-                        "location": "mode_adapters.py:before_engine_execute_research",
-                        "message": "Before engine.execute() with phase='research'",
-                        "data": {
-                            "session_id": self.session_id,
-                            "research_goal": research_goal[:100]
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H5"
-                    }
-                    f.write(json.dumps(log_entry) + '\n')
-            except Exception:
-                pass
-            # #endregion
-            
             result = await engine.execute(research_goal, context, file_ids, phase="research")
-            
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    log_entry = {
-                        "location": "mode_adapters.py:after_engine_execute_research",
-                        "message": "After engine.execute() with phase='research'",
-                        "data": {
-                            "session_id": self.session_id,
-                            "has_result": bool(result) if result else False
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H5"
-                    }
-                    f.write(json.dumps(log_entry) + '\n')
-            except Exception:
-                pass
-            # #endregion
             
             logger.info(f"[PlanModeAdapter] Research phase completed")
             return result
@@ -543,51 +345,11 @@ class PlanModeAdapter:
         """Phase 2: Generate markdown plan based on research."""
         logger.info(f"[PlanModeAdapter] Generating plan for: {goal}")
         
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                log_entry = {
-                    "location": "mode_adapters.py:_generate_plan_start",
-                    "message": "_generate_plan() called",
-                    "data": {
-                        "session_id": self.session_id,
-                        "goal": goal[:100] if goal else ""
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H8"
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception as e:
-            logger.error(f"Failed to write debug log: {e}")
-        # #endregion
-        
         from langchain_core.messages import SystemMessage, HumanMessage
         from src.agents.model_factory import create_llm
         
         # Use LLM to generate plan
         llm = create_llm(self.model_name or "claude-sonnet-4-5")
-        
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                log_entry = {
-                    "location": "mode_adapters.py:_generate_plan_llm_created",
-                    "message": "LLM created, preparing messages",
-                    "data": {
-                        "session_id": self.session_id,
-                        "model_name": self.model_name or "claude-sonnet-4-5"
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H8"
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception:
-            pass
-        # #endregion
         
         research_summary = research_result.get("final_result", "")
         if len(research_summary) > 2000:
@@ -620,49 +382,8 @@ class PlanModeAdapter:
             HumanMessage(content=user_prompt)
         ]
         
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                log_entry = {
-                    "location": "mode_adapters.py:_generate_plan_before_llm_invoke",
-                    "message": "Before llm.ainvoke()",
-                    "data": {
-                        "session_id": self.session_id,
-                        "messages_count": len(messages),
-                        "user_prompt_length": len(user_prompt)
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H8"
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception:
-            pass
-        # #endregion
-        
         try:
             response = await llm.ainvoke(messages)
-            
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    log_entry = {
-                        "location": "mode_adapters.py:_generate_plan_after_llm_invoke",
-                        "message": "After llm.ainvoke()",
-                        "data": {
-                            "session_id": self.session_id,
-                            "has_response": bool(response),
-                            "response_content_type": type(response.content).__name__ if response and hasattr(response, 'content') else None,
-                            "response_content_length": len(response.content) if response and hasattr(response, 'content') else 0
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H8"
-                    }
-                    f.write(json.dumps(log_entry) + '\n')
-            except Exception:
-                pass
-            # #endregion
             
             # Handle both string and list content (Claude can return list of content blocks)
             content = response.content
@@ -691,49 +412,10 @@ class PlanModeAdapter:
             self._plan_text = plan_text
             self._plan_steps = steps
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    log_entry = {
-                        "location": "mode_adapters.py:_generate_plan_complete",
-                        "message": "_generate_plan() completed",
-                        "data": {
-                            "session_id": self.session_id,
-                            "plan_length": len(plan_text),
-                            "steps_count": len(steps)
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H8"
-                    }
-                    f.write(json.dumps(log_entry) + '\n')
-            except Exception:
-                pass
-            # #endregion
-            
             logger.info(f"[PlanModeAdapter] Generated plan with {len(steps)} steps")
             return plan
         except Exception as e:
             logger.error(f"[PlanModeAdapter] Error generating plan: {e}", exc_info=True)
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    log_entry = {
-                        "location": "mode_adapters.py:_generate_plan_error",
-                        "message": "Error in _generate_plan()",
-                        "data": {
-                            "session_id": self.session_id,
-                            "error": str(e),
-                            "error_type": type(e).__name__
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H8"
-                    }
-                    f.write(json.dumps(log_entry) + '\n')
-            except Exception:
-                pass
-            # #endregion
             raise
     
     def _extract_steps_from_plan(self, plan_text: str) -> List[str]:

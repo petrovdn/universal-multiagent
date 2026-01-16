@@ -14,12 +14,6 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
   const workflowPlan = workflow?.plan
   const workspaceStore = useWorkspaceStore()
   
-  // #region agent log
-  React.useEffect(() => {
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlanBlock.tsx:render',message:'PlanBlock rendered',data:{workflowId:workflowId,hasWorkflow:!!workflow,hasPlan:!!workflowPlan,hasPlanText:!!workflowPlan?.plan,planTextLength:workflowPlan?.plan?.length||0,hasSteps:!!workflowPlan?.steps,stepsCount:workflowPlan?.steps?.length||0,awaitingConfirmation:workflowPlan?.awaitingConfirmation},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
-  }, [workflowId, workflowPlan]);
-  // #endregion
-  
   // Find plan tab for this workflow
   const planTab = workspaceStore.tabs.find(
     t => t.type === 'plan' && t.data?.workflowId === workflowId

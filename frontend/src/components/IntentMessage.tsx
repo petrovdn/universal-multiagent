@@ -34,12 +34,6 @@ export function IntentMessage({
   // Показывать секцию "Планирую" если есть thinking или в фазе planning (только если НЕТ iterations)
   const showPlanningSection = !hasIterations && (hasThinkingText || isPlanning)
   
-  // #region agent log
-  if (typeof window !== 'undefined') {
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'IntentMessage.tsx:showPlanningSection',message:'Planning section visibility check',data:{showPlanningSection:showPlanningSection,hasIterations:hasIterations,hasThinkingText:hasThinkingText,thinkingTextLength:block.thinkingText?.length||0,phase:block.phase},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H10'})}).catch(()=>{});
-  }
-  // #endregion
-  
   // Показывать секцию "Выполняю" если есть operations, details или в фазе executing/completed (только если НЕТ iterations)
   // ВАЖНО: Если есть операции, игнорируем старые details, чтобы избежать дублирования
   const showExecutingSection = !hasIterations && (hasOperations || (!hasOperations && hasDetails) || isExecuting || isCompleted)

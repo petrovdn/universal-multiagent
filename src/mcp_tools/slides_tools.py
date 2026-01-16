@@ -214,13 +214,6 @@ class CreateSlideTool(BaseTool):
         """Execute the tool asynchronously."""
         try:
             # #region debug log
-            import json as json_debug
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json_debug.dumps({"location": "slides_tools.py:216", "message": "create_slide called with args", "data": {"presentation_id": presentation_id, "layout": layout, "hypothesisId": "SLIDE_ARGS"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-            except: pass
-            # #endregion
-            
             args = {"presentationId": presentation_id, "layout": layout}
             if insertion_index is not None:
                 args["insertionIndex"] = insertion_index
@@ -240,14 +233,6 @@ class CreateSlideTool(BaseTool):
             if isinstance(result, str):
                 import json
                 result = json.loads(result)
-            
-            # #region debug log
-            import json as json_debug
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(json_debug.dumps({"location": "slides_tools.py:237", "message": "create_slide API result", "data": {"result_type": str(type(result)), "result": str(result)[:500], "hypothesisId": "SLIDE_API"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-            except: pass
-            # #endregion
             
             # Try multiple ways to get slide_id
             slide_id = None

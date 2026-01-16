@@ -907,52 +907,10 @@ WebSocket endpoint for real-time communication."""
                     logger.warning(f"[WS] No execution_mode in message, using context.execution_mode: {context.execution_mode}")
                     print(f"[WS] WARNING: No execution_mode in message, using context.execution_mode: {context.execution_mode}", flush=True)
                 
-                # #region agent log - write to debug.log file
-                import json
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        log_entry = {
-                            "location": "server.py:websocket_endpoint",
-                            "message": "Before process_message",
-                            "data": {
-                                "session_id": session_id,
-                                "execution_mode": context.execution_mode,
-                                "execution_mode_from_message": execution_mode,
-                                "user_message_length": len(user_message) if user_message else 0
-                            },
-                            "timestamp": int(time.time() * 1000),
-                            "sessionId": "debug-session",
-                            "hypothesisId": "H3"
-                        }
-                        f.write(json.dumps(log_entry) + '\n')
-                except Exception as e:
-                    logger.error(f"Failed to write debug log: {e}")
-                # #endregion
-                
                 # Run process_message in background task to avoid blocking the message loop
                 # This allows other messages (like approve_plan) to be received while processing
                 async def process_message_task():
                     try:
-                        # #region agent log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                log_entry = {
-                                    "location": "server.py:process_message_task",
-                                    "message": "process_message called",
-                                    "data": {
-                                        "session_id": session_id,
-                                        "execution_mode": context.execution_mode,
-                                        "user_message_length": len(user_message) if user_message else 0
-                                    },
-                                    "timestamp": int(time.time() * 1000),
-                                    "sessionId": "debug-session",
-                                    "hypothesisId": "H3"
-                                }
-                                f.write(json.dumps(log_entry) + '\n')
-                        except Exception:
-                            pass
-                        # #endregion
-                        
                         await agent_wrapper.process_message(
                             user_message,
                             context,

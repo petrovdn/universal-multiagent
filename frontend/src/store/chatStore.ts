@@ -1881,9 +1881,6 @@ export const useChatStore = create<ChatState>()(
               const existingIteration = intent.iterations.find(iter => iter.iterationNumber === iterationNumber)
               if (existingIteration) {
                 // Итерация уже существует - не создаём дубликат
-                // #region agent log
-                fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startIteration',message:'Iteration already exists, skipping',data:{iterationNumber:iterationNumber, intentId:intentId, existingIterationsCount:intent.iterations.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ITER3'})}).catch(()=>{});
-                // #endregion
                 return intent
               }
               
@@ -1915,10 +1912,6 @@ export const useChatStore = create<ChatState>()(
                   isCollapsed: false, // Новая итерация развёрнута
                 },
               }
-              
-              // #region agent log
-              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startIteration',message:'Creating new iteration',data:{iterationNumber:iterationNumber, intentId:intentId, previousIterationsCount:collapsedIterations.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'ITER4'})}).catch(()=>{});
-              // #endregion
               
               return {
                 ...intent,
@@ -2037,10 +2030,6 @@ export const useChatStore = create<ChatState>()(
           const foundIntent = existingIntents.find(i => i.id === intentId)
           const foundIteration = foundIntent?.iterations.find(iter => iter.iterationNumber === iterationNumber)
           
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startIterationAction',message:'Linking operationId to iteration',data:{workflowId,intentId,iterationNumber,operationId,foundIntent:!!foundIntent,foundIteration:!!foundIteration,allIntentIds:existingIntents.map(i=>i.id),iterationsInIntent:foundIntent?.iterations.map(i=>i.iterationNumber)||[]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'LINK1'})}).catch(()=>{});
-          // #endregion
-          
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
               const updatedIterations = intent.iterations.map(iter => {
@@ -2119,10 +2108,6 @@ export const useChatStore = create<ChatState>()(
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []
           const foundIntent = existingIntents.find(i => i.id === intentId)
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:startOperation',message:'Creating operation',data:{workflowId,operationId,intentId,foundIntent:!!foundIntent,allIntentIds:existingIntents.map(i=>i.id),iterationsCount:foundIntent?.iterations.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'OP_CREATE1'})}).catch(()=>{});
-          // #endregion
           
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
@@ -2227,12 +2212,6 @@ export const useChatStore = create<ChatState>()(
       
       completeOperation: (workflowId: string, intentId: string, operationId: string, summary: string) =>
         set((state) => {
-          // #region agent log
-          try {
-            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:completeOperation',message:'completeOperation called',data:{workflowId,intentId,operationId,summary:summary?.substring(0,100),hasIntentBlock:!!(state.intentBlocks[workflowId]||[]).find(i=>i.id===intentId)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-          } catch {}
-          // #endregion
-          
           const existingIntents = state.intentBlocks[workflowId] || []
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId && intent.operations[operationId]) {

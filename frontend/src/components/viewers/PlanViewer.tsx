@@ -13,12 +13,6 @@ interface PlanViewerProps {
 export function PlanViewer({ tab }: PlanViewerProps) {
   const planData = tab.data as PlanData | undefined
   
-  // #region agent log
-  React.useEffect(() => {
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlanViewer.tsx:render',message:'PlanViewer rendered',data:{tabId:tab.id,tabType:tab.type,hasData:!!tab.data,hasPlanData:!!planData,planTextLength:planData?.planText?.length||0,hasConfirmationId:!!planData?.confirmationId,workflowId:planData?.workflowId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
-  }, [tab.id, planData]);
-  // #endregion
-  
   const currentSession = useChatStore((state) => state.currentSession)
   const updateTab = useWorkspaceStore((state) => state.updateTab)
   

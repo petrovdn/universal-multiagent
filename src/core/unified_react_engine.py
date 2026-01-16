@@ -142,35 +142,10 @@ class UnifiedReActEngine:
             if provider.provider_type.value == "mcp_tool":
                 # MCP provider has direct access to BaseTool instances
                 if hasattr(provider, 'tools'):
-                    # #region debug log
-                    import json
-                    slides_tool_names_before = [t.name for t in tools if 'slide' in t.name.lower() or 'presentation' in t.name.lower()]
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({"location": "unified_react_engine.py:144", "message": "Before adding provider tools", "data": {"tools_count": len(tools), "slides_tools_before": slides_tool_names_before, "provider_tools_count": len(provider.tools), "hypothesisId": "B"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-                    except: pass
-                    # #endregion
                     tools.extend(provider.tools.values())
-                    # #region debug log
-                    slides_tool_names_after = [t.name for t in tools if 'slide' in t.name.lower() or 'presentation' in t.name.lower()]
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(json.dumps({"location": "unified_react_engine.py:146", "message": "After adding provider tools", "data": {"tools_count": len(tools), "slides_tools_after": slides_tool_names_after, "hypothesisId": "B"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-                    except: pass
-                    # #endregion
                 break
         
         logger.info(f"[UnifiedReActEngine] Built {len(tools)} tools for LLM planning")
-        # #region debug log
-        import json
-        all_tool_names = [t.name for t in tools]
-        slides_tool_names_final = [name for name in all_tool_names if 'slide' in name.lower() or 'presentation' in name.lower()]
-        projectlad_tool_names = [name for name in all_tool_names if 'projectlad' in name.lower()]
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "unified_react_engine.py:149", "message": "Final tools for LLM", "data": {"total_tools": len(tools), "slides_tool_names": slides_tool_names_final, "projectlad_tool_names": projectlad_tool_names, "all_tool_names": all_tool_names[:10], "hypothesisId": "B"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-        except: pass
-        # #endregion
         return tools
     
     def _create_fast_llm(self) -> BaseChatModel:
@@ -240,29 +215,6 @@ class UnifiedReActEngine:
         Returns:
             Execution result
         """
-        # #region agent log
-        try:
-            import json
-            import time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                log_entry = {
-                    "location": "unified_react_engine.py:execute_start",
-                    "message": "UnifiedReActEngine.execute() called",
-                    "data": {
-                        "session_id": self.session_id,
-                        "phase": phase,
-                        "goal_length": len(goal) if goal else 0,
-                        "config_mode": self.config.mode
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": "debug-session",
-                    "hypothesisId": "H5"
-                }
-                f.write(json.dumps(log_entry) + '\n')
-        except Exception:
-            pass
-        # #endregion
-        
         # Нормализуем неразрывные пробелы (U+00A0) в обычные пробелы
         # Это критично для keyword matching в DANGEROUS_OPERATIONS и других проверках
         if goal:
@@ -270,7 +222,7 @@ class UnifiedReActEngine:
         
         file_ids = file_ids or []
         
-        # #region agent log - Send research phase started event
+        # Send research phase started event
         if phase == "research":
             try:
                 await self.ws_manager.send_event(
@@ -281,22 +233,8 @@ class UnifiedReActEngine:
                         "message": "Начинаю исследование доступных инструментов и данных..."
                     }
                 )
-                # Log to debug.log
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    log_entry = {
-                        "location": "unified_react_engine.py:research_phase_started_event",
-                        "message": "research_phase_started event sent",
-                        "data": {
-                            "session_id": self.session_id
-                        },
-                        "timestamp": int(time.time() * 1000),
-                        "sessionId": "debug-session",
-                        "hypothesisId": "H6"
-                    }
-                    f.write(json.dumps(log_entry) + '\n')
             except Exception as e:
                 logger.error(f"Failed to send research_phase_started event: {e}")
-        # #endregion
         
         # === Check for pending confirmation ===
         goal_lower = goal.lower().strip()
@@ -2676,14 +2614,6 @@ class UnifiedReActEngine:
             - thinking_chunk: legacy событие для ThinkingMessage
             - intent_detail: новое событие для IntentMessage (если есть intent_id)
             """
-            # #region agent log
-            try:
-                import json as _json, time as _time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(_json.dumps({"location": "unified_react_engine.py:process_chunk:entry", "message": "process_chunk called", "data": {"chunk_length": len(chunk), "chunk_preview": chunk[:100], "buffer_length": len(self.buffer), "code_streaming_started": self.code_streaming_started, "in_code_string": self.in_code_string, "hypothesisId": "A"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-            except: pass
-            # #endregion
-            
             self.buffer += chunk
             
             # Обрабатываем стриминг кода Python в реальном времени
@@ -2798,26 +2728,10 @@ class UnifiedReActEngine:
             
             Отслеживает генерацию execute_python_code и стримит код по мере поступления токенов.
             """
-            # #region agent log
-            try:
-                import json as _json, time as _time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:entry", "message": "_handle_code_streaming called", "data": {"buffer_length": len(self.buffer), "buffer_preview": self.buffer[-200:], "code_streaming_started": self.code_streaming_started, "in_code_string": self.in_code_string, "code_start_pos": self.code_start_pos, "hypothesisId": "B"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-            except: pass
-            # #endregion
-            
             tool_marker = '"tool_name": "execute_python_code"'
             
             # Ищем паттерн "tool_name": "execute_python_code" если еще не начали стриминг
             if not self.code_streaming_started:
-                # #region agent log
-                try:
-                    import json as _json, time as _time
-                    tool_found = tool_marker in self.buffer
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:tool_search", "message": "Searching for tool marker", "data": {"tool_marker": tool_marker, "found": tool_found, "buffer_contains": self.buffer if len(self.buffer) < 500 else self.buffer[-500:], "hypothesisId": "C"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                except: pass
-                # #endregion
                 if tool_marker in self.buffer:
                     # Нашли execute_python_code, начинаем отслеживать код
                     self.code_streaming_started = True
@@ -2827,24 +2741,10 @@ class UnifiedReActEngine:
                 tool_pos = self.buffer.find(tool_marker)
                 if tool_pos != -1:
                     code_marker_pos = self.buffer.find(self.code_start_marker, tool_pos)
-                    # #region agent log
-                    try:
-                        import json as _json, time as _time
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:tool_found", "message": "Tool marker found, searching for code marker", "data": {"tool_pos": tool_pos, "code_marker": self.code_start_marker, "code_marker_pos": code_marker_pos, "buffer_after_tool": self.buffer[tool_pos:tool_pos+200] if tool_pos != -1 else None, "hypothesisId": "D"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                    except: pass
-                    # #endregion
                     if code_marker_pos != -1:
                         self.code_start_pos = code_marker_pos + len(self.code_start_marker)
                         self.last_code_streamed_pos = self.code_start_pos
                         self.in_code_string = True
-                        # #region agent log
-                        try:
-                            import json as _json, time as _time
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:code_start", "message": "Code marker found, starting code streaming", "data": {"code_start_pos": self.code_start_pos, "code_preview": self.buffer[self.code_start_pos:self.code_start_pos+50], "hypothesisId": "E"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                        except: pass
-                        # #endregion
                         # Создаём operation_id для стриминга в operation view (чат)
                         self.operation_id = f"op-{int(time.time() * 1000)}"
                         
@@ -2875,13 +2775,6 @@ class UnifiedReActEngine:
                                 "language": "python"
                             }
                         )
-                        # #region agent log
-                        try:
-                            import json as _json, time as _time
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:code_display_start_sent", "message": "code_display_start event sent", "data": {"operation_id": self.operation_id, "hypothesisId": "F"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                        except: pass
-                        # #endregion
             
             # Если стриминг кода начался, извлекаем и стримим новые части кода
             if self.code_streaming_started and self.in_code_string and self.code_start_pos > 0:
@@ -2972,15 +2865,6 @@ class UnifiedReActEngine:
                     old_accumulated_length = len(self.accumulated_code)
                     self.accumulated_code += code_chunk
                     self.last_code_streamed_pos = i
-                    # #region agent log
-                    try:
-                        import json as _json, time as _time
-                        all_lines_before = self.accumulated_code[:old_accumulated_length].split('\n') if old_accumulated_length > 0 else []
-                        all_lines_after = self.accumulated_code.split('\n')
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:code_chunk", "message": "Processing code_chunk", "data": {"code_chunk_length": len(code_chunk), "code_chunk_preview": code_chunk[:50], "accumulated_code_length": len(self.accumulated_code), "old_length": old_accumulated_length, "lines_before": len(all_lines_before), "lines_after": len(all_lines_after), "last_streamed_line_count": self.last_streamed_line_count, "operation_id": self.operation_id, "hypothesisId": "G"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                    except: pass
-                    # #endregion
                     
                     # Стримим код в operation view (чат) - построчно для визуального эффекта
                     if self.operation_id and hasattr(self.ws_manager, 'send_operation_data'):
@@ -3011,21 +2895,6 @@ class UnifiedReActEngine:
                                     self.operation_id,
                                     last_line
                                 )
-                                # #region agent log
-                                try:
-                                    import json as _json, time as _time
-                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                        f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:partial_line_sent", "message": "Sent partial line to operation view", "data": {"last_line_preview": last_line[:50], "last_streamed_line_count": self.last_streamed_line_count, "total_lines": len(all_lines), "hypothesisId": "J"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                                except: pass
-                                # #endregion
-                        
-                        # #region agent log
-                        try:
-                            import json as _json, time as _time
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:operation_data_sent", "message": "Sent operation_data events", "data": {"new_lines_count": new_lines_count, "last_streamed_line_count": self.last_streamed_line_count, "total_lines": len(all_lines), "hypothesisId": "H"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                        except: pass
-                        # #endregion
                     
                     # Стримим накопленный код в code viewer (правое окно) - всегда, даже если нет новых строк
                     await self.ws_manager.send_event(
@@ -3036,13 +2905,6 @@ class UnifiedReActEngine:
                             "code": self.accumulated_code
                         }
                     )
-                    # #region agent log
-                    try:
-                        import json as _json, time as _time
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                            f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:code_chunk_sent", "message": "Sent code_chunk event", "data": {"accumulated_code_length": len(self.accumulated_code), "hypothesisId": "I"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                    except: pass
-                    # #endregion
         
         def get_thought(self) -> str:
             """Возвращает извлечённый thought."""
@@ -3253,16 +3115,6 @@ class UnifiedReActEngine:
         """Plan next action based on thought."""
         # Get capability descriptions (filtered by allowed categories)
         capability_descriptions = []
-        # #region debug log
-        import json
-        slides_capabilities = [cap for cap in self.capabilities if 'slide' in cap.name.lower() or 'presentation' in cap.name.lower()]
-        slides_indices = [i for i, cap in enumerate(self.capabilities) if 'slide' in cap.name.lower() or 'presentation' in cap.name.lower()]
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "unified_react_engine.py:2923", "message": "Capabilities in _plan_action", "data": {"total_capabilities": len(self.capabilities), "slides_capabilities": [{"name": c.name, "description": c.description[:50], "index": i} for i, c in enumerate(self.capabilities) if 'slide' in c.name.lower() or 'presentation' in c.name.lower()], "slides_indices": slides_indices, "limit": 50, "hypothesisId": "E"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-        except: pass
-        # #endregion
-        
         # CRITICAL FIX: Prioritize slides and projectlad tools to ensure they're in the first 50
         # Sort capabilities to put slides and projectlad tools first
         sorted_capabilities = sorted(
@@ -3279,16 +3131,6 @@ class UnifiedReActEngine:
             capability_descriptions.append(f"- {cap.name}: {cap.description}")
         
         tools_str = "\n".join(capability_descriptions)
-        # #region agent log
-        projectlad_in_tools = [desc for desc in capability_descriptions if 'projectlad' in desc.lower()]
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json, time
-                f.write(json.dumps({"location": "unified_react_engine.py:_plan_action:tools_str", "message": "Tools for LLM in _plan_action", "data": {"total_tools": len(capability_descriptions), "projectlad_tools": projectlad_in_tools, "goal": state.goal, "hypothesisId": "I"}, "timestamp": int(time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                f.flush()
-        except Exception as e:
-            logger.error(f"Failed to write debug log: {e}")
-        # #endregion
         
         # Build context
         context_str = f"Цель: {state.goal}\n\n"
@@ -3521,16 +3363,6 @@ class UnifiedReActEngine:
             
             response = await self.llm.ainvoke(messages)
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    import json as json_module, time
-                    f.write(json_module.dumps({"location": "unified_react_engine.py:_plan_action:llm_response", "message": "LLM response in _plan_action", "data": {"response_content": str(response.content)[:500], "goal": state.goal, "hypothesisId": "J"}, "timestamp": int(time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                    f.flush()
-            except Exception as e:
-                logger.error(f"Failed to write debug log: {e}")
-            # #endregion
-            
             # Handle different response formats
             if isinstance(response.content, list):
                 text_parts = []
@@ -3580,43 +3412,6 @@ class UnifiedReActEngine:
                 }
     
     def _get_relevant_tools(self, goal: str, completed_tools: List[str]) -> List[Dict[str, str]]:
-        # #region debug log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json as json_module
-                from datetime import datetime
-                f.write(json_module.dumps({
-                    "timestamp": datetime.now().isoformat(),
-                    "location": "unified_react_engine.py:_get_relevant_tools:entry",
-                    "message": "Function entry",
-                    "data": {
-                        "goal": goal,
-                        "completed_tools": completed_tools,
-                        "completed_count": len(completed_tools)
-                    },
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
-        # #region debug log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json as json_module
-                f.write(json_module.dumps({
-                    "timestamp": datetime.now().isoformat(),
-                    "location": "unified_react_engine.py:_get_relevant_tools",
-                    "message": "Getting relevant tools",
-                    "data": {"goal": goal, "completed_tools": completed_tools},
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
         """
         Возвращает только релевантные инструменты для текущей задачи.
         Максимум 5-7 инструментов вместо 50+.
@@ -3686,77 +3481,16 @@ class UnifiedReActEngine:
         # Проверяем наличие упоминания зарплаты
         has_salary_keyword = any(kw in goal_lower for kw in ["зарплат", "оплат", "труд", "сотрудник", "персонал", "счет 70", "выгрузи"])
         
-        # #region debug log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json as json_module
-                f.write(json_module.dumps({
-                    "timestamp": datetime.now().isoformat(),
-                    "location": "unified_react_engine.py:1c_salary_check",
-                    "message": "Checking 1C salary keywords",
-                    "data": {
-                        "goal": goal,
-                        "goal_lower": goal_lower,
-                        "has_1c_keyword": has_1c_keyword,
-                        "has_salary_keyword": has_salary_keyword,
-                        "should_add_salary_tool": has_1c_keyword and has_salary_keyword
-                    },
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
-        
         if has_1c_keyword:
             # Для запросов о зарплате - приоритет onec_get_salary_by_employee_month
             if has_salary_keyword:
                 relevant_tool_names.add("onec_get_salary_by_employee_month")
-                # #region debug log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                        import json as json_module
-                        f.write(json_module.dumps({
-                            "timestamp": datetime.now().isoformat(),
-                            "location": "unified_react_engine.py:salary_tool_added",
-                            "message": "Salary tool added to relevant_tool_names",
-                            "data": {
-                                "relevant_tool_names_after": list(relevant_tool_names)
-                            },
-                            "sessionId": "debug-session",
-                            "runId": "run1",
-                            "hypothesisId": "A"
-                        }) + "\n")
-                except:
-                    pass
-                # #endregion
             # Для запросов о выручке
             if any(kw in goal_lower for kw in ["выручк", "доход", "продаж"]):
                 relevant_tool_names.add("onec_get_revenue_by_counterparty_month")
             # Для запросов о продажах/документах
             if any(kw in goal_lower for kw in ["продаж", "реализац", "документ"]):
                 relevant_tool_names.add("onec_get_sales_list")
-            
-            # #region debug log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    import json as json_module
-                    f.write(json_module.dumps({
-                        "timestamp": datetime.now().isoformat(),
-                        "location": "unified_react_engine.py:1c_tools_filter",
-                        "message": "1C tools added to relevant",
-                        "data": {
-                            "goal": goal,
-                            "relevant_1c_tools": [t for t in relevant_tool_names if t.startswith("onec_")]
-                        },
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except:
-                pass
-            # #endregion
         
         if any(kw in goal_lower for kw in ["письм", "email", "почт"]):
             relevant_tool_names.update([
@@ -3780,27 +3514,6 @@ class UnifiedReActEngine:
         # Всегда добавляем FINISH
         relevant_tool_names.add("FINISH")
         
-        # #region debug log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json as json_module
-                f.write(json_module.dumps({
-                    "timestamp": datetime.now().isoformat(),
-                    "location": "unified_react_engine.py:before_filtering",
-                    "message": "Before filtering completed tools",
-                    "data": {
-                        "relevant_tool_names": list(relevant_tool_names),
-                        "completed_tools": completed_tools,
-                        "has_salary_tool": "onec_get_salary_by_employee_month" in relevant_tool_names
-                    },
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
-        
         # Исключаем уже успешно выполненные инструменты (кроме FINISH и форматирования абзацев)
         repeatable_tools = {"FINISH", "format_document_paragraph"}
         
@@ -3812,58 +3525,9 @@ class UnifiedReActEngine:
                 "create_spreadsheet", "sheets_read_range", "get_sheet_data",
                 "get_all_sheets_data", "add_rows", "update_cells"
             ])
-            # #region debug log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    import json as json_module
-                    from datetime import datetime
-                    f.write(json_module.dumps({
-                        "timestamp": datetime.now().isoformat(),
-                        "location": "unified_react_engine.py:auto_add_sheets_after_salary",
-                        "message": "Auto-adding Sheets tools after salary tool completion",
-                        "data": {
-                            "relevant_tool_names_after": list(relevant_tool_names),
-                            "sheets_tools_added": ["create_spreadsheet", "sheets_read_range", "get_sheet_data", "get_all_sheets_data", "add_rows", "update_cells"]
-                        },
-                        "sessionId": "debug-session",
-                        "runId": "run1",
-                        "hypothesisId": "A"
-                    }) + "\n")
-            except:
-                pass
-            # #endregion
         
         filtered_names = [t for t in relevant_tool_names 
                          if t not in completed_tools or t in repeatable_tools]
-        
-        # #region debug log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json as json_module
-                from datetime import datetime
-                f.write(json_module.dumps({
-                    "timestamp": datetime.now().isoformat(),
-                    "location": "unified_react_engine.py:after_filtering",
-                    "message": "After filtering completed tools",
-                    "data": {
-                        "filtered_names": filtered_names,
-                        "filtered_count": len(filtered_names),
-                        "relevant_before_filter": list(relevant_tool_names),
-                        "relevant_count": len(relevant_tool_names),
-                        "completed_tools": completed_tools,
-                        "has_salary_tool": "onec_get_salary_by_employee_month" in filtered_names,
-                        "salary_tool_in_relevant": "onec_get_salary_by_employee_month" in relevant_tool_names,
-                        "salary_tool_in_completed": "onec_get_salary_by_employee_month" in completed_tools,
-                        "onec_tools_in_filtered": [t for t in filtered_names if t.startswith("onec_")],
-                        "onec_tools_in_relevant": [t for t in relevant_tool_names if t.startswith("onec_")]
-                    },
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
         
         # Собираем описания релевантных инструментов
         # Для docs инструментов явно указываем обязательные параметры
@@ -3932,28 +3596,6 @@ if salary_sheet:
         }
         
         result = []
-        # #region debug log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json as json_module
-                available_cap_names = [cap.name for cap in self.capabilities]
-                f.write(json_module.dumps({
-                    "timestamp": datetime.now().isoformat(),
-                    "location": "unified_react_engine.py:building_result",
-                    "message": "Building result from capabilities",
-                    "data": {
-                        "filtered_names": list(filtered_names),
-                        "available_capabilities_count": len(self.capabilities),
-                        "has_salary_capability": "onec_get_salary_by_employee_month" in available_cap_names,
-                        "salary_in_filtered": "onec_get_salary_by_employee_month" in filtered_names
-                    },
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
         
         for cap in self.capabilities:
             if cap.name in filtered_names:
@@ -4034,26 +3676,6 @@ if salary_sheet:
             result = prioritized
         
         final_result = result[:7]  # Максимум 7 инструментов
-        
-        # #region debug log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json as json_module
-                f.write(json_module.dumps({
-                    "timestamp": datetime.now().isoformat(),
-                    "location": "unified_react_engine.py:_get_relevant_tools_end",
-                    "message": "Final tools list",
-                    "data": {
-                        "final_tools": [t["name"] for t in final_result],
-                        "has_salary_tool": any(t["name"] == "onec_get_salary_by_employee_month" for t in final_result)
-                    },
-                    "sessionId": "debug-session",
-                    "runId": "run1",
-                    "hypothesisId": "A"
-                }) + "\n")
-        except:
-            pass
-        # #endregion
         
         return final_result
     
@@ -4181,65 +3803,12 @@ if salary_sheet:
         # Собираем список выполненных инструментов
         completed_tools = [a.tool_name for a in state.action_history] if state.action_history else []
         
-        # #region debug log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json as json_module, time
-                f.write(json_module.dumps({
-                    "location": "unified_react_engine.py:_think_and_plan:before_get_relevant",
-                    "message": "Before getting relevant tools",
-                    "data": {
-                        "goal": state.goal,
-                        "completed_tools": completed_tools,
-                        "completed_count": len(completed_tools),
-                        "action_history_count": len(state.action_history) if state.action_history else 0,
-                        "has_salary_in_completed": "onec_get_salary_by_employee_month" in completed_tools,
-                        "observations_count": len(state.observations) if state.observations else 0
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": self.session_id,
-                    "runId": "run1",
-                    "hypothesisId": "B"
-                }) + "\n")
-                f.flush()
-        except Exception as e:
-            logger.error(f"Failed to write debug log: {e}")
-        # #endregion
-        
         # Определяем следующий шаг
         next_step = self._determine_next_step(state.goal, completed_tools, state.observations)
         
         # Получаем релевантные инструменты (3-7 штук вместо 50)
         relevant_tools = self._get_relevant_tools(state.goal, completed_tools)
         tools_str = "\n".join([f"- {t['name']}: {t['description']}" for t in relevant_tools])
-        
-        # #region agent log
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                import json as json_module, time
-                projectlad_tools = [t for t in relevant_tools if 'projectlad' in t['name'].lower()]
-                onec_tools = [t for t in relevant_tools if t['name'].startswith('onec_')]
-                f.write(json_module.dumps({
-                    "location": "unified_react_engine.py:_think_and_plan:relevant_tools",
-                    "message": "Relevant tools from _get_relevant_tools",
-                    "data": {
-                        "total_tools": len(relevant_tools),
-                        "tool_names": [t['name'] for t in relevant_tools],
-                        "projectlad_tools": projectlad_tools,
-                        "onec_tools": onec_tools,
-                        "has_salary_tool": any(t['name'] == 'onec_get_salary_by_employee_month' for t in relevant_tools),
-                        "goal": state.goal,
-                        "completed_tools": completed_tools,
-                        "hypothesisId": "B"
-                    },
-                    "timestamp": int(time.time() * 1000),
-                    "sessionId": self.session_id,
-                    "runId": "run1"
-                }) + "\n")
-                f.flush()
-        except Exception as e:
-            logger.error(f"Failed to write debug log: {e}")
-        # #endregion
         
         # ===== СЕКЦИЯ 1: TASK_STATUS (в начале!) =====
         task_status = f"""<task_status>
@@ -4680,16 +4249,6 @@ if salary_sheet:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
             
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                    import json as json_module, time
-                    f.write(json_module.dumps({"location": "unified_react_engine.py:_think_and_plan:action_plan", "message": "Action plan from LLM", "data": {"tool_name": tool_name, "arguments": action_plan.get("arguments", {}), "description": action_plan.get("description", ""), "reasoning": action_plan.get("reasoning", "")[:200], "thought_preview": thought[:200] if thought else "", "goal": state.goal, "hypothesisId": "J"}, "timestamp": int(time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
-                    f.flush()
-            except Exception as e:
-                logger.error(f"Failed to write debug log: {e}")
-            # #endregion
-            
             # Validate execute_python_code has code
             if tool_name == "execute_python_code":
                 code = action_plan.get("arguments", {}).get("code", "")
@@ -4801,13 +4360,6 @@ raise ValueError("Код анализа не был предоставлен. П
         """Execute action through CapabilityRegistry (provider-agnostic)."""
         capability_name = action_plan.get("tool_name")
         # #region debug log
-        import json
-        is_slides_related = capability_name and ('slide' in capability_name.lower() or 'presentation' in capability_name.lower())
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"location": "unified_react_engine.py:4038", "message": "_execute_action called", "data": {"capability_name": capability_name, "is_slides_related": is_slides_related, "hypothesisId": "G"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-        except: pass
-        # #endregion
         if not capability_name:
             logger.warning("[UnifiedReActEngine] No tool_name in action_plan, skipping execution")
             return ""
@@ -5535,14 +5087,6 @@ raise ValueError("Код анализа не был предоставлен. П
                         # Extract presentation_id and title from result for auto-opening
                         result_str = str(result)
                         
-                        # #region debug log
-                        import json
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({"location": "unified_react_engine.py:4776", "message": "create_presentation result", "data": {"result_str": result_str[:500], "capability_name": capability_name, "hypothesisId": "F"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-                        except: pass
-                        # #endregion
-                        
                         # Try multiple patterns for presentation_id
                         pres_id_match = (
                             re.search(r'presentation_id["\']?\s*[:=]\s*["\']?([a-zA-Z0-9-_]+)', result_str) or
@@ -5557,13 +5101,6 @@ raise ValueError("Код анализа не был предоставлен. П
                             re.search(r"'([^']+)'\s*created", result_str) or
                             re.search(r'Presentation\s*["\']([^"\']+)["\']', result_str)
                         )
-                        
-                        # #region debug log
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                f.write(json.dumps({"location": "unified_react_engine.py:4795", "message": "Parsed presentation info", "data": {"pres_id_found": bool(pres_id_match), "title_found": bool(title_match), "pres_id": pres_id_match.group(1) if pres_id_match else None, "title": title_match.group(1) if title_match else None, "hypothesisId": "F"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-                        except: pass
-                        # #endregion
                         
                         if pres_id_match:
                             presentation_id = pres_id_match.group(1)
@@ -5586,13 +5123,6 @@ raise ValueError("Код анализа не был предоставлен. П
                                 }
                             )
                             
-                            # #region debug log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                                    f.write(json.dumps({"location": "unified_react_engine.py:4820", "message": "Sent file_preview for slides", "data": {"presentation_id": presentation_id, "title": presentation_title, "url": presentation_url, "hypothesisId": "F"}, "timestamp": __import__('time').time() * 1000, "sessionId": "debug-session", "runId": "run1"}) + "\n")
-                            except: pass
-                            # #endregion
-                        
                         summary = "✓ Презентация создана"
                         await self.ws_manager.send_operation_end(
                             self.session_id,

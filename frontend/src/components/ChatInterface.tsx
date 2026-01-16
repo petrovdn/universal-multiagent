@@ -642,18 +642,10 @@ export function ChatInterface() {
           // WebSocket did not connect within 6 seconds, proceeding anyway
         }
         
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend',message:'Sending message via WebSocket',data:{executionMode:executionMode,isConnected:wsClient.isConnected(),userMessageLength:userMessage.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-        // #endregion
-        
         // Now send message via WebSocket (preferred) or REST API (fallback)
         // WebSocket supports file_ids and open_files
         if (wsClient.isConnected()) {
           const sent = wsClient.sendMessage(userMessage, fileIds.length > 0 ? fileIds : undefined, openFiles.length > 0 ? openFiles : undefined, executionMode)
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend:after_send',message:'After wsClient.sendMessage',data:{sent:sent,executionMode:executionMode},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
-          // #endregion
           if (!sent) {
             const response = await sendMessage({
               message: userMessage,
