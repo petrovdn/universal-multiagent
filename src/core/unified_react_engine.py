@@ -240,12 +240,63 @@ class UnifiedReActEngine:
         Returns:
             Execution result
         """
+        # #region agent log
+        try:
+            import json
+            import time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                log_entry = {
+                    "location": "unified_react_engine.py:execute_start",
+                    "message": "UnifiedReActEngine.execute() called",
+                    "data": {
+                        "session_id": self.session_id,
+                        "phase": phase,
+                        "goal_length": len(goal) if goal else 0,
+                        "config_mode": self.config.mode
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "sessionId": "debug-session",
+                    "hypothesisId": "H5"
+                }
+                f.write(json.dumps(log_entry) + '\n')
+        except Exception:
+            pass
+        # #endregion
+        
         # Нормализуем неразрывные пробелы (U+00A0) в обычные пробелы
         # Это критично для keyword matching в DANGEROUS_OPERATIONS и других проверках
         if goal:
             goal = goal.replace('\u00a0', ' ').replace('\xa0', ' ')
         
         file_ids = file_ids or []
+        
+        # #region agent log - Send research phase started event
+        if phase == "research":
+            try:
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "research_phase_started",
+                    {
+                        "goal": goal[:200] if goal else "",
+                        "message": "Начинаю исследование доступных инструментов и данных..."
+                    }
+                )
+                # Log to debug.log
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    log_entry = {
+                        "location": "unified_react_engine.py:research_phase_started_event",
+                        "message": "research_phase_started event sent",
+                        "data": {
+                            "session_id": self.session_id
+                        },
+                        "timestamp": int(time.time() * 1000),
+                        "sessionId": "debug-session",
+                        "hypothesisId": "H6"
+                    }
+                    f.write(json.dumps(log_entry) + '\n')
+            except Exception as e:
+                logger.error(f"Failed to send research_phase_started event: {e}")
+        # #endregion
         
         # === Check for pending confirmation ===
         goal_lower = goal.lower().strip()

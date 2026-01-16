@@ -165,6 +165,8 @@ Initialize agent wrapper."""
             # Map execution mode to adapter type
             execution_mode = context.execution_mode or "agent"
             
+            logger.info(f"[AgentWrapper] Execution mode from context: {execution_mode}")
+            
             # Map legacy modes to new modes
             mode_mapping = {
                 "instant": "agent",  # Legacy instant -> new agent mode
@@ -176,6 +178,7 @@ Initialize agent wrapper."""
             }
             
             mapped_mode = mode_mapping.get(execution_mode, "agent")
+            logger.info(f"[AgentWrapper] Mapped mode: {mapped_mode} (from {execution_mode})")
             
             # Use new unified adapters for new modes
             if mapped_mode in ("query", "agent", "plan"):
@@ -192,12 +195,51 @@ Initialize agent wrapper."""
                         model_name=context.model_name
                     )
                 elif mapped_mode == "plan":
+                    logger.info(f"[AgentWrapper] Creating PlanModeAdapter for session {session_id}")
+                    # #region agent log
+                    try:
+                        import json
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            log_entry = {
+                                "location": "agent_wrapper.py:creating_plan_adapter",
+                                "message": "Creating PlanModeAdapter",
+                                "data": {
+                                    "session_id": session_id,
+                                    "execution_mode": execution_mode,
+                                    "mapped_mode": mapped_mode
+                                },
+                                "timestamp": int(time.time() * 1000),
+                                "sessionId": "debug-session",
+                                "hypothesisId": "H2"
+                            }
+                            f.write(json.dumps(log_entry) + '\n')
+                    except Exception:
+                        pass
+                    # #endregion
                     adapter = PlanModeAdapter(
                         capability_registry=registry,
                         ws_manager=self.ws_manager,
                         session_id=session_id,
                         model_name=context.model_name
                     )
+                    logger.info(f"[AgentWrapper] PlanModeAdapter created successfully")
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            log_entry = {
+                                "location": "agent_wrapper.py:plan_adapter_created",
+                                "message": "PlanModeAdapter created successfully",
+                                "data": {
+                                    "session_id": session_id
+                                },
+                                "timestamp": int(time.time() * 1000),
+                                "sessionId": "debug-session",
+                                "hypothesisId": "H2"
+                            }
+                            f.write(json.dumps(log_entry) + '\n')
+                    except Exception:
+                        pass
+                    # #endregion
                 else:  # agent mode
                     adapter = AgentModeAdapter(
                         capability_registry=registry,
@@ -209,12 +251,53 @@ Initialize agent wrapper."""
                 # Store adapter for stop/confirmation handling
                 self._active_orchestrators[session_id] = adapter
                 
+                # #region agent log
+                try:
+                    import json
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        log_entry = {
+                            "location": "agent_wrapper.py:before_adapter_execute",
+                            "message": "Before adapter.execute()",
+                            "data": {
+                                "session_id": session_id,
+                                "mapped_mode": mapped_mode,
+                                "goal_length": len(user_message) if user_message else 0
+                            },
+                            "timestamp": int(time.time() * 1000),
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H3"
+                        }
+                        f.write(json.dumps(log_entry) + '\n')
+                except Exception:
+                    pass
+                # #endregion
+                
                 # Execute through adapter
                 result = await adapter.execute(
                     goal=user_message,
                     context=context,
                     file_ids=file_ids
                 )
+                
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        log_entry = {
+                            "location": "agent_wrapper.py:after_adapter_execute",
+                            "message": "After adapter.execute()",
+                            "data": {
+                                "session_id": session_id,
+                                "mapped_mode": mapped_mode,
+                                "result_status": result.get("status") if result else None
+                            },
+                            "timestamp": int(time.time() * 1000),
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H3"
+                        }
+                        f.write(json.dumps(log_entry) + '\n')
+                except Exception:
+                    pass
+                # #endregion
                 
                 orchestrator_type = f"{mapped_mode.capitalize()}ModeAdapter"
             else:

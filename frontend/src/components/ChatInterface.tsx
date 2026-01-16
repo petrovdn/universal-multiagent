@@ -642,10 +642,18 @@ export function ChatInterface() {
           // WebSocket did not connect within 6 seconds, proceeding anyway
         }
         
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend',message:'Sending message via WebSocket',data:{executionMode:executionMode,isConnected:wsClient.isConnected(),userMessageLength:userMessage.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+        
         // Now send message via WebSocket (preferred) or REST API (fallback)
         // WebSocket supports file_ids and open_files
         if (wsClient.isConnected()) {
-          const sent = wsClient.sendMessage(userMessage, fileIds.length > 0 ? fileIds : undefined, openFiles.length > 0 ? openFiles : undefined)
+          const sent = wsClient.sendMessage(userMessage, fileIds.length > 0 ? fileIds : undefined, openFiles.length > 0 ? openFiles : undefined, executionMode)
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:handleSend:after_send',message:'After wsClient.sendMessage',data:{sent:sent,executionMode:executionMode},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+          // #endregion
           if (!sent) {
             const response = await sendMessage({
               message: userMessage,
@@ -916,6 +924,35 @@ export function ChatInterface() {
                     </div>
                   </div>
                   
+                  {/* Research phase indicator - show if this is the active workflow and we're in Plan mode */}
+                  {(() => {
+                    const isActive = workflowId === activeWorkflowId
+                    const isPlanMode = executionMode === 'plan'
+                    if (!isActive || !isPlanMode) return null
+                    
+                    // Find research phase message in messages array
+                    const researchMessage = messages.find(
+                      (msg) => 
+                        msg.role === 'assistant' && 
+                        msg.metadata?.type === 'phase_indicator' &&
+                        msg.metadata?.phase === 'research' &&
+                        new Date(msg.timestamp) >= new Date(message.timestamp) // Message after this user message
+                    )
+                    
+                    if (!researchMessage) return null
+                    
+                    return (
+                      <div className="research-phase-indicator" style={{ padding: '0 14px', marginTop: '12px', marginBottom: '12px' }}>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+                          <div className="text-sm text-blue-900 flex items-center gap-2">
+                            <span className="text-blue-600">🔍</span>
+                            <span>{researchMessage.content}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })()}
+                  
                   {/* Intent blocks section (Cursor-style) - renders independently of plan */}
                   {/* Intent Blocks с фазами Планирую/Выполняю */}
                   {(() => {
@@ -1116,6 +1153,12 @@ export function ChatInterface() {
           }
           
           if (message.role === 'assistant') {
+            // Phase indicator messages are now rendered inside user-interaction-container
+            // Don't render them here to avoid duplication
+            if (message.metadata?.type === 'phase_indicator') {
+              return null
+            }
+            
             // Assistant messages are now handled through workflows and FinalResultBlock
             // We don't render them here to avoid duplication
             return null

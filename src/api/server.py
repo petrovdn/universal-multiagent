@@ -874,13 +874,16 @@ WebSocket endpoint for real-time communication."""
                 user_message = data.get("content")
                 file_ids = data.get("file_ids", [])
                 open_files = data.get("open_files", [])
-                logger.info(f"[WS] Received message - session_id: {session_id}, file_ids: {file_ids}, open_files count: {len(open_files) if open_files else 0}")
-                print(f"[WS] Received message - session_id: {session_id}, file_ids: {file_ids}, user_message length: {len(user_message) if user_message else 0}", flush=True)
+                execution_mode = data.get("execution_mode")  # Get execution_mode from WebSocket message
+                
+                logger.info(f"[WS] Received message - session_id: {session_id}, execution_mode: {execution_mode}, file_ids: {file_ids}, open_files count: {len(open_files) if open_files else 0}")
+                print(f"[WS] Received message - session_id: {session_id}, execution_mode: {execution_mode}, file_ids: {file_ids}, user_message length: {len(user_message) if user_message else 0}", flush=True)
+                
                 context = session_manager.get_session(session_id)
                 if context:
                     files_in_context = len(context.uploaded_files) if hasattr(context, 'uploaded_files') else 0
-                    logger.info(f"[WS] Context found - uploaded_files count: {files_in_context}")
-                    print(f"[WS] Context found - uploaded_files count: {files_in_context}", flush=True)
+                    logger.info(f"[WS] Context found - uploaded_files count: {files_in_context}, current execution_mode: {context.execution_mode}")
+                    print(f"[WS] Context found - uploaded_files count: {files_in_context}, current execution_mode: {context.execution_mode}", flush=True)
                     # Check if file_ids exist in context
                     if file_ids:
                         for file_id in file_ids:
@@ -894,10 +897,62 @@ WebSocket endpoint for real-time communication."""
                     context = ConversationContext(session_id)
                     session_manager.update_session(session_id, context)
                 
+                # Update execution_mode if provided in WebSocket message
+                if execution_mode:
+                    logger.info(f"[WS] Updating execution_mode from {context.execution_mode} to {execution_mode}")
+                    print(f"[WS] Updating execution_mode from {context.execution_mode} to {execution_mode}", flush=True)
+                    context.execution_mode = execution_mode
+                    session_manager.update_session(session_id, context)
+                else:
+                    logger.warning(f"[WS] No execution_mode in message, using context.execution_mode: {context.execution_mode}")
+                    print(f"[WS] WARNING: No execution_mode in message, using context.execution_mode: {context.execution_mode}", flush=True)
+                
+                # #region agent log - write to debug.log file
+                import json
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        log_entry = {
+                            "location": "server.py:websocket_endpoint",
+                            "message": "Before process_message",
+                            "data": {
+                                "session_id": session_id,
+                                "execution_mode": context.execution_mode,
+                                "execution_mode_from_message": execution_mode,
+                                "user_message_length": len(user_message) if user_message else 0
+                            },
+                            "timestamp": int(time.time() * 1000),
+                            "sessionId": "debug-session",
+                            "hypothesisId": "H3"
+                        }
+                        f.write(json.dumps(log_entry) + '\n')
+                except Exception as e:
+                    logger.error(f"Failed to write debug log: {e}")
+                # #endregion
+                
                 # Run process_message in background task to avoid blocking the message loop
                 # This allows other messages (like approve_plan) to be received while processing
                 async def process_message_task():
                     try:
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                log_entry = {
+                                    "location": "server.py:process_message_task",
+                                    "message": "process_message called",
+                                    "data": {
+                                        "session_id": session_id,
+                                        "execution_mode": context.execution_mode,
+                                        "user_message_length": len(user_message) if user_message else 0
+                                    },
+                                    "timestamp": int(time.time() * 1000),
+                                    "sessionId": "debug-session",
+                                    "hypothesisId": "H3"
+                                }
+                                f.write(json.dumps(log_entry) + '\n')
+                        except Exception:
+                            pass
+                        # #endregion
+                        
                         await agent_wrapper.process_message(
                             user_message,
                             context,

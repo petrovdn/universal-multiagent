@@ -134,6 +134,12 @@ export class WebSocketClient {
   }
 
   private handleEvent(event: WebSocketEvent): void {
+    // #region agent log
+    if (event.type === 'plan_generated' || event.type.includes('plan')) {
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:handleEvent',message:'Event received in handleEvent',data:{eventType:event.type,hasData:!!event.data,dataKeys:event.data?Object.keys(event.data):[]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+    }
+    // #endregion
+    
     const chatStore = useChatStore.getState()
     
     // Helper function to ensure active workflow exists for current user message
@@ -601,9 +607,51 @@ export class WebSocketClient {
         console.log('[WebSocket] Plan thinking complete - streaming stopped')
         break
 
+      case 'research_phase_started':
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:research_phase_started',message:'research_phase_started event received',data:{hasMessage:!!event.data.message,message:event.data.message,hasGoal:!!event.data.goal},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+        // #endregion
+        
+        // Add message to chat to show Research phase started
+        ensureActiveWorkflow()
+        const researchMessage = {
+          role: 'assistant' as const,
+          content: event.data.message || 'Начинаю исследование доступных инструментов и данных...',
+          timestamp: new Date().toISOString(),
+          metadata: {
+            phase: 'research',
+            type: 'phase_indicator'
+          }
+        }
+        
+        // #region agent log
+        const stateBeforeAdd = useChatStore.getState()
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:research_phase_started:before_addMessage',message:'Before addMessage',data:{messagesCount:stateBeforeAdd.messages.length,activeWorkflowId:stateBeforeAdd.activeWorkflowId,researchMessageContent:researchMessage.content},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+        // #endregion
+        
+        useChatStore.getState().addMessage(researchMessage)
+        
+        // #region agent log
+        const stateAfterAdd = useChatStore.getState()
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:research_phase_started:after_addMessage',message:'After addMessage',data:{messagesCount:stateAfterAdd.messages.length,messagesCountBefore:stateBeforeAdd.messages.length,lastMessageRole:stateAfterAdd.messages[stateAfterAdd.messages.length-1]?.role,lastMessageContent:stateAfterAdd.messages[stateAfterAdd.messages.length-1]?.content?.substring(0,50)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+        // #endregion
+        
+        console.log('[WebSocket] Research phase started:', event.data.message)
+        break
+
       case 'plan_generated':
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated',message:'plan_generated event received',data:{hasPlan:!!event.data.plan,planLength:event.data.plan?.length||0,hasSteps:!!event.data.steps,stepsCount:event.data.steps?.length||0,hasConfirmationId:!!event.data.confirmation_id,confirmationId:event.data.confirmation_id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+        // #endregion
+        
         // Ensure active workflow exists before setting plan
         ensureActiveWorkflow()
+        
+        // #region agent log
+        const stateBeforePlan = useChatStore.getState()
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated:before_setWorkflowPlan',message:'State before setWorkflowPlan',data:{activeWorkflowId:stateBeforePlan.activeWorkflowId,hasWorkflow:!!stateBeforePlan.workflows[stateBeforePlan.activeWorkflowId||'']},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+        
         // Save plan to chatStore - use getState() to get fresh state after set
         useChatStore.getState().setWorkflowPlan(
           event.data.plan || '',
@@ -611,6 +659,82 @@ export class WebSocketClient {
           event.data.confirmation_id || null
         )
         console.log('[WebSocket] Plan generated:', event.data.plan)
+        
+        // #region agent log
+        const stateAfterPlan = useChatStore.getState()
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated:after_setWorkflowPlan',message:'State after setWorkflowPlan',data:{activeWorkflowId:stateAfterPlan.activeWorkflowId,hasWorkflow:!!stateAfterPlan.workflows[stateAfterPlan.activeWorkflowId||''],workflowPlan:stateAfterPlan.workflows[stateAfterPlan.activeWorkflowId||'']?.plan?.plan||null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+        // #endregion
+        
+        // Open plan tab in WorkspacePanel
+        import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated:import_success',message:'workspaceStore import successful',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+          // #endregion
+          
+          const workspaceStore = useWorkspaceStore.getState()
+          const workflowId = useChatStore.getState().activeWorkflowId
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated:before_tab_creation',message:'Before tab creation',data:{workflowId:workflowId,hasWorkflowId:!!workflowId,tabsCount:workspaceStore.tabs.length,existingPlanTabs:workspaceStore.tabs.filter(t=>t.type==='plan').length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+          // #endregion
+          
+          if (workflowId) {
+            // Check if plan tab already exists for this workflow
+            const existingTab = workspaceStore.tabs.find(
+              t => t.type === 'plan' && t.data?.workflowId === workflowId
+            )
+            
+            if (existingTab) {
+              // #region agent log
+              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated:existing_tab',message:'Updating existing plan tab',data:{tabId:existingTab.id,hasData:!!existingTab.data},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+              // #endregion
+              
+              // Activate existing tab
+              workspaceStore.setActiveTab(existingTab.id)
+              // Update plan text
+              workspaceStore.updateTab(existingTab.id, {
+                data: {
+                  ...existingTab.data,
+                  planText: event.data.plan || '',
+                  confirmationId: event.data.confirmation_id || null,
+                  isAwaitingConfirmation: true,
+                },
+              })
+            } else {
+              // #region agent log
+              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated:creating_tab',message:'Creating new plan tab',data:{workflowId:workflowId,planTextLength:event.data.plan?.length||0,hasConfirmationId:!!event.data.confirmation_id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+              // #endregion
+              
+              // Create new plan tab
+              workspaceStore.addTab({
+                type: 'plan',
+                title: 'План выполнения',
+                data: {
+                  planText: event.data.plan || '',
+                  confirmationId: event.data.confirmation_id || null,
+                  workflowId: workflowId,
+                  isAwaitingConfirmation: true,
+                },
+                closeable: true,
+              })
+              
+              // #region agent log
+              const stateAfterAdd = useWorkspaceStore.getState()
+              const newTab = stateAfterAdd.tabs.find(t => t.type === 'plan' && t.data?.workflowId === workflowId)
+              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated:after_addTab',message:'After addTab',data:{tabsCount:stateAfterAdd.tabs.length,newTabId:newTab?.id,newTabHasData:!!newTab?.data,newTabDataType:newTab?.data?.planText?'string':'other',activeTabId:stateAfterAdd.activeTabId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+              // #endregion
+            }
+          } else {
+            // #region agent log
+            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated:no_workflowId',message:'No workflowId - cannot create tab',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+            // #endregion
+          }
+        }).catch((err) => {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:plan_generated:import_error',message:'workspaceStore import failed',data:{error:err?.message||String(err)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+          // #endregion
+          console.error('[WebSocket] Error importing workspaceStore:', err)
+        })
         break
 
       case 'awaiting_confirmation':
@@ -2081,7 +2205,11 @@ export class WebSocketClient {
     }
   }
 
-  sendMessage(message: string, fileIds?: string[], openFiles?: any[]): boolean {
+  sendMessage(message: string, fileIds?: string[], openFiles?: any[], executionMode?: string): boolean {
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sendMessage',message:'sendMessage called',data:{hasWs:!!this.ws,readyState:this.ws?.readyState,executionMode:executionMode,messageLength:message.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+    // #endregion
+    
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         const payload: any = {
@@ -2094,6 +2222,14 @@ export class WebSocketClient {
         if (openFiles && openFiles.length > 0) {
           payload.open_files = openFiles
         }
+        if (executionMode) {
+          payload.execution_mode = executionMode
+        }
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:sendMessage:before_send',message:'Payload before send',data:{hasExecutionMode:!!payload.execution_mode,executionMode:payload.execution_mode,payloadKeys:Object.keys(payload)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+        // #endregion
+        
         this.ws.send(JSON.stringify(payload))
         return true
       } catch (error) {

@@ -12,6 +12,7 @@ export type WorkspaceTabType =
   | 'code' 
   | 'calendar' 
   | 'placeholder'
+  | 'plan'
 
 export interface WorkspaceTab {
   id: string
@@ -65,5 +66,13 @@ export interface CodeData {
 // Calendar data structure
 export interface CalendarData {
   calendarId?: string
+}
+
+// Plan data structure
+export interface PlanData {
+  planText: string
+  confirmationId: string | null
+  workflowId: string
+  isAwaitingConfirmation: boolean
 }
 

@@ -1,9 +1,8 @@
-import React, { useEffect, useState } from 'react'
-import { CheckCircle, XCircle, FileText, Brain } from 'lucide-react'
+import React from 'react'
+import { FileText, Brain, ExternalLink } from 'lucide-react'
 import { useChatStore } from '../store/chatStore'
-import { approvePlan, rejectPlan } from '../services/api'
+import { useWorkspaceStore } from '../store/workspaceStore'
 import { CollapsibleBlock } from './CollapsibleBlock'
-import { PlanEditor } from './PlanEditor'
 
 interface PlanBlockProps {
   workflowId: string
@@ -13,10 +12,37 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
   // Get workflow by ID from store
   const workflow = useChatStore((state) => state.workflows[workflowId])
   const workflowPlan = workflow?.plan
-  const setAwaitingConfirmation = useChatStore((state) => state.setAwaitingConfirmation)
-  const activeWorkflowId = useChatStore((state) => state.activeWorkflowId)
-  const currentSession = useChatStore((state) => state.currentSession)
-  const [isEditingPlan, setIsEditingPlan] = useState(false)// Only show component when there's actual data to display
+  const workspaceStore = useWorkspaceStore()
+  
+  // #region agent log
+  React.useEffect(() => {
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PlanBlock.tsx:render',message:'PlanBlock rendered',data:{workflowId:workflowId,hasWorkflow:!!workflow,hasPlan:!!workflowPlan,hasPlanText:!!workflowPlan?.plan,planTextLength:workflowPlan?.plan?.length||0,hasSteps:!!workflowPlan?.steps,stepsCount:workflowPlan?.steps?.length||0,awaitingConfirmation:workflowPlan?.awaitingConfirmation},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+  }, [workflowId, workflowPlan]);
+  // #endregion
+  
+  // Find plan tab for this workflow
+  const planTab = workspaceStore.tabs.find(
+    t => t.type === 'plan' && t.data?.workflowId === workflowId
+  )
+  
+  const handleOpenInEditor = () => {
+    if (planTab) {
+      workspaceStore.setActiveTab(planTab.id)
+    } else {
+      // If tab doesn't exist, create it
+      workspaceStore.addTab({
+        type: 'plan',
+        title: 'План выполнения',
+        data: {
+          planText: workflowPlan?.plan || '',
+          confirmationId: workflowPlan?.confirmationId || null,
+          workflowId: workflowId,
+          isAwaitingConfirmation: workflowPlan?.awaitingConfirmation || false,
+        },
+        closeable: true,
+      })
+    }
+  }
   if (!workflowPlan) {
     return null
   }
@@ -31,43 +57,6 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
 
   if (!hasContent) {
     return null
-  }
-
-  const handleApprove = async () => {
-    if (workflowPlan.confirmationId && currentSession) {
-      try {
-        await approvePlan(currentSession, workflowPlan.confirmationId)
-        setAwaitingConfirmation(false)
-      } catch (error) {
-        console.error('[PlanBlock] Error approving plan:', error)
-        alert('Ошибка при подтверждении плана: ' + (error instanceof Error ? error.message : String(error)))
-      }
-    }
-  }
-
-  const handleReject = async () => {
-    if (workflowPlan.confirmationId && currentSession) {
-      try {
-        await rejectPlan(currentSession, workflowPlan.confirmationId)
-        setAwaitingConfirmation(false)
-      } catch (error) {
-        console.error('[PlanBlock] Error rejecting plan:', error)
-        alert('Ошибка при отклонении плана: ' + (error instanceof Error ? error.message : String(error)))
-      }
-    }
-  }
-
-  // Removed useEffect logging to prevent infinite loops
-
-  // If editing, show PlanEditor instead
-  if (isEditingPlan && workflowPlan) {
-    return (
-      <PlanEditor
-        workflowId={workflowId}
-        initialPlan={workflowPlan}
-        onClose={() => setIsEditingPlan(false)}
-      />
-    )
   }
 
   return (
@@ -149,33 +138,27 @@ export function PlanBlock({ workflowId }: PlanBlockProps) {
                 )}
               </CollapsibleBlock>
 
-              {/* Кнопки управления планом - под блоком плана */}
+              {/* Статус и кнопка открытия в редакторе */}
               {workflowPlan.awaitingConfirmation && (
-                <div style={{ display: 'flex', gap: '10px', marginTop: '0', maxWidth: '900px', width: '100%', marginLeft: 'auto', marginRight: 'auto', padding: '12px 0', background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-secondary)' }}>
+                <div style={{ display: 'flex', gap: '10px', marginTop: '12px', maxWidth: '900px', width: '100%', marginLeft: 'auto', marginRight: 'auto', padding: '12px 0', background: 'var(--bg-primary)', borderBottom: '1px solid var(--border-secondary)' }}>
+                  <div style={{ flex: '1', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                    План создан. Ожидает подтверждения.
+                  </div>
                   <button
-                    onClick={() => setIsEditingPlan(true)}
+                    onClick={handleOpenInEditor}
                     className="plan-button"
                     style={{
                       background: '#17a2b8',
                       color: 'white',
-                      flex: '0 0 auto'
+                      flex: '0 0 auto',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 16px'
                     }}
                   >
-                    Редактировать план
-                  </button>
-                  <button
-                    onClick={handleApprove}
-                    className="plan-button plan-button-approve"
-                  >
-                    <CheckCircle style={{ width: '16px', height: '16px', display: 'inline', marginRight: '5px', verticalAlign: 'middle' }} />
-                    Approve
-                  </button>
-                  <button
-                    onClick={handleReject}
-                    className="plan-button plan-button-reject"
-                  >
-                    <XCircle style={{ width: '16px', height: '16px', display: 'inline', marginRight: '5px', verticalAlign: 'middle' }} />
-                    Reject
+                    <ExternalLink style={{ width: '16px', height: '16px' }} />
+                    Открыть в редакторе
                   </button>
                 </div>
               )}

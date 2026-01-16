@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.17.0",
-    "apexcharts": "^3.54.1",
+    "apexcharts": "^4.0.0",
     "axios": "^1.6.2",
     "date-fns": "^3.0.0",
     "lucide-react": "^0.294.0",

@@ -11,6 +11,7 @@ import { ChartViewer } from './viewers/ChartViewer'
 import { CodeViewer } from './viewers/CodeViewer'
 import { CalendarViewer } from './viewers/CalendarViewer'
 import { PlaceholderViewer } from './viewers/PlaceholderViewer'
+import { PlanViewer } from './viewers/PlanViewer'
 import { Plus } from 'lucide-react'
 import type { CodeData, WorkspaceTabType } from '../types/workspace'
 
@@ -32,6 +33,8 @@ function TabContent({ tab }: { tab: any }) {
       return <CodeViewer tab={tab} />
     case 'calendar':
       return <CalendarViewer tab={tab} />
+    case 'plan':
+      return <PlanViewer tab={tab} />
     case 'placeholder':
     default:
       return <PlaceholderViewer />
