@@ -1,4 +1,4 @@
-# Roadmap: Universal Multi-Agent Platform
+# Roadmap: GPTzator NEXT
 
 ## 🚀 Планируемые фичи
 
