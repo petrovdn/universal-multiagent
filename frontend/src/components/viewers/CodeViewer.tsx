@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism'
@@ -14,10 +14,19 @@ export function CodeViewer({ tab }: CodeViewerProps) {
   const [copied, setCopied] = useState(false)
   const [isDark, setIsDark] = useState(true)
   const codeData = tab.data as CodeData | undefined
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   const code = codeData?.code || ''
   const language = codeData?.language || 'python'
   const filename = codeData?.filename || tab.title
+  
+  // Auto-scroll вниз при стриминге кода
+  useEffect(() => {
+    if (scrollContainerRef.current && code) {
+      // Скроллим вниз при обновлении кода (стриминг)
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+    }
+  }, [code])
 
   const handleCopy = async () => {
     try {
@@ -93,6 +102,7 @@ export function CodeViewer({ tab }: CodeViewerProps) {
 
       {/* Code - scrollable container with absolute positioning */}
       <div 
+        ref={scrollContainerRef}
         style={{ position: 'absolute', top: '41px', left: 0, right: 0, bottom: 0, overflow: 'auto' }}
       >
         <SyntaxHighlighter

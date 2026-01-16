@@ -2187,6 +2187,31 @@ export const useChatStore = create<ChatState>()(
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId && intent.operations[operationId]) {
               const operation = intent.operations[operationId]
+              // Если последняя строка является префиксом новой строки, обновляем её (для неполных строк)
+              // Иначе добавляем новую строку
+              const existingData = operation.data
+              let updatedData: string[]
+              
+              // #region agent log
+              const lastLine = existingData.length > 0 ? existingData[existingData.length - 1] : null
+              const shouldUpdate = lastLine && (data.startsWith(lastLine) || lastLine.startsWith(data.substring(0, Math.min(data.length, lastLine.length))))
+              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:addOperationData',message:'addOperationData called',data:{operationId,data_preview:data?.substring(0,50),data_length:data?.length,existingData_length:existingData.length,last_line:lastLine?.substring(0,50),last_line_length:lastLine?.length,shouldUpdate},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'FE_OPDATA1'})}).catch(()=>{});
+              // #endregion
+              
+              // Если последняя строка является префиксом новой строки ИЛИ новая строка является продолжением последней - обновляем
+              // Проверяем в обе стороны: "abc" -> "abcd" и "abc" -> "abc" (полное совпадение)
+              if (existingData.length > 0 && lastLine && (data.startsWith(lastLine) || (lastLine.length < data.length && lastLine === data.substring(0, lastLine.length)))) {
+                // Новая строка является продолжением последней - обновляем последнюю строку
+                updatedData = [...existingData.slice(0, -1), data]
+              } else {
+                // Новая строка - добавляем в массив
+                updatedData = [...existingData, data]
+              }
+              
+              // #region agent log
+              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:addOperationData:after',message:'addOperationData result',data:{updatedData_length:updatedData.length,updatedData_preview:updatedData.map(d=>d.substring(0,30))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'FE_OPDATA2'})}).catch(()=>{});
+              // #endregion
+              
               return {
                 ...intent,
                 operations: {
@@ -2194,7 +2219,7 @@ export const useChatStore = create<ChatState>()(
                   [operationId]: {
                     ...operation,
                     status: 'streaming' as const,
-                    data: [...operation.data, data],
+                    data: updatedData,
                   },
                 },
               }

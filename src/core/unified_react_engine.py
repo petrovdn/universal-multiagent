@@ -2595,16 +2595,28 @@ class UnifiedReActEngine:
         Стримит iteration_thinking_chunk для IterationBlock UI.
         """
         
-        def __init__(self, ws_manager: WebSocketManager, session_id: str, intent_id: Optional[str] = None, iteration_number: int = 1):
+        def __init__(self, ws_manager: WebSocketManager, session_id: str, intent_id: Optional[str] = None, iteration_number: int = 1, engine: Optional[Any] = None):
             self.ws_manager = ws_manager
             self.session_id = session_id
             self.intent_id = intent_id  # Для отправки intent_thinking_append
             self.iteration_number = iteration_number  # Для iteration_thinking_chunk
+            self.engine = engine  # Ссылка на engine для сохранения operation_id
             self.buffer = ""
             self.thought_started = False
             self.thought_complete = False
             self.thought_content = ""
             self.thinking_id = f"thinking_{session_id}_{int(time.time() * 1000)}"
+            
+            # Для стриминга Python кода в реальном времени
+            self.code_streaming_started = False
+            self.code_start_marker = '"code": "'
+            self.code_start_pos = -1  # Позиция начала кода в буфере
+            self.last_code_streamed_pos = -1  # Последняя позиция стримленного кода
+            self.in_code_string = False  # Флаг что мы внутри JSON строки кода
+            self.code_escape_next = False  # Флаг что следующий символ экранирован
+            self.accumulated_code = ""  # Накопленный код для отправки
+            self.operation_id = None  # Operation ID для стриминга в operation view
+            self.last_streamed_line_count = 0  # Количество стримленных строк в operation view
         
         async def process_chunk(self, chunk: str) -> None:
             """Обрабатывает chunk, извлекает thought и стримит.
@@ -2613,7 +2625,18 @@ class UnifiedReActEngine:
             - thinking_chunk: legacy событие для ThinkingMessage
             - intent_detail: новое событие для IntentMessage (если есть intent_id)
             """
+            # #region agent log
+            try:
+                import json as _json, time as _time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(_json.dumps({"location": "unified_react_engine.py:process_chunk:entry", "message": "process_chunk called", "data": {"chunk_length": len(chunk), "chunk_preview": chunk[:100], "buffer_length": len(self.buffer), "code_streaming_started": self.code_streaming_started, "in_code_string": self.in_code_string, "hypothesisId": "A"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+            except: pass
+            # #endregion
+            
             self.buffer += chunk
+            
+            # Обрабатываем стриминг кода Python в реальном времени
+            await self._handle_code_streaming()
             
             # Проверяем начало thought
             if "<thought>" in self.buffer and not self.thought_started:
@@ -2718,6 +2741,257 @@ class UnifiedReActEngine:
                     "text": text  # Текст как есть, фронтенд аппендит
                 }
             )
+        
+        async def _handle_code_streaming(self) -> None:
+            """Обрабатывает стриминг Python кода в реальном времени из JSON.
+            
+            Отслеживает генерацию execute_python_code и стримит код по мере поступления токенов.
+            """
+            # #region agent log
+            try:
+                import json as _json, time as _time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:entry", "message": "_handle_code_streaming called", "data": {"buffer_length": len(self.buffer), "buffer_preview": self.buffer[-200:], "code_streaming_started": self.code_streaming_started, "in_code_string": self.in_code_string, "code_start_pos": self.code_start_pos, "hypothesisId": "B"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+            except: pass
+            # #endregion
+            
+            tool_marker = '"tool_name": "execute_python_code"'
+            
+            # Ищем паттерн "tool_name": "execute_python_code" если еще не начали стриминг
+            if not self.code_streaming_started:
+                # #region agent log
+                try:
+                    import json as _json, time as _time
+                    tool_found = tool_marker in self.buffer
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                        f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:tool_search", "message": "Searching for tool marker", "data": {"tool_marker": tool_marker, "found": tool_found, "buffer_contains": self.buffer if len(self.buffer) < 500 else self.buffer[-500:], "hypothesisId": "C"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                except: pass
+                # #endregion
+                if tool_marker in self.buffer:
+                    # Нашли execute_python_code, начинаем отслеживать код
+                    self.code_streaming_started = True
+            
+            # Если начали стриминг, но еще не нашли маркер начала кода, продолжаем искать
+            if self.code_streaming_started and self.code_start_pos == -1:
+                tool_pos = self.buffer.find(tool_marker)
+                if tool_pos != -1:
+                    code_marker_pos = self.buffer.find(self.code_start_marker, tool_pos)
+                    # #region agent log
+                    try:
+                        import json as _json, time as _time
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:tool_found", "message": "Tool marker found, searching for code marker", "data": {"tool_pos": tool_pos, "code_marker": self.code_start_marker, "code_marker_pos": code_marker_pos, "buffer_after_tool": self.buffer[tool_pos:tool_pos+200] if tool_pos != -1 else None, "hypothesisId": "D"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                    except: pass
+                    # #endregion
+                    if code_marker_pos != -1:
+                        self.code_start_pos = code_marker_pos + len(self.code_start_marker)
+                        self.last_code_streamed_pos = self.code_start_pos
+                        self.in_code_string = True
+                        # #region agent log
+                        try:
+                            import json as _json, time as _time
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:code_start", "message": "Code marker found, starting code streaming", "data": {"code_start_pos": self.code_start_pos, "code_preview": self.buffer[self.code_start_pos:self.code_start_pos+50], "hypothesisId": "E"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                        except: pass
+                        # #endregion
+                        # Создаём operation_id для стриминга в operation view (чат)
+                        self.operation_id = f"op-{int(time.time() * 1000)}"
+                        
+                        # Сохраняем operation_id в engine для использования в _execute_action
+                        if self.engine:
+                            self.engine._execute_python_code_operation_id = self.operation_id
+                        
+                        # Отправляем operation_start для стриминга в operation view (чат)
+                        # Проверяем наличие метода для совместимости с моками в тестах
+                        if hasattr(self.ws_manager, 'send_operation_start'):
+                            await self.ws_manager.send_operation_start(
+                                self.session_id,
+                                self.operation_id,
+                                "Пишу код анализа...",
+                                "Код Python",
+                                "write",
+                                file_type="code",
+                                intent_id=self.intent_id,
+                                iteration_number=self.iteration_number
+                            )
+                        
+                        # Отправляем событие начала стриминга кода для code viewer (правое окно)
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "code_display_start",
+                            {
+                                "filename": "analysis.py",
+                                "language": "python"
+                            }
+                        )
+                        # #region agent log
+                        try:
+                            import json as _json, time as _time
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:code_display_start_sent", "message": "code_display_start event sent", "data": {"operation_id": self.operation_id, "hypothesisId": "F"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                        except: pass
+                        # #endregion
+            
+            # Если стриминг кода начался, извлекаем и стримим новые части кода
+            if self.code_streaming_started and self.in_code_string and self.code_start_pos > 0:
+                # Извлекаем код из буфера начиная с последней стримленной позиции
+                # Код находится между "code": " и закрывающей "
+                # Нужно правильно обрабатывать экранированные кавычки и символы
+                
+                code_chunk = ""
+                i = self.last_code_streamed_pos
+                code_complete = False
+                
+                while i < len(self.buffer):
+                    char = self.buffer[i]
+                    
+                    if self.code_escape_next:
+                        # Предыдущий символ был \, обрабатываем экранированный символ
+                        if char == 'n':
+                            code_chunk += '\n'
+                        elif char == 't':
+                            code_chunk += '\t'
+                        elif char == 'r':
+                            code_chunk += '\r'
+                        elif char == '\\':
+                            code_chunk += '\\'
+                        elif char == '"':
+                            code_chunk += '"'
+                        else:
+                            # Неизвестный escape, добавляем как есть
+                            code_chunk += char
+                        self.code_escape_next = False
+                        i += 1
+                        continue
+                    
+                    if char == '\\':
+                        # Следующий символ экранирован
+                        self.code_escape_next = True
+                        i += 1
+                        continue
+                    
+                    if char == '"':
+                        # Конец строки кода (не экранированная кавычка)
+                        self.in_code_string = False
+                        self.last_code_streamed_pos = i + 1
+                        code_complete = True
+                        # Отправляем последний chunk кода если есть
+                        if code_chunk:
+                            self.accumulated_code += code_chunk
+                            
+                            # Стримим последние строки в operation view (чат)
+                            if self.operation_id and hasattr(self.ws_manager, 'send_operation_data'):
+                                all_lines = self.accumulated_code.split('\n')
+                                # Стримим все оставшиеся строки (включая последнюю)
+                                for i in range(self.last_streamed_line_count, len(all_lines)):
+                                    line = all_lines[i]
+                                    if line:  # Отправляем только непустые строки
+                                        await self.ws_manager.send_operation_data(
+                                            self.session_id,
+                                            self.operation_id,
+                                            line
+                                        )
+                            
+                            # Стримим в code viewer (правое окно)
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "code_chunk",
+                                {
+                                    "filename": "analysis.py",
+                                    "code": self.accumulated_code
+                                }
+                            )
+                        # Отправляем событие завершения стриминга кода
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "code_display_complete",
+                            {
+                                "filename": "analysis.py",
+                                "code": self.accumulated_code
+                            }
+                        )
+                        break
+                    
+                    # Обычный символ кода
+                    code_chunk += char
+                    i += 1
+                
+                # Если накопили код и еще не завершили строку, стримим его
+                if code_chunk and not code_complete and not self.code_escape_next:
+                    old_accumulated_length = len(self.accumulated_code)
+                    self.accumulated_code += code_chunk
+                    self.last_code_streamed_pos = i
+                    # #region agent log
+                    try:
+                        import json as _json, time as _time
+                        all_lines_before = self.accumulated_code[:old_accumulated_length].split('\n') if old_accumulated_length > 0 else []
+                        all_lines_after = self.accumulated_code.split('\n')
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:code_chunk", "message": "Processing code_chunk", "data": {"code_chunk_length": len(code_chunk), "code_chunk_preview": code_chunk[:50], "accumulated_code_length": len(self.accumulated_code), "old_length": old_accumulated_length, "lines_before": len(all_lines_before), "lines_after": len(all_lines_after), "last_streamed_line_count": self.last_streamed_line_count, "operation_id": self.operation_id, "hypothesisId": "G"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                    except: pass
+                    # #endregion
+                    
+                    # Стримим код в operation view (чат) - построчно для визуального эффекта
+                    if self.operation_id and hasattr(self.ws_manager, 'send_operation_data'):
+                        # Разбиваем накопленный код на строки
+                        all_lines = self.accumulated_code.split('\n')
+                        new_lines_count = 0
+                        # Стримим новые полные строки (последняя может быть неполной)
+                        for line_idx in range(self.last_streamed_line_count, len(all_lines) - 1):
+                            line = all_lines[line_idx]
+                            if line:  # Отправляем только непустые строки
+                                await self.ws_manager.send_operation_data(
+                                    self.session_id,
+                                    self.operation_id,
+                                    line
+                                )
+                                new_lines_count += 1
+                        # Обновляем счетчик стримленных строк (исключаем последнюю неполную строку)
+                        self.last_streamed_line_count = len(all_lines) - 1
+                        
+                        # ВАЖНО: Стримим последнюю неполную строку, если она есть и изменилась
+                        # Это нужно для того, чтобы пользователь видел код в реальном времени
+                        if len(all_lines) > self.last_streamed_line_count:
+                            last_line = all_lines[-1]
+                            # Отправляем неполную строку только если она непустая (чтобы избежать лишних обновлений)
+                            if last_line:
+                                await self.ws_manager.send_operation_data(
+                                    self.session_id,
+                                    self.operation_id,
+                                    last_line
+                                )
+                                # #region agent log
+                                try:
+                                    import json as _json, time as _time
+                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                        f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:partial_line_sent", "message": "Sent partial line to operation view", "data": {"last_line_preview": last_line[:50], "last_streamed_line_count": self.last_streamed_line_count, "total_lines": len(all_lines), "hypothesisId": "J"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                                except: pass
+                                # #endregion
+                        
+                        # #region agent log
+                        try:
+                            import json as _json, time as _time
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:operation_data_sent", "message": "Sent operation_data events", "data": {"new_lines_count": new_lines_count, "last_streamed_line_count": self.last_streamed_line_count, "total_lines": len(all_lines), "hypothesisId": "H"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                        except: pass
+                        # #endregion
+                    
+                    # Стримим накопленный код в code viewer (правое окно) - всегда, даже если нет новых строк
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "code_chunk",
+                        {
+                            "filename": "analysis.py",
+                            "code": self.accumulated_code
+                        }
+                    )
+                    # #region agent log
+                    try:
+                        import json as _json, time as _time
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(_json.dumps({"location": "unified_react_engine.py:_handle_code_streaming:code_chunk_sent", "message": "Sent code_chunk event", "data": {"accumulated_code_length": len(self.accumulated_code), "hypothesisId": "I"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                    except: pass
+                    # #endregion
         
         def get_thought(self) -> str:
             """Возвращает извлечённый thought."""
@@ -4116,10 +4390,11 @@ if salary_sheet:
             iteration_intent_id = getattr(self, '_task_intent_id', None) or getattr(self, '_current_intent_id', None)
             
             parser = self.StreamingThoughtParser(
-                self.ws_manager, 
+                self.ws_manager,
                 self.session_id,
                 intent_id=iteration_intent_id,
-                iteration_number=state.iteration
+                iteration_number=state.iteration,
+                engine=self  # Передаем engine для сохранения operation_id
             )
             
             # Используем основную модель для ВСЕХ итераций
@@ -4569,7 +4844,17 @@ raise ValueError("Код анализа не был предоставлен. П
                 },
             }
             if capability_name in tools_with_operations:
-                operation_id = f"op-{int(time.time() * 1000)}"
+                # Для execute_python_code проверяем, не создан ли уже operation_id в парсере
+                if capability_name == 'execute_python_code' and hasattr(self, '_execute_python_code_operation_id'):
+                    operation_id = self._execute_python_code_operation_id
+                    # Удаляем временный атрибут после использования
+                    delattr(self, '_execute_python_code_operation_id')
+                    # Не отправляем operation_start - он уже отправлен из парсера
+                    skip_operation_start = True
+                else:
+                    operation_id = f"op-{int(time.time() * 1000)}"
+                    skip_operation_start = False
+                
                 op_config = tools_with_operations[capability_name]
                 
                 # Extract file_id and form file_url for automatic file opening
@@ -4616,18 +4901,20 @@ raise ValueError("Код анализа не был предоставлен. П
                         file_id = presentation_id
                         file_url = f"https://docs.google.com/presentation/d/{presentation_id}/preview"
                 
-                await self.ws_manager.send_operation_start(
-                    self.session_id,
-                    operation_id,
-                    op_config['title'],
-                    op_config['streaming_title'],
-                    op_config['operation_type'],
-                    file_id=file_id,
-                    file_url=file_url,
-                    file_type=file_type,
-                    intent_id=intent_id,
-                    iteration_number=getattr(self, '_current_iteration', None)
-                )
+                # Отправляем operation_start только если он еще не отправлен (из парсера)
+                if not skip_operation_start:
+                    await self.ws_manager.send_operation_start(
+                        self.session_id,
+                        operation_id,
+                        op_config['title'],
+                        op_config['streaming_title'],
+                        op_config['operation_type'],
+                        file_id=file_id,
+                        file_url=file_url,
+                        file_type=file_type,
+                        intent_id=intent_id,
+                        iteration_number=getattr(self, '_current_iteration', None)
+                    )
                 
                 # === For write operations, stream content IMMEDIATELY from arguments ===
                 # This ensures user sees content being "written" before MCP call completes
@@ -4648,58 +4935,9 @@ raise ValueError("Код анализа не был предоставлен. П
                                 import asyncio
                                 await asyncio.sleep(0.05)
                 
-                # === For Python code execution, stream code IMMEDIATELY before execution ===
-                # This ensures user sees code being "written" before execution starts
-                if capability_name == 'execute_python_code':
-                    code = arguments.get('code', '')
-                    if code and operation_id:
-                        # First, send code_display_start event to initialize code viewer (right panel)
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "code_display_start",
-                            {
-                                "filename": "analysis.py",
-                                "language": "python"
-                            }
-                        )
-                        
-                        # Then stream code line by line to both operation view (left panel) and code viewer (right panel)
-                        code_lines = code.split('\n')
-                        accumulated_code = ""
-                        for i, line in enumerate(code_lines):
-                            # Accumulate code for final display
-                            accumulated_code += line + ('\n' if i < len(code_lines) - 1 else '')
-                            
-                            # Stream to operation view (left panel)
-                            await self.ws_manager.send_operation_data(
-                                self.session_id,
-                                operation_id,
-                                line
-                            )
-                            
-                            # Stream to code viewer (right panel) - send accumulated code so far
-                            await self.ws_manager.send_event(
-                                self.session_id,
-                                "code_chunk",
-                                {
-                                    "filename": "analysis.py",
-                                    "code": accumulated_code
-                                }
-                            )
-                            
-                            # Small delay for visual streaming effect
-                            import asyncio
-                            await asyncio.sleep(0.03)  # Slightly faster than text
-                        
-                        # Send code_display_complete to finalize
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "code_display_complete",
-                            {
-                                "filename": "analysis.py",
-                                "code": code
-                            }
-                        )
+                # === Python code execution: код уже стримлен в реальном времени через _handle_code_streaming ===
+                # Код отображается в правой панели (code viewer) во время генерации токенов
+                # Старый построчный стриминг удален, так как код уже стримлен
             elif intent_id:
                 # Legacy: Send intent_detail for other tools (without dots - they will be added by frontend if needed)
                 await self.ws_manager.send_event(
@@ -5003,8 +5241,16 @@ raise ValueError("Код анализа не был предоставлен. П
                     )
             
             # Sheets operations
-            elif capability_name in ['get_sheet_data', 'add_rows', 'update_cells']:
+            elif capability_name in ['get_sheet_data', 'get_all_sheets_data', 'add_rows', 'update_cells']:
                 try:
+                    # #region agent log
+                    try:
+                        import json as _json, time as _time
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(_json.dumps({"location": "unified_react_engine.py:_execute_action:sheets_operation", "message": "Processing sheets operation", "data": {"capability_name": capability_name, "operation_id": operation_id, "result_preview": str(result)[:200] if result else None, "hypothesisId": "SHEETS1"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                    except: pass
+                    # #endregion
+                    
                     items, summary = await self._parse_sheets_result(str(result), capability_name, arguments)
                     if items:
                         for item in items:
@@ -5019,6 +5265,13 @@ raise ValueError("Код анализа не был предоставлен. П
                             operation_id,
                             summary
                         )
+                        # #region agent log
+                        try:
+                            import json as _json, time as _time
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(_json.dumps({"location": "unified_react_engine.py:_execute_action:sheets_operation_end", "message": "Sent operation_end for sheets operation", "data": {"capability_name": capability_name, "operation_id": operation_id, "summary": summary, "hypothesisId": "SHEETS2"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                        except: pass
+                        # #endregion
                 except Exception as e:
                     logger.warning(f"[UnifiedReActEngine] Failed to process sheets operation for {capability_name}: {e}", exc_info=True)
                     result_summary = self._get_result_summary(capability_name, result)
@@ -5028,6 +5281,13 @@ raise ValueError("Код анализа не был предоставлен. П
                             operation_id,
                             result_summary
                         )
+                        # #region agent log
+                        try:
+                            import json as _json, time as _time
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                                f.write(_json.dumps({"location": "unified_react_engine.py:_execute_action:sheets_operation_end_error", "message": "Sent operation_end after error", "data": {"capability_name": capability_name, "operation_id": operation_id, "error": str(e), "summary": result_summary, "hypothesisId": "SHEETS3"}, "timestamp": int(_time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                        except: pass
+                        # #endregion
             
             # Gmail operations
             elif capability_name in ['list_emails', 'search_emails']:
