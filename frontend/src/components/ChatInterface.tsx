@@ -813,6 +813,20 @@ export function ChatInterface() {
       }
     }
   }, [])
+
+  // Handle keyboard shortcuts - focus input
+  useEffect(() => {
+    const handleFocusInput = () => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+      }
+    }
+
+    window.addEventListener('focus-chat-input', handleFocusInput as EventListener)
+    return () => {
+      window.removeEventListener('focus-chat-input', handleFocusInput as EventListener)
+    }
+  }, [])
   
   const handleExecutionModeChange = async (mode: ExecutionMode) => {
     setExecutionMode(mode)

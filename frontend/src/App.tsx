@@ -4,6 +4,7 @@ import { SplitLayout } from './components/SplitLayout'
 import { LoginDialog } from './components/LoginDialog'
 import { useSettingsStore } from './store/settingsStore'
 import { getGoogleCalendarStatus, getGmailStatus, getGoogleWorkspaceStatus, getCurrentUser } from './services/api'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
 
 // App version - increment to clear cache
 const APP_VERSION = '5.0.0'
@@ -304,6 +305,26 @@ function App() {
       window.history.replaceState({}, '', newUrl)
     }
   }, [setIntegrationStatus])
+
+  // Keyboard shortcuts
+  const { setExecutionMode } = useSettingsStore()
+  useKeyboardShortcuts({
+    onFocusInput: () => {
+      window.dispatchEvent(new CustomEvent('focus-chat-input'))
+    },
+    onCloseMenus: () => {
+      window.dispatchEvent(new CustomEvent('close-all-menus'))
+    },
+    onOpenHelp: () => {
+      window.dispatchEvent(new CustomEvent('open-help-menu'))
+    },
+    onOpenSettings: () => {
+      window.dispatchEvent(new CustomEvent('open-settings-menu'))
+    },
+    onSwitchMode: (mode) => {
+      setExecutionMode(mode)
+    }
+  })
 
   if (isCheckingAuth) {return (
       <div className="h-screen w-full flex items-center justify-center bg-slate-50 dark:bg-slate-900">

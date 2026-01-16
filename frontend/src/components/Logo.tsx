@@ -15,7 +15,7 @@ export function Logo() {
         <circle cx="10" cy="9.5" r="0.8" fill="currentColor" className="logo-icon-bg"/>
         <circle cx="14" cy="9.5" r="0.8" fill="currentColor" className="logo-icon-bg"/>
       </svg>
-      <span className="logo-text">GPTzator 2.0</span>
+      <span className="logo-text">GPTzator NEXT</span>
     </div>
   )
 }

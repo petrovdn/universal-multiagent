@@ -45,6 +45,31 @@ export function Header() {
     }
   }, [])
 
+  // Handle keyboard shortcuts events
+  useEffect(() => {
+    const handleCloseAllMenus = () => {
+      setActiveMenu(null)
+    }
+
+    const handleOpenHelpMenu = () => {
+      setActiveMenu('help')
+    }
+
+    const handleOpenSettingsMenu = () => {
+      setActiveMenu('settings')
+    }
+
+    window.addEventListener('close-all-menus', handleCloseAllMenus as EventListener)
+    window.addEventListener('open-help-menu', handleOpenHelpMenu as EventListener)
+    window.addEventListener('open-settings-menu', handleOpenSettingsMenu as EventListener)
+
+    return () => {
+      window.removeEventListener('close-all-menus', handleCloseAllMenus as EventListener)
+      window.removeEventListener('open-help-menu', handleOpenHelpMenu as EventListener)
+      window.removeEventListener('open-settings-menu', handleOpenSettingsMenu as EventListener)
+    }
+  }, [])
+
   const toggleMenu = (menu: 'profile' | 'apps' | 'settings' | 'help') => {
     setActiveMenu(activeMenu === menu ? null : menu)
   }
