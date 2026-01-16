@@ -3533,6 +3533,27 @@ class UnifiedReActEngine:
         try:
             with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
                 import json as json_module
+                from datetime import datetime
+                f.write(json_module.dumps({
+                    "timestamp": datetime.now().isoformat(),
+                    "location": "unified_react_engine.py:_get_relevant_tools:entry",
+                    "message": "Function entry",
+                    "data": {
+                        "goal": goal,
+                        "completed_tools": completed_tools,
+                        "completed_count": len(completed_tools)
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "A"
+                }) + "\n")
+        except:
+            pass
+        # #endregion
+        # #region debug log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_module
                 f.write(json_module.dumps({
                     "timestamp": datetime.now().isoformat(),
                     "location": "unified_react_engine.py:_get_relevant_tools",
@@ -3731,6 +3752,36 @@ class UnifiedReActEngine:
         
         # Исключаем уже успешно выполненные инструменты (кроме FINISH и форматирования абзацев)
         repeatable_tools = {"FINISH", "format_document_paragraph"}
+        
+        # СПЕЦИАЛЬНАЯ ЛОГИКА: После выполнения onec_get_salary_by_employee_month
+        # автоматически добавляем инструменты для работы с Sheets (для создания таблицы)
+        if "onec_get_salary_by_employee_month" in completed_tools:
+            # Добавляем инструменты Sheets для создания/обновления таблицы с данными
+            relevant_tool_names.update([
+                "create_spreadsheet", "sheets_read_range", "get_sheet_data",
+                "get_all_sheets_data", "add_rows", "update_cells"
+            ])
+            # #region debug log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                    import json as json_module
+                    from datetime import datetime
+                    f.write(json_module.dumps({
+                        "timestamp": datetime.now().isoformat(),
+                        "location": "unified_react_engine.py:auto_add_sheets_after_salary",
+                        "message": "Auto-adding Sheets tools after salary tool completion",
+                        "data": {
+                            "relevant_tool_names_after": list(relevant_tool_names),
+                            "sheets_tools_added": ["create_spreadsheet", "sheets_read_range", "get_sheet_data", "get_all_sheets_data", "add_rows", "update_cells"]
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "A"
+                    }) + "\n")
+            except:
+                pass
+            # #endregion
+        
         filtered_names = [t for t in relevant_tool_names 
                          if t not in completed_tools or t in repeatable_tools]
         
@@ -3738,13 +3789,22 @@ class UnifiedReActEngine:
         try:
             with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
                 import json as json_module
+                from datetime import datetime
                 f.write(json_module.dumps({
                     "timestamp": datetime.now().isoformat(),
                     "location": "unified_react_engine.py:after_filtering",
                     "message": "After filtering completed tools",
                     "data": {
                         "filtered_names": filtered_names,
-                        "has_salary_tool": "onec_get_salary_by_employee_month" in filtered_names
+                        "filtered_count": len(filtered_names),
+                        "relevant_before_filter": list(relevant_tool_names),
+                        "relevant_count": len(relevant_tool_names),
+                        "completed_tools": completed_tools,
+                        "has_salary_tool": "onec_get_salary_by_employee_month" in filtered_names,
+                        "salary_tool_in_relevant": "onec_get_salary_by_employee_month" in relevant_tool_names,
+                        "salary_tool_in_completed": "onec_get_salary_by_employee_month" in completed_tools,
+                        "onec_tools_in_filtered": [t for t in filtered_names if t.startswith("onec_")],
+                        "onec_tools_in_relevant": [t for t in relevant_tool_names if t.startswith("onec_")]
                     },
                     "sessionId": "debug-session",
                     "runId": "run1",
@@ -4070,6 +4130,31 @@ if salary_sheet:
         # Собираем список выполненных инструментов
         completed_tools = [a.tool_name for a in state.action_history] if state.action_history else []
         
+        # #region debug log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                import json as json_module, time
+                f.write(json_module.dumps({
+                    "location": "unified_react_engine.py:_think_and_plan:before_get_relevant",
+                    "message": "Before getting relevant tools",
+                    "data": {
+                        "goal": state.goal,
+                        "completed_tools": completed_tools,
+                        "completed_count": len(completed_tools),
+                        "action_history_count": len(state.action_history) if state.action_history else 0,
+                        "has_salary_in_completed": "onec_get_salary_by_employee_month" in completed_tools,
+                        "observations_count": len(state.observations) if state.observations else 0
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "sessionId": self.session_id,
+                    "runId": "run1",
+                    "hypothesisId": "B"
+                }) + "\n")
+                f.flush()
+        except Exception as e:
+            logger.error(f"Failed to write debug log: {e}")
+        # #endregion
+        
         # Определяем следующий шаг
         next_step = self._determine_next_step(state.goal, completed_tools, state.observations)
         
@@ -4082,7 +4167,24 @@ if salary_sheet:
             with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
                 import json as json_module, time
                 projectlad_tools = [t for t in relevant_tools if 'projectlad' in t['name'].lower()]
-                f.write(json_module.dumps({"location": "unified_react_engine.py:_think_and_plan:relevant_tools", "message": "Relevant tools from _get_relevant_tools", "data": {"total_tools": len(relevant_tools), "tool_names": [t['name'] for t in relevant_tools], "projectlad_tools": projectlad_tools, "goal": state.goal, "hypothesisId": "I"}, "timestamp": int(time.time() * 1000), "sessionId": self.session_id, "runId": "run1"}) + "\n")
+                onec_tools = [t for t in relevant_tools if t['name'].startswith('onec_')]
+                f.write(json_module.dumps({
+                    "location": "unified_react_engine.py:_think_and_plan:relevant_tools",
+                    "message": "Relevant tools from _get_relevant_tools",
+                    "data": {
+                        "total_tools": len(relevant_tools),
+                        "tool_names": [t['name'] for t in relevant_tools],
+                        "projectlad_tools": projectlad_tools,
+                        "onec_tools": onec_tools,
+                        "has_salary_tool": any(t['name'] == 'onec_get_salary_by_employee_month' for t in relevant_tools),
+                        "goal": state.goal,
+                        "completed_tools": completed_tools,
+                        "hypothesisId": "B"
+                    },
+                    "timestamp": int(time.time() * 1000),
+                    "sessionId": self.session_id,
+                    "runId": "run1"
+                }) + "\n")
                 f.flush()
         except Exception as e:
             logger.error(f"Failed to write debug log: {e}")
