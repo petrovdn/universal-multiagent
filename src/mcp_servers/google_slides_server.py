@@ -1609,12 +1609,6 @@ Example slides array:
                     )]
                 
                 elif name == "slides_format_text":
-                    # #region agent log
-                    import json as _debug_json; import time as _debug_time
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_mcp","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1482","message":"slides_format_text MCP call","data":{"arguments_keys":list(arguments.keys()),"has_presentationId":"presentationId" in arguments,"has_pageId":"pageId" in arguments,"has_elementId":"elementId" in arguments,"has_startIndex":"startIndex" in arguments,"has_endIndex":"endIndex" in arguments},"sessionId":"debug-session","runId":"run1","hypothesisId":"S"}) + '\n')
-                    # #endregion
-
                     slides_service = self._get_slides_service()
                     presentation_id = self._extract_file_id(arguments.get("presentationId"))
                     page_id = arguments.get("pageId")
@@ -1622,32 +1616,15 @@ Example slides array:
                     start_index = arguments.get("startIndex")
                     end_index = arguments.get("endIndex")
                     
-                    # #region agent log
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_extracted","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1489","message":"Extracted format_slide_text parameters","data":{"presentation_id":presentation_id[:30] if presentation_id else "","page_id":page_id[:20] if page_id else "","element_id":element_id[:20] if element_id else "","start_index":start_index,"end_index":end_index,"presentation_id_is_none":presentation_id is None,"page_id_is_none":page_id is None,"element_id_is_none":element_id is None,"start_index_is_none":start_index is None,"end_index_is_none":end_index is None},"sessionId":"debug-session","runId":"run1","hypothesisId":"T"}) + '\n')
-                    # #endregion
-                    
                     # Validate required parameters
                     if not presentation_id:
                         error_msg = "Missing required parameter: presentationId"
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1492","message":"Missing presentationId","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"U"}) + '\n')
-                        # #endregion
                         return [TextContent(type="text", text=json.dumps({"error": error_msg}, indent=2))]
                     if not page_id:
                         error_msg = "Missing required parameter: pageId"
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1498","message":"Missing pageId","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"V"}) + '\n')
-                        # #endregion
                         return [TextContent(type="text", text=json.dumps({"error": error_msg}, indent=2))]
                     if not element_id:
                         error_msg = "Missing required parameter: elementId"
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1504","message":"Missing elementId","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"W"}) + '\n')
-                        # #endregion
                         return [TextContent(type="text", text=json.dumps({"error": error_msg}, indent=2))]
                     # Default start_index to 0 if None
                     if start_index is None:
@@ -1679,17 +1656,9 @@ Example slides array:
                                     break
                             
                             end_index = text_length if text_length > 0 else 0
-                            # #region agent log
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_auto_detect","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1530","message":"Auto-detected end_index from text length","data":{"end_index":end_index,"text_length":text_length},"sessionId":"debug-session","runId":"run1","hypothesisId":"AD"}) + '\n')
-                            # #endregion
                         except Exception as e:
                             # If we can't get text length, use a large number
                             end_index = 10000
-                            # #region agent log
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_fallback","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1545","message":"Failed to auto-detect end_index, using fallback","data":{"end_index":end_index,"error":str(e)[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"AE"}) + '\n')
-                            # #endregion
                     
                     requests = []
                     
@@ -1740,11 +1709,6 @@ Example slides array:
                         }
                         style_fields.append("backgroundColor")
                     
-                    # #region agent log
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_style","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1587","message":"Building text style","data":{"text_style_keys":list(text_style.keys()),"style_fields":style_fields,"has_text_style":bool(text_style),"arguments_keys":list(arguments.keys()),"has_bold":"bold" in arguments,"has_italic":"italic" in arguments,"has_font_size":"fontSize" in arguments,"has_font_family":"fontFamily" in arguments},"sessionId":"debug-session","runId":"run1","hypothesisId":"Z"}) + '\n')
-                    # #endregion
-                    
                     if text_style:
                         requests.append({
                             "updateTextStyle": {
@@ -1759,17 +1723,9 @@ Example slides array:
                             }
                         })
                     else:
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_no_style","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1600","message":"No text style parameters provided","data":{"arguments_keys":list(arguments.keys())},"sessionId":"debug-session","runId":"run1","hypothesisId":"AA"}) + '\n')
-                        # #endregion
                         return [TextContent(type="text", text=json.dumps({"error": "Missing key parameters: at least one formatting parameter (bold, italic, fontSize, etc.) must be provided"}, indent=2))]
                     
                     if not requests:
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_no_requests","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1639","message":"No requests to execute","data":{"text_style_empty":not bool(text_style)},"sessionId":"debug-session","runId":"run1","hypothesisId":"AI"}) + '\n')
-                        # #endregion
                         return [TextContent(
                             type="text",
                             text=json.dumps({"error": "No formatting options provided"}, indent=2)
@@ -1777,20 +1733,10 @@ Example slides array:
                     
                     
                     try:
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_executing","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1646","message":"Executing format_slide_text batchUpdate","data":{"presentation_id":presentation_id[:30] if presentation_id else "","page_id":page_id[:20] if page_id else "","element_id":element_id[:20] if element_id else "","start_index":start_index,"end_index":end_index,"requests_count":len(requests),"style_fields":style_fields},"sessionId":"debug-session","runId":"run1","hypothesisId":"AJ"}) + '\n')
-                        # #endregion
-                        
                         response = slides_service.presentations().batchUpdate(
                             presentationId=presentation_id,
                             body={"requests": requests}
                         ).execute()
-                        
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_success","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1653","message":"Format text succeeded","data":{"presentation_id":presentation_id[:30] if presentation_id else "","response_keys":list(response.keys()) if isinstance(response, dict) else []},"sessionId":"debug-session","runId":"run1","hypothesisId":"AK"}) + '\n')
-                        # #endregion
                         
                         return [TextContent(
                             type="text",
@@ -2818,11 +2764,6 @@ Example slides array:
                     )]
                 
                 elif name == "slides_create_presentation_batch":
-                    # #region agent log
-                    import json as _debug_json; import time as _debug_time
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_entry","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2593","message":"MCP server received call","data":{"arguments_keys":list(arguments.keys()),"has_title":"title" in arguments,"has_slides":"slides" in arguments,"has_theme":"theme" in arguments},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
-                    # #endregion
                     slides_service = self._get_slides_service()
                     drive_service = self._get_drive_service()
                     folder_id = self._get_workspace_folder_id()
@@ -2839,11 +2780,6 @@ Example slides array:
                     slides_data = arguments.get("slides", [])
                     theme = arguments.get("theme", "professional")  # Backward compatibility
                     theme_source = arguments.get("theme_source")  # New: can be presentation name or None
-                    
-                    # #region agent log
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_extracted","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2608","message":"Extracted arguments","data":{"title":title[:30] if title else "","slides_count":len(slides_data) if slides_data else 0,"theme":theme,"theme_source":theme_source[:50] if theme_source else "","title_is_none":title is None,"slides_is_none":slides_data is None},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
-                    # #endregion
                     
                     if not slides_data:
                         return [TextContent(
@@ -2873,10 +2809,6 @@ Example slides array:
                             template_source = f"config:{theme}"
                         # If no template found in config, continue without template (standard theme)
                     
-                    # #region agent log
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_validation","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2630","message":"Validating arguments","data":{"title_valid":bool(title and title.strip()),"slides_valid":bool(slides_data and len(slides_data) > 0),"theme":theme,"theme_source":theme_source,"template_id":template_id[:30] if template_id else "","template_id_is_none":template_id is None,"template_source":template_source},"sessionId":"debug-session","runId":"run1","hypothesisId":"2B"}) + '\n')
-                    # #endregion
                     presentation_id = None
                     
                     if template_id:
@@ -2924,17 +2856,9 @@ Example slides array:
                                     ).execute()
                         except Exception as e:
                             logger.warning(f"Failed to copy template {template_id}: {e}, creating empty presentation")
-                            # #region agent log
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_template_copy_failed","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2888","message":"Template copy failed","data":{"error":str(e)[:200],"template_id":template_id[:30] if template_id else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"2C"}) + '\n')
-                            # #endregion
                             template_id = None
                     
                     if not presentation_id:
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_creating_empty","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2891","message":"Creating empty presentation (no template)","data":{"title":title[:50] if title else "","theme":theme},"sessionId":"debug-session","runId":"run1","hypothesisId":"2D"}) + '\n')
-                        # #endregion
                         # Create empty presentation
                         presentation = slides_service.presentations().create(
                             body={"title": title}
@@ -2959,10 +2883,6 @@ Example slides array:
                         # This gives presentations a professional look even without custom templates
                         theme_colors = self._get_theme_colors(theme)
                         if theme_colors:
-                            # #region agent log
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_applying_theme_colors","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2920","message":"Applying theme colors to new presentation","data":{"theme":theme,"colors":theme_colors},"sessionId":"debug-session","runId":"run1","hypothesisId":"2D_theme"}) + '\n')
-                            # #endregion
                         else:
                             theme_colors = None  # No theme colors to apply
                     else:
@@ -3048,16 +2968,9 @@ Example slides array:
                                     presentationId=presentation_id,
                                     body={"requests": background_requests}
                                 ).execute()
-                                # #region agent log
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_theme_applied","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3037","message":"Applied theme background colors","data":{"slides_count":len(background_requests),"background_color":theme_colors['background']},"sessionId":"debug-session","runId":"run1","hypothesisId":"5A"}) + '\n')
-                                # #endregion
                             except Exception as e:
                                 # Log error but continue
-                                # #region agent log
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_theme_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3048","message":"Error applying theme","data":{"error":str(e)},"sessionId":"debug-session","runId":"run1","hypothesisId":"5B"}) + '\n')
-                                # #endregion
+                                pass
                     
                     # Refresh to get all slides
                     presentation_obj = slides_service.presentations().get(
@@ -3246,36 +3159,19 @@ Example slides array:
                     
                     # Execute formatting batch
                     if format_requests:
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_batch","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3141","message":"Executing format batch","data":{"requests_count":len(format_requests),"first_request_type":list(format_requests[0].keys())[0] if format_requests else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"3D"}) + '\n')
-                        # #endregion
                         try:
                             slides_service.presentations().batchUpdate(
                                 presentationId=presentation_id,
                                 body={"requests": format_requests}
                             ).execute()
                         except Exception as format_error:
-                            # #region agent log
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3148","message":"Format batch failed","data":{"error":str(format_error)[:200]},"sessionId":"debug-session","runId":"run1","hypothesisId":"3D_error"}) + '\n')
-                            # #endregion
                             logger.warning(f"Some formatting failed: {format_error}")
                     
                     # Process images for slides
                     image_requests = []
-                    # #region agent log
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                        has_images = any(slide_def.get('image') for slide_def in slides_data)
-                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_images_check","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3150","message":"Checking for images","data":{"has_images":has_images,"unsplash_available":get_unsplash_image_url is not None},"sessionId":"debug-session","runId":"run1","hypothesisId":"4A"}) + '\n')
-                    # #endregion
                     if any(slide_def.get('image') for slide_def in slides_data):
                         # Check if unsplash_client is available
                         if get_unsplash_image_url is None:
-                            # #region agent log
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_unsplash_unavailable","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3154","message":"Unsplash client not available","data":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"4B"}) + '\n')
-                            # #endregion
                             logger.warning("Unsplash client not available, skipping image insertion")
                         else:
                             # Slide dimensions in EMU (Google Slides default: 10x7.5 inches)
@@ -3296,10 +3192,6 @@ Example slides array:
                                     continue
                                 
                                 search_query = image_config.get('search_query')
-                                # #region agent log
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_image_query","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3174","message":"Processing image for slide","data":{"slide_index":i,"search_query":search_query[:50] if search_query else "","has_search_query":bool(search_query)},"sessionId":"debug-session","runId":"run1","hypothesisId":"4C"}) + '\n')
-                                # #endregion
                                 if not search_query:
                                     logger.warning(f"Slide {i} has image config but no search_query")
                                     continue
@@ -3308,15 +3200,7 @@ Example slides array:
                                 logger.info(f"Searching Unsplash for: {search_query}")
                                 try:
                                     image_url = await get_unsplash_image_url(search_query, orientation="landscape")
-                                    # #region agent log
-                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_image_found","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3182","message":"Image search result","data":{"image_url":image_url[:100] if image_url else "","has_url":bool(image_url)},"sessionId":"debug-session","runId":"run1","hypothesisId":"4D"}) + '\n')
-                                    # #endregion
                                 except Exception as image_error:
-                                    # #region agent log
-                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_image_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3184","message":"Image search failed","data":{"error":str(image_error)[:200]},"sessionId":"debug-session","runId":"run1","hypothesisId":"4D"}) + '\n')
-                                    # #endregion
                                     logger.warning(f"Error searching Unsplash: {image_error}")
                                     image_url = None
                                 

@@ -691,11 +691,6 @@ class UnifiedReActEngine:
                 # 2. PLAN - Action plan уже получен из _think_and_plan
                 state.status = "acting"
                 planned_tool = action_plan.get("tool_name", "")
-                # #region agent log
-                import json as _debug_json; import time as _debug_time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_execute_start","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:693","message":"Starting action execution","data":{"planned_tool":planned_tool,"goal":state.goal[:100] if state.goal else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
-                # #endregion
                 
                 # === Send iteration_plan event ===
                 await self.ws_manager.send_event(
@@ -4323,11 +4318,6 @@ if salary_sheet:
             response_text = remaining_buffer if remaining_buffer else full_response
             
             # Ищем action блок
-            # #region agent log
-            import json as _debug_json; import time as _debug_time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_think_parse","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4321","message":"Parsing action from LLM response","data":{"response_length":len(response_text),"full_response_length":len(full_response),"has_action_tags":"<action>" in response_text},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
-            # #endregion
             action_match = re.search(r'<action>([\s\S]*?)</action>', response_text, re.DOTALL)
             if not action_match:
                 # Пробуем найти JSON без тегов
@@ -4366,24 +4356,12 @@ if salary_sheet:
                 if json_match:
                     action_plan = json.loads(json_match.group(0))
                 else:
-                    # #region agent log
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_no_action","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4359","message":"No action found in LLM response","data":{"response_preview":full_response[:500]},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
-                    # #endregion
-                    raise ValueError("Could not find action plan in response")
+                        raise ValueError("Could not find action plan in response")
             
             # Валидация
             if "tool_name" not in action_plan:
-                # #region agent log
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_no_tool_name","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4362","message":"tool_name missing in action_plan","data":{"action_plan_keys":list(action_plan.keys()) if isinstance(action_plan, dict) else "not_dict"},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
-                # #endregion
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_tool_name","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4364","message":"Parsed tool_name from action","data":{"tool_name":tool_name,"is_finish":tool_name=="FINISH","has_arguments":"arguments" in action_plan},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
-            # #endregion
             
             # Validate execute_python_code has code
             if tool_name == "execute_python_code":
@@ -4504,12 +4482,6 @@ raise ValueError("Код анализа не был предоставлен. П
     ) -> Any:
         """Execute action through CapabilityRegistry (provider-agnostic)."""
         capability_name = action_plan.get("tool_name")
-        # #region agent log
-        import json as _debug_json; import time as _debug_time
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_execute_action","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4506","message":"_execute_action called","data":{"capability_name":capability_name,"is_create_presentation_batch":capability_name=="create_presentation_batch","has_arguments":"arguments" in action_plan},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
-        # #endregion
-        # #region debug log
         if not capability_name:
             logger.warning("[UnifiedReActEngine] No tool_name in action_plan, skipping execution")
             return ""
@@ -4993,21 +4965,9 @@ raise ValueError("Код анализа не был предоставлен. П
                             await asyncio.sleep(0.05)
         
         # Registry routes to appropriate provider (MCP or A2A)
-        # #region agent log
-        if capability_name == "create_presentation_batch":
-            import json as _debug_json; import time as _debug_time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_registry_execute","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4988","message":"Calling registry.execute","data":{"capability_name":capability_name,"arguments_keys":list(arguments.keys()),"has_title":"title" in arguments,"has_slides":"slides" in arguments,"has_theme":"theme" in arguments,"title_preview":str(arguments.get("title",""))[:30] if arguments.get("title") else "","slides_count":len(arguments.get("slides",[])) if arguments.get("slides") else 0},"sessionId":"debug-session","runId":"run1","hypothesisId":"I"}) + '\n')
-        # #endregion
         try:
             result = await self.registry.execute(capability_name, arguments)
         except Exception as e:
-            # #region agent log
-            if capability_name == "create_presentation_batch":
-                import traceback as _debug_tb
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_registry_error","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4990","message":"Registry execute error","data":{"error_type":type(e).__name__,"error_message":str(e)[:300],"error_traceback":_debug_tb.format_exc()[:800]},"sessionId":"debug-session","runId":"run1","hypothesisId":"J"}) + '\n')
-            # #endregion
             raise
         _registry_end = time.time()
         
@@ -5327,12 +5287,6 @@ raise ValueError("Код анализа не был предоставлен. П
             
             # Slides operations
             elif capability_name in ['create_presentation', 'create_presentation_batch', 'create_presentation_from_doc', 'get_presentation']:
-                # #region agent log
-                import json as _debug_json; import time as _debug_time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_slides_handler_entry","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:5321","message":"Entered slides operations handler","data":{"capability_name":capability_name,"is_batch":capability_name=="create_presentation_batch"},"sessionId":"debug-session","runId":"run1","hypothesisId":"3E"}) + '\n')
-                # #endregion
-                
                 try:
                     if capability_name in ['create_presentation', 'create_presentation_batch', 'create_presentation_from_doc']:
                         # Extract presentation_id and title from result for auto-opening
@@ -5353,15 +5307,6 @@ raise ValueError("Код анализа не был предоставлен. П
                             re.search(r'Presentation\s*["\']([^"\']+)["\']', result_str)
                         )
                         
-                        # #region agent log
-                        import json as _debug_json; import time as _debug_time
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_pres_id_match","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:5348","message":"Presentation ID regex matching","data":{"has_pres_id_match":bool(pres_id_match),"has_title_match":bool(title_match),"result_preview":result_str[:200],"pres_id":pres_id_match.group(1)[:30] if pres_id_match else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"3F"}) + '\n')
-                        except (PermissionError, OSError):
-                            pass
-                        # #endregion
-                        
                         if pres_id_match:
                             presentation_id = pres_id_match.group(1)
                             presentation_title = title_match.group(1) if title_match else arguments.get('title', 'Презентация')
@@ -5369,12 +5314,6 @@ raise ValueError("Код анализа не был предоставлен. П
                             # Extract URL if present
                             url_match = re.search(r'url["\']?\s*[:=]\s*["\']?(https?://[^\s"\']+)', result_str, re.IGNORECASE)
                             presentation_url = url_match.group(1) if url_match else f"https://docs.google.com/presentation/d/{presentation_id}/edit"
-                            
-                            # #region agent log
-                            import json as _debug_json; import time as _debug_time
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_pres_created","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:5342","message":"Presentation created, sending events","data":{"presentation_id":presentation_id[:30] if presentation_id else "","presentation_title":presentation_title[:50] if presentation_title else "","presentation_url":presentation_url[:50] if presentation_url else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"AF"}) + '\n')
-                            # #endregion
                             
                             # Send slides_action event for frontend to open tab in right panel
                             await self.ws_manager.send_event(
@@ -5389,11 +5328,6 @@ raise ValueError("Код анализа не был предоставлен. П
                                 }
                             )
                             
-                            # #region agent log
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_slides_action_sent","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:5360","message":"Sent slides_action event","data":{"presentation_id":presentation_id[:30] if presentation_id else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"AG"}) + '\n')
-                            # #endregion
-                            
                             # Send file_preview event for frontend to open tab
                             await self.ws_manager.send_event(
                                 self.session_id,
@@ -5406,11 +5340,6 @@ raise ValueError("Код анализа не был предоставлен. П
                                     "title": presentation_title
                                 }
                             )
-                            
-                            # #region agent log
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_file_preview_sent","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:5375","message":"Sent file_preview event","data":{"presentation_id":presentation_id[:30] if presentation_id else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"AH"}) + '\n')
-                            # #endregion
                             
                         summary = "✓ Презентация создана"
                         await self.ws_manager.send_operation_end(

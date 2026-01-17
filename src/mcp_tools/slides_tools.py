@@ -274,39 +274,17 @@ class CreatePresentationBatchTool(BaseTool):
         theme_source: Optional[str] = None
     ) -> str:
         """Execute the tool asynchronously."""
-        # #region agent log
-        import json as _debug_json; import time as _debug_time
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_tool_entry","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:265","message":"_arun called with parameters","data":{"has_title":bool(title),"title_preview":title[:30] if title else "","has_slides":bool(slides),"slides_count":len(slides) if slides else 0,"has_theme":bool(theme),"theme":theme},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
-        # #endregion
         try:
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_args_build","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:278","message":"Building args dict","data":{"title":title[:30] if title else "","slides_count":len(slides) if slides else 0,"theme":theme,"will_add_theme":bool(theme)},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
-            # #endregion
             args = {
                 "title": title,
                 "slides": slides
             }
-            # #region agent log
-            import json as _debug_json; import time as _debug_time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_theme_before","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:287","message":"Theme before adding to args","data":{"theme":theme,"theme_is_none":theme is None,"theme_source":theme_source,"theme_source_is_none":theme_source is None},"sessionId":"debug-session","runId":"run1","hypothesisId":"2A"}) + '\n')
-            # #endregion
             if theme:
                 args["theme"] = theme  # Backward compatibility
             if theme_source:
                 args["theme_source"] = theme_source  # New: use presentation from workspace
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_args_ready","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:283","message":"Args dict ready","data":{"args_keys":list(args.keys()),"has_title":bool(args.get("title")),"has_slides":bool(args.get("slides")),"has_theme":bool(args.get("theme"))},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
-            # #endregion
             
             mcp_manager = get_mcp_manager()
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_call","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:286","message":"Calling MCP tool","data":{"tool_name":"slides_create_presentation_batch","args_keys":list(args.keys())},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
-            # #endregion
             result = await mcp_manager.call_tool("slides_create_presentation_batch", args, server_name="slides")
             
             # Parse result
@@ -607,18 +585,6 @@ class FormatSlideTextTool(BaseTool):
         **kwargs  # Catch unexpected arguments like 'slides'
     ) -> str:
         """Execute the tool asynchronously."""
-        # #region agent log
-        import json as _debug_json; import time as _debug_time
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_entry","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:592","message":"format_slide_text _arun called","data":{"has_presentation_id":bool(presentation_id),"has_page_id":bool(page_id),"has_element_id":bool(element_id),"start_index":start_index,"end_index":end_index,"start_index_is_none":start_index is None,"end_index_is_none":end_index is None,"kwargs_keys":list(kwargs.keys()),"has_slides_in_kwargs":"slides" in kwargs},"sessionId":"debug-session","runId":"run1","hypothesisId":"Q"}) + '\n')
-        # #endregion
-        
-        # #region agent log
-        import json as _debug_json; import time as _debug_time
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_entry","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:609","message":"format_slide_text called","data":{"has_page_id":bool(page_id),"has_element_id":bool(element_id),"has_slides_in_kwargs":"slides" in kwargs,"kwargs_keys":list(kwargs.keys())},"sessionId":"debug-session","runId":"run1","hypothesisId":"3A"}) + '\n')
-        # #endregion
-        
         # Validate that 'slides' is not passed (common LLM mistake)
         if 'slides' in kwargs:
             error_msg = (
@@ -628,10 +594,6 @@ class FormatSlideTextTool(BaseTool):
                 "To get page_id and element_id, first call get_presentation to see the structure. "
                 "If you need to format multiple slides, call format_slide_text separately for each element."
             )
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_error_slides","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:600","message":"format_slide_text called with slides array (error)","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"3A"}) + '\n')
-            # #endregion
             raise ToolExecutionError(error_msg, tool_name=self.name)
         
         # Validate required parameters
@@ -641,10 +603,6 @@ class FormatSlideTextTool(BaseTool):
                 "This is the slide ID (e.g., 'slide_abc123'). "
                 "Get it by calling get_presentation first to see the presentation structure."
             )
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_missing_page_id","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:627","message":"Missing page_id","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"3C"}) + '\n')
-            # #endregion
             raise ToolExecutionError(error_msg, tool_name=self.name)
         
         if not element_id:
@@ -653,10 +611,6 @@ class FormatSlideTextTool(BaseTool):
                 "This is the text box element ID. "
                 "Get it by calling get_presentation first to see the presentation structure."
             )
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_missing_element_id","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:635","message":"Missing element_id","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"3C"}) + '\n')
-            # #endregion
             raise ToolExecutionError(error_msg, tool_name=self.name)
         
         try:
@@ -668,15 +622,6 @@ class FormatSlideTextTool(BaseTool):
             # MCP server will handle -1 by getting actual text length
             if end_index is None:
                 end_index = -1  # Special value: format entire text
-                # #region agent log
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_auto_end","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:600","message":"end_index not provided, using -1 for auto-detect","data":{"end_index":end_index},"sessionId":"debug-session","runId":"run1","hypothesisId":"AB"}) + '\n')
-                # #endregion
-            
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_args","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:594","message":"Building format_slide_text args","data":{"presentation_id":presentation_id[:30] if presentation_id else "","page_id":page_id[:20] if page_id else "","element_id":element_id[:20] if element_id else "","start_index":start_index,"end_index":end_index},"sessionId":"debug-session","runId":"run1","hypothesisId":"R"}) + '\n')
-            # #endregion
             
             args = {
                 "presentationId": presentation_id,
@@ -703,18 +648,8 @@ class FormatSlideTextTool(BaseTool):
             if background_color:
                 args["backgroundColor"] = background_color
             
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_mcp_call","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:641","message":"Calling MCP slides_format_text","data":{"args_keys":list(args.keys()),"has_bold":"bold" in args,"has_italic":"italic" in args,"has_font_size":"fontSize" in args,"has_font_family":"fontFamily" in args,"bold_value":args.get("bold"),"font_size_value":args.get("fontSize"),"font_family_value":args.get("fontFamily")},"sessionId":"debug-session","runId":"run1","hypothesisId":"AL"}) + '\n')
-            # #endregion
-            
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("slides_format_text", args, server_name="slides")
-            
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_mcp_result","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:644","message":"MCP slides_format_text result","data":{"result_type":type(result).__name__,"result_preview":str(result)[:200] if result else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"AM"}) + '\n')
-            # #endregion
             
             formats = []
             if bold:
