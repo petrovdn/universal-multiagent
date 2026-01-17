@@ -47,10 +47,15 @@ export const CollapsibleBlock = React.forwardRef<HTMLDivElement, Omit<Collapsibl
     if (autoCollapse && wasStreaming && !isStreaming && !alwaysOpen) {
       // Сигнализируем о начале сворачивания СИНХРОННО
       const event = new CustomEvent('collapsibleBlockCollapsing', { detail: { title, className } })
-      window.dispatchEvent(event)      // Даем время на установку флага перед изменением состояния
+      window.dispatchEvent(event)
+      // Даем время на установку флага перед изменением состояния
       requestAnimationFrame(() => {
         setIsCollapsed(true)
-      })    }
+        // Сигнализируем о завершении сворачивания
+        const collapsedEvent = new CustomEvent('collapsibleBlockCollapsed', { detail: { title, className } })
+        window.dispatchEvent(collapsedEvent)
+      })
+    }
     setWasStreaming(isStreaming)
   }, [isStreaming, autoCollapse, wasStreaming, alwaysOpen, title, className])
 
@@ -58,8 +63,34 @@ export const CollapsibleBlock = React.forwardRef<HTMLDivElement, Omit<Collapsibl
   useEffect(() => {
     if (isStreaming && isCollapsed && hasEverStreamed && !alwaysOpen) {
       setIsCollapsed(false)
+      // Сигнализируем о разворачивании
+      const event = new CustomEvent('collapsibleBlockExpanding', { detail: { title, className } })
+      window.dispatchEvent(event)
     }
-  }, [isStreaming, isCollapsed, hasEverStreamed, alwaysOpen])
+  }, [isStreaming, isCollapsed, hasEverStreamed, alwaysOpen, title, className])
+
+  // Отслеживаем изменения isCollapsed для ручного переключения
+  const prevCollapsedRef = useRef(isCollapsed)
+  useEffect(() => {
+    if (prevCollapsedRef.current !== isCollapsed) {
+      // Состояние изменилось
+      if (!isCollapsed && prevCollapsedRef.current) {
+        // Разворачивание (было свернуто, стало развернуто)
+        const event = new CustomEvent('collapsibleBlockExpanding', { detail: { title, className } })
+        window.dispatchEvent(event)
+      } else if (isCollapsed && !prevCollapsedRef.current) {
+        // Сворачивание (было развернуто, стало свернуто)
+        const event = new CustomEvent('collapsibleBlockCollapsing', { detail: { title, className } })
+        window.dispatchEvent(event)
+        // Сигнализируем о завершении сворачивания после небольшой задержки
+        requestAnimationFrame(() => {
+          const collapsedEvent = new CustomEvent('collapsibleBlockCollapsed', { detail: { title, className } })
+          window.dispatchEvent(collapsedEvent)
+        })
+      }
+      prevCollapsedRef.current = isCollapsed
+    }
+  }, [isCollapsed, title, className])
 
   // Auto-scroll to bottom when content updates during streaming
   useEffect(() => {

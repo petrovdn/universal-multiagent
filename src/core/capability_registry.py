@@ -53,7 +53,6 @@ class CapabilityRegistry:
                 )
             
             self._capability_map[cap.name] = (provider, cap)
-        
         logger.info(
             f"[CapabilityRegistry] Registered provider {provider.provider_type.value} "
             f"with {len(capabilities)} capabilities. "

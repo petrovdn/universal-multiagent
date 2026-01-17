@@ -207,6 +207,15 @@ export function ChatInterface() {
     })
   }, [messages.length, shouldScrollToNew])
 
+  // Функция для проверки, находится ли пользователь внизу диалога (в пределах 200px)
+  const isUserNearBottom = useCallback((container: HTMLElement): boolean => {
+    const scrollTop = container.scrollTop
+    const scrollHeight = container.scrollHeight
+    const clientHeight = container.clientHeight
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight
+    return distanceFromBottom <= 200
+  }, [])
+
   // Функция для вычисления позиций всех запросов
   const updateAllPositions = useCallback(() => {
     // Получаем все запросы пользователя в порядке их появления
@@ -263,22 +272,160 @@ export function ChatInterface() {
     })
   }, [messages])
 
-  // Слушаем события сворачивания блоков
+  // Слушаем события сворачивания/разворачивания блоков
+  // При разворачивании/сворачивании блоков "Думаю" не прокручиваем, если пользователь читает старые сообщения
   useEffect(() => {
     const handleCollapsing = () => {
-      isCollapsingRef.current = true    }
+      isCollapsingRef.current = true
+    }
     
     const handleCollapsed = () => {
-      isCollapsingRef.current = false    }
+      isCollapsingRef.current = false
+      
+      // После сворачивания проверяем, нужно ли скроллить
+      if (!messagesContainerRef.current) return
+      const container = messagesContainerRef.current
+      const inputArea = document.querySelector('.input-area') as HTMLElement
+      if (!inputArea) return
+      
+      // Если пользователь не внизу, не выполняем автоскролл
+      if (!isUserNearBottom(container)) {
+        return
+      }
+      
+      // Если пользователь внизу, проверяем, не уходит ли контент под input
+      requestAnimationFrame(() => {
+        const allContentElements = container.querySelectorAll(
+          '.iteration-block, .iteration-think-content, .iteration-operation-content, ' +
+          '.sticky-result-section, .intent-message, .step-progress-item, .reasoning-block'
+        )
+        
+        if (allContentElements.length === 0) return
+        
+        let lowestBottom = 0
+        allContentElements.forEach(el => {
+          const rect = el.getBoundingClientRect()
+          if (rect.bottom > lowestBottom) {
+            lowestBottom = rect.bottom
+          }
+        })
+        
+        const inputRect = inputArea.getBoundingClientRect()
+        const inputTopWithGap = inputRect.top - 20
+        
+        if (lowestBottom > inputTopWithGap) {
+          const scrollAmount = lowestBottom - inputTopWithGap
+          container.scrollTo({
+            top: container.scrollTop + scrollAmount,
+            behavior: 'smooth'
+          })
+        }
+      })
+    }
+    
+    const handleExpanding = () => {
+      // При разворачивании проверяем позицию скролла
+      if (!messagesContainerRef.current) return
+      const container = messagesContainerRef.current
+      const inputArea = document.querySelector('.input-area') as HTMLElement
+      if (!inputArea) return
+      
+      // Если пользователь не внизу, не выполняем автоскролл
+      if (!isUserNearBottom(container)) {
+        return
+      }
+      
+      // Если пользователь внизу, проверяем, не уходит ли контент под input
+      requestAnimationFrame(() => {
+        const allContentElements = container.querySelectorAll(
+          '.iteration-block, .iteration-think-content, .iteration-operation-content, ' +
+          '.sticky-result-section, .intent-message, .step-progress-item, .reasoning-block'
+        )
+        
+        if (allContentElements.length === 0) return
+        
+        let lowestBottom = 0
+        allContentElements.forEach(el => {
+          const rect = el.getBoundingClientRect()
+          if (rect.bottom > lowestBottom) {
+            lowestBottom = rect.bottom
+          }
+        })
+        
+        const inputRect = inputArea.getBoundingClientRect()
+        const inputTopWithGap = inputRect.top - 20
+        
+        if (lowestBottom > inputTopWithGap) {
+          const scrollAmount = lowestBottom - inputTopWithGap
+          container.scrollTo({
+            top: container.scrollTop + scrollAmount,
+            behavior: 'smooth'
+          })
+        }
+      })
+    }
     
     window.addEventListener('collapsibleBlockCollapsing', handleCollapsing)
     window.addEventListener('collapsibleBlockCollapsed', handleCollapsed)
+    window.addEventListener('collapsibleBlockExpanding', handleExpanding)
     
     return () => {
       window.removeEventListener('collapsibleBlockCollapsing', handleCollapsing)
       window.removeEventListener('collapsibleBlockCollapsed', handleCollapsed)
+      window.removeEventListener('collapsibleBlockExpanding', handleExpanding)
     }
-  }, [])
+  }, [isUserNearBottom])
+
+  // Автоскролл при любых изменениях контента (не только finalResult)
+  // При появлении новых блоков или текста прокручиваем так, чтобы ничего не уходило под input
+  // НО только если пользователь уже находится внизу диалога
+  useEffect(() => {
+    if (!messagesContainerRef.current) return
+    
+    const container = messagesContainerRef.current
+    const inputArea = document.querySelector('.input-area') as HTMLElement
+    if (!inputArea) return
+    
+    // Пропускаем автоскролл если пользователь не внизу (читает старые сообщения)
+    if (!isUserNearBottom(container)) {
+      return
+    }
+    
+    // Функция для проверки и скролла
+    const checkAndScroll = () => {
+      // Находим самый нижний видимый элемент контента
+      const allContentElements = container.querySelectorAll(
+        '.iteration-block, .iteration-think-content, .iteration-operation-content, ' +
+        '.sticky-result-section, .intent-message, .step-progress-item'
+      )
+      
+      if (allContentElements.length === 0) return
+      
+      // Получаем самый нижний элемент
+      let lowestBottom = 0
+      allContentElements.forEach(el => {
+        const rect = el.getBoundingClientRect()
+        if (rect.bottom > lowestBottom) {
+          lowestBottom = rect.bottom
+        }
+      })
+      
+      const inputRect = inputArea.getBoundingClientRect()
+      const inputTopWithGap = inputRect.top - 20
+      
+      // Если контент уходит под input, скроллим
+      if (lowestBottom > inputTopWithGap) {
+        const scrollAmount = lowestBottom - inputTopWithGap
+        container.scrollTo({
+          top: container.scrollTop + scrollAmount,
+          behavior: 'smooth'
+        })
+      }
+    }
+    
+    // Проверяем при каждом изменении
+    checkAndScroll()
+  }, [activeWorkflowId, workflows, intentBlocks, isAgentTyping, isUserNearBottom])
   
   // Обновляем позиции всех запросов при изменении размеров
   useEffect(() => {
@@ -343,12 +490,18 @@ export function ChatInterface() {
 
   // Автоскролл при любых изменениях контента (не только finalResult)
   // При появлении новых блоков или текста прокручиваем так, чтобы ничего не уходило под input
+  // НО только если пользователь уже находится внизу диалога
   useEffect(() => {
     if (!messagesContainerRef.current) return
     
     const container = messagesContainerRef.current
     const inputArea = document.querySelector('.input-area') as HTMLElement
     if (!inputArea) return
+    
+    // Пропускаем автоскролл если пользователь не внизу (читает старые сообщения)
+    if (!isUserNearBottom(container)) {
+      return
+    }
     
     // Функция для проверки и скролла
     const checkAndScroll = () => {
@@ -384,7 +537,7 @@ export function ChatInterface() {
     
     // Проверяем при каждом изменении
     checkAndScroll()
-  }, [activeWorkflowId, workflows, intentBlocks, isAgentTyping])
+  }, [activeWorkflowId, workflows, intentBlocks, isAgentTyping, isUserNearBottom])
 
   // Обновляем позиции всех запросов после рендера всех элементов
   useEffect(() => {
