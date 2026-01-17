@@ -1419,6 +1419,12 @@ Callback to handle streaming events and send to WebSocket."""
                     logger.warning(f"[AgentWrapper] Failed to extract presentation_id from result: {result[:500]}")
                     return
             
+            # #region agent log
+            import json as _debug_json; import time as _debug_time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_agent_wrapper_event","timestamp":int(_debug_time.time()*1000),"location":"agent_wrapper.py:1422","message":"AgentWrapper sending slides_action","data":{"presentation_id":presentation_id[:30] if presentation_id else "","url":url[:50] if url else "","title":title[:50] if title else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"1C"}) + '\n')
+            # #endregion
+            
             await self.ws_manager.send_event(
                 session_id,
                 "slides_action",
