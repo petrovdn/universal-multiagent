@@ -21,6 +21,21 @@ from googleapiclient.errors import HttpError
 
 logger = logging.getLogger(__name__)
 
+# Try to import unsplash_client (may fail if src is not in path)
+try:
+    from src.utils.unsplash_client import get_unsplash_image_url
+except ImportError:
+    # If import fails, add parent directory to path and try again
+    parent_dir = Path(__file__).parent.parent.parent
+    if str(parent_dir) not in sys.path:
+        sys.path.insert(0, str(parent_dir))
+    try:
+        from src.utils.unsplash_client import get_unsplash_image_url
+    except ImportError:
+        # If still fails, define a fallback function
+        logger.warning("Could not import unsplash_client, image search will be disabled")
+        get_unsplash_image_url = None
+
 # Slides API scopes
 SLIDES_SCOPES = [
     "https://www.googleapis.com/auth/presentations",
@@ -424,9 +439,112 @@ class GoogleSlidesMCPServer:
         
         return slides
     
+    def _find_presentation_by_name(self, name: str) -> Optional[str]:
+        """
+        Find presentation in workspace folder by name (case-insensitive).
+        
+        Args:
+            name: Presentation name (can be partial match)
+            
+        Returns:
+            Presentation ID or None if not found
+        """
+        try:
+            drive_service = self._get_drive_service()
+            folder_id = self._get_workspace_folder_id()
+            
+            if not folder_id:
+                return None
+            
+            # Search for presentations in workspace folder
+            # Use exact name match first, then contains match
+            query_parts = [
+                f"'{folder_id}' in parents",
+                "trashed=false",
+                "mimeType='application/vnd.google-apps.presentation'"
+            ]
+            
+            # Try exact match first
+            query = " and ".join(query_parts + [f"name='{name}'"])
+            results = drive_service.files().list(
+                q=query,
+                fields="files(id, name)",
+                pageSize=10
+            ).execute()
+            
+            files = results.get('files', [])
+            if files:
+                # Exact match found
+                return files[0]['id']
+            
+            # Try contains match (case-insensitive)
+            # Drive API doesn't support case-insensitive search directly, so try both
+            for search_name in [name, name.lower(), name.upper(), name.capitalize()]:
+                query = " and ".join(query_parts + [f"name contains '{search_name}'"])
+                results = drive_service.files().list(
+                    q=query,
+                    fields="files(id, name)",
+                    pageSize=20
+                ).execute()
+                
+                files = results.get('files', [])
+                if files:
+                    # Find best match (exact case-insensitive or contains)
+                    for file in files:
+                        if file['name'].lower() == name.lower():
+                            return file['id']
+                    # If no exact match, return first result
+                    return files[0]['id']
+            
+            return None
+        except Exception as e:
+            logger.warning(f"Error searching for presentation '{name}': {e}")
+            return None
+    
+    def _get_theme_colors(self, theme: str) -> Dict[str, Dict[str, float]]:
+        """
+        Get color scheme for a theme.
+        
+        Args:
+            theme: Theme name (professional, creative, minimal, dark)
+            
+        Returns:
+            Dict with color definitions for background, title, body, accent
+        """
+        themes = {
+            "professional": {
+                "background": {"red": 1.0, "green": 1.0, "blue": 1.0, "alpha": 1.0},  # White
+                "title": {"red": 0.13, "green": 0.27, "blue": 0.48, "alpha": 1.0},  # Navy blue
+                "body": {"red": 0.2, "green": 0.2, "blue": 0.2, "alpha": 1.0},  # Dark gray
+                "accent": {"red": 0.26, "green": 0.52, "blue": 0.96, "alpha": 1.0}  # Blue
+            },
+            "creative": {
+                "background": {"red": 0.98, "green": 0.98, "blue": 1.0, "alpha": 1.0},  # Light blue-white
+                "title": {"red": 0.58, "green": 0.15, "blue": 0.72, "alpha": 1.0},  # Purple
+                "body": {"red": 0.2, "green": 0.2, "blue": 0.2, "alpha": 1.0},  # Dark gray
+                "accent": {"red": 1.0, "green": 0.4, "blue": 0.4, "alpha": 1.0}  # Coral
+            },
+            "minimal": {
+                "background": {"red": 0.98, "green": 0.98, "blue": 0.98, "alpha": 1.0},  # Off-white
+                "title": {"red": 0.1, "green": 0.1, "blue": 0.1, "alpha": 1.0},  # Almost black
+                "body": {"red": 0.3, "green": 0.3, "blue": 0.3, "alpha": 1.0},  # Medium gray
+                "accent": {"red": 0.5, "green": 0.5, "blue": 0.5, "alpha": 1.0}  # Gray
+            },
+            "dark": {
+                "background": {"red": 0.12, "green": 0.12, "blue": 0.15, "alpha": 1.0},  # Dark blue-black
+                "title": {"red": 0.0, "green": 0.8, "blue": 0.8, "alpha": 1.0},  # Cyan
+                "body": {"red": 0.9, "green": 0.9, "blue": 0.9, "alpha": 1.0},  # Light gray
+                "accent": {"red": 0.4, "green": 0.8, "blue": 0.4, "alpha": 1.0}  # Green
+            }
+        }
+        return themes.get(theme, themes["professional"])
+    
     def _get_template_id(self, theme: str) -> Optional[str]:
         """
         Get template presentation ID for the given theme.
+        
+        DEPRECATED: Use _find_presentation_by_name for finding presentations by name.
+        This method still checks config templates for backwards compatibility.
         
         Args:
             theme: Theme name (professional, creative, minimal, dark)
@@ -620,7 +738,7 @@ class GoogleSlidesMCPServer:
                                 }
                             }
                         },
-                        "required": ["presentationId", "pageId", "elementId", "startIndex", "endIndex"]
+                        "required": ["presentationId", "pageId", "elementId"]
                     }
                 ),
                 Tool(
@@ -657,6 +775,91 @@ Choose an appropriate theme based on the document content:
                             }
                         },
                         "required": ["documentId"]
+                    }
+                ),
+                Tool(
+                    name="slides_create_presentation_batch",
+                    description="""Create a presentation with multiple slides optimized using batch operations.
+                    
+This tool is optimized for performance - it creates all slides, inserts all text, and applies all formatting using batchUpdate operations, reducing API calls from ~4N to ~3-5 total requests.
+
+Input structure:
+- title: Presentation title
+- slides: Array of slide objects, each with:
+  - title: Slide title (optional)
+  - content: Slide content - can be string or array of content items
+  - layout: Layout type (TITLE_AND_BODY, TITLE, BLANK, etc.) - default: TITLE_AND_BODY
+  - image: Optional image configuration with search_query, position, width, height
+  - formatting: Optional formatting object with:
+    - title_bold: Make title bold (default: true)
+    - title_font_size: Title font size in points (default: 28)
+    - body_font_size: Body font size in points (default: 16)
+- theme: Optional theme name (professional, creative, minimal, dark) for backward compatibility
+- theme_source: Optional presentation name (e.g., 'О собачках') to find in workspace and use as template. If provided, searches for presentation in workspace folder and copies its style/theme.
+
+By default (no theme/theme_source), creates presentation with standard Google Slides theme.
+If theme_source is provided, searches workspace for that presentation and uses it as template.
+
+Example slides array:
+[
+  {
+    "title": "Introduction",
+    "content": "Welcome to the presentation",
+    "layout": "TITLE_AND_BODY"
+  },
+  {
+    "title": "Key Points",
+    "content": [
+      {"type": "bullet", "text": "First point"},
+      {"type": "bullet", "text": "Second point"}
+    ],
+    "layout": "TITLE_AND_BODY"
+  }
+]""",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "description": "Title of the presentation"
+                            },
+                            "theme": {
+                                "type": "string",
+                                "description": "Theme name for backward compatibility (professional, creative, minimal, dark). DEPRECATED: use theme_source instead.",
+                                "enum": ["professional", "creative", "minimal", "dark"],
+                                "default": "professional"
+                            },
+                            "theme_source": {
+                                "type": "string",
+                                "description": "Source for theme/style: presentation name (e.g., 'О собачках') to find in workspace and use as template, or leave empty for no template (standard Google Slides theme). If theme_source is provided, it will search for presentation in workspace folder and copy its style."
+                            },
+                            "slides": {
+                                "type": "array",
+                                "description": "Array of slide definitions",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "title": {
+                                            "type": "string",
+                                            "description": "Slide title"
+                                        },
+                                        "content": {
+                                            "description": "Slide content - string or array of content items"
+                                        },
+                                        "layout": {
+                                            "type": "string",
+                                            "description": "Layout type (TITLE_AND_BODY, TITLE, BLANK, etc.)",
+                                            "default": "TITLE_AND_BODY"
+                                        },
+                                        "formatting": {
+                                            "type": "object",
+                                            "description": "Optional formatting options"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        "required": ["title", "slides"]
                     }
                 ),
                 Tool(
@@ -953,7 +1156,7 @@ Choose an appropriate theme based on the document content:
                                 "description": "Space below paragraph in points"
                             }
                         },
-                        "required": ["presentationId", "pageId", "elementId", "startIndex", "endIndex"]
+                        "required": ["presentationId", "pageId", "elementId"]
                     }
                 ),
                 Tool(
@@ -988,7 +1191,7 @@ Choose an appropriate theme based on the document content:
                                 "default": "BULLET_DISC_CIRCLE_SQUARE"
                             }
                         },
-                        "required": ["presentationId", "pageId", "elementId", "startIndex", "endIndex"]
+                        "required": ["presentationId", "pageId", "elementId"]
                     }
                 ),
                 Tool(
@@ -1406,13 +1609,87 @@ Choose an appropriate theme based on the document content:
                     )]
                 
                 elif name == "slides_format_text":
-                    
+                    # #region agent log
+                    import json as _debug_json; import time as _debug_time
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_mcp","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1482","message":"slides_format_text MCP call","data":{"arguments_keys":list(arguments.keys()),"has_presentationId":"presentationId" in arguments,"has_pageId":"pageId" in arguments,"has_elementId":"elementId" in arguments,"has_startIndex":"startIndex" in arguments,"has_endIndex":"endIndex" in arguments},"sessionId":"debug-session","runId":"run1","hypothesisId":"S"}) + '\n')
+                    # #endregion
+
                     slides_service = self._get_slides_service()
                     presentation_id = self._extract_file_id(arguments.get("presentationId"))
                     page_id = arguments.get("pageId")
                     element_id = arguments.get("elementId")
                     start_index = arguments.get("startIndex")
                     end_index = arguments.get("endIndex")
+                    
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_extracted","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1489","message":"Extracted format_slide_text parameters","data":{"presentation_id":presentation_id[:30] if presentation_id else "","page_id":page_id[:20] if page_id else "","element_id":element_id[:20] if element_id else "","start_index":start_index,"end_index":end_index,"presentation_id_is_none":presentation_id is None,"page_id_is_none":page_id is None,"element_id_is_none":element_id is None,"start_index_is_none":start_index is None,"end_index_is_none":end_index is None},"sessionId":"debug-session","runId":"run1","hypothesisId":"T"}) + '\n')
+                    # #endregion
+                    
+                    # Validate required parameters
+                    if not presentation_id:
+                        error_msg = "Missing required parameter: presentationId"
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1492","message":"Missing presentationId","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"U"}) + '\n')
+                        # #endregion
+                        return [TextContent(type="text", text=json.dumps({"error": error_msg}, indent=2))]
+                    if not page_id:
+                        error_msg = "Missing required parameter: pageId"
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1498","message":"Missing pageId","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"V"}) + '\n')
+                        # #endregion
+                        return [TextContent(type="text", text=json.dumps({"error": error_msg}, indent=2))]
+                    if not element_id:
+                        error_msg = "Missing required parameter: elementId"
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1504","message":"Missing elementId","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"W"}) + '\n')
+                        # #endregion
+                        return [TextContent(type="text", text=json.dumps({"error": error_msg}, indent=2))]
+                    # Default start_index to 0 if None
+                    if start_index is None:
+                        start_index = 0
+                    
+                    # Auto-detect end_index if -1 (special value for "format entire text")
+                    if end_index == -1 or end_index is None:
+                        # Get text length from the element
+                        try:
+                            presentation = slides_service.presentations().get(
+                                presentationId=presentation_id,
+                                fields=f"slides(pageElements(objectId,shape(text(textElements))))"
+                            ).execute()
+                            
+                            text_length = 0
+                            for slide in presentation.get('slides', []):
+                                if slide.get('objectId') == page_id:
+                                    for element in slide.get('pageElements', []):
+                                        if element.get('objectId') == element_id:
+                                            shape = element.get('shape', {})
+                                            text_obj = shape.get('text', {})
+                                            text_elements = text_obj.get('textElements', [])
+                                            # Calculate total text length
+                                            text_length = sum(
+                                                len(elem.get('textRun', {}).get('content', ''))
+                                                for elem in text_elements
+                                            )
+                                            break
+                                    break
+                            
+                            end_index = text_length if text_length > 0 else 0
+                            # #region agent log
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_auto_detect","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1530","message":"Auto-detected end_index from text length","data":{"end_index":end_index,"text_length":text_length},"sessionId":"debug-session","runId":"run1","hypothesisId":"AD"}) + '\n')
+                            # #endregion
+                        except Exception as e:
+                            # If we can't get text length, use a large number
+                            end_index = 10000
+                            # #region agent log
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_fallback","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1545","message":"Failed to auto-detect end_index, using fallback","data":{"end_index":end_index,"error":str(e)[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"AE"}) + '\n')
+                            # #endregion
                     
                     requests = []
                     
@@ -1463,6 +1740,11 @@ Choose an appropriate theme based on the document content:
                         }
                         style_fields.append("backgroundColor")
                     
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_style","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1587","message":"Building text style","data":{"text_style_keys":list(text_style.keys()),"style_fields":style_fields,"has_text_style":bool(text_style),"arguments_keys":list(arguments.keys()),"has_bold":"bold" in arguments,"has_italic":"italic" in arguments,"has_font_size":"fontSize" in arguments,"has_font_family":"fontFamily" in arguments},"sessionId":"debug-session","runId":"run1","hypothesisId":"Z"}) + '\n')
+                    # #endregion
+                    
                     if text_style:
                         requests.append({
                             "updateTextStyle": {
@@ -1476,8 +1758,18 @@ Choose an appropriate theme based on the document content:
                                 "fields": ",".join(style_fields)
                             }
                         })
+                    else:
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_no_style","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1600","message":"No text style parameters provided","data":{"arguments_keys":list(arguments.keys())},"sessionId":"debug-session","runId":"run1","hypothesisId":"AA"}) + '\n')
+                        # #endregion
+                        return [TextContent(type="text", text=json.dumps({"error": "Missing key parameters: at least one formatting parameter (bold, italic, fontSize, etc.) must be provided"}, indent=2))]
                     
                     if not requests:
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_no_requests","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1639","message":"No requests to execute","data":{"text_style_empty":not bool(text_style)},"sessionId":"debug-session","runId":"run1","hypothesisId":"AI"}) + '\n')
+                        # #endregion
                         return [TextContent(
                             type="text",
                             text=json.dumps({"error": "No formatting options provided"}, indent=2)
@@ -1485,11 +1777,20 @@ Choose an appropriate theme based on the document content:
                     
                     
                     try:
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_executing","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1646","message":"Executing format_slide_text batchUpdate","data":{"presentation_id":presentation_id[:30] if presentation_id else "","page_id":page_id[:20] if page_id else "","element_id":element_id[:20] if element_id else "","start_index":start_index,"end_index":end_index,"requests_count":len(requests),"style_fields":style_fields},"sessionId":"debug-session","runId":"run1","hypothesisId":"AJ"}) + '\n')
+                        # #endregion
+                        
                         response = slides_service.presentations().batchUpdate(
                             presentationId=presentation_id,
                             body={"requests": requests}
                         ).execute()
                         
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_success","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:1653","message":"Format text succeeded","data":{"presentation_id":presentation_id[:30] if presentation_id else "","response_keys":list(response.keys()) if isinstance(response, dict) else []},"sessionId":"debug-session","runId":"run1","hypothesisId":"AK"}) + '\n')
+                        # #endregion
                         
                         return [TextContent(
                             type="text",
@@ -2510,6 +2811,587 @@ Choose an appropriate theme based on the document content:
                         "templateUsed": template_id is not None
                     }
                     
+                    
+                    return [TextContent(
+                        type="text",
+                        text=json.dumps(result_data, indent=2)
+                    )]
+                
+                elif name == "slides_create_presentation_batch":
+                    # #region agent log
+                    import json as _debug_json; import time as _debug_time
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_entry","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2593","message":"MCP server received call","data":{"arguments_keys":list(arguments.keys()),"has_title":"title" in arguments,"has_slides":"slides" in arguments,"has_theme":"theme" in arguments},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
+                    # #endregion
+                    slides_service = self._get_slides_service()
+                    drive_service = self._get_drive_service()
+                    folder_id = self._get_workspace_folder_id()
+                    
+                    if not folder_id:
+                        return [TextContent(
+                            type="text",
+                            text=json.dumps({
+                                "error": "Workspace folder not configured. Please set workspace folder first."
+                            }, indent=2)
+                        )]
+                    
+                    title = arguments.get("title")
+                    slides_data = arguments.get("slides", [])
+                    theme = arguments.get("theme", "professional")  # Backward compatibility
+                    theme_source = arguments.get("theme_source")  # New: can be presentation name or None
+                    
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_extracted","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2608","message":"Extracted arguments","data":{"title":title[:30] if title else "","slides_count":len(slides_data) if slides_data else 0,"theme":theme,"theme_source":theme_source[:50] if theme_source else "","title_is_none":title is None,"slides_is_none":slides_data is None},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                    # #endregion
+                    
+                    if not slides_data:
+                        return [TextContent(
+                            type="text",
+                            text=json.dumps({"error": "No slides provided"}, indent=2)
+                        )]
+                    
+                    # Determine template ID:
+                    # 1. If theme_source is provided (presentation name), search for it in workspace
+                    # 2. Otherwise, if theme is provided (backward compatibility), check config templates
+                    # 3. Otherwise, no template (create empty presentation with standard theme)
+                    template_id = None
+                    template_source = None
+                    
+                    if theme_source:
+                        # Search for presentation in workspace folder
+                        template_id = self._find_presentation_by_name(theme_source)
+                        if template_id:
+                            template_source = f"workspace:{theme_source}"
+                            logger.info(f"[slides_create_presentation_batch] Using workspace presentation '{theme_source}' (ID: {template_id}) as template")
+                        else:
+                            logger.warning(f"[slides_create_presentation_batch] Presentation '{theme_source}' not found in workspace, creating without template")
+                    elif theme:
+                        # Backward compatibility: check config templates
+                        template_id = self._get_template_id(theme)
+                        if template_id:
+                            template_source = f"config:{theme}"
+                        # If no template found in config, continue without template (standard theme)
+                    
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_validation","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2630","message":"Validating arguments","data":{"title_valid":bool(title and title.strip()),"slides_valid":bool(slides_data and len(slides_data) > 0),"theme":theme,"theme_source":theme_source,"template_id":template_id[:30] if template_id else "","template_id_is_none":template_id is None,"template_source":template_source},"sessionId":"debug-session","runId":"run1","hypothesisId":"2B"}) + '\n')
+                    # #endregion
+                    presentation_id = None
+                    
+                    if template_id:
+                        # Copy template presentation
+                        try:
+                            copied_file = drive_service.files().copy(
+                                fileId=template_id,
+                                body={"name": title}
+                            ).execute()
+                            presentation_id = copied_file.get('id')
+                            
+                            # Move to workspace folder
+                            if folder_id:
+                                file_info = drive_service.files().get(
+                                    fileId=presentation_id,
+                                    fields="parents"
+                                ).execute()
+                                previous_parents = ",".join(file_info.get('parents', []))
+                                drive_service.files().update(
+                                    fileId=presentation_id,
+                                    addParents=folder_id,
+                                    removeParents=previous_parents,
+                                    fields="id, parents"
+                                ).execute()
+                            
+                            # Get presentation to clear existing slides (we'll replace them)
+                            presentation_obj = slides_service.presentations().get(
+                                presentationId=presentation_id
+                            ).execute()
+                            
+                            # Delete all existing slides except first one
+                            existing_slides = presentation_obj.get('slides', [])
+                            if len(existing_slides) > 1:
+                                delete_requests = []
+                                for slide in existing_slides[1:]:  # Keep first slide
+                                    delete_requests.append({
+                                        "deleteObject": {
+                                            "objectId": slide.get('objectId')
+                                        }
+                                    })
+                                if delete_requests:
+                                    slides_service.presentations().batchUpdate(
+                                        presentationId=presentation_id,
+                                        body={"requests": delete_requests}
+                                    ).execute()
+                        except Exception as e:
+                            logger.warning(f"Failed to copy template {template_id}: {e}, creating empty presentation")
+                            # #region agent log
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_template_copy_failed","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2888","message":"Template copy failed","data":{"error":str(e)[:200],"template_id":template_id[:30] if template_id else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"2C"}) + '\n')
+                            # #endregion
+                            template_id = None
+                    
+                    if not presentation_id:
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_creating_empty","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2891","message":"Creating empty presentation (no template)","data":{"title":title[:50] if title else "","theme":theme},"sessionId":"debug-session","runId":"run1","hypothesisId":"2D"}) + '\n')
+                        # #endregion
+                        # Create empty presentation
+                        presentation = slides_service.presentations().create(
+                            body={"title": title}
+                        ).execute()
+                        presentation_id = presentation.get('presentationId')
+
+                        # Move to workspace folder
+                        if folder_id:
+                            file_info = drive_service.files().get(
+                                fileId=presentation_id,  # FIXED: was presentationId without parameter name
+                                fields="parents"
+                            ).execute()
+                            previous_parents = ",".join(file_info.get('parents', []))
+                            drive_service.files().update(
+                                fileId=presentation_id,
+                                addParents=folder_id,
+                                removeParents=previous_parents,
+                                fields="id, parents"
+                            ).execute()
+                        
+                        # Apply basic theme colors if no template was found
+                        # This gives presentations a professional look even without custom templates
+                        theme_colors = self._get_theme_colors(theme)
+                        if theme_colors:
+                            # #region agent log
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_applying_theme_colors","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:2920","message":"Applying theme colors to new presentation","data":{"theme":theme,"colors":theme_colors},"sessionId":"debug-session","runId":"run1","hypothesisId":"2D_theme"}) + '\n')
+                            # #endregion
+                        else:
+                            theme_colors = None  # No theme colors to apply
+                    else:
+                        theme_colors = None  # Template was used, no need to apply colors
+                    
+                    # Get layouts and prepare for slide creation
+                    presentation_obj = slides_service.presentations().get(
+                        presentationId=presentation_id
+                    ).execute()
+                    
+                    # Get first slide ID
+                    first_slide_id = None
+                    if presentation_obj.get('slides') and len(presentation_obj.get('slides', [])) > 0:
+                        first_slide_id = presentation_obj.get('slides')[0].get('objectId')
+                    
+                    # Get layouts
+                    layouts = presentation_obj.get('layouts', [])
+                    layout_ids = {}
+                    for layout in layouts:
+                        layout_name = layout.get('layoutProperties', {}).get('name', '')
+                        layout_ids[layout_name] = layout.get('objectId')
+                    
+                    # Create slides (batch)
+                    create_requests = []
+                    slide_id_map = {}
+                    
+                    for i, slide_def in enumerate(slides_data):
+                        if i == 0 and first_slide_id:
+                            # Use existing first slide
+                            slide_id_map[i] = first_slide_id
+                        else:
+                            # Create new slide
+                            import random
+                            import string
+                            random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+                            slide_id = f"slide_{i}_{random_suffix}"
+                            slide_id_map[i] = slide_id
+                            
+                            layout_name = slide_def.get('layout', 'TITLE_AND_BODY')
+                            layout_id = layout_ids.get(layout_name) or layout_ids.get('TITLE_AND_BODY') or (layouts[0].get('objectId') if layouts else None)
+                            
+                            if layout_id:
+                                create_requests.append({
+                                    "createSlide": {
+                                        "objectId": slide_id,
+                                        "slideLayoutReference": {"layoutId": layout_id}
+                                    }
+                                })
+                    
+                    # Execute slide creation batch
+                    if create_requests:
+                        slides_service.presentations().batchUpdate(
+                            presentationId=presentation_id,
+                            body={"requests": create_requests}
+                        ).execute()
+                    
+                    # Apply theme colors to slide backgrounds (if theme_colors is set)
+                    if theme_colors:
+                        background_requests = []
+                        for i, slide_def in enumerate(slides_data):
+                            slide_id = slide_id_map.get(i)
+                            if slide_id:
+                                background_requests.append({
+                                    "updatePageProperties": {
+                                        "objectId": slide_id,
+                                        "pageProperties": {
+                                            "pageBackgroundFill": {
+                                                "solidFill": {
+                                                    "color": {
+                                                        "rgbColor": theme_colors['background']
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "fields": "pageBackgroundFill"
+                                    }
+                                })
+                        
+                        # Apply background colors
+                        if background_requests:
+                            try:
+                                slides_service.presentations().batchUpdate(
+                                    presentationId=presentation_id,
+                                    body={"requests": background_requests}
+                                ).execute()
+                                # #region agent log
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_theme_applied","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3037","message":"Applied theme background colors","data":{"slides_count":len(background_requests),"background_color":theme_colors['background']},"sessionId":"debug-session","runId":"run1","hypothesisId":"5A"}) + '\n')
+                                # #endregion
+                            except Exception as e:
+                                # Log error but continue
+                                # #region agent log
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_theme_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3048","message":"Error applying theme","data":{"error":str(e)},"sessionId":"debug-session","runId":"run1","hypothesisId":"5B"}) + '\n')
+                                # #endregion
+                    
+                    # Refresh to get all slides
+                    presentation_obj = slides_service.presentations().get(
+                        presentationId=presentation_id
+                    ).execute()
+                    
+                    slide_data_map = {}
+                    for slide in presentation_obj.get('slides', []):
+                        slide_data_map[slide.get('objectId')] = slide
+                    
+                    # Prepare text and formatting requests
+                    text_requests = []
+                    format_requests = []
+                    
+                    for i, slide_def in enumerate(slides_data):
+                        slide_id = slide_id_map.get(i)
+                        if not slide_id or slide_id not in slide_data_map:
+                            continue
+                        
+                        slide_data = slide_data_map[slide_id]
+                        
+                        # Find elements
+                        title_element_id = None
+                        body_element_id = None
+                        
+                        for element in slide_data.get('pageElements', []):
+                            if 'shape' in element:
+                                placeholder = element['shape'].get('placeholder', {})
+                                placeholder_type = placeholder.get('type', '')
+                                element_id = element.get('objectId')
+                                
+                                if placeholder_type in ['TITLE', 'CENTERED_TITLE']:
+                                    title_element_id = element_id
+                                elif placeholder_type == 'BODY':
+                                    body_element_id = element_id
+                                elif element['shape'].get('shapeType') == 'TEXT_BOX' and not title_element_id:
+                                    title_element_id = element_id
+                        
+                        # Insert title
+                        if slide_def.get('title') and title_element_id:
+                            title_text = slide_def['title']
+                            text_requests.append({
+                                "insertText": {
+                                    "objectId": title_element_id,
+                                    "text": title_text
+                                }
+                            })
+                            
+                            # Format title
+                            formatting = slide_def.get('formatting', {})
+                            title_bold = formatting.get('title_bold', True)
+                            title_font_size = formatting.get('title_font_size', 28)
+                            
+                            title_style = {
+                                "bold": title_bold,
+                                "fontSize": {"magnitude": title_font_size, "unit": "PT"}
+                            }
+                            
+                            # Apply theme color if available
+                            if theme_colors:
+                                title_style["foregroundColor"] = {
+                                    "opaqueColor": {
+                                        "rgbColor": theme_colors['title']
+                                    }
+                                }
+                            
+                            format_requests.append({
+                                "updateTextStyle": {
+                                    "objectId": title_element_id,
+                                    "style": title_style,
+                                    "textRange": {"type": "ALL"},
+                                    "fields": "bold,fontSize" + (",foregroundColor" if theme_colors else "")
+                                }
+                            })
+                        
+                        # Insert body content
+                        if slide_def.get('content') and body_element_id:
+                            content = slide_def.get('content')
+                            body_text_parts = []
+                            bullet_ranges = []
+                            
+                            if isinstance(content, str):
+                                # Plain string - just add as text
+                                body_text_parts.append(content)
+                            elif isinstance(content, list):
+                                # Array of content items
+                                for item in content:
+                                    if isinstance(item, str):
+                                        # Plain string in array - add as regular text
+                                        body_text_parts.append(item + '\n')
+                                    elif isinstance(item, dict):
+                                        item_type = item.get('type', 'text')
+                                        item_text = item.get('text', '')
+                                        
+                                        if item_type == 'subheading':
+                                            # Subheading - bold text with newline
+                                            start_pos = sum(len(p) for p in body_text_parts)
+                                            body_text_parts.append(item_text + '\n')
+                                            end_pos = sum(len(p) for p in body_text_parts)
+                                            # Mark for bold formatting
+                                            bullet_ranges.append(('subheading', start_pos, end_pos))
+                                        elif item_type == 'bullet':
+                                            # Bullet point - track range for bullet formatting
+                                            start_pos = sum(len(p) for p in body_text_parts)
+                                            body_text_parts.append(item_text + '\n')
+                                            end_pos = sum(len(p) for p in body_text_parts)
+                                            bullet_ranges.append(('bullet', start_pos, end_pos))
+                                        else:
+                                            # Regular text (type: 'text' or default)
+                                            body_text_parts.append(item_text + '\n')
+                            
+                            if body_text_parts:
+                                full_body_text = ''.join(body_text_parts).rstrip('\n')
+                                text_requests.append({
+                                    "insertText": {
+                                        "objectId": body_element_id,
+                                        "text": full_body_text
+                                    }
+                                })
+                                
+                                # Apply body formatting
+                                formatting = slide_def.get('formatting', {})
+                                body_font_size = formatting.get('body_font_size', 16)
+                                
+                                body_style = {
+                                    "fontSize": {"magnitude": body_font_size, "unit": "PT"}
+                                }
+                                
+                                # Apply theme color if available
+                                if theme_colors:
+                                    body_style["foregroundColor"] = {
+                                        "opaqueColor": {
+                                            "rgbColor": theme_colors['body']
+                                        }
+                                    }
+                                
+                                format_requests.append({
+                                    "updateTextStyle": {
+                                        "objectId": body_element_id,
+                                        "style": body_style,
+                                        "textRange": {"type": "ALL"},
+                                        "fields": "fontSize" + (",foregroundColor" if theme_colors else "")
+                                    }
+                                })
+                                
+                                # Apply formatting for bullets and subheadings
+                                for item in bullet_ranges:
+                                    item_type, start, end = item
+                                    if item_type == 'bullet':
+                                        # Apply bullet formatting
+                                        format_requests.append({
+                                            "createParagraphBullets": {
+                                                "objectId": body_element_id,
+                                                "textRange": {
+                                                    "type": "FIXED_RANGE",
+                                                    "startIndex": start,
+                                                    "endIndex": min(end, len(full_body_text))
+                                                },
+                                                "bulletPreset": "BULLET_DISC_CIRCLE_SQUARE"
+                                            }
+                                        })
+                                    elif item_type == 'subheading':
+                                        # Apply bold formatting for subheadings
+                                        format_requests.append({
+                                            "updateTextStyle": {
+                                                "objectId": body_element_id,
+                                                "style": {
+                                                    "bold": True,
+                                                    "fontSize": {"magnitude": 18, "unit": "PT"}
+                                                },
+                                                "textRange": {
+                                                    "type": "FIXED_RANGE",
+                                                    "startIndex": start,
+                                                    "endIndex": min(end, len(full_body_text))
+                                                },
+                                                "fields": "bold,fontSize"
+                                            }
+                                        })
+                    
+                    # Execute text insertion batch
+                    if text_requests:
+                        slides_service.presentations().batchUpdate(
+                            presentationId=presentation_id,
+                            body={"requests": text_requests}
+                        ).execute()
+                    
+                    # Execute formatting batch
+                    if format_requests:
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_batch","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3141","message":"Executing format batch","data":{"requests_count":len(format_requests),"first_request_type":list(format_requests[0].keys())[0] if format_requests else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"3D"}) + '\n')
+                        # #endregion
+                        try:
+                            slides_service.presentations().batchUpdate(
+                                presentationId=presentation_id,
+                                body={"requests": format_requests}
+                            ).execute()
+                        except Exception as format_error:
+                            # #region agent log
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3148","message":"Format batch failed","data":{"error":str(format_error)[:200]},"sessionId":"debug-session","runId":"run1","hypothesisId":"3D_error"}) + '\n')
+                            # #endregion
+                            logger.warning(f"Some formatting failed: {format_error}")
+                    
+                    # Process images for slides
+                    image_requests = []
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                        has_images = any(slide_def.get('image') for slide_def in slides_data)
+                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_images_check","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3150","message":"Checking for images","data":{"has_images":has_images,"unsplash_available":get_unsplash_image_url is not None},"sessionId":"debug-session","runId":"run1","hypothesisId":"4A"}) + '\n')
+                    # #endregion
+                    if any(slide_def.get('image') for slide_def in slides_data):
+                        # Check if unsplash_client is available
+                        if get_unsplash_image_url is None:
+                            # #region agent log
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_unsplash_unavailable","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3154","message":"Unsplash client not available","data":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"4B"}) + '\n')
+                            # #endregion
+                            logger.warning("Unsplash client not available, skipping image insertion")
+                        else:
+                            # Slide dimensions in EMU (Google Slides default: 10x7.5 inches)
+                            SLIDE_WIDTH_EMU = 9144000  # 10 inches
+                            SLIDE_HEIGHT_EMU = 6858000  # 7.5 inches
+                            
+                            def inches_to_emu(inches: float) -> int:
+                                """Convert inches to EMU (1 inch = 914400 EMU)."""
+                                return int(inches * 914400)
+                            
+                            for i, slide_def in enumerate(slides_data):
+                                image_config = slide_def.get('image')
+                                if not image_config:
+                                    continue
+                                
+                                slide_id = slide_id_map.get(i)
+                                if not slide_id or slide_id not in slide_data_map:
+                                    continue
+                                
+                                search_query = image_config.get('search_query')
+                                # #region agent log
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_image_query","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3174","message":"Processing image for slide","data":{"slide_index":i,"search_query":search_query[:50] if search_query else "","has_search_query":bool(search_query)},"sessionId":"debug-session","runId":"run1","hypothesisId":"4C"}) + '\n')
+                                # #endregion
+                                if not search_query:
+                                    logger.warning(f"Slide {i} has image config but no search_query")
+                                    continue
+                                
+                                # Search for image
+                                logger.info(f"Searching Unsplash for: {search_query}")
+                                try:
+                                    image_url = await get_unsplash_image_url(search_query, orientation="landscape")
+                                    # #region agent log
+                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_image_found","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3182","message":"Image search result","data":{"image_url":image_url[:100] if image_url else "","has_url":bool(image_url)},"sessionId":"debug-session","runId":"run1","hypothesisId":"4D"}) + '\n')
+                                    # #endregion
+                                except Exception as image_error:
+                                    # #region agent log
+                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_image_error","timestamp":int(_debug_time.time()*1000),"location":"google_slides_server.py:3184","message":"Image search failed","data":{"error":str(image_error)[:200]},"sessionId":"debug-session","runId":"run1","hypothesisId":"4D"}) + '\n')
+                                    # #endregion
+                                    logger.warning(f"Error searching Unsplash: {image_error}")
+                                    image_url = None
+                                
+                                if not image_url:
+                                    logger.warning(f"No image found for query: {search_query}")
+                                    continue
+                                
+                                # Calculate position and size
+                                position = image_config.get('position', 'right')
+                                img_width_inches = image_config.get('width', 4.0)
+                                img_height_inches = image_config.get('height', 3.0)
+                                
+                                width_emu = inches_to_emu(img_width_inches)
+                                height_emu = inches_to_emu(img_height_inches)
+                                
+                                # Calculate X position based on position
+                                if position == 'left':
+                                    x_emu = inches_to_emu(0.5)  # 0.5 inch margin
+                                elif position == 'center':
+                                    x_emu = (SLIDE_WIDTH_EMU - width_emu) // 2
+                                else:  # right (default)
+                                    x_emu = SLIDE_WIDTH_EMU - width_emu - inches_to_emu(0.5)
+                                
+                                # Y position: center vertically
+                                y_emu = (SLIDE_HEIGHT_EMU - height_emu) // 2
+                                
+                                # Add image request
+                                image_requests.append({
+                                    "createImage": {
+                                        "url": image_url,
+                                        "elementProperties": {
+                                            "pageObjectId": slide_id,
+                                            "size": {
+                                                "height": {"magnitude": height_emu, "unit": "EMU"},
+                                                "width": {"magnitude": width_emu, "unit": "EMU"}
+                                            },
+                                            "transform": {
+                                                "scaleX": 1.0,
+                                                "scaleY": 1.0,
+                                                "translateX": x_emu,
+                                                "translateY": y_emu,
+                                                "unit": "EMU"
+                                            }
+                                        }
+                                    }
+                                })
+                                logger.info(f"Added image request for slide {i}: {image_url[:50]}...")
+                    
+                    # Execute image insertion batch
+                    if image_requests:
+                        try:
+                            slides_service.presentations().batchUpdate(
+                                presentationId=presentation_id,
+                                body={"requests": image_requests}
+                            ).execute()
+                            logger.info(f"Successfully added {len(image_requests)} images to presentation")
+                        except Exception as image_error:
+                            logger.warning(f"Some images failed to add: {image_error}")
+                    
+                    # Get presentation URL
+                    pres_file = drive_service.files().get(
+                        fileId=presentation_id,
+                        fields="webViewLink"
+                    ).execute()
+                    
+                    result_data = {
+                        "presentationId": presentation_id,
+                        "title": title,
+                        "url": pres_file.get('webViewLink'),
+                        "slidesCreated": len(slides_data),
+                        "theme": theme if not theme_source else None,  # Only include theme if using config template
+                        "theme_source": theme_source,  # Include theme_source if used
+                        "templateUsed": template_id is not None,
+                        "templateSource": template_source
+                    }
                     
                     return [TextContent(
                         type="text",

@@ -176,6 +176,185 @@ class GetPresentationTool(BaseTool):
         raise NotImplementedError("Use async execution")
 
 
+class CreatePresentationBatchInput(BaseModel):
+    """Input schema for create_presentation_batch tool."""
+    
+    title: str = Field(description="Title of the presentation")
+    slides: List[Dict[str, Any]] = Field(
+        description="""Array of slide definitions. Each slide can have:
+        - title: Slide title (optional)
+        - content: Slide content - string or array of content items (text, bullet, subheading)
+        - layout: Layout type (TITLE_AND_BODY, TITLE, BLANK, etc.) - default: TITLE_AND_BODY
+        - image: Optional image configuration:
+          * search_query: Search query for Unsplash (e.g., "ancient rome architecture")
+          * position: "left", "right", or "center" (default: "right")
+          * width: Width in inches (default: 4.0)
+          * height: Height in inches (default: 3.0)
+        - formatting: Optional formatting object with title_bold, title_font_size, body_font_size"""
+    )
+    theme: str = Field(
+        default="professional",
+        description="Presentation theme: 'professional' (business), 'creative' (marketing), 'minimal' (academic), 'dark' (tech). DEPRECATED: Use theme_source instead to copy style from existing presentation."
+    )
+    theme_source: Optional[str] = Field(
+        default=None,
+        description="Source for theme/style: presentation name (e.g., 'О собачках') to find in workspace and use as template. If not specified, creates presentation with standard Google Slides theme (no custom template). Use this when user says 'оформи как презентация X'."
+    )
+
+
+class CreatePresentationBatchTool(BaseTool):
+    """Tool for creating a presentation with multiple slides using optimized batch operations."""
+    
+    name: str = "create_presentation_batch"
+    description: str = """
+    Create a presentation with multiple slides optimized using batch operations.
+    
+    ⚡ PERFORMANCE OPTIMIZED: This tool uses batchUpdate operations to minimize API calls.
+    For N slides, it makes only ~3-5 requests instead of ~4N requests, reducing creation time from 4-10 seconds to 1-2 seconds.
+    
+    Use this tool when:
+    - Creating presentations with 5+ slides
+    - You have all slide content ready upfront
+    - Performance is important
+    
+    Input:
+    - title: Presentation title
+    - theme: Presentation theme (professional, creative, minimal, dark) - REQUIRED
+    - slides: Array of slide objects, each with:
+      * title: Slide title (optional)
+      * content: Slide content - can be:
+        - String: plain text
+        - Array: [{"type": "text", "text": "..."}, {"type": "bullet", "text": "..."}, {"type": "subheading", "text": "..."}]
+      * layout: Layout type (TITLE_AND_BODY, TITLE, BLANK, etc.) - default: TITLE_AND_BODY
+      * image: Optional image configuration:
+        - search_query: Unsplash search query (e.g., "ancient rome architecture")
+        - position: "left", "right" (default), or "center"
+        - width: Width in inches (default: 4.0)
+        - height: Height in inches (default: 3.0)
+      * formatting: Optional formatting object:
+        - title_bold: Make title bold (default: true)
+        - title_font_size: Title font size in points (default: 28)
+        - body_font_size: Body font size in points (default: 16)
+    
+    Example:
+    {
+      "title": "My Presentation",
+      "theme": "professional",
+      "slides": [
+        {
+          "title": "Introduction",
+          "content": "Welcome to the presentation",
+          "layout": "TITLE_AND_BODY"
+        },
+        {
+          "title": "Key Points",
+          "content": [
+            {"type": "bullet", "text": "First point"},
+            {"type": "bullet", "text": "Second point"}
+          ],
+          "layout": "TITLE_AND_BODY",
+          "image": {
+            "search_query": "business meeting collaboration",
+            "position": "right",
+            "width": 4.0,
+            "height": 3.0
+          }
+        }
+      ]
+    }
+    """
+    args_schema: type = CreatePresentationBatchInput
+    
+    @retry_on_mcp_error()
+    async def _arun(
+        self,
+        title: str,
+        slides: List[Dict[str, Any]],
+        theme: str = "professional",
+        theme_source: Optional[str] = None
+    ) -> str:
+        """Execute the tool asynchronously."""
+        # #region agent log
+        import json as _debug_json; import time as _debug_time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_tool_entry","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:265","message":"_arun called with parameters","data":{"has_title":bool(title),"title_preview":title[:30] if title else "","has_slides":bool(slides),"slides_count":len(slides) if slides else 0,"has_theme":bool(theme),"theme":theme},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        # #endregion
+        try:
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_args_build","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:278","message":"Building args dict","data":{"title":title[:30] if title else "","slides_count":len(slides) if slides else 0,"theme":theme,"will_add_theme":bool(theme)},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+            # #endregion
+            args = {
+                "title": title,
+                "slides": slides
+            }
+            # #region agent log
+            import json as _debug_json; import time as _debug_time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_theme_before","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:287","message":"Theme before adding to args","data":{"theme":theme,"theme_is_none":theme is None,"theme_source":theme_source,"theme_source_is_none":theme_source is None},"sessionId":"debug-session","runId":"run1","hypothesisId":"2A"}) + '\n')
+            # #endregion
+            if theme:
+                args["theme"] = theme  # Backward compatibility
+            if theme_source:
+                args["theme_source"] = theme_source  # New: use presentation from workspace
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_args_ready","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:283","message":"Args dict ready","data":{"args_keys":list(args.keys()),"has_title":bool(args.get("title")),"has_slides":bool(args.get("slides")),"has_theme":bool(args.get("theme"))},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+            # #endregion
+            
+            mcp_manager = get_mcp_manager()
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_call","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:286","message":"Calling MCP tool","data":{"tool_name":"slides_create_presentation_batch","args_keys":list(args.keys())},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+            # #endregion
+            result = await mcp_manager.call_tool("slides_create_presentation_batch", args, server_name="slides")
+            
+            # Parse result
+            if isinstance(result, list) and len(result) > 0:
+                first_item = result[0]
+                if hasattr(first_item, 'text'):
+                    result = first_item.text
+                elif isinstance(first_item, dict) and 'text' in first_item:
+                    result = first_item['text']
+            
+            if isinstance(result, str):
+                import json
+                result = json.loads(result)
+            
+            # Check for errors
+            if isinstance(result, dict) and "error" in result:
+                error_msg = result.get("error", "Unknown error")
+                raise ToolExecutionError(
+                    f"Failed to create presentation: {error_msg}",
+                    tool_name=self.name
+                )
+            
+            presentation_id = result.get("presentationId")
+            url = result.get("url", "")
+            slides_created = result.get("slidesCreated", 0)
+            
+            if not presentation_id:
+                raise ToolExecutionError(
+                    f"Failed to create presentation: presentationId is missing from API response",
+                    tool_name=self.name
+                )
+            
+            result_msg = f"Presentation '{title}' created successfully (ID: {presentation_id}, {slides_created} slides)"
+            if url:
+                result_msg += f" URL: {url}"
+            
+            return result_msg
+            
+        except Exception as e:
+            raise ToolExecutionError(
+                f"Failed to create presentation: {e}",
+                tool_name=self.name
+            ) from e
+    
+    def _run(self, *args, **kwargs) -> str:
+        raise NotImplementedError("Use async execution")
+
+
 class CreateSlideInput(BaseModel):
     """Input schema for create_slide tool."""
     
@@ -346,10 +525,10 @@ class FormatSlideTextInput(BaseModel):
     """Input schema for format_slide_text tool."""
     
     presentation_id: str = Field(description="Presentation ID or URL")
-    page_id: str = Field(description="Page (slide) ID")
-    element_id: str = Field(description="Text box element ID")
-    start_index: int = Field(description="Start character index (0-based)")
-    end_index: int = Field(description="End character index (exclusive)")
+    page_id: str = Field(description="Page (slide) ID - REQUIRED. Get from get_presentation. DO NOT pass 'slides' array!")
+    element_id: str = Field(description="Text box element ID - REQUIRED. Get from get_presentation. DO NOT pass 'slides' array!")
+    start_index: Optional[int] = Field(default=0, description="Start character index (0-based). Default: 0 (start of text)")
+    end_index: Optional[int] = Field(default=None, description="End character index (exclusive). Default: None (end of text - will be auto-detected)")
     bold: Optional[bool] = Field(default=None, description="Make text bold")
     italic: Optional[bool] = Field(default=None, description="Make text italic")
     foreground_color: Optional[Dict[str, float]] = Field(default=None, description="Text color as {red, green, blue, alpha} (0-1)")
@@ -367,7 +546,11 @@ class FormatSlideTextTool(BaseTool):
     description: str = """
     Format text in a slide (bold, italic, colors, font size, font family, underline, strikethrough).
     
-    ⚠️ ВАЖНО: Этот инструмент НЕ создаёт списки! Для списков используй create_slide_bullets.
+    ⚠️ ВАЖНО: 
+    - Этот инструмент НЕ создаёт списки! Для списков используй create_slide_bullets.
+    - Этот инструмент форматирует ТОЛЬКО ОДИН элемент текста за раз. НЕ передавай массив slides!
+    - Если нужно отформатировать несколько элементов, вызывай этот инструмент несколько раз для каждого элемента отдельно.
+    - Для форматирования всех слайдов презентации используй create_presentation_batch с форматированием в определении слайдов.
     
     Когда использовать:
     - Пользователь просит "жирный текст" → используй bold=True
@@ -381,12 +564,12 @@ class FormatSlideTextTool(BaseTool):
     1. Сначала вставь текст через insert_slide_text
     2. Затем примени форматирование через format_slide_text с правильными start_index и end_index
     
-    Input:
+    ОБЯЗАТЕЛЬНЫЕ ПАРАМЕТРЫ (всегда передавай):
     - presentation_id: Presentation ID or URL
-    - page_id: Page (slide) ID
-    - element_id: Text box element ID
-    - start_index: Start character index (0-based) - начало текста для форматирования
-    - end_index: End character index (exclusive) - конец текста для форматирования
+    - page_id: Page (slide) ID (получи через get_presentation, НЕ передавай массив slides!)
+    - element_id: Text box element ID (получи через get_presentation, НЕ передавай массив slides!)
+    - start_index: Start character index (0-based) - начало текста для форматирования (default: 0)
+    - end_index: End character index (exclusive) - конец текста для форматирования (default: None - форматирует весь текст)
     - bold: Optional boolean - сделать текст жирным
     - italic: Optional boolean - сделать текст курсивом
     - foreground_color: Optional dict - цвет текста {"red": 0-1, "green": 0-1, "blue": 0-1, "alpha": 0-1}
@@ -409,10 +592,10 @@ class FormatSlideTextTool(BaseTool):
     async def _arun(
         self,
         presentation_id: str,
-        page_id: str,
-        element_id: str,
-        start_index: int,
-        end_index: int,
+        page_id: str = None,
+        element_id: str = None,
+        start_index: Optional[int] = 0,
+        end_index: Optional[int] = None,
         bold: Optional[bool] = None,
         italic: Optional[bool] = None,
         foreground_color: Optional[Dict[str, float]] = None,
@@ -420,10 +603,81 @@ class FormatSlideTextTool(BaseTool):
         font_family: Optional[str] = None,
         underline: Optional[bool] = None,
         strikethrough: Optional[bool] = None,
-        background_color: Optional[Dict[str, float]] = None
+        background_color: Optional[Dict[str, float]] = None,
+        **kwargs  # Catch unexpected arguments like 'slides'
     ) -> str:
         """Execute the tool asynchronously."""
+        # #region agent log
+        import json as _debug_json; import time as _debug_time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_entry","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:592","message":"format_slide_text _arun called","data":{"has_presentation_id":bool(presentation_id),"has_page_id":bool(page_id),"has_element_id":bool(element_id),"start_index":start_index,"end_index":end_index,"start_index_is_none":start_index is None,"end_index_is_none":end_index is None,"kwargs_keys":list(kwargs.keys()),"has_slides_in_kwargs":"slides" in kwargs},"sessionId":"debug-session","runId":"run1","hypothesisId":"Q"}) + '\n')
+        # #endregion
+        
+        # #region agent log
+        import json as _debug_json; import time as _debug_time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_entry","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:609","message":"format_slide_text called","data":{"has_page_id":bool(page_id),"has_element_id":bool(element_id),"has_slides_in_kwargs":"slides" in kwargs,"kwargs_keys":list(kwargs.keys())},"sessionId":"debug-session","runId":"run1","hypothesisId":"3A"}) + '\n')
+        # #endregion
+        
+        # Validate that 'slides' is not passed (common LLM mistake)
+        if 'slides' in kwargs:
+            error_msg = (
+                "ERROR: format_slide_text does NOT accept 'slides' array. "
+                "This tool formats only ONE text element at a time. "
+                "Required parameters: presentation_id, page_id (slide ID), element_id (text box ID). "
+                "To get page_id and element_id, first call get_presentation to see the structure. "
+                "If you need to format multiple slides, call format_slide_text separately for each element."
+            )
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_error_slides","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:600","message":"format_slide_text called with slides array (error)","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"3A"}) + '\n')
+            # #endregion
+            raise ToolExecutionError(error_msg, tool_name=self.name)
+        
+        # Validate required parameters
+        if not page_id:
+            error_msg = (
+                "ERROR: 'page_id' is required for format_slide_text. "
+                "This is the slide ID (e.g., 'slide_abc123'). "
+                "Get it by calling get_presentation first to see the presentation structure."
+            )
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_missing_page_id","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:627","message":"Missing page_id","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"3C"}) + '\n')
+            # #endregion
+            raise ToolExecutionError(error_msg, tool_name=self.name)
+        
+        if not element_id:
+            error_msg = (
+                "ERROR: 'element_id' is required for format_slide_text. "
+                "This is the text box element ID. "
+                "Get it by calling get_presentation first to see the presentation structure."
+            )
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_missing_element_id","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:635","message":"Missing element_id","data":{"error":error_msg},"sessionId":"debug-session","runId":"run1","hypothesisId":"3C"}) + '\n')
+            # #endregion
+            raise ToolExecutionError(error_msg, tool_name=self.name)
+        
         try:
+            # Default start_index to 0 if None
+            if start_index is None:
+                start_index = 0
+            
+            # If end_index is None, use -1 as special value to indicate "format entire text"
+            # MCP server will handle -1 by getting actual text length
+            if end_index is None:
+                end_index = -1  # Special value: format entire text
+                # #region agent log
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_auto_end","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:600","message":"end_index not provided, using -1 for auto-detect","data":{"end_index":end_index},"sessionId":"debug-session","runId":"run1","hypothesisId":"AB"}) + '\n')
+                # #endregion
+            
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_args","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:594","message":"Building format_slide_text args","data":{"presentation_id":presentation_id[:30] if presentation_id else "","page_id":page_id[:20] if page_id else "","element_id":element_id[:20] if element_id else "","start_index":start_index,"end_index":end_index},"sessionId":"debug-session","runId":"run1","hypothesisId":"R"}) + '\n')
+            # #endregion
+            
             args = {
                 "presentationId": presentation_id,
                 "pageId": page_id,
@@ -449,8 +703,18 @@ class FormatSlideTextTool(BaseTool):
             if background_color:
                 args["backgroundColor"] = background_color
             
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_mcp_call","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:641","message":"Calling MCP slides_format_text","data":{"args_keys":list(args.keys()),"has_bold":"bold" in args,"has_italic":"italic" in args,"has_font_size":"fontSize" in args,"has_font_family":"fontFamily" in args,"bold_value":args.get("bold"),"font_size_value":args.get("fontSize"),"font_family_value":args.get("fontFamily")},"sessionId":"debug-session","runId":"run1","hypothesisId":"AL"}) + '\n')
+            # #endregion
+            
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("slides_format_text", args, server_name="slides")
+            
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_format_text_mcp_result","timestamp":int(_debug_time.time()*1000),"location":"slides_tools.py:644","message":"MCP slides_format_text result","data":{"result_type":type(result).__name__,"result_preview":str(result)[:200] if result else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"AM"}) + '\n')
+            # #endregion
             
             formats = []
             if bold:
@@ -1512,6 +1776,7 @@ def get_slides_tools() -> List[BaseTool]:
         InsertSlideTextTool(),
         FormatSlideTextTool(),
         CreatePresentationFromDocTool(),
+        CreatePresentationBatchTool(),
         AddSlideImageTool(),
         CreateSlideShapeTool(),
         SetSlideBackgroundTool(),

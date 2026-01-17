@@ -242,7 +242,10 @@ Main application configuration."""
     
     # OpenAI API (новое)
     openai_api_key: Optional[str] = Field(default="", alias="OPENAI_API_KEY")
-    
+
+    # Unsplash API (для поиска изображений)
+    unsplash_access_key: Optional[str] = Field(default="", alias="UNSPLASH_ACCESS_KEY")
+
     # Model settings (новое)
     default_model: str = Field(default="claude-3-haiku", alias="DEFAULT_MODEL")
     

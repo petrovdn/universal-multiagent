@@ -131,8 +131,8 @@ class MCPToolProvider(ActionProvider):
         return capabilities
     
     async def execute(
-        self, 
-        capability_name: str, 
+        self,
+        capability_name: str,
         arguments: Dict,
         context: Dict = None
     ):

@@ -30,6 +30,7 @@ from src.core.file_reference_resolver import (
 from src.api.websocket_manager import WebSocketManager
 from src.agents.model_factory import create_llm, supports_vision
 from src.utils.logging_config import get_logger
+from src.utils.config_loader import DATA_DIR
 
 logger = get_logger(__name__)
 
@@ -109,6 +110,51 @@ class UnifiedReActEngine:
         self.smart_progress = SmartProgressGenerator(ws_manager, session_id)
         self.complexity_analyzer = TaskComplexityAnalyzer()
         
+        # Smart tool selection (Phase 3.1)
+        # Feature flag: USE_SMART_TOOL_SELECTION (default: False for gradual rollout)
+        import os
+        self.use_smart_tool_selection = os.getenv("USE_SMART_TOOL_SELECTION", "false").lower() == "true"
+        
+        self.smart_tool_selector = None
+        self.skill_selector = None
+        self.active_skill = None
+        
+        if self.use_smart_tool_selection:
+            try:
+                from src.core.tool_selection.smart_selector import SmartToolSelector
+                from src.core.skills.skill_loader import SkillLoader
+                from src.core.skills.skill_selector import SkillSelector
+                from pathlib import Path
+                
+                # Initialize SmartToolSelector
+                cache_dir = DATA_DIR / "tool_embeddings"
+                self.smart_tool_selector = SmartToolSelector(
+                    capabilities=self.capabilities,
+                    cache_dir=cache_dir
+                )
+                
+                # Initialize SkillLoader and SkillSelector
+                project_root = Path(__file__).parent.parent.parent
+                skills_dir = project_root / "skills"
+                if skills_dir.exists():
+                    loader = SkillLoader(skills_dir=skills_dir)
+                    skills = loader.load_all_skills()
+                    if skills:
+                        self.skill_selector = SkillSelector(
+                            skills=skills,
+                            cache_dir=cache_dir
+                        )
+                        logger.info(f"[UnifiedReActEngine] Smart tool selection enabled with {len(skills)} skills")
+                    else:
+                        logger.warning("[UnifiedReActEngine] No skills found, skill selection disabled")
+                else:
+                    logger.warning(f"[UnifiedReActEngine] Skills directory not found: {skills_dir}")
+                    
+            except Exception as e:
+                logger.error(f"[UnifiedReActEngine] Failed to initialize smart tool selection: {e}")
+                self.use_smart_tool_selection = False
+                logger.warning("[UnifiedReActEngine] Falling back to keyword-based tool selection")
+        
         # Stop flag
         self._stop_requested: bool = False
         self._current_thinking_id: Optional[str] = None  # Current thinking block ID
@@ -136,7 +182,7 @@ class UnifiedReActEngine:
         # For now, we need to get actual BaseTool instances from MCP provider
         # This is a temporary bridge - in future, we might not need this
         tools = []
-        
+
         # Get MCP provider if available
         for provider in self.registry.providers:
             if provider.provider_type.value == "mcp_tool":
@@ -144,7 +190,7 @@ class UnifiedReActEngine:
                 if hasattr(provider, 'tools'):
                     tools.extend(provider.tools.values())
                 break
-        
+
         logger.info(f"[UnifiedReActEngine] Built {len(tools)} tools for LLM planning")
         return tools
     
@@ -645,6 +691,11 @@ class UnifiedReActEngine:
                 # 2. PLAN - Action plan уже получен из _think_and_plan
                 state.status = "acting"
                 planned_tool = action_plan.get("tool_name", "")
+                # #region agent log
+                import json as _debug_json; import time as _debug_time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_execute_start","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:693","message":"Starting action execution","data":{"planned_tool":planned_tool,"goal":state.goal[:100] if state.goal else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+                # #endregion
                 
                 # === Send iteration_plan event ===
                 await self.ws_manager.send_event(
@@ -3415,7 +3466,51 @@ class UnifiedReActEngine:
         """
         Возвращает только релевантные инструменты для текущей задачи.
         Максимум 5-7 инструментов вместо 50+.
+        
+        Использует SmartToolSelector если включен (USE_SMART_TOOL_SELECTION=true),
+        иначе использует keyword-based подход (legacy).
         """
+        # Try smart tool selection first (if enabled)
+        if self.use_smart_tool_selection and self.smart_tool_selector:
+            try:
+                import time
+                _smart_select_start = time.time()
+                selected_caps = self.smart_tool_selector.select_tools(
+                    query=goal,
+                    max_tools=7,
+                    completed_tools=completed_tools
+                )
+                _smart_select_duration = time.time() - _smart_select_start
+                
+                # Convert to dict format
+                result = []
+                for cap in selected_caps:
+                    desc = cap.description[:200]  # Limit description length
+                    result.append({
+                        "name": cap.name,
+                        "description": desc
+                    })
+                
+                # Always add FINISH
+                if not any(t["name"] == "FINISH" for t in result):
+                    result.append({
+                        "name": "FINISH",
+                        "description": "Завершить задачу, когда все шаги выполнены"
+                    })
+                
+                logger.info(
+                    f"[UnifiedReActEngine] Smart tool selection: {len(result)} tools selected "
+                    f"in {_smart_select_duration:.3f}s for goal: {goal[:50]}"
+                )
+                return result[:7]  # Max 7 tools
+                
+            except Exception as e:
+                logger.error(f"[UnifiedReActEngine] Smart tool selection failed: {e}, falling back to keyword-based", exc_info=True)
+                # Fall through to legacy keyword-based selection
+        else:
+            logger.debug(f"[UnifiedReActEngine] Smart tool selection disabled (use_smart={self.use_smart_tool_selection}, selector={self.smart_tool_selector is not None})")
+        
+        # Legacy keyword-based tool selection (fallback)
         goal_lower = goal.lower()
         relevant_tool_names = set()
         
@@ -3785,6 +3880,10 @@ if salary_sheet:
         Returns:
             Tuple[thought: str, action_plan: Dict[str, Any]]
         """
+        import time
+        _think_plan_start = time.time()
+        _llm_duration = 0  # Initialize to avoid NameError
+        
         # ========== ОПТИМИЗИРОВАННЫЙ ПРОМПТ С XML-СТРУКТУРОЙ ==========
         # Perplexity рекомендации:
         # 1. История действий В НАЧАЛЕ (0-5% позиция) - не в середине!
@@ -3804,11 +3903,43 @@ if salary_sheet:
         completed_tools = [a.tool_name for a in state.action_history] if state.action_history else []
         
         # Определяем следующий шаг
+        _next_step_start = time.time()
         next_step = self._determine_next_step(state.goal, completed_tools, state.observations)
+        _next_step_duration = time.time() - _next_step_start
+        logger.info(f"[UnifiedReActEngine] _determine_next_step took {_next_step_duration:.3f}s")
         
         # Получаем релевантные инструменты (3-7 штук вместо 50)
+        _tools_start = time.time()
         relevant_tools = self._get_relevant_tools(state.goal, completed_tools)
+        _tools_duration = time.time() - _tools_start
+        logger.info(f"[UnifiedReActEngine] _get_relevant_tools took {_tools_duration:.3f}s, selected {len(relevant_tools)} tools")
         tools_str = "\n".join([f"- {t['name']}: {t['description']}" for t in relevant_tools])
+        
+        # Select relevant skill (if smart tool selection is enabled)
+        skill_instructions = ""
+        import time
+        _skill_start = time.time()
+        if self.use_smart_tool_selection and self.skill_selector:
+            try:
+                selected_skill = self.skill_selector.select_skill(state.goal)
+                if selected_skill:
+                    self.active_skill = selected_skill
+                    skill_instructions = f"""
+<skill_instructions>
+АКТИВНЫЙ SKILL: {selected_skill.name}
+
+{selected_skill.get_instructions()}
+</skill_instructions>"""
+                    logger.info(f"[UnifiedReActEngine] Selected skill: {selected_skill.name}")
+                else:
+                    logger.info(f"[UnifiedReActEngine] No skill selected for goal: {state.goal[:50]}")
+            except Exception as e:
+                logger.error(f"[UnifiedReActEngine] Skill selection failed: {e}", exc_info=True)
+        else:
+            logger.debug(f"[UnifiedReActEngine] Smart tool selection disabled or skill_selector not available")
+        _skill_duration = time.time() - _skill_start
+        if self.use_smart_tool_selection:
+            logger.info(f"[UnifiedReActEngine] Skill selection took {_skill_duration:.3f}s")
         
         # ===== СЕКЦИЯ 1: TASK_STATUS (в начале!) =====
         task_status = f"""<task_status>
@@ -3954,23 +4085,6 @@ if salary_sheet:
         if needs_extended_analysis and has_get_all_sheets:
             special_rules += "\n8. ⚠️ РАСШИРЕННЫЙ АНАЛИЗ: После get_all_sheets_data сразу используй execute_python_code для написания кода анализа! НЕ пытайся читать данные повторно!"
         
-        # Правило для создания презентаций
-        needs_presentation = any(kw in goal_lower_check for kw in ["презентаци", "слайд", "доклад", "presentation", "slides"])
-        if needs_presentation:
-            special_rules += """
-9. 🎨 СОЗДАНИЕ ПРЕЗЕНТАЦИЙ — ОБЯЗАТЕЛЬНЫЕ ШАГИ:
-   - create_presentation — создать презентацию (возвращает presentation_id и first_slide_id)
-   - create_slide — добавить слайд (нужен presentation_id, layout: TITLE_AND_BODY, TITLE_ONLY, BLANK)
-   - insert_slide_text — добавить текст на слайд (нужен presentation_id, page_id, text, placeholder_type: TITLE/BODY/SUBTITLE)
-   
-   ⚠️ ВАЖНО: Презентация с 1 слайдом НЕ ЗАВЕРШЕНА! Добавь 3-5 слайдов с содержанием:
-   1. Титульный слайд (уже создан при create_presentation)
-   2. Введение/Обзор
-   3. Основные пункты (2-3 слайда)
-   4. Заключение
-   
-   ⚠️ ПОРЯДОК: create_presentation → (create_slide → insert_slide_text) × N раз → FINISH"""
-        
         # Правило для Project Lad
         needs_projectlad = any(kw in goal_lower_check for kw in ["project", "lad", "проект", "портфель", "загрузк", "ресурс", "workload", "часы сотрудник"])
         if needs_projectlad:
@@ -4096,6 +4210,7 @@ if salary_sheet:
 {completed_section}
 {next_step_section}
 {context_section}
+{skill_instructions}
 {tools_section}
 {rules_section}
 {format_section}"""
@@ -4125,8 +4240,9 @@ if salary_sheet:
             llm_to_use = self.llm
             
             # Стримим ответ
+            import time
+            _llm_start = time.time()
             full_response = ""
-            _think_start = __import__("time").time()
             _chunk_count = 0
             async for chunk in llm_to_use.astream(messages):
                 _chunk_count += 1
@@ -4148,6 +4264,9 @@ if salary_sheet:
                 if chunk_text:
                     full_response += chunk_text
                     await parser.process_chunk(chunk_text)
+            
+            _llm_duration = time.time() - _llm_start
+            logger.info(f"[UnifiedReActEngine] LLM streaming took {_llm_duration:.3f}s ({_chunk_count} chunks)")
             
             # Получаем thought из парсера
             thought = parser.get_thought()
@@ -4204,6 +4323,11 @@ if salary_sheet:
             response_text = remaining_buffer if remaining_buffer else full_response
             
             # Ищем action блок
+            # #region agent log
+            import json as _debug_json; import time as _debug_time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_think_parse","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4321","message":"Parsing action from LLM response","data":{"response_length":len(response_text),"full_response_length":len(full_response),"has_action_tags":"<action>" in response_text},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+            # #endregion
             action_match = re.search(r'<action>([\s\S]*?)</action>', response_text, re.DOTALL)
             if not action_match:
                 # Пробуем найти JSON без тегов
@@ -4242,12 +4366,24 @@ if salary_sheet:
                 if json_match:
                     action_plan = json.loads(json_match.group(0))
                 else:
+                    # #region agent log
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_no_action","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4359","message":"No action found in LLM response","data":{"response_preview":full_response[:500]},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+                    # #endregion
                     raise ValueError("Could not find action plan in response")
             
             # Валидация
             if "tool_name" not in action_plan:
+                # #region agent log
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_no_tool_name","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4362","message":"tool_name missing in action_plan","data":{"action_plan_keys":list(action_plan.keys()) if isinstance(action_plan, dict) else "not_dict"},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+                # #endregion
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_tool_name","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4364","message":"Parsed tool_name from action","data":{"tool_name":tool_name,"is_finish":tool_name=="FINISH","has_arguments":"arguments" in action_plan},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+            # #endregion
             
             # Validate execute_python_code has code
             if tool_name == "execute_python_code":
@@ -4305,10 +4441,19 @@ raise ValueError("Код анализа не был предоставлен. П
             if not thought:
                 thought = f"Анализирую задачу: {state.goal[:100]}..."
             
+            _think_plan_total = time.time() - _think_plan_start
+            _other_time = _think_plan_total - _next_step_duration - _tools_duration - _skill_duration - _llm_duration
+            logger.info(
+                f"[UnifiedReActEngine] _think_and_plan total: {_think_plan_total:.3f}s "
+                f"(next_step: {_next_step_duration:.3f}s, tools: {_tools_duration:.3f}s, "
+                f"skill: {_skill_duration:.3f}s, llm: {_llm_duration:.3f}s, "
+                f"other: {_other_time:.3f}s)"
+            )
             return thought, action_plan
-            
+
         except Exception as e:
-            logger.error(f"[UnifiedReActEngine] Error in _think_and_plan: {e}")
+            _think_plan_total = time.time() - _think_plan_start if '_think_plan_start' in locals() else 0
+            logger.error(f"[UnifiedReActEngine] Error in _think_and_plan after {_think_plan_total:.3f}s: {e}", exc_info=True)
             
             # Fallback
             fallback_thought = f"Анализирую ситуацию... (итерация {state.iteration})"
@@ -4359,6 +4504,11 @@ raise ValueError("Код анализа не был предоставлен. П
     ) -> Any:
         """Execute action through CapabilityRegistry (provider-agnostic)."""
         capability_name = action_plan.get("tool_name")
+        # #region agent log
+        import json as _debug_json; import time as _debug_time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_execute_action","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4506","message":"_execute_action called","data":{"capability_name":capability_name,"is_create_presentation_batch":capability_name=="create_presentation_batch","has_arguments":"arguments" in action_plan},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
+        # #endregion
         # #region debug log
         if not capability_name:
             logger.warning("[UnifiedReActEngine] No tool_name in action_plan, skipping execution")
@@ -4546,6 +4696,14 @@ raise ValueError("Код анализа не был предоставлен. П
                     'streaming_title': 'Код Python',
                     'operation_type': 'write',
                     'file_type': 'code'
+                },
+                
+                # Slides - создание презентации
+                'create_presentation_batch': {
+                    'title': 'Создаю презентацию...',
+                    'streaming_title': 'Презентация',
+                    'operation_type': 'write',
+                    'file_type': 'slides'
                 },
             }
             if capability_name in tools_with_operations:
@@ -4762,8 +4920,95 @@ raise ValueError("Код анализа не был предоставлен. П
             if operation_id:
                 arguments['_operation_id'] = operation_id
         
+        # === Stream presentation structure BEFORE API call ===
+        if capability_name == 'create_presentation_batch' and operation_id and self.ws_manager:
+            import asyncio
+            title = arguments.get('title', 'Презентация')
+            slides = arguments.get('slides', [])
+            theme = arguments.get('theme', 'professional')
+            
+            if slides:
+                # Stream presentation structure
+                await self.ws_manager.send_operation_data(
+                    self.session_id,
+                    operation_id,
+                    f"📊 Создаю презентацию: {title}"
+                )
+                await asyncio.sleep(0.05)
+                await self.ws_manager.send_operation_data(
+                    self.session_id,
+                    operation_id,
+                    f"🎨 Тема: {theme}"
+                )
+                await asyncio.sleep(0.05)
+                await self.ws_manager.send_operation_data(
+                    self.session_id,
+                    operation_id,
+                    f"📑 Слайдов: {len(slides)}"
+                )
+                await asyncio.sleep(0.05)
+                
+                # Stream each slide structure
+                for i, slide in enumerate(slides, 1):
+                    slide_title = slide.get('title', f'Слайд {i}')
+                    slide_content = slide.get('content', '')
+                    
+                    await self.ws_manager.send_operation_data(
+                        self.session_id,
+                        operation_id,
+                        f"\n📄 Слайд {i}: {slide_title}"
+                    )
+                    await asyncio.sleep(0.05)
+                    
+                    # Stream content preview
+                    if isinstance(slide_content, str):
+                        if slide_content.strip():
+                            preview = slide_content[:100] + ('...' if len(slide_content) > 100 else '')
+                            await self.ws_manager.send_operation_data(
+                                self.session_id,
+                                operation_id,
+                                f"   {preview}"
+                            )
+                            await asyncio.sleep(0.05)
+                    elif isinstance(slide_content, list):
+                        for item in slide_content[:3]:  # Показываем первые 3 пункта
+                            if isinstance(item, dict):
+                                item_text = item.get('text', '')
+                                item_type = item.get('type', 'text')
+                                prefix = "   • " if item_type == 'bullet' else "   " if item_type == 'subheading' else "   "
+                                if item_text:
+                                    preview = item_text[:80] + ('...' if len(item_text) > 80 else '')
+                                    await self.ws_manager.send_operation_data(
+                                        self.session_id,
+                                        operation_id,
+                                        f"{prefix}{preview}"
+                                    )
+                                    await asyncio.sleep(0.05)
+                        if len(slide_content) > 3:
+                            await self.ws_manager.send_operation_data(
+                                self.session_id,
+                                operation_id,
+                                f"   ... и ещё {len(slide_content) - 3} пунктов"
+                            )
+                            await asyncio.sleep(0.05)
+        
         # Registry routes to appropriate provider (MCP or A2A)
-        result = await self.registry.execute(capability_name, arguments)
+        # #region agent log
+        if capability_name == "create_presentation_batch":
+            import json as _debug_json; import time as _debug_time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_registry_execute","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4988","message":"Calling registry.execute","data":{"capability_name":capability_name,"arguments_keys":list(arguments.keys()),"has_title":"title" in arguments,"has_slides":"slides" in arguments,"has_theme":"theme" in arguments,"title_preview":str(arguments.get("title",""))[:30] if arguments.get("title") else "","slides_count":len(arguments.get("slides",[])) if arguments.get("slides") else 0},"sessionId":"debug-session","runId":"run1","hypothesisId":"I"}) + '\n')
+        # #endregion
+        try:
+            result = await self.registry.execute(capability_name, arguments)
+        except Exception as e:
+            # #region agent log
+            if capability_name == "create_presentation_batch":
+                import traceback as _debug_tb
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_registry_error","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4990","message":"Registry execute error","data":{"error_type":type(e).__name__,"error_message":str(e)[:300],"error_traceback":_debug_tb.format_exc()[:800]},"sessionId":"debug-session","runId":"run1","hypothesisId":"J"}) + '\n')
+            # #endregion
+            raise
         _registry_end = time.time()
         
         # Process result for operations (parse and stream data)
@@ -5081,9 +5326,15 @@ raise ValueError("Код анализа не был предоставлен. П
                         )
             
             # Slides operations
-            elif capability_name in ['create_presentation', 'create_presentation_from_doc', 'get_presentation']:
+            elif capability_name in ['create_presentation', 'create_presentation_batch', 'create_presentation_from_doc', 'get_presentation']:
+                # #region agent log
+                import json as _debug_json; import time as _debug_time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_slides_handler_entry","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:5321","message":"Entered slides operations handler","data":{"capability_name":capability_name,"is_batch":capability_name=="create_presentation_batch"},"sessionId":"debug-session","runId":"run1","hypothesisId":"3E"}) + '\n')
+                # #endregion
+                
                 try:
-                    if capability_name in ['create_presentation', 'create_presentation_from_doc']:
+                    if capability_name in ['create_presentation', 'create_presentation_batch', 'create_presentation_from_doc']:
                         # Extract presentation_id and title from result for auto-opening
                         result_str = str(result)
                         
@@ -5102,6 +5353,15 @@ raise ValueError("Код анализа не был предоставлен. П
                             re.search(r'Presentation\s*["\']([^"\']+)["\']', result_str)
                         )
                         
+                        # #region agent log
+                        import json as _debug_json; import time as _debug_time
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_pres_id_match","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:5348","message":"Presentation ID regex matching","data":{"has_pres_id_match":bool(pres_id_match),"has_title_match":bool(title_match),"result_preview":result_str[:200],"pres_id":pres_id_match.group(1)[:30] if pres_id_match else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"3F"}) + '\n')
+                        except (PermissionError, OSError):
+                            pass
+                        # #endregion
+                        
                         if pres_id_match:
                             presentation_id = pres_id_match.group(1)
                             presentation_title = title_match.group(1) if title_match else arguments.get('title', 'Презентация')
@@ -5109,6 +5369,30 @@ raise ValueError("Код анализа не был предоставлен. П
                             # Extract URL if present
                             url_match = re.search(r'url["\']?\s*[:=]\s*["\']?(https?://[^\s"\']+)', result_str, re.IGNORECASE)
                             presentation_url = url_match.group(1) if url_match else f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+                            
+                            # #region agent log
+                            import json as _debug_json; import time as _debug_time
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_pres_created","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:5342","message":"Presentation created, sending events","data":{"presentation_id":presentation_id[:30] if presentation_id else "","presentation_title":presentation_title[:50] if presentation_title else "","presentation_url":presentation_url[:50] if presentation_url else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"AF"}) + '\n')
+                            # #endregion
+                            
+                            # Send slides_action event for frontend to open tab in right panel
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "slides_action",
+                                {
+                                    "action": "create",
+                                    "presentation_id": presentation_id,
+                                    "presentation_url": presentation_url,
+                                    "title": presentation_title,
+                                    "description": f"Создана презентация '{presentation_title}'"
+                                }
+                            )
+                            
+                            # #region agent log
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_slides_action_sent","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:5360","message":"Sent slides_action event","data":{"presentation_id":presentation_id[:30] if presentation_id else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"AG"}) + '\n')
+                            # #endregion
                             
                             # Send file_preview event for frontend to open tab
                             await self.ws_manager.send_event(
@@ -5122,6 +5406,11 @@ raise ValueError("Код анализа не был предоставлен. П
                                     "title": presentation_title
                                 }
                             )
+                            
+                            # #region agent log
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_file_preview_sent","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:5375","message":"Sent file_preview event","data":{"presentation_id":presentation_id[:30] if presentation_id else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"AH"}) + '\n')
+                            # #endregion
                             
                         summary = "✓ Презентация создана"
                         await self.ws_manager.send_operation_end(
