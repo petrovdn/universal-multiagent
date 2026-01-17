@@ -24,6 +24,7 @@ from src.core.file_context_resolver import FileContextResolver
 from src.core.action_filter import ActionFilter
 from src.core.task_decomposer import SubTask, DecompositionResult
 from src.core.dependency_analyzer import ExecutionPlan
+from src.core.synthesis_agent import SynthesisAgent
 from src.core.file_reference_resolver import (
     get_relevant_file_ids,
     find_source_for_reference,
@@ -123,8 +124,10 @@ class UnifiedReActEngine:
         # Task decomposer and dependency analyzer (Phase 2, Steps 1-2)
         from src.core.task_decomposer import TaskDecomposer
         from src.core.dependency_analyzer import DependencyAnalyzer
+        from src.core.synthesis_agent import SynthesisAgent
         self.task_decomposer = TaskDecomposer()
         self.dependency_analyzer = DependencyAnalyzer()
+        self.synthesis_agent = SynthesisAgent()
         
         # Smart tool selection (Phase 3.1)
         # Feature flag: USE_SMART_TOOL_SELECTION (default: False for gradual rollout)
@@ -4784,30 +4787,36 @@ raise ValueError("Код анализа не был предоставлен. П
             
             all_results.update(results)
         
-        # Find synthesis task and generate final result
+        # Find synthesis task and generate final result using SynthesisAgent
         synthesis_task = next((st for st in decomposition.subtasks if st.is_synthesis), None)
         
         if synthesis_task:
-            # For now, just combine results into a simple summary
-            # Full synthesis will be in Step 4
-            result_summary = f"Выполнено {len([st for st in decomposition.subtasks if not st.is_synthesis])} задач параллельно"
+            # Phase 2, Step 4: Use SynthesisAgent to synthesize results
+            synthesis_result = await self.synthesis_agent.synthesize(
+                query=goal,
+                subtask_results=all_results,
+                original_query=goal
+            )
             
             # Send final result
             await self.ws_manager.send_event(
                 self.session_id,
                 "final_result",
                 {
-                    "content": result_summary,
-                    "status": "success"
+                    "content": synthesis_result.summary,
+                    "status": "success",
+                    "key_points": synthesis_result.key_points or []
                 }
             )
             
             return {
                 "agent": self.__class__.__name__,
-                "response": result_summary,
+                "response": synthesis_result.summary,
                 "status": "success",
                 "orchestration_used": True,
-                "parallel_tasks": len([st for st in decomposition.subtasks if not st.dependencies and not st.is_synthesis])
+                "parallel_tasks": len([st for st in decomposition.subtasks if not st.dependencies and not st.is_synthesis]),
+                "synthesis_used": True,
+                "key_points": synthesis_result.key_points
             }
         else:
             # No synthesis task - return combined results

@@ -50,6 +50,17 @@ async def test_orchestration_executes_parallel(mock_ws_manager, mock_registry_wi
     engine = create_test_engine(mock_ws_manager, mock_registry_with_tools)
     context = ConversationContext(session_id="test-session")
     
+    # Mock SynthesisAgent to avoid real LLM calls
+    from unittest.mock import AsyncMock, MagicMock
+    from src.core.synthesis_agent import SynthesisResult
+    
+    mock_synthesis_result = SynthesisResult(
+        summary="Сводка: выполнено 3 задачи",
+        source_task_ids=["t1", "t2", "t3"],
+        key_points=["Почта", "Календарь", "Файлы"]
+    )
+    engine.synthesis_agent.synthesize = AsyncMock(return_value=mock_synthesis_result)
+    
     # Test query that should trigger orchestration
     query = "Покажи фокус на сегодня"
     
