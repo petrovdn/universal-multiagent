@@ -1364,14 +1364,29 @@ Callback to handle streaming events and send to WebSocket."""
                 logger.info(f"[AgentWrapper] Sent docs_action event for document {document_id}")
         
         # Handle slides_create
-        elif tool_name == "slides_create" or tool_name == "create_presentation":
+        elif tool_name == "slides_create" or tool_name == "create_presentation" or tool_name == "create_presentation_batch":
             
             # Extract presentation ID and URL from result
-            # Result format: "Presentation 'title' created successfully (ID: {id}) URL: {url}" or JSON
+            # Result format: JSON dict with presentationId, title, url OR text string
             try:
-                # Try to parse as JSON first
                 import json
-                result_json = json.loads(result) if isinstance(result, str) else result
+                # Try to parse as JSON first
+                if isinstance(result, str):
+                    # Try to extract JSON from string (might be wrapped)
+                    result_str = result.strip()
+                    # Check if it's a JSON object
+                    if result_str.startswith('{') and result_str.endswith('}'):
+                        result_json = json.loads(result_str)
+                    else:
+                        # Try to find JSON in the string
+                        json_match = re.search(r'\{[^{}]*"presentationId"[^{}]*\}', result_str)
+                        if json_match:
+                            result_json = json.loads(json_match.group(0))
+                        else:
+                            result_json = None
+                else:
+                    result_json = result
+                
                 if isinstance(result_json, dict) and "presentationId" in result_json:
                     presentation_id = result_json.get("presentationId")
                     url = result_json.get("url", f"https://docs.google.com/presentation/d/{presentation_id}/edit")
@@ -1380,7 +1395,8 @@ Callback to handle streaming events and send to WebSocket."""
                     # Fallback to regex parsing
                     presentation_id_match = re.search(r'ID:\s*([a-zA-Z0-9_-]+)', result)
                     url_match = re.search(r'URL:\s*(https?://[^\s]+)', result)
-                    title_match = re.search(r"Presentation\s+'([^']+)'", result)
+                    # Support both formats: "Presentation 'title'" and "Presentation 'title' created successfully"
+                    title_match = re.search(r"Presentation\s+'([^']+)'", result) or re.search(r"presentation\s+'([^']+)'", result, re.IGNORECASE)
                     
                     if presentation_id_match:
                         presentation_id = presentation_id_match.group(1)
@@ -1403,6 +1419,11 @@ Callback to handle streaming events and send to WebSocket."""
                     logger.warning(f"[AgentWrapper] Failed to extract presentation_id from result: {result[:500]}")
                     return
             
+            # #region agent log
+            import json as _debug_json; import time as _debug_time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_agent_wrapper_event","timestamp":int(_debug_time.time()*1000),"location":"agent_wrapper.py:1422","message":"AgentWrapper sending slides_action","data":{"presentation_id":presentation_id[:30] if presentation_id else "","url":url[:50] if url else "","title":title[:50] if title else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"1C"}) + '\n')
+            # #endregion
             
             await self.ws_manager.send_event(
                 session_id,

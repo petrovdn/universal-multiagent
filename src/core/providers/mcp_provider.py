@@ -131,19 +131,35 @@ class MCPToolProvider(ActionProvider):
         return capabilities
     
     async def execute(
-        self, 
-        capability_name: str, 
+        self,
+        capability_name: str,
         arguments: Dict,
         context: Dict = None
     ):
         """Execute a capability through the underlying MCP tool."""
+        # #region agent log
+        if capability_name in ["create_presentation_batch", "format_slide_text", "format_slide_paragraph"]:
+            import json as _debug_json; import time as _debug_time
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_provider_entry","timestamp":int(_debug_time.time()*1000),"location":"mcp_provider.py:133","message":"MCP provider execute","data":{"capability_name":capability_name,"arguments_keys":list(arguments.keys()),"has_title":"title" in arguments,"has_slides":"slides" in arguments,"has_theme":"theme" in arguments,"has_presentation_id":"presentation_id" in arguments,"has_page_id":"page_id" in arguments,"has_element_id":"element_id" in arguments},"sessionId":"debug-session","runId":"run1","hypothesisId":"K"}) + '\n')
+        # #endregion
         tool = self.tools.get(capability_name)
         if not tool:
             raise ValueError(f"Unknown capability: {capability_name}")
+        # #region agent log
+        if capability_name in ["create_presentation_batch", "format_slide_text", "format_slide_paragraph"]:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_provider_tool_found","timestamp":int(_debug_time.time()*1000),"location":"mcp_provider.py:141","message":"Tool found, calling invoke","data":{"tool_name":tool.name if tool else "none","tool_type":type(tool).__name__},"sessionId":"debug-session","runId":"run1","hypothesisId":"L"}) + '\n')
+        # #endregion
         try:
             # Remove internal fields that Pydantic doesn't accept
             # These are added by unified_react_engine for tracking but MCP tools don't need them
             clean_arguments = {k: v for k, v in arguments.items() if not k.startswith('_')}
+            # #region agent log
+            if capability_name in ["create_presentation_batch", "format_slide_text", "format_slide_paragraph"]:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_provider_cleaned","timestamp":int(_debug_time.time()*1000),"location":"mcp_provider.py:157","message":"Arguments cleaned","data":{"clean_keys":list(clean_arguments.keys()),"has_title":"title" in clean_arguments,"has_slides":"slides" in clean_arguments,"has_theme":"theme" in clean_arguments,"has_presentation_id":"presentation_id" in clean_arguments,"has_page_id":"page_id" in clean_arguments,"has_element_id":"element_id" in clean_arguments,"has_start_index":"start_index" in clean_arguments,"has_end_index":"end_index" in clean_arguments,"title_preview":str(clean_arguments.get("title",""))[:30] if clean_arguments.get("title") else "","slides_count":len(clean_arguments.get("slides",[])) if clean_arguments.get("slides") else 0},"sessionId":"debug-session","runId":"run1","hypothesisId":"M"}) + '\n')
+            # #endregion
             
             # Fix ProjectLad argument naming inconsistency
             # LLM sometimes uses 'project_version_id' (like in other ProjectLad tools)
@@ -183,9 +199,25 @@ class MCPToolProvider(ActionProvider):
                     clean_arguments['attendee_filter'] = ' и '.join(str(item) for item in attendee_filter)
                     logger.info(f"[MCPToolProvider] Converted attendee_filter from array to string: {clean_arguments['attendee_filter']}")
             
+            # #region agent log
+            if capability_name in ["create_presentation_batch", "format_slide_text", "format_slide_paragraph"]:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_provider_invoke","timestamp":int(_debug_time.time()*1000),"location":"mcp_provider.py:202","message":"Calling tool.ainvoke","data":{"clean_keys":list(clean_arguments.keys()),"title":str(clean_arguments.get("title",""))[:30] if clean_arguments.get("title") else "","slides_count":len(clean_arguments.get("slides",[])) if clean_arguments.get("slides") else 0,"theme":clean_arguments.get("theme",""),"presentation_id":str(clean_arguments.get("presentation_id",""))[:30] if clean_arguments.get("presentation_id") else "","page_id":str(clean_arguments.get("page_id",""))[:20] if clean_arguments.get("page_id") else "","element_id":str(clean_arguments.get("element_id",""))[:20] if clean_arguments.get("element_id") else "","start_index":clean_arguments.get("start_index"),"end_index":clean_arguments.get("end_index")},"sessionId":"debug-session","runId":"run1","hypothesisId":"N"}) + '\n')
+            # #endregion
             result = await tool.ainvoke(clean_arguments)
+            # #region agent log
+            if capability_name == "create_presentation_batch":
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_provider_success","timestamp":int(_debug_time.time()*1000),"location":"mcp_provider.py:203","message":"Tool invoke succeeded","data":{"result_type":type(result).__name__,"result_preview":str(result)[:100] if result else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"O"}) + '\n')
+            # #endregion
             return result
         except Exception as e:
+            # #region agent log
+            if capability_name in ["create_presentation_batch", "format_slide_text", "format_slide_paragraph"]:
+                import traceback as _debug_tb
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_mcp_provider_error","timestamp":int(_debug_time.time()*1000),"location":"mcp_provider.py:204","message":"Tool invoke error","data":{"error_type":type(e).__name__,"error_message":str(e)[:400],"error_traceback":_debug_tb.format_exc()[:1000],"is_validation_error":type(e).__name__=="ValidationError","error_str":str(e)},"sessionId":"debug-session","runId":"run1","hypothesisId":"P"}) + '\n')
+            # #endregion
             logger.error(f"[MCPToolProvider] Execution failed for {capability_name}: {e}")
             raise
     

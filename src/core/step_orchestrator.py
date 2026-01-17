@@ -2451,8 +2451,8 @@ Get the confirmation ID for the current plan."""
             else:
                 logger.warning(f"[StepOrchestrator] Failed to extract spreadsheet_id from result: {result[:500]}")
         
-        # Handle create_presentation, slides_create, or create_presentation_from_doc (direct MCP call)
-        elif tool_name in ("create_presentation", "slides_create", "create_presentation_from_doc"):
+        # Handle create_presentation, slides_create, create_presentation_batch, or create_presentation_from_doc (direct MCP call)
+        elif tool_name in ("create_presentation", "slides_create", "create_presentation_batch", "create_presentation_from_doc"):
             
             logger.info(f"[StepOrchestrator] Processing {tool_name}, result length: {len(result)}, result preview: {result[:200]}")
             
@@ -2462,11 +2462,26 @@ Get the confirmation ID for the current plan."""
                 return
             
             # Extract presentation ID and URL from result
-            # Result format: "Presentation 'title' created successfully (ID: {id}) URL: {url}" or JSON
+            # Result format: JSON dict with presentationId, title, url OR text string
             try:
-                # Try to parse as JSON first
                 import json
-                result_json = json.loads(result) if isinstance(result, str) else result
+                # Try to parse as JSON first
+                if isinstance(result, str):
+                    # Try to extract JSON from string (might be wrapped)
+                    result_str = result.strip()
+                    # Check if it's a JSON object
+                    if result_str.startswith('{') and result_str.endswith('}'):
+                        result_json = json.loads(result_str)
+                    else:
+                        # Try to find JSON in the string
+                        json_match = re.search(r'\{[^{}]*"presentationId"[^{}]*\}', result_str)
+                        if json_match:
+                            result_json = json.loads(json_match.group(0))
+                        else:
+                            result_json = None
+                else:
+                    result_json = result
+                
                 if isinstance(result_json, dict) and "presentationId" in result_json:
                     presentation_id = result_json.get("presentationId")
                     url = result_json.get("url", f"https://docs.google.com/presentation/d/{presentation_id}/edit")
@@ -2475,7 +2490,8 @@ Get the confirmation ID for the current plan."""
                     # Fallback to regex parsing
                     presentation_id_match = re.search(r'ID:\s*([a-zA-Z0-9_-]+)', result)
                     url_match = re.search(r'URL:\s*(https?://[^\s]+)', result)
-                    title_match = re.search(r"Presentation\s+'([^']+)'", result)
+                    # Support both formats: "Presentation 'title'" and "Presentation 'title' created successfully"
+                    title_match = re.search(r"Presentation\s+'([^']+)'", result) or re.search(r"presentation\s+'([^']+)'", result, re.IGNORECASE)
                     
                     if presentation_id_match:
                         presentation_id = presentation_id_match.group(1)

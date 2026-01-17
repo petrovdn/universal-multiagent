@@ -53,7 +53,7 @@ class SkillSelector:
         self,
         skills: List[Skill],
         cache_dir: Optional[Path] = None,
-        similarity_threshold: float = 0.5
+        similarity_threshold: float = 0.3
     ):
         """
         Инициализация SkillSelector.
@@ -88,13 +88,18 @@ class SkillSelector:
         
         # Получаем embedding для запроса
         import hashlib
+        import time
+        _query_embed_start = time.time()
         query_hash = hashlib.md5(query.encode()).hexdigest()[:16]
         query_embedding = self.embedding_cache.get_embedding(
             tool_name=f"__query_{query_hash}__",
             description=query
         )
+        _query_embed_duration = time.time() - _query_embed_start
+        logger.info(f"[SkillSelector] Query embedding took {_query_embed_duration:.3f}s")
         
         # Вычисляем similarity для каждого skill
+        _skills_embed_start = time.time()
         similarities = []
         for skill in self.skills:
             # Используем description для поиска (более краткое и релевантное)
@@ -105,9 +110,13 @@ class SkillSelector:
             
             similarity = cosine_similarity(query_embedding, skill_embedding)
             similarities.append((skill, similarity))
+        _skills_embed_duration = time.time() - _skills_embed_start
+        logger.info(f"[SkillSelector] Skill embeddings for {len(self.skills)} skills took {_skills_embed_duration:.3f}s")
         
         # Сортируем по similarity (убывание)
+        _sort_start = time.time()
         similarities.sort(key=lambda x: x[1], reverse=True)
+        _sort_duration = time.time() - _sort_start
         
         # Проверяем threshold
         if not similarities:
@@ -115,16 +124,19 @@ class SkillSelector:
         
         best_skill, best_similarity = similarities[0]
         
+        total_duration = _query_embed_duration + _skills_embed_duration + _sort_duration
         if best_similarity < self.similarity_threshold:
-            logger.debug(
+            logger.info(
                 f"[SkillSelector] Best similarity {best_similarity:.3f} "
-                f"below threshold {self.similarity_threshold} for query: {query[:50]}"
+                f"below threshold {self.similarity_threshold} for query: {query[:50]} "
+                f"(total: {total_duration:.3f}s)"
             )
             return None
         
-        logger.debug(
+        logger.info(
             f"[SkillSelector] Selected skill '{best_skill.name}' "
-            f"with similarity {best_similarity:.3f} for query: {query[:50]}"
+            f"with similarity {best_similarity:.3f} for query: {query[:50]} "
+            f"(total: {total_duration:.3f}s)"
         )
         
         return best_skill

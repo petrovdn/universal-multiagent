@@ -224,11 +224,12 @@ def test_selector_uses_similarity_threshold(temp_skills_dir, temp_cache_dir, sam
     skills = loader.load_all_skills()
     
     # Высокий threshold - должен вернуть None для нерелевантного запроса
-    # Используем 0.5 как разумный threshold (нерелевантные запросы дадут ~0.1-0.2 similarity)
+    # Используем 0.5 как высокий threshold для теста (нерелевантные запросы дадут ~0.1-0.2 similarity)
+    # По умолчанию threshold = 0.3 (более низкий для лучшего покрытия)
     selector = SkillSelector(
         skills=skills,
         cache_dir=temp_cache_dir,
-        similarity_threshold=0.5  # Разумный threshold
+        similarity_threshold=0.5  # Высокий threshold для теста фильтрации
     )
     selected = selector.select_skill("напиши стихотворение про любовь")
     

@@ -103,13 +103,18 @@ class SmartToolSelector:
         # Получаем embedding для запроса
         # Используем хэш запроса как имя для кэширования
         import hashlib
+        import time
+        _query_embed_start = time.time()
         query_hash = hashlib.md5(query.encode()).hexdigest()[:16]
         query_embedding = self.embedding_cache.get_embedding(
             tool_name=f"__query_{query_hash}__",
             description=query
         )
+        _query_embed_duration = time.time() - _query_embed_start
+        logger.info(f"[SmartToolSelector] Query embedding took {_query_embed_duration:.3f}s")
         
         # Вычисляем similarity для каждого инструмента
+        _tools_embed_start = time.time()
         similarities = []
         for cap in available_caps:
             # Получаем embedding для описания инструмента
@@ -121,15 +126,22 @@ class SmartToolSelector:
             # Вычисляем cosine similarity
             similarity = cosine_similarity(query_embedding, tool_embedding)
             similarities.append((cap, similarity))
+        _tools_embed_duration = time.time() - _tools_embed_start
+        logger.info(f"[SmartToolSelector] Tool embeddings for {len(available_caps)} tools took {_tools_embed_duration:.3f}s")
         
         # Сортируем по similarity (убывание)
+        _sort_start = time.time()
         similarities.sort(key=lambda x: x[1], reverse=True)
+        _sort_duration = time.time() - _sort_start
         
         # Возвращаем топ-N
         result = [cap for cap, _ in similarities[:max_tools]]
         
-        logger.debug(
-            f"[SmartToolSelector] Selected {len(result)} tools for query: {query[:50]}"
+        total_duration = _query_embed_duration + _tools_embed_duration + _sort_duration
+        logger.info(
+            f"[SmartToolSelector] Selected {len(result)} tools for query: {query[:50]} "
+            f"(total: {total_duration:.3f}s, query_embed: {_query_embed_duration:.3f}s, "
+            f"tools_embed: {_tools_embed_duration:.3f}s, sort: {_sort_duration:.3f}s)"
         )
         
         return result
