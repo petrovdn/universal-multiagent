@@ -761,13 +761,43 @@ export class WebSocketClient {
         const iterThinkCompleteIntentId = event.data.intent_id || iterThinkCompleteState.activeIntentId
         const iterThinkCompleteNumber = event.data.iteration_number || 1
         const durationSec = event.data.duration_sec || 0
-        
+
         if (iterThinkCompleteWorkflowId && iterThinkCompleteIntentId) {
           chatStore.completeIterationThinking(iterThinkCompleteWorkflowId, iterThinkCompleteIntentId, iterThinkCompleteNumber, durationSec)
         }
         break
       }
-      
+
+      case 'iteration_thinking_context': {
+        // Cursor-style: динамический контекст думания
+        console.log('[WebSocket] Iteration thinking context:', event.data)
+        const iterContextState = useChatStore.getState()
+        const iterContextWorkflowId = iterContextState.activeWorkflowId
+        const iterContextIntentId = event.data.intent_id || iterContextState.activeIntentId
+        const iterContextNumber = event.data.iteration_number || 1
+        const context = event.data.context
+
+        if (iterContextWorkflowId && iterContextIntentId && context) {
+          chatStore.setIterationThinkingContext(iterContextWorkflowId, iterContextIntentId, iterContextNumber, context)
+        }
+        break
+      }
+
+      case 'iteration_thinking_result': {
+        // Cursor-style: результат думания после завершения
+        console.log('[WebSocket] Iteration thinking result:', event.data)
+        const iterResultState = useChatStore.getState()
+        const iterResultWorkflowId = iterResultState.activeWorkflowId
+        const iterResultIntentId = event.data.intent_id || iterResultState.activeIntentId
+        const iterResultNumber = event.data.iteration_number || 1
+        const result = event.data.result
+
+        if (iterResultWorkflowId && iterResultIntentId && result) {
+          chatStore.setIterationThinkingResult(iterResultWorkflowId, iterResultIntentId, iterResultNumber, result)
+        }
+        break
+      }
+
       case 'iteration_summary': {
         console.log('[WebSocket] Iteration summary:', event.data)
         const iterSummaryState = useChatStore.getState()

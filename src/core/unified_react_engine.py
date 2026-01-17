@@ -175,6 +175,50 @@ class UnifiedReActEngine:
             f"with mode={config.mode}, {len(self.capabilities)} capabilities"
         )
     
+    def _detect_thinking_context(self, content: str) -> str:
+        """Определяем контекст думания по содержимому (Cursor-style).
+        
+        Returns:
+            ThinkingContext: 'planning', 'exploring', 'analyzing', 'selecting', 'verifying', 'deciding', 'thinking'
+        """
+        content_lower = content.lower()
+        
+        # Проверяем ключевые слова в порядке приоритета
+        if any(word in content_lower for word in ['план', 'шаг', 'сначала', 'затем', 'далее', 'порядок']):
+            return 'planning'
+        elif any(word in content_lower for word in ['читаю', 'смотрю', 'ищу', 'файл', 'код', 'исследую', 'изучаю']):
+            return 'exploring'
+        elif any(word in content_lower for word in ['анализ', 'обрабатыва', 'понима', 'разбира']):
+            return 'analyzing'
+        elif any(word in content_lower for word in ['инструмент', 'tool', 'использую', 'выбира', 'вызову']):
+            return 'selecting'
+        elif any(word in content_lower for word in ['проверя', 'убежда', 'тест', 'валидир']):
+            return 'verifying'
+        elif any(word in content_lower for word in ['решил', 'решаю', 'вывод', 'итог', 'результат']):
+            return 'deciding'
+        
+        return 'thinking'
+    
+    def _determine_thinking_result(self, action_plan: Dict[str, Any], observation: Optional[Any] = None) -> Optional[Dict[str, Any]]:
+        """Определяем результат думания для отображения после завершения.
+        
+        Returns:
+            ThinkingResult или None
+        """
+        tool_name = action_plan.get("tool_name", "")
+        
+        # Определяем тип результата по инструменту
+        if tool_name in ["search_documents", "search_emails", "search_web", "search_calendar"]:
+            return {"type": "searches", "count": 1}
+        elif tool_name in ["read_document", "read_file", "get_document_content", "read_spreadsheet"]:
+            return {"type": "files", "count": 1}
+        elif tool_name in ["list_calendar_events", "list_emails", "get_contacts"]:
+            return {"type": "sources", "count": 1}
+        elif tool_name:
+            return {"type": "tools", "count": 1}
+        
+        return None
+
     def stop(self):
         """Request stop of execution."""
         self._stop_requested = True
@@ -692,6 +736,19 @@ class UnifiedReActEngine:
                         "duration_sec": think_duration
                     }
                 )
+                
+                # === Send iteration_thinking_result event (Cursor-style) ===
+                thinking_result = self._determine_thinking_result(action_plan)
+                if thinking_result:
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "iteration_thinking_result",
+                        {
+                            "intent_id": self._current_intent_id,
+                            "iteration_number": state.iteration,
+                            "result": thinking_result
+                        }
+                    )
                 
                 if self._stop_requested:
                     break

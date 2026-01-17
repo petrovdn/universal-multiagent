@@ -4998,33 +4998,48 @@ div[style*="padding: '10px'"] .prose li {
   margin-bottom: 4px;
 }
 
+/* Streaming состояние */
+.iteration-think-streaming .iteration-think-label {
+  color: var(--text-secondary);
+}
+
 .iteration-think-header {
   display: flex;
   align-items: center;
   gap: 6px;
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--text-tertiary);
   cursor: pointer;
   padding: 0;
+  user-select: none;
 }
 
 .iteration-think-header:hover {
-  color: var(--text-primary);
+  color: var(--text-secondary);
 }
 
-.iteration-chevron {
-  font-size: 10px;
+/* Chevron справа - скрыт по умолчанию, показывается при hover */
+.iteration-chevron-right {
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s ease;
   color: var(--text-tertiary);
-  width: 12px;
-  flex-shrink: 0;
+  display: flex;
+  align-items: center;
 }
 
-.iteration-think-icon {
-  flex-shrink: 0;
+.iteration-think-header:hover .iteration-chevron-right {
+  opacity: 1;
+}
+
+/* Во время стриминга chevron всегда показан */
+.iteration-think-streaming .iteration-chevron-right {
+  opacity: 1;
 }
 
 .iteration-think-label {
-  font-weight: 500;
+  font-weight: 400;
+  color: inherit;
 }
 
 .iteration-think-dots {
@@ -5052,7 +5067,8 @@ div[style*="padding: '10px'"] .prose li {
 }
 
 .iteration-think-content {
-  margin-left: 18px;
+  margin-left: 0;
+  margin-top: 6px;
   padding: 8px 12px;
   font-size: 13px;
   line-height: 1.5;

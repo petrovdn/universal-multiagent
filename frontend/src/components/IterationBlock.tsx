@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { ChevronRight, ChevronDown } from 'lucide-react'
 import { IterationBlock as IterationBlockType, Operation } from '../store/chatStore'
 
 interface IterationBlockProps {
@@ -47,8 +48,52 @@ export function IterationBlock({
     return `${Math.round(sec)}с`
   }
   
-  // Время для отображения: во время стриминга - обратный отсчёт, после - финальное время
-  const displayTime = thinking.isStreaming ? elapsedSeconds : thinking.durationSec
+  // Время для отображения: только во время стриминга
+  const displayTime = thinking.isStreaming ? elapsedSeconds : 0
+  
+  // Получение динамического текста заголовка в зависимости от контекста
+  const getThinkingLabel = (): string => {
+    const context = thinking.context || 'thinking'
+    
+    const labels: Record<string, string> = {
+      planning: 'Планирую следующие шаги',
+      exploring: 'Исследую',
+      analyzing: 'Анализирую',
+      selecting: 'Выбираю инструменты',
+      verifying: 'Проверяю',
+      deciding: 'Принимаю решение',
+      thinking: 'Думаю',
+    }
+    
+    return labels[context] || 'Думаю'
+  }
+  
+  // Получение результата после завершения
+  const getResultLabel = (): string | null => {
+    if (!thinking.result) return null
+    
+    const { type, count } = thinking.result
+    
+    // Функция склонения
+    const pluralize = (n: number, one: string, few: string, many: string): string => {
+      const mod10 = n % 10
+      const mod100 = n % 100
+      if (mod100 >= 11 && mod100 <= 19) return many
+      if (mod10 === 1) return one
+      if (mod10 >= 2 && mod10 <= 4) return few
+      return many
+    }
+    
+    const resultLabels: Record<string, (n: number) => string> = {
+      sources: (n) => `Проверил ${n} ${pluralize(n, 'источник', 'источника', 'источников')}`,
+      files: (n) => `Изучил ${n} ${pluralize(n, 'файл', 'файла', 'файлов')}`,
+      tools: (n) => `Использовал ${n} ${pluralize(n, 'инструмент', 'инструмента', 'инструментов')}`,
+      searches: (n) => `Выполнил ${n} ${pluralize(n, 'поиск', 'поиска', 'поисков')}`,
+      operations: (n) => `Выполнил ${n} ${pluralize(n, 'операцию', 'операции', 'операций')}`,
+    }
+    
+    return resultLabels[type]?.(count) || null
+  }
 
   // Автоскролл thinking content при стриминге
   useEffect(() => {
@@ -64,21 +109,21 @@ export function IterationBlock({
     }
   }, [operation?.data, operation?.status])
 
+  // Формируем текст заголовка
+  const headerLabel = thinking.isStreaming 
+    ? `${getThinkingLabel()} (${formatDuration(displayTime)})`
+    : (getResultLabel() || getThinkingLabel())
+
   return (
     <div className={`iteration-block ${className}`}>
       {/* Think секция */}
-      <div className="iteration-think">
+      <div className={`iteration-think ${thinking.isStreaming ? 'iteration-think-streaming' : ''}`}>
         <div 
           className="iteration-think-header"
           onClick={onToggleThinkingCollapse}
-          style={{ cursor: 'pointer' }}
         >
-          <span className="iteration-chevron">
-            {thinking.isCollapsed ? '▶' : '▼'}
-          </span>
-          <span className="iteration-think-icon">💭</span>
           <span className="iteration-think-label">
-            Думаю{displayTime > 0 && ` (${formatDuration(displayTime)})`}
+            {headerLabel}
           </span>
           {thinking.isStreaming && (
             <span className="iteration-think-dots">
@@ -87,6 +132,13 @@ export function IterationBlock({
               <span className="dot-3">.</span>
             </span>
           )}
+          <span className="iteration-chevron-right">
+            {thinking.isCollapsed ? (
+              <ChevronRight size={14} />
+            ) : (
+              <ChevronDown size={14} />
+            )}
+          </span>
         </div>
         
         {!thinking.isCollapsed && thinking.content && (

@@ -177,6 +177,23 @@ export interface Operation {
 // Фаза выполнения intent
 export type IntentPhase = 'planning' | 'executing' | 'completed'
 
+// Контекст думания (Cursor-style динамический текст)
+export type ThinkingContext = 
+  | 'planning'     // "Планирую следующие шаги"
+  | 'exploring'    // "Исследую" - чтение файлов, поиск
+  | 'analyzing'    // "Анализирую" - обработка данных
+  | 'selecting'    // "Выбираю инструменты"
+  | 'verifying'    // "Проверяю"
+  | 'deciding'     // "Принимаю решение"
+  | 'thinking'     // "Думаю" - default
+
+// Результат думания (показывается после завершения)
+export interface ThinkingResult {
+  type: 'sources' | 'files' | 'tools' | 'searches' | 'operations'
+  count: number
+  description?: string
+}
+
 // IterationBlock - блок одной итерации ReAct цикла
 export interface IterationBlock {
   id: string
@@ -188,6 +205,8 @@ export interface IterationBlock {
     durationSec: number          // "Думаю... 5с"
     isStreaming: boolean
     isCollapsed: boolean
+    context?: ThinkingContext    // Динамический контекст (Cursor-style)
+    result?: ThinkingResult      // Результат после завершения
   }
   
   // Summary/Plan после думания
@@ -428,6 +447,8 @@ interface ChatState {
   startIteration: (workflowId: string, intentId: string, iterationNumber: number) => void
   appendIterationThinking: (workflowId: string, intentId: string, iterationNumber: number, chunk: string) => void
   completeIterationThinking: (workflowId: string, intentId: string, iterationNumber: number, durationSec: number) => void
+  setIterationThinkingContext: (workflowId: string, intentId: string, iterationNumber: number, context: ThinkingContext) => void
+  setIterationThinkingResult: (workflowId: string, intentId: string, iterationNumber: number, result: ThinkingResult) => void
   setIterationSummary: (workflowId: string, intentId: string, iterationNumber: number, summary: string) => void
   startIterationAction: (workflowId: string, intentId: string, iterationNumber: number, title: string, operationId?: string) => void
   completeIterationAction: (workflowId: string, intentId: string, iterationNumber: number, result: string) => void
@@ -2075,7 +2096,71 @@ export const useChatStore = create<ChatState>()(
                       ...iter.thinking,
                       isStreaming: false,
                       durationSec,
-                      // НЕ сворачиваем - свернётся при появлении следующего блока
+                      isCollapsed: true, // Сворачиваем после завершения стриминга
+                    },
+                  }
+                }
+                return iter
+              })
+              return {
+                ...intent,
+                iterations: updatedIterations,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      setIterationThinkingContext: (workflowId: string, intentId: string, iterationNumber: number, context: ThinkingContext) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              const updatedIterations = intent.iterations.map(iter => {
+                if (iter.iterationNumber === iterationNumber) {
+                  return {
+                    ...iter,
+                    thinking: {
+                      ...iter.thinking,
+                      context,
+                    },
+                  }
+                }
+                return iter
+              })
+              return {
+                ...intent,
+                iterations: updatedIterations,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      setIterationThinkingResult: (workflowId: string, intentId: string, iterationNumber: number, result: ThinkingResult) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              const updatedIterations = intent.iterations.map(iter => {
+                if (iter.iterationNumber === iterationNumber) {
+                  return {
+                    ...iter,
+                    thinking: {
+                      ...iter.thinking,
+                      result,
                     },
                   }
                 }
