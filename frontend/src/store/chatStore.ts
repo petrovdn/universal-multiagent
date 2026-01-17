@@ -244,6 +244,20 @@ export interface SourceCard {
   completed_at?: string
 }
 
+// Task decomposition (Phase 2, Steps 1-2)
+export interface TaskDecomposition {
+  query: string
+  subtasks: Array<{
+    task_id: string
+    description: string
+    tool_name: string
+    dependencies: string[]
+    is_synthesis: boolean
+  }>
+  execution_groups: string[][]
+  group_types: string[]
+}
+
 export interface IntentBlock {
   id: string
   intent: string                    // "Создание встречи с bsn@lad24.ru"
@@ -254,6 +268,7 @@ export interface IntentBlock {
   iterations: IterationBlock[]      // Новый формат: массив итераций ReAct цикла
   toolExplanations: ToolExplanation[] // Phase 1.1: Cursor-style explanations before tool execution
   sources: SourceCard[] // Phase 1.2: Source cards (Perplexity-style)
+  taskDecomposition?: TaskDecomposition // Phase 2: Task decomposition visualization
   thinkingText?: string             // Streaming thinking text (фаза planning) - устаревший
   summary?: string                  // "Найдено 5 встреч" - показывается в свёрнутом виде
   isCollapsed: boolean
@@ -423,6 +438,7 @@ interface ChatState {
   toggleIntentPhase: (workflowId: string, intentId: string, phase: 'planning' | 'executing') => void
   completeIntent: (workflowId: string, intentId: string, autoCollapse: boolean, summary?: string) => void
   updateIntentTitle: (workflowId: string, intentId: string, newTitle: string) => void
+  setTaskDecomposition: (workflowId: string, intentId: string, decomposition: TaskDecomposition) => void
   toggleIntentCollapse: (workflowId: string, intentId: string) => void
   collapseIntent: (workflowId: string, intentId: string) => void
   collapseAllIntents: (workflowId: string) => void
@@ -1832,6 +1848,27 @@ export const useChatStore = create<ChatState>()(
               return {
                 ...intent,
                 intent: newTitle,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      // Phase 2, Steps 1-2: Set task decomposition
+      setTaskDecomposition: (workflowId: string, intentId: string, decomposition: TaskDecomposition) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              return {
+                ...intent,
+                taskDecomposition: decomposition
               }
             }
             return intent

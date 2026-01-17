@@ -53,6 +53,40 @@ export function IntentMessage({
       
       {/* План итерации убран - теперь отображается внутри iterations */}
       
+      {/* Phase 2, Steps 1-2: Task decomposition visualization */}
+      {block.taskDecomposition && (
+        <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#f0f7ff', borderRadius: '8px', border: '1px solid #b3d9ff' }}>
+          <div style={{ fontWeight: 600, marginBottom: '8px', color: '#0066cc' }}>
+            📋 План выполнения ({block.taskDecomposition.subtasks.length} подзадач)
+          </div>
+          
+          {/* Execution groups */}
+          {block.taskDecomposition.execution_groups.map((group, groupIdx) => (
+            <div key={groupIdx} style={{ marginBottom: '8px' }}>
+              <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
+                {block.taskDecomposition.group_types[groupIdx] === 'parallel' ? '⚡ Параллельно' : '→ Последовательно'}:
+              </div>
+              <div style={{ marginLeft: '12px' }}>
+                {group.map(taskId => {
+                  const subtask = block.taskDecomposition.subtasks.find(st => st.task_id === taskId)
+                  if (!subtask) return null
+                  return (
+                    <div key={taskId} style={{ fontSize: '13px', marginBottom: '4px', padding: '4px 8px', backgroundColor: 'white', borderRadius: '4px' }}>
+                      {subtask.is_synthesis ? '🔄' : '📌'} {subtask.description}
+                      {subtask.dependencies.length > 0 && (
+                        <span style={{ fontSize: '11px', color: '#999', marginLeft: '8px' }}>
+                          (зависит от {subtask.dependencies.length})
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      
       {/* Фаза 1: Планирую - используем PlanningBlock */}
       {showPlanningSection && (
         <div style={{ marginBottom: '8px' }}>

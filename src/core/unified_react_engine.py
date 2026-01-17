@@ -22,6 +22,8 @@ from src.core.capability_registry import CapabilityRegistry
 from src.core.action_provider import CapabilityCategory
 from src.core.file_context_resolver import FileContextResolver
 from src.core.action_filter import ActionFilter
+from src.core.task_decomposer import SubTask, DecompositionResult
+from src.core.dependency_analyzer import ExecutionPlan
 from src.core.file_reference_resolver import (
     get_relevant_file_ids,
     find_source_for_reference,
@@ -117,6 +119,12 @@ class UnifiedReActEngine:
         # Source tracker (Phase 1.2)
         from src.core.source_tracker import SourceTracker
         self.source_tracker = SourceTracker(ws_manager, session_id)
+        
+        # Task decomposer and dependency analyzer (Phase 2, Steps 1-2)
+        from src.core.task_decomposer import TaskDecomposer
+        from src.core.dependency_analyzer import DependencyAnalyzer
+        self.task_decomposer = TaskDecomposer()
+        self.dependency_analyzer = DependencyAnalyzer()
         
         # Smart tool selection (Phase 3.1)
         # Feature flag: USE_SMART_TOOL_SELECTION (default: False for gradual rollout)
@@ -628,6 +636,45 @@ class UnifiedReActEngine:
             )
         
         self._task_intent_id = self._current_intent_id  # Store for the entire execution
+        
+        # Phase 2, Steps 1-2: Test decomposition and dependency analysis in UI
+        # Phase 2, Step 3: Real parallel execution for multi-tool queries
+        if self._is_multi_tool_query(goal):
+            try:
+                logger.info(f"[UnifiedReActEngine] Multi-tool query detected, using orchestration")
+                decomposition = await self.task_decomposer.decompose(goal)
+                execution_plan = self.dependency_analyzer.analyze(decomposition.subtasks)
+                
+                # Send decomposition visualization event
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "task_decomposition",
+                    {
+                        "intent_id": self._current_intent_id,
+                        "query": goal,
+                        "subtasks": [
+                            {
+                                "task_id": st.task_id,
+                                "description": st.description,
+                                "tool_name": st.tool_name,
+                                "dependencies": st.dependencies,
+                                "is_synthesis": st.is_synthesis
+                            }
+                            for st in decomposition.subtasks
+                        ],
+                        "execution_groups": execution_plan.execution_groups,
+                        "group_types": execution_plan.group_types
+                    }
+                )
+                logger.info(f"[UnifiedReActEngine] Decomposition sent: {len(decomposition.subtasks)} subtasks, {len(execution_plan.execution_groups)} groups")
+                
+                # Phase 2, Step 3: Execute orchestrated (parallel) execution
+                return await self._execute_orchestrated(goal, decomposition, execution_plan, context, file_ids)
+            except Exception as e:
+                logger.error(f"[UnifiedReActEngine] Orchestration failed: {e}", exc_info=True)
+                # Fallback to normal ReAct cycle
+                logger.info(f"[UnifiedReActEngine] Falling back to normal ReAct cycle")
+        
         _needs_tools_start = time.time()
         # NOW check if query needs tools (may take 500-2000ms with LLM)
         # Check if query needs tools or can be answered directly (like Cursor does)
@@ -2599,6 +2646,68 @@ class UnifiedReActEngine:
             'workspace_search_files': '📁 Поиск файлов',
         }
         return title_map.get(tool_name)
+    
+    def _is_multi_tool_query(self, goal: str) -> bool:
+        """
+        Determine if query requires multiple tools (Phase 2).
+        
+        Args:
+            goal: User query
+            
+        Returns:
+            True if query needs multiple tools
+        """
+        goal_lower = goal.lower()
+        
+        # Check for explicit multi-tool keywords
+        multi_keywords = [
+            "фокус", "focus", "сводка", "обзор", "summary", "overview",
+            "все", "всё", "все вместе"
+        ]
+        if any(kw in goal_lower for kw in multi_keywords):
+            return True
+        
+        # Check for multiple data sources mentioned together
+        source_keywords = {
+            "email": ["почт", "письм", "email", "gmail"],
+            "calendar": ["календар", "встреч", "событ", "calendar", "event"],
+            "files": ["файл", "диск", "file", "drive", "документ"],
+            "sheets": ["таблиц", "sheet", "spreadsheet"]
+        }
+        
+        # Count how many different sources are mentioned
+        sources_found = set()
+        for source_type, keywords in source_keywords.items():
+            if any(kw in goal_lower for kw in keywords):
+                sources_found.add(source_type)
+        
+        # If 2+ sources mentioned, it's a multi-tool query
+        if len(sources_found) >= 2:
+            return True
+        
+        # Check for explicit "и" (and) between sources
+        if " и " in goal_lower or " and " in goal_lower:
+            # Check if both sides mention different sources
+            parts = goal_lower.replace(" и ", "|").replace(" and ", "|").split("|")
+            if len(parts) >= 2:
+                sources_in_parts = []
+                for part in parts:
+                    part_sources = set()
+                    for source_type, keywords in source_keywords.items():
+                        if any(kw in part for kw in keywords):
+                            part_sources.add(source_type)
+                    if part_sources:
+                        sources_in_parts.append(part_sources)
+                
+                # If different sources in different parts, it's multi-tool
+                if len(sources_in_parts) >= 2:
+                    all_sources = set()
+                    for ps in sources_in_parts:
+                        all_sources.update(ps)
+                    if len(all_sources) >= 2:
+                        return True
+        
+        return False
     
     def _get_source_name(self, tool_name: str) -> str:
         """
@@ -4627,6 +4736,258 @@ raise ValueError("Код анализа не был предоставлен. П
                 }
             
             return fallback_thought, fallback_plan
+    
+    async def _execute_orchestrated(
+        self,
+        goal: str,
+        decomposition: DecompositionResult,
+        execution_plan: ExecutionPlan,
+        context: ConversationContext,
+        file_ids: Optional[List[str]]
+    ) -> Dict[str, Any]:
+        """
+        Execute orchestrated (parallel) execution for multi-tool queries (Phase 2, Step 3).
+        
+        Args:
+            goal: Original user query
+            decomposition: DecompositionResult from TaskDecomposer
+            execution_plan: ExecutionPlan from DependencyAnalyzer
+            context: Conversation context
+            file_ids: Optional file IDs
+            
+        Returns:
+            Execution result
+        """
+        # #region agent log
+        logger.info(f"[DEBUG] Starting orchestrated execution: {len(decomposition.subtasks)} subtasks, {len(execution_plan.execution_groups)} groups")
+        # #endregion
+        
+        # Execute by groups
+        all_results = {}
+        
+        for group_idx, group in enumerate(execution_plan.execution_groups):
+            group_subtasks = [st for st in decomposition.subtasks if st.task_id in group]
+            
+            # #region agent log
+            logger.info(f"[DEBUG] Executing group {group_idx+1}/{len(execution_plan.execution_groups)}: {execution_plan.group_types[group_idx]}, {len(group_subtasks)} tasks")
+            # #endregion
+            
+            if execution_plan.group_types[group_idx] == "parallel":
+                # Parallel execution
+                results = await self._execute_parallel_subtasks(group_subtasks, context)
+            else:
+                # Sequential execution (for dependencies)
+                results = {}
+                for subtask in group_subtasks:
+                    result = await self._execute_single_subtask(subtask, context)
+                    results[subtask.task_id] = result
+            
+            all_results.update(results)
+        
+        # Find synthesis task and generate final result
+        synthesis_task = next((st for st in decomposition.subtasks if st.is_synthesis), None)
+        
+        if synthesis_task:
+            # For now, just combine results into a simple summary
+            # Full synthesis will be in Step 4
+            result_summary = f"Выполнено {len([st for st in decomposition.subtasks if not st.is_synthesis])} задач параллельно"
+            
+            # Send final result
+            await self.ws_manager.send_event(
+                self.session_id,
+                "final_result",
+                {
+                    "content": result_summary,
+                    "status": "success"
+                }
+            )
+            
+            return {
+                "agent": self.__class__.__name__,
+                "response": result_summary,
+                "status": "success",
+                "orchestration_used": True,
+                "parallel_tasks": len([st for st in decomposition.subtasks if not st.dependencies and not st.is_synthesis])
+            }
+        else:
+            # No synthesis task - return combined results
+            return {
+                "agent": self.__class__.__name__,
+                "response": "Задачи выполнены",
+                "status": "success",
+                "orchestration_used": True,
+                "results": all_results
+            }
+    
+    async def _execute_parallel_subtasks(
+        self,
+        subtasks: List[SubTask],
+        context: ConversationContext
+    ) -> Dict[str, Any]:
+        """
+        Execute subtasks in parallel using asyncio.gather (Phase 2, Step 3).
+        
+        Args:
+            subtasks: List of subtasks to execute in parallel
+            context: Conversation context
+            
+        Returns:
+            Dictionary mapping task_id to result
+        """
+        # #region agent log
+        import time as _debug_time
+        _parallel_start = _debug_time.time()
+        logger.info(f"[DEBUG] Parallel execution start: {len(subtasks)} subtasks, IDs: {[st.task_id for st in subtasks]}")
+        # #endregion
+        
+        # CRITICAL: Track all sources FIRST (before execution) to send events simultaneously
+        # This ensures UI sees all source cards appear at once
+        source_ids = {}
+        track_tasks = []
+        for subtask in subtasks:
+            source_name = self._get_source_name(subtask.tool_name)
+            # Create track_source coroutine for each subtask
+            track_tasks.append(
+                self.source_tracker.track_source(
+                    source_name=source_name,
+                    tool_name=subtask.tool_name,
+                    preview_data=subtask.description,
+                    intent_id=self._current_intent_id
+                )
+            )
+        
+        # #region agent log
+        import time as _debug_time
+        _track_start = _debug_time.time()
+        logger.info(f"[DEBUG] Starting parallel track_source for {len(track_tasks)} sources at {_track_start:.3f}")
+        # #endregion
+        
+        # Track all sources in parallel (sends source_loading events simultaneously)
+        tracked_source_ids = await asyncio.gather(*track_tasks)
+        
+        # #region agent log
+        _track_end = _debug_time.time()
+        logger.info(f"[DEBUG] Parallel track_source completed in {_track_end - _track_start:.3f}s at {_track_end:.3f}")
+        # #endregion
+        
+        # Map source_ids to subtasks
+        for subtask, source_id in zip(subtasks, tracked_source_ids):
+            source_ids[subtask.task_id] = source_id
+        
+        # Create coroutines for each subtask execution (without track_source - already done)
+        tasks = []
+        for subtask in subtasks:
+            tasks.append(self._execute_single_subtask_with_source_id(subtask, context, source_ids[subtask.task_id]))
+        
+        # #region agent log
+        logger.info(f"[DEBUG] Starting asyncio.gather with {len(tasks)} tasks")
+        # #endregion
+        
+        # Execute in parallel
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # #region agent log
+        logger.info(f"[DEBUG] asyncio.gather completed: {len(results)} results")
+        # #endregion
+        
+        # Collect results
+        result_dict = {}
+        for subtask, result in zip(subtasks, results):
+            if isinstance(result, Exception):
+                logger.error(f"[UnifiedReActEngine] Subtask {subtask.task_id} failed: {result}")
+                result_dict[subtask.task_id] = {"error": str(result)}
+            else:
+                result_dict[subtask.task_id] = result
+        
+        # #region agent log
+        logger.info(f"[DEBUG] Parallel execution completed: {list(result_dict.keys())}")
+        # #endregion
+        
+        return result_dict
+    
+    async def _execute_single_subtask(
+        self,
+        subtask: SubTask,
+        context: ConversationContext
+    ) -> Any:
+        """
+        Execute a single subtask with source tracking (Phase 2, Step 3).
+        
+        NOTE: For parallel execution, use _execute_single_subtask_with_source_id
+        after tracking sources in parallel.
+        
+        Args:
+            subtask: SubTask to execute
+            context: Conversation context
+            
+        Returns:
+            Execution result
+        """
+        # Track source first (for sequential execution)
+        source_name = self._get_source_name(subtask.tool_name)
+        source_id = await self.source_tracker.track_source(
+            source_name=source_name,
+            tool_name=subtask.tool_name,
+            preview_data=subtask.description,
+            intent_id=self._current_intent_id
+        )
+        
+        return await self._execute_single_subtask_with_source_id(subtask, context, source_id)
+    
+    async def _execute_single_subtask_with_source_id(
+        self,
+        subtask: SubTask,
+        context: ConversationContext,
+        source_id: str
+    ) -> Any:
+        """
+        Execute a single subtask with pre-tracked source (Phase 2, Step 3).
+        
+        Args:
+            subtask: SubTask to execute
+            context: Conversation context
+            source_id: Pre-tracked source ID (from parallel track_source)
+            
+        Returns:
+            Execution result
+        """
+        # #region agent log
+        import time as _debug_time
+        _subtask_start_ts = _debug_time.time()
+        logger.info(f"[DEBUG] Subtask execution started: {subtask.task_id}, tool: {subtask.tool_name}, timestamp: {_subtask_start_ts}")
+        # #endregion
+        
+        try:
+            # Execute through registry
+            result = await self.registry.execute(
+                subtask.tool_name,
+                subtask.arguments
+            )
+            
+            # #region agent log
+            logger.info(f"[DEBUG] Subtask execution succeeded: {subtask.task_id}, result_type: {type(result).__name__}")
+            # #endregion
+            
+            # Update source as completed
+            await self.source_tracker.update_source_complete(
+                source_id=source_id,
+                result=result,
+                intent_id=self._current_intent_id
+            )
+            
+            return result
+        except Exception as e:
+            # #region agent log
+            logger.error(f"[DEBUG] Subtask execution failed: {subtask.task_id}, error: {str(e)}")
+            # #endregion
+            
+            # Update source as error
+            await self.source_tracker.update_source_error(
+                source_id=source_id,
+                error=str(e),
+                intent_id=self._current_intent_id
+            )
+            raise
     
     async def _execute_action(
         self,

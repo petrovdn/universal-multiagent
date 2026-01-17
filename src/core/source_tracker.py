@@ -59,6 +59,9 @@ class SourceTracker:
         Returns:
             Unique source ID
         """
+        import time as _debug_time
+        _track_start = _debug_time.time()
+        
         source_id = f"src-{uuid.uuid4().hex[:8]}"
         
         # Auto-guess icon
@@ -76,15 +79,40 @@ class SourceTracker:
         
         self._sources[source_id] = source_data
         
-        # Send loading event
-        await self.ws_manager.send_event(
-            self.session_id,
-            "source_loading",
-            {
-                "intent_id": intent_id,
-                "source": source_data
-            }
+        # #region agent log
+        _before_send = _debug_time.time()
+        from src.utils.logging_config import get_logger
+        _logger = get_logger(__name__)
+        _logger.info(f"[DEBUG] Sending source_loading event for {source_name} at {_before_send:.3f}, source_id: {source_id}")
+        # #endregion
+        
+        # Send loading event - THIS SHOULD HAPPEN SIMULTANEOUSLY FOR PARALLEL TASKS
+        # #region agent log
+        _send_start = _debug_time.time()
+        _logger.info(f"[DEBUG] About to await send_event for {source_name} at {_send_start:.3f}")
+        # #endregion
+        
+        # CRITICAL FIX: Don't await send_event - use create_task to send events in parallel
+        # This ensures all source_loading events are sent simultaneously
+        import asyncio
+        send_task = asyncio.create_task(
+            self.ws_manager.send_event(
+                self.session_id,
+                "source_loading",
+                {
+                    "intent_id": intent_id,
+                    "source": source_data
+                }
+            )
         )
+        
+        # #region agent log
+        _after_task_creation = _debug_time.time()
+        _logger.info(f"[DEBUG] send_event task created for {source_name} at {_after_task_creation:.3f}, took {_after_task_creation - _before_send:.3f}s")
+        # #endregion
+        
+        # Don't await - let it run in background
+        # This allows multiple track_source() calls to send events simultaneously
         
         return source_id
     

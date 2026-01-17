@@ -798,6 +798,25 @@ export class WebSocketClient {
         break
       }
 
+      case 'task_decomposition': {
+        // Phase 2, Steps 1-2: Task decomposition visualization
+        console.log('[WebSocket] Task decomposition:', event.data)
+        const decompState = useChatStore.getState()
+        const decompWorkflowId = decompState.activeWorkflowId
+        const decompIntentId = event.data.intent_id || decompState.activeIntentId
+
+        if (decompWorkflowId && decompIntentId) {
+          // Store decomposition for display
+          chatStore.setTaskDecomposition(decompWorkflowId, decompIntentId, {
+            query: event.data.query,
+            subtasks: event.data.subtasks || [],
+            execution_groups: event.data.execution_groups || [],
+            group_types: event.data.group_types || []
+          })
+        }
+        break
+      }
+
       case 'iteration_summary': {
         console.log('[WebSocket] Iteration summary:', event.data)
         const iterSummaryState = useChatStore.getState()

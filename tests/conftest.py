@@ -28,11 +28,20 @@ class MockWebSocketManager:
     
     async def send_event(self, session_id: str, event_type: str, data: Any) -> None:
         """Capture event for testing."""
+        import time as _event_time
+        event_ts = _event_time.time()
+        # #region agent log
+        if event_type == "source_loading":
+            import logging
+            _logger = logging.getLogger(__name__)
+            _logger.info(f"[MOCK_WS] source_loading event received at {event_ts:.3f} for {data.get('source', {}).get('name', 'unknown')}")
+        # #endregion
+        # Don't block - just capture immediately
         self.events.append({
             "type": event_type,
             "data": data,
             "session_id": session_id,
-            "ts": time.time()
+            "ts": event_ts
         })
     
     def get_connection_count(self, session_id: str) -> int:
