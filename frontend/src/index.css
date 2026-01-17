@@ -5255,17 +5255,20 @@ div[style*="padding: '10px'"] .prose li {
 }
 
 .branch-tab {
-  padding: 8px 16px;
+  padding: 6px 12px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-secondary);
   border-radius: 6px 6px 0 0;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   transition: all 0.2s;
   user-select: none;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 280px;
 }
 
 .branch-tab:hover {
@@ -5281,13 +5284,17 @@ div[style*="padding: '10px'"] .prose li {
 }
 
 .tab-status {
-  font-size: 14px;
+  font-size: 13px;
+  flex-shrink: 0;
 }
 
 .tab-meta {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-tertiary);
-  margin-left: 4px;
+  margin-left: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .branch-tab.active .tab-meta {

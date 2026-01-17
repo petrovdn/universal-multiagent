@@ -34,12 +34,12 @@ export function IntentMessage({
   const hasParallelBranches = block.parallelBranches && block.parallelBranches.length > 0
 
   // НОВЫЙ ФОРМАТ: Если есть iterations, используем их вместо старых секций
-  // Показывать секцию "Планирую" если есть thinking или в фазе planning (только если НЕТ iterations)
-  const showPlanningSection = !hasIterations && (hasThinkingText || isPlanning)
+  // Показывать секцию "Планирую" если есть thinking или в фазе planning (только если НЕТ iterations и НЕТ parallelBranches)
+  const showPlanningSection = !hasIterations && !hasParallelBranches && (hasThinkingText || isPlanning)
   
-  // Показывать секцию "Выполняю" если есть operations, details или в фазе executing/completed (только если НЕТ iterations)
+  // Показывать секцию "Выполняю" если есть operations, details или в фазе executing/completed (только если НЕТ iterations и НЕТ parallelBranches)
   // ВАЖНО: Если есть операции, игнорируем старые details, чтобы избежать дублирования
-  const showExecutingSection = !hasIterations && (hasOperations || (!hasOperations && hasDetails) || isExecuting || isCompleted)
+  const showExecutingSection = !hasIterations && !hasParallelBranches && (hasOperations || (!hasOperations && hasDetails) || isExecuting || isCompleted)
   
   // Вычисляем оставшееся время для таймера
   const estimatedSeconds = block.estimatedSec || 10
@@ -56,7 +56,8 @@ export function IntentMessage({
       {/* План итерации убран - теперь отображается внутри iterations */}
       
       {/* Phase 2, Steps 1-2: Task decomposition visualization with parallel execution indicators */}
-      {block.taskDecomposition && (
+      {/* Скрываем при параллельном выполнении - вся информация будет в ParallelExecutionContainer */}
+      {block.taskDecomposition && !hasParallelBranches && (
         <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#f0f7ff', borderRadius: '8px', border: '1px solid #b3d9ff' }}>
           <div style={{ fontWeight: 600, marginBottom: '8px', color: '#0066cc', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span>📋 План выполнения</span>
