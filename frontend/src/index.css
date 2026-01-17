@@ -5213,6 +5213,119 @@ div[style*="padding: '10px'"] .prose li {
 }
 
 /* ============================================
+   PARALLEL EXECUTION CONTAINER (Variant 1: Tabs)
+   ============================================ */
+.parallel-execution-container {
+  margin-top: 12px;
+  margin-bottom: 12px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+}
+
+.parallel-execution-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.parallel-icon {
+  font-size: 16px;
+}
+
+.parallel-stats {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+/* Branch Tabs */
+.branch-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-secondary);
+  padding-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.branch-tab {
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.branch-tab:hover {
+  background: var(--bg-primary);
+}
+
+.branch-tab.active {
+  background: var(--bg-primary);
+  border-color: var(--color-primary);
+  color: var(--text-primary);
+  border-bottom-color: var(--bg-secondary);
+  margin-bottom: -1px;
+}
+
+.tab-status {
+  font-size: 14px;
+}
+
+.tab-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-left: 4px;
+}
+
+.branch-tab.active .tab-meta {
+  color: var(--text-secondary);
+}
+
+/* Active Branch Label */
+.active-branch-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-bottom: 12px;
+}
+
+.active-branch-name {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+/* Tab Content */
+.tab-content {
+  min-height: 50px;
+}
+
+.branch-error-message {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: rgba(244, 67, 54, 0.1);
+  border-left: 3px solid #f44336;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #f48fb1;
+}
+
+.branch-error-message .error-icon {
+  margin-right: 4px;
+}
+
+/* ============================================
    DOCUMENTATION MODAL
    ============================================ */
 .documentation-modal-overlay {

@@ -4,6 +4,7 @@ import { PlanningBlock } from './PlanningBlock'
 import { OperationBlock } from './OperationBlock'
 import { IterationBlock } from './IterationBlock'
 import { SourceCard } from './SourceCard'
+import { ParallelExecutionContainer } from './ParallelExecutionContainer'
 
 interface IntentMessageProps {
   block: IntentBlock
@@ -30,6 +31,7 @@ export function IntentMessage({
   const hasDetails = block.details.length > 0
   const hasOperations = block.operations && Object.keys(block.operations).length > 0
   const hasIterations = block.iterations && block.iterations.length > 0
+  const hasParallelBranches = block.parallelBranches && block.parallelBranches.length > 0
 
   // НОВЫЙ ФОРМАТ: Если есть iterations, используем их вместо старых секций
   // Показывать секцию "Планирую" если есть thinking или в фазе planning (только если НЕТ iterations)
@@ -136,6 +138,18 @@ export function IntentMessage({
               </div>
             )
           })}
+        </div>
+      )}
+      
+      {/* Parallel Execution Container (Variant 1: Tabs) */}
+      {hasParallelBranches && (
+        <div style={{ marginBottom: '12px' }}>
+          <ParallelExecutionContainer
+            branches={block.parallelBranches || []}
+            workflowId={workflowId}
+            intentId={block.id}
+            operations={block.operations || {}}
+          />
         </div>
       )}
       

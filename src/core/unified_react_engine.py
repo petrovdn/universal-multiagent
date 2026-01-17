@@ -2673,12 +2673,23 @@ class UnifiedReActEngine:
         """
         goal_lower = goal.lower()
         
+        # #region agent log
+        import json as _debug_json
+        import time as _debug_time
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_is_multi_tool_start","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2664","message":"_is_multi_tool_query called","data":{"goal":goal},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        # #endregion
+        
         # Check for explicit multi-tool keywords
         multi_keywords = [
             "фокус", "focus", "сводка", "обзор", "summary", "overview",
             "все", "всё", "все вместе"
         ]
         if any(kw in goal_lower for kw in multi_keywords):
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_multi_keyword_match","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2681","message":"Multi-keyword match found","data":{"matched_keywords":[kw for kw in multi_keywords if kw in goal_lower]},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+            # #endregion
             return True
         
         # Check for multiple data sources mentioned together
@@ -2695,12 +2706,25 @@ class UnifiedReActEngine:
             if any(kw in goal_lower for kw in keywords):
                 sources_found.add(source_type)
         
+        # #region agent log
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_sources_found","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2696","message":"Sources detected","data":{"sources_found":list(sources_found),"count":len(sources_found)},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        # #endregion
+        
         # If 2+ sources mentioned, it's a multi-tool query
         if len(sources_found) >= 2:
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_multi_tool_by_sources","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2700","message":"Multi-tool query detected by sources","data":{"sources":list(sources_found)},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+            # #endregion
             return True
         
         # Check for explicit "и" (and) between sources
         if " и " in goal_lower or " and " in goal_lower:
+            # #region agent log
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_and_detected","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2714","message":"'и'/'and' detected in query","data":{"goal":goal},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+            # #endregion
             # Check if both sides mention different sources
             parts = goal_lower.replace(" и ", "|").replace(" and ", "|").split("|")
             if len(parts) >= 2:
@@ -2713,14 +2737,27 @@ class UnifiedReActEngine:
                     if part_sources:
                         sources_in_parts.append(part_sources)
                 
+                # #region agent log
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_parts_analysis","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2720","message":"Analyzing parts after 'и'","data":{"parts":parts,"sources_in_parts":[list(ps) for ps in sources_in_parts]},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+                # #endregion
+                
                 # If different sources in different parts, it's multi-tool
                 if len(sources_in_parts) >= 2:
                     all_sources = set()
                     for ps in sources_in_parts:
                         all_sources.update(ps)
                     if len(all_sources) >= 2:
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_multi_tool_by_and","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2732","message":"Multi-tool query detected by 'и'","data":{"all_sources":list(all_sources)},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+                        # #endregion
                         return True
         
+        # #region agent log
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_is_multi_tool_false","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2735","message":"_is_multi_tool_query returning False","data":{"goal":goal,"sources_found":list(sources_found) if 'sources_found' in locals() else []},"sessionId":"debug-session","runId":"run1","hypothesisId":"A,B"}) + '\n')
+        # #endregion
         return False
     
     def _get_source_name(self, tool_name: str) -> str:

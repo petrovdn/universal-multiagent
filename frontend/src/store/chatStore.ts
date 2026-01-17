@@ -258,6 +258,21 @@ export interface TaskDecomposition {
   group_types: string[]
 }
 
+// Parallel Branch - ветка параллельного выполнения (Level 1)
+export interface ParallelBranch {
+  branchId: string
+  description: string
+  toolName: string
+  
+  status: 'running' | 'completed' | 'failed'
+  iterations: IterationBlock[]  // Итерации внутри этой ветки
+  
+  error?: string
+  durationSec?: number
+  startTime?: number
+  endTime?: number
+}
+
 export interface IntentBlock {
   id: string
   intent: string                    // "Создание встречи с bsn@lad24.ru"
@@ -266,6 +281,7 @@ export interface IntentBlock {
   details: IntentDetail[]           // Список деталей выполнения (фаза executing) - устаревший формат
   operations: Record<string, Operation> // operation_id -> Operation (новый формат)
   iterations: IterationBlock[]      // Новый формат: массив итераций ReAct цикла
+  parallelBranches?: ParallelBranch[] // Параллельные ветки выполнения (variant 1: tabs)
   toolExplanations: ToolExplanation[] // Phase 1.1: Cursor-style explanations before tool execution
   sources: SourceCard[] // Phase 1.2: Source cards (Perplexity-style)
   taskDecomposition?: TaskDecomposition // Phase 2: Task decomposition visualization
@@ -468,6 +484,18 @@ interface ChatState {
   setIterationSummary: (workflowId: string, intentId: string, iterationNumber: number, summary: string) => void
   startIterationAction: (workflowId: string, intentId: string, iterationNumber: number, title: string, operationId?: string) => void
   completeIterationAction: (workflowId: string, intentId: string, iterationNumber: number, result: string) => void
+  
+  // Parallel Branch methods (для параллельных веток выполнения)
+  startParallelBranch: (workflowId: string, intentId: string, branchId: string, description: string, toolName: string) => void
+  completeParallelBranch: (workflowId: string, intentId: string, branchId: string, status: 'completed' | 'failed', durationSec?: number, error?: string) => void
+  startBranchIteration: (workflowId: string, intentId: string, branchId: string, iterationNumber: number) => void
+  appendBranchIterationThinking: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, chunk: string) => void
+  completeBranchIterationThinking: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, durationSec: number) => void
+  setBranchIterationThinkingContext: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, context: ThinkingContext) => void
+  setBranchIterationThinkingResult: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, result: ThinkingResult) => void
+  setBranchIterationSummary: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, summary: string) => void
+  startBranchIterationAction: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, title: string, operationId?: string) => void
+  completeBranchIterationAction: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, result: string) => void
   
   // Operation methods (for streaming operations inside intents)
   startOperation: (
@@ -2304,6 +2332,416 @@ export const useChatStore = create<ChatState>()(
               return {
                 ...intent,
                 iterations: updatedIterations,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      // Parallel Branch methods
+      startParallelBranch: (workflowId: string, intentId: string, branchId: string, description: string, toolName: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              const parallelBranches = intent.parallelBranches || []
+              // Проверяем, существует ли уже ветка с таким branchId
+              if (parallelBranches.find(b => b.branchId === branchId)) {
+                return intent
+              }
+              
+              const newBranch: ParallelBranch = {
+                branchId,
+                description,
+                toolName,
+                status: 'running',
+                iterations: [],
+                startTime: Date.now(),
+              }
+              
+              return {
+                ...intent,
+                parallelBranches: [...parallelBranches, newBranch],
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      completeParallelBranch: (workflowId: string, intentId: string, branchId: string, status: 'completed' | 'failed', durationSec?: number, error?: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.parallelBranches) {
+              const updatedBranches = intent.parallelBranches.map(branch => {
+                if (branch.branchId === branchId) {
+                  return {
+                    ...branch,
+                    status,
+                    durationSec,
+                    error,
+                    endTime: Date.now(),
+                  }
+                }
+                return branch
+              })
+              return {
+                ...intent,
+                parallelBranches: updatedBranches,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      startBranchIteration: (workflowId: string, intentId: string, branchId: string, iterationNumber: number) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.parallelBranches) {
+              const updatedBranches = intent.parallelBranches.map(branch => {
+                if (branch.branchId === branchId) {
+                  // Проверяем, существует ли уже итерация
+                  const existingIteration = branch.iterations.find(iter => iter.iterationNumber === iterationNumber)
+                  if (existingIteration) {
+                    return branch
+                  }
+                  
+                  // Сворачиваем все предыдущие итерации
+                  const collapsedIterations = branch.iterations.map(iter => ({
+                    ...iter,
+                    thinking: {
+                      ...iter.thinking,
+                      isCollapsed: true,
+                    },
+                  }))
+                  
+                  const newIteration: IterationBlock = {
+                    id: `${branchId}-iter-${iterationNumber}`,
+                    iterationNumber,
+                    thinking: {
+                      content: '',
+                      durationSec: 0,
+                      isStreaming: true,
+                      isCollapsed: false,
+                    },
+                  }
+                  
+                  return {
+                    ...branch,
+                    iterations: [...collapsedIterations, newIteration],
+                  }
+                }
+                return branch
+              })
+              return {
+                ...intent,
+                parallelBranches: updatedBranches,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      appendBranchIterationThinking: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, chunk: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.parallelBranches) {
+              const updatedBranches = intent.parallelBranches.map(branch => {
+                if (branch.branchId === branchId) {
+                  const updatedIterations = branch.iterations.map(iter => {
+                    if (iter.iterationNumber === iterationNumber) {
+                      return {
+                        ...iter,
+                        thinking: {
+                          ...iter.thinking,
+                          content: iter.thinking.content + chunk,
+                        },
+                      }
+                    }
+                    return iter
+                  })
+                  return {
+                    ...branch,
+                    iterations: updatedIterations,
+                  }
+                }
+                return branch
+              })
+              return {
+                ...intent,
+                parallelBranches: updatedBranches,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      completeBranchIterationThinking: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, durationSec: number) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.parallelBranches) {
+              const updatedBranches = intent.parallelBranches.map(branch => {
+                if (branch.branchId === branchId) {
+                  const updatedIterations = branch.iterations.map(iter => {
+                    if (iter.iterationNumber === iterationNumber) {
+                      return {
+                        ...iter,
+                        thinking: {
+                          ...iter.thinking,
+                          isStreaming: false,
+                          durationSec,
+                        },
+                      }
+                    }
+                    return iter
+                  })
+                  return {
+                    ...branch,
+                    iterations: updatedIterations,
+                  }
+                }
+                return branch
+              })
+              return {
+                ...intent,
+                parallelBranches: updatedBranches,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      setBranchIterationThinkingContext: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, context: ThinkingContext) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.parallelBranches) {
+              const updatedBranches = intent.parallelBranches.map(branch => {
+                if (branch.branchId === branchId) {
+                  const updatedIterations = branch.iterations.map(iter => {
+                    if (iter.iterationNumber === iterationNumber) {
+                      return {
+                        ...iter,
+                        thinking: {
+                          ...iter.thinking,
+                          context,
+                        },
+                      }
+                    }
+                    return iter
+                  })
+                  return {
+                    ...branch,
+                    iterations: updatedIterations,
+                  }
+                }
+                return branch
+              })
+              return {
+                ...intent,
+                parallelBranches: updatedBranches,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      setBranchIterationThinkingResult: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, result: ThinkingResult) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.parallelBranches) {
+              const updatedBranches = intent.parallelBranches.map(branch => {
+                if (branch.branchId === branchId) {
+                  const updatedIterations = branch.iterations.map(iter => {
+                    if (iter.iterationNumber === iterationNumber) {
+                      return {
+                        ...iter,
+                        thinking: {
+                          ...iter.thinking,
+                          result,
+                        },
+                      }
+                    }
+                    return iter
+                  })
+                  return {
+                    ...branch,
+                    iterations: updatedIterations,
+                  }
+                }
+                return branch
+              })
+              return {
+                ...intent,
+                parallelBranches: updatedBranches,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      setBranchIterationSummary: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, summary: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.parallelBranches) {
+              const updatedBranches = intent.parallelBranches.map(branch => {
+                if (branch.branchId === branchId) {
+                  const updatedIterations = branch.iterations.map(iter => {
+                    if (iter.iterationNumber === iterationNumber) {
+                      return {
+                        ...iter,
+                        summary,
+                      }
+                    }
+                    return iter
+                  })
+                  return {
+                    ...branch,
+                    iterations: updatedIterations,
+                  }
+                }
+                return branch
+              })
+              return {
+                ...intent,
+                parallelBranches: updatedBranches,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      startBranchIterationAction: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, title: string, operationId?: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.parallelBranches) {
+              const updatedBranches = intent.parallelBranches.map(branch => {
+                if (branch.branchId === branchId) {
+                  const updatedIterations = branch.iterations.map(iter => {
+                    if (iter.iterationNumber === iterationNumber) {
+                      return {
+                        ...iter,
+                        action: {
+                          title,
+                          status: 'pending' as const,
+                        },
+                        operationId,
+                      }
+                    }
+                    return iter
+                  })
+                  return {
+                    ...branch,
+                    iterations: updatedIterations,
+                  }
+                }
+                return branch
+              })
+              return {
+                ...intent,
+                parallelBranches: updatedBranches,
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      completeBranchIterationAction: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, result: string) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId && intent.parallelBranches) {
+              const updatedBranches = intent.parallelBranches.map(branch => {
+                if (branch.branchId === branchId) {
+                  const updatedIterations = branch.iterations.map(iter => {
+                    if (iter.iterationNumber === iterationNumber) {
+                      return {
+                        ...iter,
+                        action: iter.action ? {
+                          ...iter.action,
+                          result,
+                          status: 'done' as const,
+                        } : undefined,
+                      }
+                    }
+                    return iter
+                  })
+                  return {
+                    ...branch,
+                    iterations: updatedIterations,
+                  }
+                }
+                return branch
+              })
+              return {
+                ...intent,
+                parallelBranches: updatedBranches,
               }
             }
             return intent

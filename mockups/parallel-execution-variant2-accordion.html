@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Вариант 2: Аккордеон - Параллельное выполнение</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: #1e1e1e;
+      color: #cccccc;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    
+    /* Parallel Execution Container */
+    .parallel-execution {
+      background: #252526;
+      border: 1px solid #3e3e42;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    
+    .parallel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+    
+    .parallel-icon {
+      font-size: 16px;
+    }
+    
+    .parallel-stats {
+      font-size: 12px;
+      color: #858585;
+      font-weight: 400;
+    }
+    
+    /* Branch Block (Level 1) */
+    .branch-block {
+      margin-bottom: 16px;
+      border-left: 3px solid #3e3e42;
+      padding-left: 12px;
+      transition: border-color 0.2s;
+    }
+    
+    .branch-block.completed {
+      border-color: #4CAF50;
+    }
+    
+    .branch-block.failed {
+      border-color: #f44336;
+    }
+    
+    .branch-block.running {
+      border-color: #2196F3;
+    }
+    
+    .branch-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      padding: 8px 0;
+      user-select: none;
+    }
+    
+    .branch-header:hover {
+      color: #ffffff;
+    }
+    
+    .branch-chevron {
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+    
+    .branch-chevron.collapsed {
+      transform: rotate(-90deg);
+    }
+    
+    .branch-status-icon {
+      font-size: 14px;
+    }
+    
+    .branch-status-icon.completed {
+      color: #4CAF50;
+    }
+    
+    .branch-status-icon.failed {
+      color: #f44336;
+    }
+    
+    .branch-title {
+      font-weight: 600;
+      font-size: 14px;
+    }
+    
+    .branch-meta {
+      font-size: 11px;
+      color: #858585;
+    }
+    
+    .branch-error-badge {
+      margin-left: auto;
+      font-size: 11px;
+      color: #f44336;
+      background: #5a1d1d;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    
+    .branch-content {
+      margin-top: 8px;
+      padding-left: 8px;
+      display: none;
+    }
+    
+    .branch-content.expanded {
+      display: block;
+    }
+    
+    /* Iteration Block (Level 2) */
+    .iteration-block {
+      border-left: 1px solid #3e3e42;
+      padding-left: 12px;
+      margin-bottom: 10px;
+      margin-left: 8px;
+    }
+    
+    .iteration-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      padding: 4px 0;
+      font-size: 13px;
+      user-select: none;
+    }
+    
+    .iteration-header:hover {
+      color: #ffffff;
+    }
+    
+    .iteration-chevron {
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+    
+    .iteration-chevron.collapsed {
+      transform: rotate(-90deg);
+    }
+    
+    .iteration-number {
+      font-weight: 600;
+    }
+    
+    .iteration-duration {
+      font-size: 11px;
+      color: #858585;
+    }
+    
+    .iteration-quick-status {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+    }
+    
+    .iteration-content {
+      margin-top: 6px;
+      display: none;
+    }
+    
+    .iteration-content.expanded {
+      display: block;
+    }
+    
+    /* Thinking Section (Level 3a) */
+    .thinking-section {
+      margin-left: 16px;
+      margin-bottom: 6px;
+    }
+    
+    .thinking-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #858585;
+      cursor: pointer;
+      padding: 4px 0;
+      user-select: none;
+    }
+    
+    .thinking-header:hover {
+      color: #cccccc;
+    }
+    
+    .thinking-chevron {
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+    
+    .thinking-chevron.collapsed {
+      transform: rotate(-90deg);
+    }
+    
+    .thinking-content {
+      margin-top: 6px;
+      padding: 8px 12px;
+      background: #1e1e1e;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #9cdcfe;
+      white-space: pre-wrap;
+      border-left: 2px solid #007acc;
+      display: none;
+    }
+    
+    .thinking-content.expanded {
+      display: block;
+    }
+    
+    /* Action Section */
+    .action-section {
+      margin-left: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    
+    .action-icon {
+      font-size: 14px;
+    }
+    
+    .action-icon.done {
+      color: #4CAF50;
+    }
+    
+    .action-icon.error {
+      color: #f44336;
+    }
+    
+    .action-title {
+      font-size: 12px;
+      color: #cccccc;
+    }
+    
+    .action-result {
+      font-size: 11px;
+      color: #858585;
+    }
+    
+    /* Streaming Section (Level 3b) */
+    .streaming-section {
+      margin-left: 16px;
+      margin-bottom: 8px;
+    }
+    
+    .streaming-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #858585;
+      cursor: pointer;
+      padding: 4px 0;
+      user-select: none;
+    }
+    
+    .streaming-header:hover {
+      color: #cccccc;
+    }
+    
+    .streaming-chevron {
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+    
+    .streaming-chevron.collapsed {
+      transform: rotate(-90deg);
+    }
+    
+    .streaming-content {
+      margin-top: 6px;
+      padding: 8px 12px;
+      background: #1e1e1e;
+      border: 1px solid #3e3e42;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #cccccc;
+      white-space: pre-wrap;
+      max-height: 150px;
+      overflow-y: auto;
+      display: none;
+    }
+    
+    .streaming-content.expanded {
+      display: block;
+    }
+    
+    /* Error Message */
+    .error-message {
+      margin-left: 16px;
+      padding: 8px 12px;
+      background: #5a1d1d;
+      border-left: 3px solid #f44336;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #f48fb1;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2 style="margin-bottom: 20px; color: #ffffff;">Вариант 2: Аккордеон (все ветки последовательно)</h2>
+    
+    <!-- Parallel Execution Container -->
+    <div class="parallel-execution">
+      <div class="parallel-header">
+        <span class="parallel-icon">⚡</span>
+        <span>Параллельное выполнение</span>
+        <span class="parallel-stats">(2 ветки)</span>
+      </div>
+      
+      <!-- Branch 1: Presentation -->
+      <div class="branch-block completed">
+        <div class="branch-header" onclick="toggleBranch(this)">
+          <span class="branch-chevron">▼</span>
+          <span class="branch-status-icon completed">✓</span>
+          <span class="branch-title">Презентация</span>
+          <span class="branch-meta">(3 шага, 5.2с)</span>
+        </div>
+        
+        <div class="branch-content expanded">
+          <!-- Iteration 1 -->
+          <div class="iteration-block">
+            <div class="iteration-header" onclick="toggleIteration(this)">
+              <span class="iteration-chevron">▼</span>
+              <span class="iteration-number">Шаг 1</span>
+              <span class="iteration-duration">(1.2с)</span>
+            </div>
+            
+            <div class="iteration-content expanded">
+              <div class="thinking-section">
+                <div class="thinking-header" onclick="toggleThinking(this)">
+                  <span class="thinking-chevron collapsed">▼</span>
+                  <span>Думал: Выбираю инструмент создания слайда</span>
+                </div>
+                <div class="thinking-content">Анализирую доступные инструменты...
+Выбрал create_slide с параметрами:
+- title: "Отчет Q4 2024"
+- layout: "title_slide"</div>
+              </div>
+              
+              <div class="action-section">
+                <span class="action-icon done">✓</span>
+                <span class="action-title">Создаю слайд с заголовком</span>
+                <span class="action-result">→ Создан слайд #1</span>
+              </div>
+              
+              <div class="streaming-section">
+                <div class="streaming-header" onclick="toggleStreaming(this)">
+                  <span class="streaming-chevron">▼</span>
+                  <span>Стриминг (450 символов)</span>
+                </div>
+                <div class="streaming-content expanded">Создание слайда...
+Применение заголовка "Отчет Q4 2024"
+Установка подзаголовка "Итоги и достижения"
+Применение корпоративного шаблона
+Слайд успешно создан с ID: slide_001</div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Iteration 2 (collapsed) -->
+          <div class="iteration-block">
+            <div class="iteration-header" onclick="toggleIteration(this)">
+              <span class="iteration-chevron collapsed">▼</span>
+              <span class="iteration-number">Шаг 2</span>
+              <span class="iteration-duration">(1.8с)</span>
+              <span class="iteration-quick-status">
+                <span class="action-icon done">✓</span>
+                <span>Добавляю контент</span>
+              </span>
+            </div>
+            <div class="iteration-content"></div>
+          </div>
+          
+          <!-- Iteration 3 (collapsed) -->
+          <div class="iteration-block">
+            <div class="iteration-header" onclick="toggleIteration(this)">
+              <span class="iteration-chevron collapsed">▼</span>
+              <span class="iteration-number">Шаг 3</span>
+              <span class="iteration-duration">(2.2с)</span>
+              <span class="iteration-quick-status">
+                <span class="action-icon done">✓</span>
+                <span>Форматирую дизайн</span>
+              </span>
+            </div>
+            <div class="iteration-content"></div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Branch 2: Emails -->
+      <div class="branch-block failed">
+        <div class="branch-header" onclick="toggleBranch(this)">
+          <span class="branch-chevron">▼</span>
+          <span class="branch-status-icon failed">❌</span>
+          <span class="branch-title">Письма</span>
+          <span class="branch-meta">(3 шага, 4.1с)</span>
+          <span class="branch-error-badge">Ошибка</span>
+        </div>
+        
+        <div class="branch-content expanded">
+          <!-- Iteration 1 (collapsed) -->
+          <div class="iteration-block">
+            <div class="iteration-header" onclick="toggleIteration(this)">
+              <span class="iteration-chevron collapsed">▼</span>
+              <span class="iteration-number">Шаг 1</span>
+              <span class="iteration-duration">(0.9с)</span>
+              <span class="iteration-quick-status">
+                <span class="action-icon done">✓</span>
+                <span>Получаю список клиентов</span>
+              </span>
+            </div>
+            <div class="iteration-content"></div>
+          </div>
+          
+          <!-- Iteration 2 (collapsed) -->
+          <div class="iteration-block">
+            <div class="iteration-header" onclick="toggleIteration(this)">
+              <span class="iteration-chevron collapsed">▼</span>
+              <span class="iteration-number">Шаг 2</span>
+              <span class="iteration-duration">(1.5с)</span>
+              <span class="iteration-quick-status">
+                <span class="action-icon done">✓</span>
+                <span>Формирую шаблон письма</span>
+              </span>
+            </div>
+            <div class="iteration-content"></div>
+          </div>
+          
+          <!-- Iteration 3 (expanded with error) -->
+          <div class="iteration-block">
+            <div class="iteration-header" onclick="toggleIteration(this)">
+              <span class="iteration-chevron">▼</span>
+              <span class="iteration-number">Шаг 3</span>
+              <span class="iteration-duration">(1.7с)</span>
+            </div>
+            
+            <div class="iteration-content expanded">
+              <div class="thinking-section">
+                <div class="thinking-header" onclick="toggleThinking(this)">
+                  <span class="thinking-chevron">▼</span>
+                  <span>Думал: Проверяю возможность отправки</span>
+                </div>
+                <div class="thinking-content expanded">Проверяю квоты Gmail API...
+Текущий лимит: 100 писем/день
+Использовано: 98
+Доступно: 2
+⚠️ Обнаружена проблема с лимитами
+Пытаюсь использовать альтернативный метод отправки...</div>
+              </div>
+              
+              <div class="action-section">
+                <span class="action-icon error">❌</span>
+                <span class="action-title">Отправляю письма</span>
+              </div>
+              
+              <div class="error-message">
+                <strong>⚠️ Критическая ошибка:</strong> Gmail API quota exceeded (429)<br>
+                Превышен дневной лимит отправки писем. Попробуйте завтра или обратитесь к администратору.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    function toggleBranch(element) {
+      const branchBlock = element.closest('.branch-block');
+      const chevron = element.querySelector('.branch-chevron');
+      const content = branchBlock.querySelector('.branch-content');
+      
+      chevron.classList.toggle('collapsed');
+      content.classList.toggle('expanded');
+    }
+    
+    function toggleIteration(element) {
+      const iterationBlock = element.closest('.iteration-block');
+      const chevron = element.querySelector('.iteration-chevron');
+      const content = iterationBlock.querySelector('.iteration-content');
+      
+      chevron.classList.toggle('collapsed');
+      content.classList.toggle('expanded');
+    }
+    
+    function toggleThinking(element) {
+      const chevron = element.querySelector('.thinking-chevron');
+      const content = element.nextElementSibling;
+      
+      chevron.classList.toggle('collapsed');
+      content.classList.toggle('expanded');
+    }
+    
+    function toggleStreaming(element) {
+      const chevron = element.querySelector('.streaming-chevron');
+      const content = element.nextElementSibling;
+      
+      chevron.classList.toggle('collapsed');
+      content.classList.toggle('expanded');
+    }
+  </script>
+</body>
+</html>

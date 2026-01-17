@@ -798,6 +798,202 @@ export class WebSocketClient {
         break
       }
 
+      // Parallel Branch events
+      case 'parallel_branch_start': {
+        console.log('[WebSocket] Parallel branch started:', event.data)
+        const branchStartState = useChatStore.getState()
+        const branchStartWorkflowId = branchStartState.activeWorkflowId
+        const branchStartIntentId = event.data.intent_id || branchStartState.activeIntentId
+        const branchId = event.data.branch_id
+        const description = event.data.description || ''
+        const toolName = event.data.tool_name || ''
+
+        if (branchStartWorkflowId && branchStartIntentId && branchId) {
+          chatStore.startParallelBranch(branchStartWorkflowId, branchStartIntentId, branchId, description, toolName)
+        }
+        break
+      }
+
+      case 'parallel_branch_complete': {
+        console.log('[WebSocket] Parallel branch completed:', event.data)
+        const branchCompleteState = useChatStore.getState()
+        const branchCompleteWorkflowId = branchCompleteState.activeWorkflowId
+        const branchCompleteIntentId = event.data.intent_id || branchCompleteState.activeIntentId
+        const branchId = event.data.branch_id
+        const status = event.data.status || 'completed'
+        const durationSec = event.data.duration_sec
+        const error = event.data.error
+
+        if (branchCompleteWorkflowId && branchCompleteIntentId && branchId) {
+          chatStore.completeParallelBranch(
+            branchCompleteWorkflowId,
+            branchCompleteIntentId,
+            branchId,
+            status as 'completed' | 'failed',
+            durationSec,
+            error
+          )
+        }
+        break
+      }
+
+      case 'parallel_branch_iteration_start': {
+        console.log('[WebSocket] Parallel branch iteration started:', event.data)
+        const branchIterStartState = useChatStore.getState()
+        const branchIterStartWorkflowId = branchIterStartState.activeWorkflowId
+        const branchIterStartIntentId = event.data.intent_id || branchIterStartState.activeIntentId
+        const branchId = event.data.branch_id
+        const iterationNumber = event.data.iteration_number || 1
+
+        if (branchIterStartWorkflowId && branchIterStartIntentId && branchId) {
+          chatStore.startBranchIteration(branchIterStartWorkflowId, branchIterStartIntentId, branchId, iterationNumber)
+        }
+        break
+      }
+
+      case 'parallel_branch_iteration_thinking_chunk': {
+        console.log('[WebSocket] Parallel branch iteration thinking chunk:', event.data)
+        const branchIterThinkState = useChatStore.getState()
+        const branchIterThinkWorkflowId = branchIterThinkState.activeWorkflowId
+        const branchIterThinkIntentId = event.data.intent_id || branchIterThinkState.activeIntentId
+        const branchId = event.data.branch_id
+        const iterationNumber = event.data.iteration_number || 1
+        const chunk = event.data.chunk || ''
+
+        if (branchIterThinkWorkflowId && branchIterThinkIntentId && branchId && chunk) {
+          chatStore.appendBranchIterationThinking(branchIterThinkWorkflowId, branchIterThinkIntentId, branchId, iterationNumber, chunk)
+        }
+        break
+      }
+
+      case 'parallel_branch_iteration_thinking_complete': {
+        console.log('[WebSocket] Parallel branch iteration thinking complete:', event.data)
+        const branchIterThinkCompleteState = useChatStore.getState()
+        const branchIterThinkCompleteWorkflowId = branchIterThinkCompleteState.activeWorkflowId
+        const branchIterThinkCompleteIntentId = event.data.intent_id || branchIterThinkCompleteState.activeIntentId
+        const branchId = event.data.branch_id
+        const iterationNumber = event.data.iteration_number || 1
+        const durationSec = event.data.duration_sec || 0
+
+        if (branchIterThinkCompleteWorkflowId && branchIterThinkCompleteIntentId && branchId) {
+          chatStore.completeBranchIterationThinking(
+            branchIterThinkCompleteWorkflowId,
+            branchIterThinkCompleteIntentId,
+            branchId,
+            iterationNumber,
+            durationSec
+          )
+        }
+        break
+      }
+
+      case 'parallel_branch_iteration_thinking_context': {
+        console.log('[WebSocket] Parallel branch iteration thinking context:', event.data)
+        const branchIterContextState = useChatStore.getState()
+        const branchIterContextWorkflowId = branchIterContextState.activeWorkflowId
+        const branchIterContextIntentId = event.data.intent_id || branchIterContextState.activeIntentId
+        const branchId = event.data.branch_id
+        const iterationNumber = event.data.iteration_number || 1
+        const context = event.data.context
+
+        if (branchIterContextWorkflowId && branchIterContextIntentId && branchId && context) {
+          chatStore.setBranchIterationThinkingContext(
+            branchIterContextWorkflowId,
+            branchIterContextIntentId,
+            branchId,
+            iterationNumber,
+            context
+          )
+        }
+        break
+      }
+
+      case 'parallel_branch_iteration_thinking_result': {
+        console.log('[WebSocket] Parallel branch iteration thinking result:', event.data)
+        const branchIterResultState = useChatStore.getState()
+        const branchIterResultWorkflowId = branchIterResultState.activeWorkflowId
+        const branchIterResultIntentId = event.data.intent_id || branchIterResultState.activeIntentId
+        const branchId = event.data.branch_id
+        const iterationNumber = event.data.iteration_number || 1
+        const result = event.data.result
+
+        if (branchIterResultWorkflowId && branchIterResultIntentId && branchId && result) {
+          chatStore.setBranchIterationThinkingResult(
+            branchIterResultWorkflowId,
+            branchIterResultIntentId,
+            branchId,
+            iterationNumber,
+            result
+          )
+        }
+        break
+      }
+
+      case 'parallel_branch_iteration_summary': {
+        console.log('[WebSocket] Parallel branch iteration summary:', event.data)
+        const branchIterSummaryState = useChatStore.getState()
+        const branchIterSummaryWorkflowId = branchIterSummaryState.activeWorkflowId
+        const branchIterSummaryIntentId = event.data.intent_id || branchIterSummaryState.activeIntentId
+        const branchId = event.data.branch_id
+        const iterationNumber = event.data.iteration_number || 1
+        const summary = event.data.summary || ''
+
+        if (branchIterSummaryWorkflowId && branchIterSummaryIntentId && branchId && summary) {
+          chatStore.setBranchIterationSummary(
+            branchIterSummaryWorkflowId,
+            branchIterSummaryIntentId,
+            branchId,
+            iterationNumber,
+            summary
+          )
+        }
+        break
+      }
+
+      case 'parallel_branch_iteration_action_start': {
+        console.log('[WebSocket] Parallel branch iteration action started:', event.data)
+        const branchIterActionStartState = useChatStore.getState()
+        const branchIterActionStartWorkflowId = branchIterActionStartState.activeWorkflowId
+        const branchIterActionStartIntentId = event.data.intent_id || branchIterActionStartState.activeIntentId
+        const branchId = event.data.branch_id
+        const iterationNumber = event.data.iteration_number || 1
+        const title = event.data.title || ''
+        const operationId = event.data.operation_id
+
+        if (branchIterActionStartWorkflowId && branchIterActionStartIntentId && branchId && title) {
+          chatStore.startBranchIterationAction(
+            branchIterActionStartWorkflowId,
+            branchIterActionStartIntentId,
+            branchId,
+            iterationNumber,
+            title,
+            operationId
+          )
+        }
+        break
+      }
+
+      case 'parallel_branch_iteration_action_complete': {
+        console.log('[WebSocket] Parallel branch iteration action completed:', event.data)
+        const branchIterActionCompleteState = useChatStore.getState()
+        const branchIterActionCompleteWorkflowId = branchIterActionCompleteState.activeWorkflowId
+        const branchIterActionCompleteIntentId = event.data.intent_id || branchIterActionCompleteState.activeIntentId
+        const branchId = event.data.branch_id
+        const iterationNumber = event.data.iteration_number || 1
+        const result = event.data.result || ''
+
+        if (branchIterActionCompleteWorkflowId && branchIterActionCompleteIntentId && branchId) {
+          chatStore.completeBranchIterationAction(
+            branchIterActionCompleteWorkflowId,
+            branchIterActionCompleteIntentId,
+            branchId,
+            iterationNumber,
+            result
+          )
+        }
+        break
+      }
+
       case 'task_decomposition': {
         // Phase 2, Steps 1-2: Task decomposition visualization
         console.log('[WebSocket] Task decomposition:', event.data)

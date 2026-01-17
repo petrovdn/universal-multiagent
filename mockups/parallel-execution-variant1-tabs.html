@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Вариант 1: Tabs - Параллельное выполнение</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: #1e1e1e;
+      color: #cccccc;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    
+    /* Parallel Execution Container */
+    .parallel-execution {
+      background: #252526;
+      border: 1px solid #3e3e42;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+    
+    .parallel-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+    
+    .parallel-icon {
+      font-size: 16px;
+    }
+    
+    .parallel-stats {
+      font-size: 12px;
+      color: #858585;
+      font-weight: 400;
+    }
+    
+    /* Tabs */
+    .branch-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid #3e3e42;
+      padding-bottom: 8px;
+    }
+    
+    .branch-tab {
+      padding: 8px 16px;
+      background: #2d2d30;
+      border: 1px solid #3e3e42;
+      border-radius: 6px 6px 0 0;
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    
+    .branch-tab:hover {
+      background: #37373d;
+    }
+    
+    .branch-tab.active {
+      background: #094771;
+      border-color: #007acc;
+      color: #ffffff;
+    }
+    
+    .tab-status {
+      font-size: 14px;
+    }
+    
+    .tab-meta {
+      font-size: 11px;
+      color: #858585;
+      margin-left: 4px;
+    }
+    
+    .branch-tab.active .tab-meta {
+      color: #b3d9ff;
+    }
+    
+    /* Active Branch Content */
+    .active-branch-label {
+      font-size: 12px;
+      color: #858585;
+      margin-bottom: 12px;
+    }
+    
+    .active-branch-name {
+      color: #4FC3F7;
+      font-weight: 600;
+    }
+    
+    /* Iteration Block (Level 2) */
+    .iteration-block {
+      border-left: 2px solid #3e3e42;
+      padding-left: 12px;
+      margin-bottom: 12px;
+    }
+    
+    .iteration-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    
+    .iteration-number {
+      color: #858585;
+    }
+    
+    .iteration-duration {
+      font-size: 11px;
+      color: #858585;
+      font-weight: 400;
+    }
+    
+    /* Thinking Section (Level 3a) */
+    .thinking-section {
+      margin-left: 16px;
+      margin-bottom: 6px;
+    }
+    
+    .thinking-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #858585;
+      cursor: pointer;
+      padding: 4px 0;
+      user-select: none;
+    }
+    
+    .thinking-header:hover {
+      color: #cccccc;
+    }
+    
+    .chevron {
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+    
+    .chevron.collapsed {
+      transform: rotate(-90deg);
+    }
+    
+    .thinking-content {
+      margin-top: 6px;
+      padding: 8px 12px;
+      background: #1e1e1e;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #9cdcfe;
+      white-space: pre-wrap;
+      border-left: 2px solid #007acc;
+      display: none;
+    }
+    
+    .thinking-content.expanded {
+      display: block;
+    }
+    
+    /* Action Section */
+    .action-section {
+      margin-left: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    
+    .action-icon {
+      font-size: 14px;
+    }
+    
+    .action-icon.done {
+      color: #4CAF50;
+    }
+    
+    .action-icon.pending {
+      color: #858585;
+    }
+    
+    .action-title {
+      font-size: 12px;
+      color: #cccccc;
+    }
+    
+    .action-result {
+      font-size: 11px;
+      color: #858585;
+    }
+    
+    /* Streaming Section (Level 3b) */
+    .streaming-section {
+      margin-left: 16px;
+      margin-bottom: 8px;
+    }
+    
+    .streaming-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #858585;
+      cursor: pointer;
+      padding: 4px 0;
+      user-select: none;
+    }
+    
+    .streaming-header:hover {
+      color: #cccccc;
+    }
+    
+    .streaming-content {
+      margin-top: 6px;
+      padding: 8px 12px;
+      background: #1e1e1e;
+      border: 1px solid #3e3e42;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #cccccc;
+      white-space: pre-wrap;
+      max-height: 150px;
+      overflow-y: auto;
+    }
+    
+    .streaming-content.expanded {
+      display: block;
+    }
+    
+    .streaming-content:not(.expanded) {
+      display: none;
+    }
+    
+    /* Collapsed iteration */
+    .iteration-block.collapsed .thinking-section,
+    .iteration-block.collapsed .action-section,
+    .iteration-block.collapsed .streaming-section {
+      display: none;
+    }
+    
+    .iteration-block.collapsed .iteration-header {
+      cursor: pointer;
+    }
+    
+    .iteration-block.collapsed .iteration-header:hover {
+      color: #ffffff;
+    }
+    
+    /* Error styles */
+    .action-icon.error {
+      color: #f44336;
+    }
+    
+    .error-message {
+      margin-left: 16px;
+      padding: 8px 12px;
+      background: #5a1d1d;
+      border-left: 3px solid #f44336;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #f48fb1;
+      margin-top: 6px;
+    }
+    
+    .error-icon {
+      margin-right: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2 style="margin-bottom: 20px; color: #ffffff;">Вариант 1: Tabs (Cursor-style)</h2>
+    
+    <!-- Parallel Execution Container -->
+    <div class="parallel-execution">
+      <div class="parallel-header">
+        <span class="parallel-icon">⚡</span>
+        <span>Параллельное выполнение</span>
+        <span class="parallel-stats">(2 ветки)</span>
+      </div>
+      
+      <!-- Branch Tabs -->
+      <div class="branch-tabs">
+        <div class="branch-tab active" onclick="switchTab('presentation')">
+          <span class="tab-status">✓</span>
+          <span>Презентация</span>
+          <span class="tab-meta">3 шага, 5.2с</span>
+        </div>
+        <div class="branch-tab" onclick="switchTab('emails')">
+          <span class="tab-status">❌</span>
+          <span>Письма</span>
+          <span class="tab-meta">3 шага, 4.1с</span>
+        </div>
+      </div>
+      
+      <!-- Active Branch Content -->
+      <div class="active-branch-label">
+        Активная ветка: <span class="active-branch-name" id="active-branch-name">Презентация</span>
+      </div>
+      
+      <!-- Tab Content: Presentation -->
+      <div id="tab-presentation" class="tab-content">
+        <!-- Iteration 1 -->
+        <div class="iteration-block">
+          <div class="iteration-header" onclick="toggleIteration(this)">
+            <span class="chevron">▼</span>
+            <span class="iteration-number">Шаг 1</span>
+            <span class="iteration-duration">(1.2с)</span>
+          </div>
+          
+          <div class="thinking-section">
+            <div class="thinking-header" onclick="toggleThinking(this)">
+              <span class="chevron collapsed">▼</span>
+              <span>Думал: Выбираю инструмент создания слайда</span>
+            </div>
+            <div class="thinking-content">Анализирую доступные инструменты...
+Выбрал create_slide с параметрами:
+- title: "Отчет Q4 2024"
+- layout: "title_slide"</div>
+          </div>
+          
+          <div class="action-section">
+            <span class="action-icon done">✓</span>
+            <span class="action-title">Создаю слайд с заголовком</span>
+            <span class="action-result">→ Создан слайд #1</span>
+          </div>
+          
+          <div class="streaming-section">
+            <div class="streaming-header" onclick="toggleStreaming(this)">
+              <span class="chevron">▼</span>
+              <span>Стриминг (450 символов)</span>
+            </div>
+            <div class="streaming-content expanded">Создание слайда...
+Применение заголовка "Отчет Q4 2024"
+Установка подзаголовка "Итоги и достижения"
+Применение корпоративного шаблона
+Слайд успешно создан с ID: slide_001</div>
+          </div>
+        </div>
+        
+        <!-- Iteration 2 (collapsed) -->
+        <div class="iteration-block collapsed">
+          <div class="iteration-header" onclick="toggleIteration(this)">
+            <span class="chevron collapsed">▼</span>
+            <span class="iteration-number">Шаг 2</span>
+            <span class="iteration-duration">(1.8с)</span>
+            <span class="action-icon done" style="margin-left: 8px;">✓</span>
+            <span class="action-title">Добавляю контент</span>
+          </div>
+        </div>
+        
+        <!-- Iteration 3 (collapsed) -->
+        <div class="iteration-block collapsed">
+          <div class="iteration-header" onclick="toggleIteration(this)">
+            <span class="chevron collapsed">▼</span>
+            <span class="iteration-number">Шаг 3</span>
+            <span class="iteration-duration">(2.2с)</span>
+            <span class="action-icon done" style="margin-left: 8px;">✓</span>
+            <span class="action-title">Форматирую дизайн</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Tab Content: Emails (hidden by default) -->
+      <div id="tab-emails" class="tab-content" style="display: none;">
+        <!-- Iteration 1 (collapsed) -->
+        <div class="iteration-block collapsed">
+          <div class="iteration-header" onclick="toggleIteration(this)">
+            <span class="chevron collapsed">▼</span>
+            <span class="iteration-number">Шаг 1</span>
+            <span class="iteration-duration">(0.9с)</span>
+            <span class="action-icon done" style="margin-left: 8px;">✓</span>
+            <span class="action-title">Получаю список клиентов</span>
+          </div>
+        </div>
+        
+        <!-- Iteration 2 (collapsed) -->
+        <div class="iteration-block collapsed">
+          <div class="iteration-header" onclick="toggleIteration(this)">
+            <span class="chevron collapsed">▼</span>
+            <span class="iteration-number">Шаг 2</span>
+            <span class="iteration-duration">(1.5с)</span>
+            <span class="action-icon done" style="margin-left: 8px;">✓</span>
+            <span class="action-title">Формирую шаблон письма</span>
+          </div>
+        </div>
+        
+        <!-- Iteration 3 (expanded with error) -->
+        <div class="iteration-block">
+          <div class="iteration-header" onclick="toggleIteration(this)">
+            <span class="chevron">▼</span>
+            <span class="iteration-number">Шаг 3</span>
+            <span class="iteration-duration">(1.7с)</span>
+          </div>
+          
+          <div class="thinking-section">
+            <div class="thinking-header" onclick="toggleThinking(this)">
+              <span class="chevron">▼</span>
+              <span>Думал: Проверяю возможность отправки</span>
+            </div>
+            <div class="thinking-content expanded">Проверяю квоты Gmail API...
+Текущий лимит: 100 писем/день
+Использовано: 98
+Доступно: 2
+⚠️ Обнаружена проблема с лимитами
+Пытаюсь использовать альтернативный метод отправки...</div>
+          </div>
+          
+          <div class="action-section">
+            <span class="action-icon error">❌</span>
+            <span class="action-title">Отправляю письма</span>
+          </div>
+          
+          <div class="error-message">
+            <span class="error-icon">⚠️</span>
+            <strong>Критическая ошибка:</strong> Gmail API quota exceeded (429)<br>
+            Превышен дневной лимит отправки писем. Попробуйте завтра или обратитесь к администратору.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    function switchTab(tabName) {
+      // Update active tab
+      document.querySelectorAll('.branch-tab').forEach(tab => {
+        tab.classList.remove('active');
+      });
+      event.currentTarget.classList.add('active');
+      
+      // Update active branch name
+      const branchNames = {
+        'presentation': 'Презентация',
+        'emails': 'Письма'
+      };
+      document.getElementById('active-branch-name').textContent = branchNames[tabName];
+      
+      // Show/hide tab content
+      document.querySelectorAll('.tab-content').forEach(content => {
+        content.style.display = 'none';
+      });
+      document.getElementById('tab-' + tabName).style.display = 'block';
+    }
+    
+    function toggleIteration(element) {
+      const iterationBlock = element.closest('.iteration-block');
+      iterationBlock.classList.toggle('collapsed');
+      
+      const chevron = element.querySelector('.chevron');
+      chevron.classList.toggle('collapsed');
+    }
+    
+    function toggleThinking(element) {
+      const chevron = element.querySelector('.chevron');
+      chevron.classList.toggle('collapsed');
+      
+      const content = element.nextElementSibling;
+      content.classList.toggle('expanded');
+    }
+    
+    function toggleStreaming(element) {
+      const chevron = element.querySelector('.chevron');
+      chevron.classList.toggle('collapsed');
+      
+      const content = element.nextElementSibling;
+      content.classList.toggle('expanded');
+    }
+  </script>
+</body>
+</html>
