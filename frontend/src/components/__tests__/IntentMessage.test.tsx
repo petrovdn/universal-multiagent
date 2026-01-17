@@ -12,6 +12,8 @@ const createMockIntentBlock = (overrides: Partial<IntentBlock> = {}): IntentBloc
   details: [],
   operations: {},
   iterations: [], // Обязательное поле
+  toolExplanations: [], // Phase 1.1
+  sources: [], // Phase 1.2
   thinkingText: '',
   isCollapsed: false,
   planningCollapsed: false,

@@ -3,6 +3,7 @@ import { IntentBlock, useChatStore } from '../store/chatStore'
 import { PlanningBlock } from './PlanningBlock'
 import { OperationBlock } from './OperationBlock'
 import { IterationBlock } from './IterationBlock'
+import { SourceCard } from './SourceCard'
 
 interface IntentMessageProps {
   block: IntentBlock
@@ -73,6 +74,26 @@ export function IntentMessage({
       {/* Фаза 2: Выполняю - операции и детали */}
       {showExecutingSection && (
         <div style={{ marginTop: '8px' }}>
+          {/* Phase 1.1: Tool explanations (Cursor-style) */}
+          {block.toolExplanations && block.toolExplanations.length > 0 && (
+            <div style={{ marginBottom: '12px', padding: '8px 12px', backgroundColor: '#f5f5f5', borderRadius: '6px', fontSize: '14px' }}>
+              {block.toolExplanations.map((explanation, idx) => (
+                <div key={idx} style={{ marginBottom: idx < block.toolExplanations.length - 1 ? '6px' : '0' }}>
+                  <span style={{ color: '#666', fontStyle: 'italic' }}>{explanation.explanation}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          
+          {/* Phase 1.2: Source cards (Perplexity-style) */}
+          {block.sources && block.sources.length > 0 && (
+            <div style={{ marginBottom: '12px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+              {block.sources.map((source) => (
+                <SourceCard key={source.id} source={source} />
+              ))}
+            </div>
+          )}
+          
           {/* Новый формат: операции со стримингом */}
           {hasOperations && (
             Object.values(block.operations).map((operation) => (

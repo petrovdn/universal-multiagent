@@ -782,6 +782,65 @@ export class WebSocketClient {
         break
       }
       
+      case 'tool_explanation': {
+        // Phase 1.1: Tool explanation (Cursor-style) before tool execution
+        console.log('[WebSocket] Tool explanation:', event.data)
+        const toolExplanationState = useChatStore.getState()
+        const toolExplanationWorkflowId = toolExplanationState.activeWorkflowId
+        const toolExplanationIntentId = event.data.intent_id || toolExplanationState.activeIntentId
+        const explanation = event.data.explanation || 'Выполняю действие...'
+        const toolName = event.data.tool_name || 'unknown'
+        
+        if (toolExplanationWorkflowId && toolExplanationIntentId) {
+          // Add explanation to intent block (will be displayed in IntentMessage)
+          chatStore.addToolExplanation(toolExplanationWorkflowId, toolExplanationIntentId, {
+            tool_name: toolName,
+            explanation: explanation,
+            timestamp: new Date().toISOString()
+          })
+        }
+        break
+      }
+      
+      case 'source_loading': {
+        // Phase 1.2: Source is loading
+        console.log('[WebSocket] Source loading:', event.data)
+        const sourceLoadingState = useChatStore.getState()
+        const sourceLoadingWorkflowId = sourceLoadingState.activeWorkflowId
+        const sourceLoadingIntentId = event.data.intent_id || sourceLoadingState.activeIntentId
+        
+        if (sourceLoadingWorkflowId && sourceLoadingIntentId && event.data.source) {
+          chatStore.addSourceToIntent(sourceLoadingWorkflowId, sourceLoadingIntentId, event.data.source)
+        }
+        break
+      }
+      
+      case 'source_completed': {
+        // Phase 1.2: Source completed successfully
+        console.log('[WebSocket] Source completed:', event.data)
+        const sourceCompletedState = useChatStore.getState()
+        const sourceCompletedWorkflowId = sourceCompletedState.activeWorkflowId
+        const sourceCompletedIntentId = event.data.intent_id || sourceCompletedState.activeIntentId
+        
+        if (sourceCompletedWorkflowId && sourceCompletedIntentId && event.data.source) {
+          chatStore.updateSourceStatus(sourceCompletedWorkflowId, sourceCompletedIntentId, event.data.source.id, 'completed', event.data.source)
+        }
+        break
+      }
+      
+      case 'source_error': {
+        // Phase 1.2: Source error
+        console.log('[WebSocket] Source error:', event.data)
+        const sourceErrorState = useChatStore.getState()
+        const sourceErrorWorkflowId = sourceErrorState.activeWorkflowId
+        const sourceErrorIntentId = event.data.intent_id || sourceErrorState.activeIntentId
+        
+        if (sourceErrorWorkflowId && sourceErrorIntentId && event.data.source) {
+          chatStore.updateSourceStatus(sourceErrorWorkflowId, sourceErrorIntentId, event.data.source.id, 'error', event.data.source)
+        }
+        break
+      }
+      
       case 'iteration_action_start': {
         console.log('[WebSocket] Iteration action started:', event.data)
         const iterActionState = useChatStore.getState()

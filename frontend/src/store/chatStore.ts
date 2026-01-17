@@ -204,6 +204,27 @@ export interface IterationBlock {
   operationId?: string
 }
 
+// Tool explanation (Phase 1.1)
+export interface ToolExplanation {
+  tool_name: string
+  explanation: string
+  timestamp: string
+}
+
+// Source card (Phase 1.2)
+export interface SourceCard {
+  id: string
+  name: string
+  icon: string
+  tool_name: string
+  preview: string
+  status: 'loading' | 'completed' | 'error'
+  item_count?: number
+  error?: string
+  timestamp: string
+  completed_at?: string
+}
+
 export interface IntentBlock {
   id: string
   intent: string                    // "Создание встречи с bsn@lad24.ru"
@@ -212,6 +233,8 @@ export interface IntentBlock {
   details: IntentDetail[]           // Список деталей выполнения (фаза executing) - устаревший формат
   operations: Record<string, Operation> // operation_id -> Operation (новый формат)
   iterations: IterationBlock[]      // Новый формат: массив итераций ReAct цикла
+  toolExplanations: ToolExplanation[] // Phase 1.1: Cursor-style explanations before tool execution
+  sources: SourceCard[] // Phase 1.2: Source cards (Perplexity-style)
   thinkingText?: string             // Streaming thinking text (фаза planning) - устаревший
   summary?: string                  // "Найдено 5 встреч" - показывается в свёрнутом виде
   isCollapsed: boolean
@@ -371,6 +394,9 @@ interface ChatState {
   // Intent block methods (Cursor-style)
   startIntent: (workflowId: string, intentId: string, intentText: string) => void
   addIntentDetail: (workflowId: string, intentId: string, detail: IntentDetail) => void
+  addToolExplanation: (workflowId: string, intentId: string, explanation: ToolExplanation) => void
+  addSourceToIntent: (workflowId: string, intentId: string, source: SourceCard) => void
+  updateSourceStatus: (workflowId: string, intentId: string, sourceId: string, status: 'loading' | 'completed' | 'error', sourceData?: Partial<SourceCard>) => void
   clearIntentThinking: (workflowId: string, intentId: string) => void
   appendIntentThinking: (workflowId: string, intentId: string, text: string) => void
   setIntentPhase: (workflowId: string, intentId: string, phase: IntentPhase) => void
@@ -1529,6 +1555,8 @@ export const useChatStore = create<ChatState>()(
             details: [],
             operations: {},
             iterations: [],     // Новый массив итераций
+            toolExplanations: [], // Phase 1.1: Tool explanations
+            sources: [], // Phase 1.2: Source cards
             isCollapsed: false,
             planningCollapsed: false,
             executingCollapsed: false,
@@ -1555,6 +1583,79 @@ export const useChatStore = create<ChatState>()(
                 ...intent,
                 status: 'streaming' as const,
                 details: [...intent.details, detail],
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      // Phase 1.1: Add tool explanation (Cursor-style)
+      addToolExplanation: (workflowId: string, intentId: string, explanation: ToolExplanation) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              return {
+                ...intent,
+                toolExplanations: [...(intent.toolExplanations || []), explanation],
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      // Phase 1.2: Add source to intent (Perplexity-style)
+      addSourceToIntent: (workflowId: string, intentId: string, source: SourceCard) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              return {
+                ...intent,
+                sources: [...(intent.sources || []), source],
+              }
+            }
+            return intent
+          })
+          return {
+            intentBlocks: {
+              ...state.intentBlocks,
+              [workflowId]: updatedIntents,
+            },
+          }
+        }),
+      
+      // Phase 1.2: Update source status
+      updateSourceStatus: (workflowId: string, intentId: string, sourceId: string, status: 'loading' | 'completed' | 'error', sourceData?: Partial<SourceCard>) =>
+        set((state) => {
+          const existingIntents = state.intentBlocks[workflowId] || []
+          const updatedIntents = existingIntents.map(intent => {
+            if (intent.id === intentId) {
+              const updatedSources = (intent.sources || []).map(source => {
+                if (source.id === sourceId) {
+                  return {
+                    ...source,
+                    status,
+                    ...sourceData,
+                  }
+                }
+                return source
+              })
+              return {
+                ...intent,
+                sources: updatedSources,
               }
             }
             return intent

@@ -110,6 +110,14 @@ class UnifiedReActEngine:
         self.smart_progress = SmartProgressGenerator(ws_manager, session_id)
         self.complexity_analyzer = TaskComplexityAnalyzer()
         
+        # Tool explanation generator (Phase 1.1)
+        from src.core.tool_explanation_generator import ToolExplanationGenerator
+        self.tool_explanation_generator = ToolExplanationGenerator()
+        
+        # Source tracker (Phase 1.2)
+        from src.core.source_tracker import SourceTracker
+        self.source_tracker = SourceTracker(ws_manager, session_id)
+        
         # Smart tool selection (Phase 3.1)
         # Feature flag: USE_SMART_TOOL_SELECTION (default: False for gradual rollout)
         import os
@@ -1373,6 +1381,31 @@ class UnifiedReActEngine:
                 )
                 planned_tool = action_plan.get("tool_name", "unknown")
                 
+                # === Generate and send tool explanation (Phase 1.1) ===
+                tool_explanation = self.tool_explanation_generator.generate(
+                    tool_name=planned_tool,
+                    args=action_plan.get("arguments", {})
+                )
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "tool_explanation",
+                    {
+                        "intent_id": self._current_intent_id,
+                        "iteration_number": state.iteration,
+                        "tool_name": planned_tool,
+                        "explanation": tool_explanation
+                    }
+                )
+                
+                # === Track source (Phase 1.2) ===
+                source_name = self._get_source_name(planned_tool)
+                source_id = await self.source_tracker.track_source(
+                    source_name=source_name,
+                    tool_name=planned_tool,
+                    preview_data=tool_explanation,
+                    intent_id=self._current_intent_id
+                )
+                
                 # === Send iteration_action_start event for UI ===
                 action_title = self._get_tool_display_name(planned_tool, action_plan.get("arguments", {}))
                 await self.ws_manager.send_event(
@@ -1394,6 +1427,13 @@ class UnifiedReActEngine:
                     result = await self._execute_action(action_plan, context)
                     _exec_action_end = time.time()
                     
+                    # === Update source as completed (Phase 1.2) ===
+                    await self.source_tracker.update_source_complete(
+                        source_id=source_id,
+                        result=result,
+                        intent_id=self._current_intent_id
+                    )
+                    
                     # === Send iteration_action_complete event for UI ===
                     result_summary = "Выполнено"
                     await self.ws_manager.send_event(
@@ -1409,6 +1449,13 @@ class UnifiedReActEngine:
                     _exec_action_end = time.time()
                     error_msg = str(e)
                     logger.error(f"[UnifiedReActEngine] Action execution failed: {error_msg}")
+                    
+                    # === Update source as error (Phase 1.2) ===
+                    await self.source_tracker.update_source_error(
+                        source_id=source_id,
+                        error=error_msg,
+                        intent_id=self._current_intent_id
+                    )
                     
                     # === Send iteration_action_complete event for UI (error case) ===
                     await self.ws_manager.send_event(
@@ -2495,6 +2542,38 @@ class UnifiedReActEngine:
             'workspace_search_files': '📁 Поиск файлов',
         }
         return title_map.get(tool_name)
+    
+    def _get_source_name(self, tool_name: str) -> str:
+        """
+        Get source name (service name) from tool name.
+        
+        Args:
+            tool_name: Tool name (e.g., "list_emails", "get_sheet_data")
+            
+        Returns:
+            Source name (e.g., "Gmail", "Google Sheets")
+        """
+        # Use service_names from ToolExplanationGenerator
+        service_name = self.tool_explanation_generator.service_names.get(tool_name)
+        if service_name:
+            return service_name
+        
+        # Fallback: guess from tool name
+        tool_lower = tool_name.lower()
+        if "email" in tool_lower or "gmail" in tool_lower:
+            return "Gmail"
+        elif "sheet" in tool_lower or "spreadsheet" in tool_lower:
+            return "Google Sheets"
+        elif "calendar" in tool_lower or "event" in tool_lower:
+            return "Google Calendar"
+        elif "document" in tool_lower or ("doc" in tool_lower and "slide" not in tool_lower):
+            return "Google Docs"
+        elif "slide" in tool_lower or "presentation" in tool_lower:
+            return "Google Slides"
+        elif "drive" in tool_lower or "workspace" in tool_lower or "file" in tool_lower:
+            return "Google Drive"
+        else:
+            return "Система"
     
     def _get_tool_display_name(self, tool_name: str, args: Dict[str, Any]) -> str:
         """
