@@ -646,33 +646,44 @@ class UnifiedReActEngine:
             try:
                 logger.info(f"[UnifiedReActEngine] Multi-tool query detected, using orchestration")
                 decomposition = await self.task_decomposer.decompose(goal)
-                execution_plan = self.dependency_analyzer.analyze(decomposition.subtasks)
                 
-                # Send decomposition visualization event
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "task_decomposition",
-                    {
-                        "intent_id": self._current_intent_id,
-                        "query": goal,
-                        "subtasks": [
+                # Edge case: Empty decomposition
+                if not decomposition.subtasks:
+                    logger.warning(f"[UnifiedReActEngine] Empty decomposition, falling back to normal ReAct")
+                    # Fall through to normal ReAct cycle
+                else:
+                    execution_plan = self.dependency_analyzer.analyze(decomposition.subtasks)
+                    
+                    # Edge case: No execution groups
+                    if not execution_plan.execution_groups:
+                        logger.warning(f"[UnifiedReActEngine] No execution groups, falling back to normal ReAct")
+                        # Fall through to normal ReAct cycle
+                    else:
+                        # Send decomposition visualization event
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "task_decomposition",
                             {
-                                "task_id": st.task_id,
-                                "description": st.description,
-                                "tool_name": st.tool_name,
-                                "dependencies": st.dependencies,
-                                "is_synthesis": st.is_synthesis
+                                "intent_id": self._current_intent_id,
+                                "query": goal,
+                                "subtasks": [
+                                    {
+                                        "task_id": st.task_id,
+                                        "description": st.description,
+                                        "tool_name": st.tool_name,
+                                        "dependencies": st.dependencies,
+                                        "is_synthesis": st.is_synthesis
+                                    }
+                                    for st in decomposition.subtasks
+                                ],
+                                "execution_groups": execution_plan.execution_groups,
+                                "group_types": execution_plan.group_types
                             }
-                            for st in decomposition.subtasks
-                        ],
-                        "execution_groups": execution_plan.execution_groups,
-                        "group_types": execution_plan.group_types
-                    }
-                )
-                logger.info(f"[UnifiedReActEngine] Decomposition sent: {len(decomposition.subtasks)} subtasks, {len(execution_plan.execution_groups)} groups")
-                
-                # Phase 2, Step 3: Execute orchestrated (parallel) execution
-                return await self._execute_orchestrated(goal, decomposition, execution_plan, context, file_ids)
+                        )
+                        logger.info(f"[UnifiedReActEngine] Decomposition sent: {len(decomposition.subtasks)} subtasks, {len(execution_plan.execution_groups)} groups")
+                        
+                        # Phase 2, Step 3-4: Execute orchestrated (parallel) execution with synthesis
+                        return await self._execute_orchestrated(goal, decomposition, execution_plan, context, file_ids)
             except Exception as e:
                 logger.error(f"[UnifiedReActEngine] Orchestration failed: {e}", exc_info=True)
                 # Fallback to normal ReAct cycle
@@ -4767,6 +4778,7 @@ raise ValueError("Код анализа не был предоставлен. П
         
         # Execute by groups
         all_results = {}
+        errors = {}
         
         for group_idx, group in enumerate(execution_plan.execution_groups):
             group_subtasks = [st for st in decomposition.subtasks if st.task_id in group]
@@ -4775,49 +4787,99 @@ raise ValueError("Код анализа не был предоставлен. П
             logger.info(f"[DEBUG] Executing group {group_idx+1}/{len(execution_plan.execution_groups)}: {execution_plan.group_types[group_idx]}, {len(group_subtasks)} tasks")
             # #endregion
             
-            if execution_plan.group_types[group_idx] == "parallel":
-                # Parallel execution
-                results = await self._execute_parallel_subtasks(group_subtasks, context)
-            else:
-                # Sequential execution (for dependencies)
-                results = {}
+            try:
+                if execution_plan.group_types[group_idx] == "parallel":
+                    # Parallel execution
+                    results = await self._execute_parallel_subtasks(group_subtasks, context)
+                    # Filter out errors from results
+                    for task_id, result in results.items():
+                        if isinstance(result, dict) and "error" in result:
+                            errors[task_id] = result["error"]
+                        else:
+                            all_results[task_id] = result
+                else:
+                    # Sequential execution (for dependencies)
+                    for subtask in group_subtasks:
+                        try:
+                            result = await self._execute_single_subtask(subtask, context)
+                            all_results[subtask.task_id] = result
+                        except Exception as e:
+                            logger.error(f"[UnifiedReActEngine] Subtask {subtask.task_id} failed: {e}")
+                            errors[subtask.task_id] = str(e)
+                            all_results[subtask.task_id] = {"error": str(e)}
+            except Exception as e:
+                logger.error(f"[UnifiedReActEngine] Group {group_idx} execution failed: {e}", exc_info=True)
+                # Mark all subtasks in group as failed
                 for subtask in group_subtasks:
-                    result = await self._execute_single_subtask(subtask, context)
-                    results[subtask.task_id] = result
-            
-            all_results.update(results)
+                    errors[subtask.task_id] = str(e)
+                    all_results[subtask.task_id] = {"error": str(e)}
         
         # Find synthesis task and generate final result using SynthesisAgent
         synthesis_task = next((st for st in decomposition.subtasks if st.is_synthesis), None)
         
         if synthesis_task:
             # Phase 2, Step 4: Use SynthesisAgent to synthesize results
-            synthesis_result = await self.synthesis_agent.synthesize(
-                query=goal,
-                subtask_results=all_results,
-                original_query=goal
-            )
-            
-            # Send final result
-            await self.ws_manager.send_event(
-                self.session_id,
-                "final_result",
-                {
-                    "content": synthesis_result.summary,
-                    "status": "success",
-                    "key_points": synthesis_result.key_points or []
+            try:
+                # Filter out error results for synthesis (but keep them for reporting)
+                successful_results = {k: v for k, v in all_results.items() if not (isinstance(v, dict) and "error" in v)}
+                
+                if successful_results:
+                    synthesis_result = await self.synthesis_agent.synthesize(
+                        query=goal,
+                        subtask_results=successful_results,
+                        original_query=goal
+                    )
+                else:
+                    # All tasks failed - use fallback
+                    from src.core.synthesis_agent import SynthesisResult
+                    synthesis_result = SynthesisResult(
+                        summary="Не удалось выполнить задачи. Проверьте подключение к сервисам.",
+                        source_task_ids=list(all_results.keys()),
+                        key_points=[],
+                        raw_results=all_results
+                    )
+                
+                # Include error information if any
+                if errors:
+                    error_summary = f"\n\nОшибки: {len(errors)} задач завершились с ошибками."
+                    synthesis_result.summary += error_summary
+                
+                # Send final result
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "final_result",
+                    {
+                        "content": synthesis_result.summary,
+                        "status": "success" if not errors else "partial_success",
+                        "key_points": synthesis_result.key_points or [],
+                        "errors": errors if errors else None
+                    }
+                )
+                
+                return {
+                    "agent": self.__class__.__name__,
+                    "response": synthesis_result.summary,
+                    "status": "success" if not errors else "partial_success",
+                    "orchestration_used": True,
+                    "parallel_tasks": len([st for st in decomposition.subtasks if not st.dependencies and not st.is_synthesis]),
+                    "synthesis_used": True,
+                    "key_points": synthesis_result.key_points,
+                    "errors": errors if errors else None
                 }
-            )
-            
-            return {
-                "agent": self.__class__.__name__,
-                "response": synthesis_result.summary,
-                "status": "success",
-                "orchestration_used": True,
-                "parallel_tasks": len([st for st in decomposition.subtasks if not st.dependencies and not st.is_synthesis]),
-                "synthesis_used": True,
-                "key_points": synthesis_result.key_points
-            }
+            except Exception as e:
+                logger.error(f"[UnifiedReActEngine] Synthesis failed: {e}", exc_info=True)
+                # Fallback to simple aggregation
+                summary = f"Выполнено {len([r for r in all_results.values() if not (isinstance(r, dict) and 'error' in r)])} из {len(all_results)} задач"
+                if errors:
+                    summary += f". Ошибки: {len(errors)} задач."
+                
+                return {
+                    "agent": self.__class__.__name__,
+                    "response": summary,
+                    "status": "partial_success" if errors else "success",
+                    "orchestration_used": True,
+                    "errors": errors if errors else None
+                }
         else:
             # No synthesis task - return combined results
             return {

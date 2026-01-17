@@ -53,37 +53,89 @@ export function IntentMessage({
       
       {/* План итерации убран - теперь отображается внутри iterations */}
       
-      {/* Phase 2, Steps 1-2: Task decomposition visualization */}
+      {/* Phase 2, Steps 1-2: Task decomposition visualization with parallel execution indicators */}
       {block.taskDecomposition && (
         <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#f0f7ff', borderRadius: '8px', border: '1px solid #b3d9ff' }}>
-          <div style={{ fontWeight: 600, marginBottom: '8px', color: '#0066cc' }}>
-            📋 План выполнения ({block.taskDecomposition.subtasks.length} подзадач)
+          <div style={{ fontWeight: 600, marginBottom: '8px', color: '#0066cc', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>📋 План выполнения</span>
+            <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#666' }}>
+              ({block.taskDecomposition.subtasks.length} подзадач)
+            </span>
+            {block.taskDecomposition.execution_groups.some((_, idx) => 
+              block.taskDecomposition.group_types[idx] === 'parallel'
+            ) && (
+              <span style={{ fontSize: '11px', padding: '2px 6px', backgroundColor: '#4CAF50', color: 'white', borderRadius: '4px', fontWeight: 'normal' }}>
+                ⚡ Параллельное выполнение
+              </span>
+            )}
           </div>
           
-          {/* Execution groups */}
-          {block.taskDecomposition.execution_groups.map((group, groupIdx) => (
-            <div key={groupIdx} style={{ marginBottom: '8px' }}>
-              <div style={{ fontSize: '12px', color: '#666', marginBottom: '4px' }}>
-                {block.taskDecomposition.group_types[groupIdx] === 'parallel' ? '⚡ Параллельно' : '→ Последовательно'}:
+          {/* Execution groups with visual indicators */}
+          {block.taskDecomposition.execution_groups.map((group, groupIdx) => {
+            const isParallel = block.taskDecomposition.group_types[groupIdx] === 'parallel'
+            return (
+              <div key={groupIdx} style={{ marginBottom: '10px', padding: '8px', backgroundColor: isParallel ? '#e8f5e9' : '#fff3e0', borderRadius: '6px', border: `1px solid ${isParallel ? '#c8e6c9' : '#ffcc80'}` }}>
+                <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: isParallel ? '#2e7d32' : '#e65100', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  {isParallel ? (
+                    <>
+                      <span>⚡ Параллельно</span>
+                      <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#666' }}>
+                        ({group.length} задач одновременно)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span>→ Последовательно</span>
+                      <span style={{ fontSize: '10px', fontWeight: 'normal', color: '#666' }}>
+                        (по порядку)
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div style={{ marginLeft: '8px', display: 'flex', flexDirection: isParallel ? 'row' : 'column', flexWrap: isParallel ? 'wrap' : 'nowrap', gap: '4px' }}>
+                  {group.map(taskId => {
+                    const subtask = block.taskDecomposition.subtasks.find(st => st.task_id === taskId)
+                    if (!subtask) return null
+                    // Check if this subtask has a corresponding source card (to show execution status)
+                    const hasSource = block.sources.some(s => s.tool_name === subtask.tool_name)
+                    const sourceStatus = block.sources.find(s => s.tool_name === subtask.tool_name)?.status
+                    return (
+                      <div 
+                        key={taskId} 
+                        style={{ 
+                          fontSize: '12px', 
+                          marginBottom: '4px', 
+                          padding: '6px 10px', 
+                          backgroundColor: 'white', 
+                          borderRadius: '4px',
+                          border: `1px solid ${sourceStatus === 'loading' ? '#2196F3' : sourceStatus === 'completed' ? '#4CAF50' : '#e0e0e0'}`,
+                          display: 'inline-block',
+                          minWidth: isParallel ? '200px' : 'auto',
+                          position: 'relative'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          {subtask.is_synthesis ? '🔄' : '📌'}
+                          <span style={{ flex: 1 }}>{subtask.description}</span>
+                          {sourceStatus === 'loading' && (
+                            <span style={{ fontSize: '10px', color: '#2196F3' }}>⏳</span>
+                          )}
+                          {sourceStatus === 'completed' && (
+                            <span style={{ fontSize: '10px', color: '#4CAF50' }}>✓</span>
+                          )}
+                        </div>
+                        {subtask.dependencies.length > 0 && (
+                          <div style={{ fontSize: '10px', color: '#999', marginTop: '4px' }}>
+                            Зависит от {subtask.dependencies.length} задач
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-              <div style={{ marginLeft: '12px' }}>
-                {group.map(taskId => {
-                  const subtask = block.taskDecomposition.subtasks.find(st => st.task_id === taskId)
-                  if (!subtask) return null
-                  return (
-                    <div key={taskId} style={{ fontSize: '13px', marginBottom: '4px', padding: '4px 8px', backgroundColor: 'white', borderRadius: '4px' }}>
-                      {subtask.is_synthesis ? '🔄' : '📌'} {subtask.description}
-                      {subtask.dependencies.length > 0 && (
-                        <span style={{ fontSize: '11px', color: '#999', marginLeft: '8px' }}>
-                          (зависит от {subtask.dependencies.length})
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
       
