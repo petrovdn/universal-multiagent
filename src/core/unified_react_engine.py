@@ -182,7 +182,7 @@ class UnifiedReActEngine:
         # For now, we need to get actual BaseTool instances from MCP provider
         # This is a temporary bridge - in future, we might not need this
         tools = []
-        
+
         # Get MCP provider if available
         for provider in self.registry.providers:
             if provider.provider_type.value == "mcp_tool":
@@ -190,7 +190,7 @@ class UnifiedReActEngine:
                 if hasattr(provider, 'tools'):
                     tools.extend(provider.tools.values())
                 break
-        
+
         logger.info(f"[UnifiedReActEngine] Built {len(tools)} tools for LLM planning")
         return tools
     
