@@ -60,6 +60,9 @@ docs.prod.bak/
 # But keep tests/ folder tracked for TDD
 !tests/
 
+# Tool embeddings cache (generated files)
+data/tool_embeddings/__query_*.json
+
 
 
 
