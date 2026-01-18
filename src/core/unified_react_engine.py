@@ -642,13 +642,17 @@ class UnifiedReActEngine:
         # === OPTIMIZATION: Send intent_start IMMEDIATELY for instant feedback ===
         # Analyze task phases (fast - regex only, no LLM)
         # CRITICAL: For parallel subtasks, DISABLE multi-phase to avoid creating new intents
-        if use_existing_intent_id:
-            # Parallel subtask: use provided intent_id, disable multi-phase
-            task_phases = []
-            self._is_multi_phase = False
-        else:
-            task_phases = self._analyze_task_phases(goal)
-            self._is_multi_phase = len(task_phases) >= 2
+        # PHASE 0 FIX: Disable multi-phase logic completely
+        task_phases = []
+        self._is_multi_phase = False
+        # Оригинальный код закомментирован:
+        # if use_existing_intent_id:
+        #     # Parallel subtask: use provided intent_id, disable multi-phase
+        #     task_phases = []
+        #     self._is_multi_phase = False
+        # else:
+        #     task_phases = self._analyze_task_phases(goal)
+        #     self._is_multi_phase = len(task_phases) >= 2
         self._task_phases = task_phases
         self._current_phase_category = None
         self._phase_intent_ids = {}  # category -> intent_id mapping
@@ -683,11 +687,12 @@ class UnifiedReActEngine:
             self._current_intent_id = task_intent_id
             self._current_phase_category = first_phase['category']
             self._phase_intent_ids[first_phase['category']] = task_intent_id
-            await self.ws_manager.send_event(
-                self.session_id,
-                "intent_start",
-                {"intent_id": task_intent_id, "text": first_phase['description']}
-            )
+            # PHASE 0 FIX: Disable intent_start events
+            # await self.ws_manager.send_event(
+            #     self.session_id,
+            #     "intent_start",
+            #     {"intent_id": task_intent_id, "text": first_phase['description']}
+            # )
         else:
             # Single-phase task: Create ONE task-level intent for the entire goal
             self._use_existing_intent_id = None  # Clear previous value
@@ -696,11 +701,12 @@ class UnifiedReActEngine:
             
             # Generate meaningful task description from goal
             task_description = self._generate_task_description(goal, file_ids)
-            await self.ws_manager.send_event(
-                self.session_id,
-                "intent_start",
-                {"intent_id": task_intent_id, "text": task_description}
-            )
+            # PHASE 0 FIX: Disable intent_start events
+            # await self.ws_manager.send_event(
+            #     self.session_id,
+            #     "intent_start",
+            #     {"intent_id": task_intent_id, "text": task_description}
+            # )
         
         self._task_intent_id = self._current_intent_id  # Store for the entire execution
         
@@ -794,15 +800,16 @@ class UnifiedReActEngine:
             # Simple query - answer directly without tools
             logger.info(f"[UnifiedReActEngine] Simple query detected, answering directly without tools")
             # Complete the intent since we're finishing early
-            if self._current_intent_id:
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "intent_complete",
-                    {
-                        "intent_id": self._current_intent_id,
-                        "summary": "Завершено"
-                    }
-                )
+            # PHASE 0 FIX: Disable intent_complete events
+            # if self._current_intent_id:
+            #     await self.ws_manager.send_event(
+            #         self.session_id,
+            #         "intent_complete",
+            #         {
+            #             "intent_id": self._current_intent_id,
+            #             "summary": "Завершено"
+            #         }
+            #     )
             try:
                 return await self._answer_directly(goal, context, state)
             except Exception as e:
@@ -1461,12 +1468,15 @@ class UnifiedReActEngine:
                         self._current_phase_category == 'docs_format' or
                         (self._current_phase_category == 'files' and new_category == 'docs_format')
                     )
-                    should_transition = (
-                        new_category != self._current_phase_category and 
-                        new_category != 'general' and
-                        (self._is_multi_phase or self._current_phase_category is not None) and
-                        not is_formatting_transition  # Prevent UI flickering for formatting tasks
-                    )
+                    # PHASE 0 FIX: Disable Phase Transition completely
+                    should_transition = False
+                    # Оригинальная логика:
+                    # should_transition = (
+                    #     new_category != self._current_phase_category and 
+                    #     new_category != 'general' and
+                    #     (self._is_multi_phase or self._current_phase_category is not None) and
+                    #     not is_formatting_transition  # Prevent UI flickering for formatting tasks
+                    # )
                     
                     if should_transition:
                         # #region agent log
@@ -1475,15 +1485,16 @@ class UnifiedReActEngine:
                             f.write(json.dumps({"id": f"log_{int(time.time() * 1000)}_phase_transition_start", "timestamp": int(time.time() * 1000), "location": "unified_react_engine.py:1424", "message": "Phase transition starting", "data": {"old_category": self._current_phase_category, "new_category": new_category, "current_intent_id": self._current_intent_id, "use_existing_intent_id_before": self._use_existing_intent_id}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + '\n')
                         # #endregion
                         # Complete current intent before starting new one
-                        if self._current_intent_id:
-                            await self.ws_manager.send_event(
-                                self.session_id,
-                                "intent_complete",
-                                {
-                                    "intent_id": self._current_intent_id,
-                                    "summary": "Завершено"
-                                }
-                            )
+                        # PHASE 0 FIX: Disable intent_complete events
+                        # if self._current_intent_id:
+                        #     await self.ws_manager.send_event(
+                        #         self.session_id,
+                        #         "intent_complete",
+                        #         {
+                        #             "intent_id": self._current_intent_id,
+                        #             "summary": "Завершено"
+                        #         }
+                        #     )
                         
                         # Find or create intent for new phase
                         if new_category in self._phase_intent_ids:
@@ -1501,11 +1512,12 @@ class UnifiedReActEngine:
                         # #endregion
                             
                             phase_description = self._get_phase_description_for_category(new_category)
-                            await self.ws_manager.send_event(
-                                self.session_id,
-                                "intent_start",
-                                {"intent_id": new_intent_id, "text": phase_description}
-                            )
+                            # PHASE 0 FIX: Disable intent_start events (inside Phase Transition, which is already disabled)
+                            # await self.ws_manager.send_event(
+                            #     self.session_id,
+                            #     "intent_start",
+                            #     {"intent_id": new_intent_id, "text": phase_description}
+                            # )
                             logger.info(f"[UnifiedReActEngine] Phase transition: {self._current_phase_category} -> {new_category}")
                         self._current_phase_category = new_category
                         # Обновляем _task_intent_id для новой фазы - итерации будут в новом intent
@@ -7024,11 +7036,12 @@ raise ValueError("Код анализа не был предоставлен. П
                     intent_message += "..."
                 
                 intent_id = f"intent-final-{int(time.time() * 1000)}"
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "intent_start",
-                    {"intent_id": intent_id, "text": intent_message}
-                )
+                # PHASE 0 FIX: Disable intent_start events
+                # await self.ws_manager.send_event(
+                #     self.session_id,
+                #     "intent_start",
+                #     {"intent_id": intent_id, "text": intent_message}
+                # )
             
             # Send details about each file being analyzed
             if file_ids and context:
@@ -7092,11 +7105,12 @@ raise ValueError("Код анализа не был предоставлен. П
                         {"content": full_answer}  # Send accumulated content
                     )
             # Send intent completion
-            await self.ws_manager.send_event(
-                self.session_id,
-                "intent_complete",
-                {"intent_id": intent_id, "summary": "Анализ завершён"}
-            )
+            # PHASE 0 FIX: Disable intent_complete events
+            # await self.ws_manager.send_event(
+            #     self.session_id,
+            #     "intent_complete",
+            #     {"intent_id": intent_id, "summary": "Анализ завершён"}
+            # )
             
             # Send completion event
             await self.ws_manager.send_event(
@@ -7126,17 +7140,18 @@ raise ValueError("Код анализа не был предоставлен. П
         state.status = "done"
         
         # === NEW ARCHITECTURE: Complete the task-level intent ===
-        task_intent_id = getattr(self, '_task_intent_id', None)
-        if task_intent_id and self.ws_manager and self.session_id:
-            await self.ws_manager.send_event(
-                self.session_id,
-                "intent_complete",
-                {
-                    "intent_id": task_intent_id,
-                    "summary": f"✅ Задача выполнена за {state.iteration} шаг(ов)",
-                    "auto_collapse": False  # Keep expanded to show result
-                }
-            )
+        # PHASE 0 FIX: Disable intent_complete events
+        # task_intent_id = getattr(self, '_task_intent_id', None)
+        # if task_intent_id and self.ws_manager and self.session_id:
+        #     await self.ws_manager.send_event(
+        #         self.session_id,
+        #         "intent_complete",
+        #         {
+        #             "intent_id": task_intent_id,
+        #             "summary": f"✅ Задача выполнена за {state.iteration} шаг(ов)",
+        #             "auto_collapse": False  # Keep expanded to show result
+        #         }
+        #     )
         
         # Check if this is a confirmation request - return tool result directly without LLM reformulation
         final_result_str = str(final_result).lower() if final_result else ""
@@ -7336,18 +7351,19 @@ raise ValueError("Код анализа не был предоставлен. П
         state.status = "failed"
         
         # === NEW ARCHITECTURE: Complete the task-level intent with failure status ===
-        task_intent_id = getattr(self, '_task_intent_id', None)
-        if task_intent_id and self.ws_manager and self.session_id:
-            error_msg = analysis.error_message or "Не удалось выполнить"
-            await self.ws_manager.send_event(
-                self.session_id,
-                "intent_complete",
-                {
-                    "intent_id": task_intent_id,
-                    "summary": f"❌ {error_msg[:50]}",
-                    "auto_collapse": False
-                }
-            )
+        # PHASE 0 FIX: Disable intent_complete events
+        # task_intent_id = getattr(self, '_task_intent_id', None)
+        # if task_intent_id and self.ws_manager and self.session_id:
+        #     error_msg = analysis.error_message or "Не удалось выполнить"
+        #     await self.ws_manager.send_event(
+        #         self.session_id,
+        #         "intent_complete",
+        #         {
+        #             "intent_id": task_intent_id,
+        #             "summary": f"❌ {error_msg[:50]}",
+        #             "auto_collapse": False
+        #         }
+        #     )
         
         failure_report = {
             "status": "failed",
@@ -7419,17 +7435,18 @@ raise ValueError("Код анализа не был предоставлен. П
         state.status = "failed"
         
         # === NEW ARCHITECTURE: Complete the task-level intent with timeout status ===
-        task_intent_id = getattr(self, '_task_intent_id', None)
-        if task_intent_id and self.ws_manager and self.session_id:
-            await self.ws_manager.send_event(
-                self.session_id,
-                "intent_complete",
-                {
-                    "intent_id": task_intent_id,
-                    "summary": f"⏱️ Достигнут лимит ({state.iteration} итераций)",
-                    "auto_collapse": False
-                }
-            )
+        # PHASE 0 FIX: Disable intent_complete events
+        # task_intent_id = getattr(self, '_task_intent_id', None)
+        # if task_intent_id and self.ws_manager and self.session_id:
+        #     await self.ws_manager.send_event(
+        #         self.session_id,
+        #         "intent_complete",
+        #         {
+        #             "intent_id": task_intent_id,
+        #             "summary": f"⏱️ Достигнут лимит ({state.iteration} итераций)",
+        #             "auto_collapse": False
+        #         }
+        #     )
         
         timeout_report = {
             "status": "timeout",
