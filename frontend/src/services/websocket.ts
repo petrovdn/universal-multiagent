@@ -729,55 +729,31 @@ export class WebSocketClient {
       // Новые события для отображения итераций (Think → Summary → Act → Result)
       case 'iteration_start': {
         console.log('[WebSocket] Iteration started:', event.data)
-        // #region agent log
         const iterStartState = useChatStore.getState()
         let iterStartWorkflowId = iterStartState.activeWorkflowId
         const eventIntentId = event.data.intent_id
         const iterNumber = event.data.iteration_number || 1
-        // #endregion
         
         // PHASE 0 FIX: Create workflow if it doesn't exist (since intent_start is disabled)
         if (!iterStartWorkflowId) {
           iterStartWorkflowId = ensureActiveWorkflow()
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:732',message:'iteration_start - CREATED workflow',data:{createdWorkflowId:iterStartWorkflowId,eventIntentId:eventIntentId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-          // #endregion
         }
         
-        // #region agent log
         const iterStartStateAfter = useChatStore.getState()
         const iterStartIntentId = eventIntentId || iterStartStateAfter.activeIntentId
         const existingIntent = iterStartStateAfter.intentBlocks[iterStartWorkflowId]?.find(i => i.id === iterStartIntentId)
-        const hasParallelBranches = existingIntent?.parallelBranches && existingIntent.parallelBranches.length > 0
-        // #endregion
         
         // PHASE 0 FIX: Create intent if it doesn't exist (since intent_start is disabled)
         if (iterStartWorkflowId && eventIntentId && !existingIntent) {
           // Create intent with default text
           chatStore.startIntent(iterStartWorkflowId, eventIntentId, 'Выполняю задачу...')
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:742',message:'iteration_start - CREATED intent',data:{workflowId:iterStartWorkflowId,intentId:eventIntentId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-          // #endregion
         }
         
-        // #region agent log
         const finalWorkflowId = iterStartWorkflowId
         const finalIntentId = eventIntentId || iterStartStateAfter.activeIntentId
-        const hasWorkflowId = !!finalWorkflowId
-        const hasIntentId = !!finalIntentId
-        const willStartIteration = hasWorkflowId && hasIntentId
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:750',message:'iteration_start - BEFORE startIteration',data:{eventIntentId:eventIntentId,eventIterationNumber:event.data.iteration_number,workflowId:finalWorkflowId,intentId:finalIntentId,iterationNumber:iterNumber,hasWorkflowId:hasWorkflowId,hasIntentId:hasIntentId,willStartIteration:willStartIteration},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
         
         if (finalWorkflowId && finalIntentId) {
           chatStore.startIteration(finalWorkflowId, finalIntentId, iterNumber)
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:758',message:'iteration_start - AFTER startIteration call',data:{workflowId:finalWorkflowId,intentId:finalIntentId,iterationNumber:iterNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-        } else {
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:762',message:'iteration_start - SKIPPED (missing workflowId or intentId after fix)',data:{workflowId:finalWorkflowId,intentId:finalIntentId,hasWorkflowId:hasWorkflowId,hasIntentId:hasIntentId,eventIntentId:eventIntentId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-          // #endregion
         }
         break
       }
@@ -850,48 +826,26 @@ export class WebSocketClient {
         const description = event.data.description || ''
         const toolName = event.data.tool_name || ''
 
-        // #region agent log
-        const existingIntentsForBranch = branchStartState.intentBlocks[branchStartWorkflowId] || []
-        const targetIntentForBranch = existingIntentsForBranch.find(i => i.id === eventIntentId)
-        // #endregion
-
         // PHASE 0 FIX: Create workflow if it doesn't exist (since intent_start is disabled)
         if (!branchStartWorkflowId) {
           branchStartWorkflowId = ensureActiveWorkflow()
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:850',message:'parallel_branch_start - CREATED workflow',data:{createdWorkflowId:branchStartWorkflowId,eventIntentId:eventIntentId,branchId:branchId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-          // #endregion
         }
 
+        const existingIntentsForBranch = branchStartState.intentBlocks[branchStartWorkflowId] || []
+        const targetIntentForBranch = existingIntentsForBranch.find(i => i.id === eventIntentId)
         const branchStartIntentId = eventIntentId || branchStartState.activeIntentId
 
         // PHASE 0 FIX: Create intent if it doesn't exist (since intent_start is disabled)
         if (branchStartWorkflowId && eventIntentId && !targetIntentForBranch) {
           // Create intent with default text
           chatStore.startIntent(branchStartWorkflowId, eventIntentId, 'Выполняю задачу...')
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:858',message:'parallel_branch_start - CREATED intent',data:{workflowId:branchStartWorkflowId,intentId:eventIntentId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-          // #endregion
         }
 
-        // #region agent log
         const finalWorkflowId = branchStartWorkflowId
         const finalIntentId = eventIntentId || branchStartState.activeIntentId
-        const finalState = useChatStore.getState()
-        const finalExistingIntents = finalState.intentBlocks[finalWorkflowId] || []
-        const finalTargetIntent = finalExistingIntents.find(i => i.id === finalIntentId)
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:866',message:'parallel_branch_start - BEFORE startParallelBranch',data:{event_intent_id:eventIntentId,event_branch_id:branchId,resolved_intent_id:finalIntentId,workflowId:finalWorkflowId,intentFound:!!finalTargetIntent,existingIntentIds:finalExistingIntents.map(i=>i.id),description:description?.slice(0,50),willStartBranch:!!(finalWorkflowId && finalIntentId && branchId)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-        // #endregion
 
         if (finalWorkflowId && finalIntentId && branchId) {
           chatStore.startParallelBranch(finalWorkflowId, finalIntentId, branchId, description, toolName)
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:872',message:'parallel_branch_start - AFTER startParallelBranch call',data:{workflowId:finalWorkflowId,intentId:finalIntentId,branchId:branchId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-        } else {
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:876',message:'parallel_branch_start - SKIPPED (missing params after fix)',data:{workflowId:finalWorkflowId,intentId:finalIntentId,branchId:branchId,hasWorkflowId:!!finalWorkflowId,hasIntentId:!!finalIntentId,hasBranchId:!!branchId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-          // #endregion
         }
         break
       }
@@ -1917,12 +1871,6 @@ export class WebSocketClient {
       case 'react_start': {
         // ReAct cycle started - FALLBACK: create thinking block
         console.log('[WebSocket] ReAct cycle started (fallback to thinking):', event.data)
-        // #region agent log
-        const reactStartState = useChatStore.getState()
-        const reactStartWorkflowId = reactStartState.activeWorkflowId
-        const reactStartWorkflows = Object.keys(reactStartState.workflows || {})
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:1857',message:'react_start received - checking workflow state',data:{activeWorkflowId:reactStartWorkflowId,allWorkflowIds:reactStartWorkflows,workflowsCount:reactStartWorkflows.length,goal:event.data.goal,mode:event.data.mode},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-        // #endregion
         const thinkingId = `thinking-${Date.now()}`
         
         // Create thinking block but don't show it immediately
