@@ -44,6 +44,10 @@ export function IntentMessage({
   const elapsedSeconds = block.elapsedSec || 0
   const remainingTime = Math.max(0, estimatedSeconds - elapsedSeconds)
 
+  // #region agent log
+  fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'IntentMessage.tsx:47',message:'IntentMessage render - what will be displayed',data:{intentId:block.id,stepNumber,hasIterations,hasParallelBranches,showExecutingSection,hasOperations,hasDetails,isExecuting,isCompleted,phase:block.phase,iterationsCount:block.iterations?.length||0,parallelBranchesCount:block.parallelBranches?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
+  // #endregion
+
   return (
     <div className={`intent-message ${isCompleted ? 'intent-message-completed' : ''}`} style={{ maxWidth: '900px', width: '100%', margin: '0 auto', padding: '0' }}>
       {/* Заголовок intent - крупный жирный */}
