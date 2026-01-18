@@ -36,14 +36,23 @@ class PythonCodeExecutionTool(BaseTool):
     
     name: str = "execute_python_code"
     description: str = """
-    Execute Python code for data transformations and computations.
+    Выполнение Python-кода ТОЛЬКО для сложного анализа данных из Google Sheets.
     
-    Use this when you need to:
-    - Transform spreadsheet data (currency conversion, calculations, etc.)
-    - Perform complex mathematical operations
-    - Process arrays/lists with custom logic
-    - Generate data based on patterns
-    - Analyze data and create visualizations (chartData)
+    ⚠️ КОГДА ИСПОЛЬЗОВАТЬ:
+    - Сложный анализ данных из таблиц Google Sheets (агрегации, статистика по большим массивам)
+    - Математические вычисления над данными из spreadsheet
+    - Трансформации данных, которые невозможны встроенными инструментами
+    - Создание визуализаций (chartData) на основе данных из Sheets
+    
+    ❌ КАТЕГОРИЧЕСКИ НЕ ИСПОЛЬЗОВАТЬ ДЛЯ:
+    - Работы с письмами/email → используй gmail_search с query="newer_than:Nd"
+    - Работы с календарём → используй get_calendar_events с start_time="на следующей неделе"
+    - Простых вычислений дат → инструменты УЖЕ поддерживают фильтрацию по датам
+    - Чего-либо, кроме анализа данных из Google Sheets
+    
+    📋 ПРИМЕЧАНИЕ: Большинство инструментов имеют встроенную фильтрацию по датам.
+    Для писем за 3 дня: gmail_search(query="newer_than:3d") — НЕ нужен Python!
+    Для встреч на следующей неделе: get_calendar_events(start_time="на следующей неделе") — НЕ нужен Python!
     
     ⚠️ ВАЖНО: Доступные библиотеки ТОЛЬКО:
     - math (математические функции)
@@ -56,24 +65,24 @@ class PythonCodeExecutionTool(BaseTool):
     ✅ Используй statistics для статистических расчетов
     ✅ Используй math для математических операций
     
-    Input:
-    - code: Python code to execute
-    - input_data: Optional dict with input data (accessible as 'data' variable)
-    - timeout: Execution timeout (default: 30s)
+    Параметры:
+    - code: Python код для выполнения
+    - input_data: Опциональный словарь с входными данными (доступен как переменная 'data')
+    - timeout: Таймаут выполнения (по умолчанию: 30 секунд)
     
-    The code should assign result to 'result' variable.
+    Код должен присваивать результат переменной 'result'.
     
-    Example for data analysis:
+    Пример для анализа данных:
     ```python
     import json
     import statistics
     
-    # Parse sheets data
+    # Парсинг данных из Sheets
     sheets_data = data.get("sheets", [])
-    # ... analysis code ...
+    # ... код анализа ...
     result = {
-        "chartData": [...],  # For visualizations
-        "analysis": {...}    # Text analysis results
+        "chartData": [...],  # Для визуализаций
+        "analysis": {...}    # Текстовые результаты анализа
     }
     ```
     """

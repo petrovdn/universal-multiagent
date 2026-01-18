@@ -200,7 +200,7 @@ class GmailMCPServer:
                 # ========== READ OPERATIONS ==========
                 Tool(
                     name="gmail_list_messages",
-                    description="List emails from inbox or specific label. Returns recent emails with summary info.",
+                    description="Показать список писем из папки 'Входящие' или другой метки. Возвращает последние письма с краткой информацией. Письма, email, почта, список писем, входящие, inbox.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -225,7 +225,7 @@ class GmailMCPServer:
                 ),
                 Tool(
                     name="gmail_get_message",
-                    description="Get full details of a specific email by message ID, including body content.",
+                    description="Получить полную информацию о письме по ID, включая содержимое. Письмо, email, почта, прочитать письмо, содержимое письма.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -245,7 +245,7 @@ class GmailMCPServer:
                 ),
                 Tool(
                     name="gmail_search",
-                    description="Search emails using Gmail search syntax. Supports from:, to:, subject:, is:, has:, newer_than:, older_than:, etc.",
+                    description="Поиск писем по запросу Gmail. Поддерживает: from:, to:, subject:, is:, has:, newer_than:, older_than: и др. Письма, email, почта, найти письма, поиск писем, показать письма, письма за период, письма за последние дни, newer_than:3d.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -269,7 +269,7 @@ class GmailMCPServer:
                 ),
                 Tool(
                     name="gmail_get_thread",
-                    description="Get an email thread (conversation) with all messages in it.",
+                    description="Получить цепочку писем (переписку) со всеми сообщениями. Письма, email, почта, переписка, цепочка писем.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -283,7 +283,7 @@ class GmailMCPServer:
                 ),
                 Tool(
                     name="gmail_list_labels",
-                    description="List all labels (folders) in the mailbox.",
+                    description="Показать все метки (папки) в почтовом ящике. Письма, email, почта, папки, метки.",
                     inputSchema={
                         "type": "object",
                         "properties": {}
@@ -291,7 +291,7 @@ class GmailMCPServer:
                 ),
                 Tool(
                     name="gmail_get_unread_count",
-                    description="Get count of unread messages in inbox or specific label.",
+                    description="Получить количество непрочитанных писем в папке 'Входящие' или другой метке. Письма, email, почта, непрочитанные, количество.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -307,7 +307,7 @@ class GmailMCPServer:
                 # ========== SEND OPERATIONS ==========
                 Tool(
                     name="gmail_send_email",
-                    description="Send a new email message.",
+                    description="Отправить новое письмо. Письма, email, почта, отправить письмо, написать письмо, send email.",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -639,6 +639,9 @@ class GmailMCPServer:
                     query = arguments.get("query")
                     max_results = min(arguments.get("maxResults", 10), 100)
                     label_ids = arguments.get("labelIds")
+                    
+                    # Логируем параметры запроса для отладки
+                    logger.info(f"[GmailServer] gmail_search called with query='{query}', maxResults={max_results}, labelIds={label_ids}")
                     
                     params = {
                         "userId": "me",

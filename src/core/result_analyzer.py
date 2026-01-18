@@ -91,24 +91,75 @@ class ResultAnalyzer:
         Returns:
             Analysis if quick check succeeded, None otherwise
         """
+        # Проверяем, что результат - это не структурированные данные
+        # Если результат - это список, словарь или большой текст с данными, 
+        # то наличие слова "ошибка" в данных не означает ошибку выполнения
+        is_structured_data = isinstance(result, (list, dict)) or (isinstance(result, str) and len(result) > 500)
+        
         result_str = str(result).lower()
         
-        # Check for obvious errors
-        error_indicators = [
-            "error", "failed", "exception", "ошибка", "не удалось",
-            "not found", "не найдено", "permission denied", "доступ запрещен"
+        # Проверяем паттерны ошибок только если это НЕ структурированные данные
+        # или если ошибка в начале/конце (типичные места для сообщений об ошибках)
+        error_patterns = [
+            # Паттерны в начале строки (типичные места для ошибок)
+            ("^error:", "error"),
+            ("^exception:", "exception"),
+            ("^failed:", "failed"),
+            ("^ошибка:", "ошибка"),
+            ("^не удалось:", "не удалось"),
+            # Специфические паттерны ошибок API
+            ("invalid parameter", "invalid parameter"),
+            ("missing required", "missing required parameter"),
+            ("typeerror:", "typeerror"),
+            ("valueerror:", "valueerror"),
+            ("permission denied", "permission denied"),
+            ("доступ запрещен", "доступ запрещен"),
+            ("not found", "not found"),
+            ("не найдено", "не найдено"),
         ]
         
-        for indicator in error_indicators:
-            if indicator in result_str:
+        # Проверяем паттерны ошибок
+        import re
+        for pattern, indicator in error_patterns:
+            if re.search(pattern, result_str, re.IGNORECASE):
+                # Нашли паттерн ошибки - извлекаем реальное сообщение
+                error_lines = result_str.split('\n')[:3]  # Первые 3 строки
+                error_msg = ' '.join(error_lines[:1])  # Первая строка как сообщение об ошибке
+                # Обрезаем до разумной длины
+                if len(error_msg) > 200:
+                    error_msg = error_msg[:200] + "..."
+                
                 return Analysis(
                     is_success=False,
                     is_goal_achieved=False,
                     is_error=True,
                     progress_toward_goal=0.0,
-                    error_message=f"Error detected: {indicator}",
+                    error_message=error_msg if error_msg else f"Error detected: {indicator}",
                     confidence=0.9
                 )
+        
+        # Если это НЕ структурированные данные, проверяем простые индикаторы
+        # (для структурированных данных уже проверили паттерны выше)
+        if not is_structured_data:
+            simple_indicators = ["error", "failed", "exception", "ошибка", "не удалось"]
+            for indicator in simple_indicators:
+                # Проверяем, что индикатор - это отдельное слово или в контексте ошибки
+                if re.search(rf'\b{re.escape(indicator)}\b', result_str, re.IGNORECASE):
+                    # Извлекаем строку с ошибкой
+                    error_line = None
+                    for line in result_str.split('\n'):
+                        if indicator in line.lower() and len(line) < 200:  # Короткая строка - вероятно сообщение об ошибке
+                            error_line = line.strip()
+                            break
+                    
+                    return Analysis(
+                        is_success=False,
+                        is_goal_achieved=False,
+                        is_error=True,
+                        progress_toward_goal=0.0,
+                        error_message=error_line if error_line else f"Error detected: {indicator}",
+                        confidence=0.9
+                    )
         
         # Check for obvious success
         success_indicators = [

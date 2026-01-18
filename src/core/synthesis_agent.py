@@ -112,9 +112,14 @@ class SynthesisAgent:
                     summary_parts.append(f"Файлы (задача {task_id}): {file_count} файлов")
                 else:
                     # Generic result
-                    summary_parts.append(f"Задача {task_id}: {json.dumps(result, ensure_ascii=False)[:200]}")
+                    summary_parts.append(f"Задача {task_id}: {json.dumps(result, ensure_ascii=False)[:500]}")
+            elif isinstance(result, str):
+                # PHASE 0 FIX: Handle string results from parallel branches
+                # Results are now strings like "✓ get_calendar_events: Found 0 events..."
+                # Include full result text for synthesis
+                summary_parts.append(f"Задача {task_id}: {result[:1000]}")
             else:
-                summary_parts.append(f"Задача {task_id}: {str(result)[:200]}")
+                summary_parts.append(f"Задача {task_id}: {str(result)[:1000]}")
         
         return "\n".join(summary_parts)
     

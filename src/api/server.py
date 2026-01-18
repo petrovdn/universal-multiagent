@@ -260,6 +260,14 @@ Uses proper cache headers to prevent stale files in production."""
 async def startup_event():
     """
 Initialize services on startup."""
+    # #region agent log
+    import json as _debug_json_startup_event; import time as _debug_time_startup_event
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_startup_event:
+            _debug_f_startup_event.write(_debug_json_startup_event.dumps({"id":f"log_{int(_debug_time_startup_event.time()*1000)}_startup_event_entry","timestamp":int(_debug_time_startup_event.time()*1000),"location":"server.py:259","message":"startup_event ENTRY","data":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"STARTUP_HANG"}) + '\n')
+    except:
+        pass
+    # #endregion
     # Generate unique server instance ID for this startup
     import uuid
     import time
@@ -269,6 +277,14 @@ Initialize services on startup."""
     # Log unique server startup identifier
     logger.info(f"🚀 SERVER STARTUP - Instance ID: {server_instance_id}, Timestamp: {startup_timestamp}")
     print(f"[🚀 SERVER STARTUP] Instance ID: {server_instance_id}, Timestamp: {startup_timestamp}", flush=True)
+    
+    # #region agent log
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_startup_event2:
+            _debug_f_startup_event2.write(_debug_json_startup_event.dumps({"id":f"log_{int(_debug_time_startup_event.time()*1000)}_startup_after_log","timestamp":int(_debug_time_startup_event.time()*1000),"location":"server.py:275","message":"startup_event after initial log","data":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"STARTUP_HANG"}) + '\n')
+    except:
+        pass
+    # #endregion
     
     logger.info("Starting up Multi-Agent API...")
     # Debug: Log optional dependencies status
@@ -288,12 +304,42 @@ Initialize services on startup."""
     print(f"[DEBUG]   Config.anthropic_api_key: {'SET' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'MISSING'} (len={len(config.anthropic_api_key) if config.anthropic_api_key else 0})", flush=True)
     print(f"[DEBUG]   Config.openai_api_key: {'SET' if config.openai_api_key and config.openai_api_key.strip() else 'MISSING'} (len={len(config.openai_api_key) if config.openai_api_key else 0})", flush=True)
     
+    # #region agent log
+    import json as _debug_json_before_models; import time as _debug_time_before_models
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_before_models:
+            _debug_f_before_models.write(_debug_json_before_models.dumps({"id":f"log_{int(_debug_time_before_models.time()*1000)}_startup_before_get_models","timestamp":int(_debug_time_before_models.time()*1000),"location":"server.py:307","message":"Before get_available_models call","data":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"STARTUP_HANG"}) + '\n')
+    except:
+        pass
+    # #endregion
     available_models_startup = get_available_models()
+    # #region agent log
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_after_models:
+            _debug_f_after_models.write(_debug_json_before_models.dumps({"id":f"log_{int(_debug_time_before_models.time()*1000)}_startup_after_get_models","timestamp":int(_debug_time_before_models.time()*1000),"location":"server.py:309","message":"After get_available_models call","data":{"models_count":len(available_models_startup)},"sessionId":"debug-session","runId":"run1","hypothesisId":"STARTUP_HANG"}) + '\n')
+    except:
+        pass
+    # #endregion
     print(f"[DEBUG]   Available models at startup: {len(available_models_startup)} - {list(available_models_startup.keys())}", flush=True)
     logger.info(f"API Keys - Anthropic: {'set' if config.anthropic_api_key and config.anthropic_api_key.strip() else 'missing'}, OpenAI: {'set' if config.openai_api_key and config.openai_api_key.strip() else 'missing'}, Available models: {len(available_models_startup)}")
     # Connect to MCP servers
+    # #region agent log
+    import json as _debug_json_startup; import time as _debug_time_startup
+    try:
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_startup:
+            _debug_f_startup.write(_debug_json_startup.dumps({"id":f"log_{int(_debug_time_startup.time()*1000)}_startup_before_mcp_connect","timestamp":int(_debug_time_startup.time()*1000),"location":"server.py:318","message":"Starting MCP connect_all","data":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"STARTUP_HANG"}) + '\n')
+    except:
+        pass
+    # #endregion
     try:
         results = await mcp_manager.connect_all()
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_startup2:
+                _debug_f_startup2.write(_debug_json_startup.dumps({"id":f"log_{int(_debug_time_startup.time()*1000)}_startup_after_mcp_connect","timestamp":int(_debug_time_startup.time()*1000),"location":"server.py:335","message":"MCP connect_all completed","data":{"results":results},"sessionId":"debug-session","runId":"run1","hypothesisId":"STARTUP_HANG"}) + '\n')
+        except:
+            pass
+        # #endregion
         logger.info(f"MCP connection results: {results}")
     except Exception as e:
         logger.error(f"Failed to connect to MCP servers: {e}")

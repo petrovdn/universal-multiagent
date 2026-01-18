@@ -231,12 +231,14 @@ class ListFilesTool(BaseTool):
     
     name: str = "list_workspace_files"
     description: str = """
-    List files in the workspace folder.
+    Показать список файлов в рабочей папке.
     
-    Input:
-    - mime_type: Optional filter by MIME type (e.g., 'application/vnd.google-apps.document')
-    - query: Optional search query for file names (case-insensitive search)
-    - max_results: Maximum number of results (default: 50)
+    Параметры:
+    - mime_type: Опциональный фильтр по MIME типу (например, 'application/vnd.google-apps.document')
+    - query: Опциональный поисковый запрос по именам файлов (поиск без учета регистра)
+    - max_results: Максимальное количество результатов (по умолчанию: 50)
+    
+    Ключевые слова: список файлов, показать файлы, файлы в папке, рабочие файлы.
     """
     args_schema: type = ListFilesInput
     
@@ -467,15 +469,17 @@ class SearchFilesTool(BaseTool):
     
     name: str = "search_workspace_files"
     description: str = """
-    Search for files in the workspace folder (configured in workspace settings).
+    Поиск файлов в рабочей папке (настроена в настройках workspace).
     
-    Input parameters:
-    - query: Search query string (simple text, e.g., "Рабочая таблица"). Search is case-insensitive and handles variations.
-    - mime_type: Optional filter by MIME type (e.g., "application/vnd.google-apps.spreadsheet")
-    - max_results: Maximum number of results (default: 100)
+    Параметры:
+    - query: Поисковый запрос (простой текст, например, "Рабочая таблица"). Поиск без учета регистра и обрабатывает вариации.
+    - mime_type: Опциональный фильтр по MIME типу (например, "application/vnd.google-apps.spreadsheet")
+    - max_results: Максимальное количество результатов (по умолчанию: 100)
     
-    NOTE: folder_id is NOT a parameter - the workspace folder is configured automatically.
-    The search is performed in the configured workspace folder only.
+    ⚠️ ВАЖНО: folder_id НЕ является параметром — рабочая папка настраивается автоматически.
+    Поиск выполняется только в настроенной рабочей папке.
+    
+    Ключевые слова: найти файл, поиск файлов, найти документ, найти таблицу.
     """
     args_schema: type = SearchFilesInput
     
@@ -586,13 +590,15 @@ class OpenFileTool(BaseTool):
     
     name: str = "open_file"
     description: str = """
-    Open and read a file by ID. Automatically detects file type (document or spreadsheet) and reads its content.
-    For spreadsheets, reads the first sheet with up to 100 rows by default.
+    Открыть и прочитать файл по ID. Автоматически определяет тип файла (документ или таблица) и читает его содержимое.
+    Для таблиц читает первый лист с максимум 100 строками по умолчанию.
     
-    Input:
-    - file_id: File ID or URL
-    - max_rows: Maximum rows to read for spreadsheets (default: 100, use 0 for all rows)
-    - sheet_name: Optional sheet name for spreadsheets
+    Параметры:
+    - file_id: ID файла или URL
+    - max_rows: Максимальное количество строк для чтения из таблиц (по умолчанию: 100, используй 0 для всех строк)
+    - sheet_name: Опциональное имя листа для таблиц
+    
+    Ключевые слова: открыть файл, прочитать файл, показать файл, открыть документ, открыть таблицу.
     """
     args_schema: type = OpenFileInput
     

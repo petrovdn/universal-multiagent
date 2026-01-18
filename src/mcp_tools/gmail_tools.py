@@ -31,15 +31,17 @@ class SendEmailTool(BaseTool):
     
     name: str = "send_email"
     description: str = """
-    Send an email through Gmail.
+    Отправить письмо через Gmail.
     
-    Input should be a JSON object with:
-    - to: Recipient email address (required)
-    - subject: Email subject (required)
-    - body: Email body text (required)
-    - cc: CC recipient (optional)
-    - bcc: BCC recipient (optional)
-    - html: Whether body is HTML (default: false)
+    Параметры:
+    - to: Email адрес получателя (обязательно)
+    - subject: Тема письма (обязательно)
+    - body: Текст письма (обязательно)
+    - cc: Email адрес для копии (опционально)
+    - bcc: Email адрес для скрытой копии (опционально)
+    - html: Является ли body HTML (по умолчанию: false)
+    
+    Ключевые слова: отправить письмо, написать письмо, послать email, отправить email.
     """
     args_schema: type = SendEmailInput
     
@@ -120,7 +122,17 @@ class DraftEmailTool(BaseTool):
     """Tool for creating email drafts."""
     
     name: str = "draft_email"
-    description: str = "Create an email draft in Gmail without sending it."
+    description: str = """
+    Создать черновик письма в Gmail без отправки.
+    
+    Параметры:
+    - to: Email адрес получателя
+    - subject: Тема письма
+    - body: Текст письма
+    - cc: Email адрес для копии (опционально)
+    
+    Ключевые слова: черновик, создать черновик, сохранить письмо.
+    """
     args_schema: type = DraftEmailInput
     
     @retry_on_mcp_error()
@@ -183,18 +195,27 @@ class SearchEmailsTool(BaseTool):
     
     name: str = "search_emails"
     description: str = """
-    Search emails in Gmail using Gmail search syntax.
+    Поиск писем в почте Gmail по отправителю, теме или содержимому.
     
-    Examples:
-    - 'from:example@gmail.com' - Emails from specific sender
-    - 'subject:meeting' - Emails with 'meeting' in subject
-    - 'is:unread' - Unread emails
-    - 'after:2024/12/14' - Emails after date (format: YYYY/MM/DD)
-    - 'newer_than:3d' - Emails newer than 3 days (use for relative dates)
-    - 'newer_than:7d' - Emails newer than 7 days
+    📋 ПРИМЕРЫ ИСПОЛЬЗОВАНИЯ:
+    - Письма за 3 дня: query="newer_than:3d"
+    - Письма за неделю: query="newer_than:7d"  
+    - Письма за месяц: query="newer_than:30d"
+    - От отправителя: query="from:user@example.com"
+    - С темой: query="subject:встреча"
+    - Комбинация: query="from:boss@company.com newer_than:7d"
+    - Непрочитанные: query="is:unread newer_than:3d"
     
-    IMPORTANT: For "last N days" queries, use "newer_than:Nd" format.
-    For example, "emails from last 3 days" should use query: "newer_than:3d"
+    ⚠️ НЕ НУЖНО вычислять даты программно!
+    Просто используй newer_than:Nd где N — количество дней.
+    
+    Используй когда нужно найти конкретные письма:
+    - "найди письма от Маши", "письма от example@gmail.com"
+    - "письма с темой встреча", "письма про проект"
+    - "письма за последние 3 дня", "письма за неделю"
+    
+    Ключевые слова: письма, email, почта, найти письма, поиск писем, показать письма, 
+    письма за период, за последние дни, недавние письма.
     """
     args_schema: type = SearchEmailsInput
     
@@ -285,7 +306,16 @@ class ReadEmailTool(BaseTool):
     """Tool for reading a specific email."""
     
     name: str = "read_email"
-    description: str = "Read the content of a specific email by message ID."
+    description: str = """
+    Прочитать содержимое конкретного письма по ID сообщения.
+    
+    Параметры:
+    - message_id: ID сообщения Gmail (получи из search_emails или list_emails)
+    
+    ⚠️ ВАЖНО: message_id — это ID из результата search_emails или list_emails, НЕ query строка!
+    
+    Ключевые слова: прочитать письмо, открыть письмо, показать письмо, содержимое письма.
+    """
     args_schema: type = ReadEmailInput
     
     @retry_on_mcp_error()
@@ -379,6 +409,7 @@ class ListEmailsInput(BaseModel):
     
     max_results: int = Field(default=10, description="Maximum number of results")
     label: str = Field(default="INBOX", description="Label to list emails from (INBOX, SENT, etc)")
+    days: Optional[int] = Field(default=None, description="Filter emails from last N days (e.g., 3 for last 3 days). If not specified, returns most recent emails without time filter.")
 
 
 class ListEmailsTool(BaseTool):
@@ -386,13 +417,34 @@ class ListEmailsTool(BaseTool):
     
     name: str = "list_emails"
     description: str = """
-    List recent emails from Gmail inbox or specific label.
-    Use this to see recent emails without a specific search query.
+    Показать последние письма из почты Gmail. Получить список писем из входящих (INBOX) или другой папки.
+    
+    📋 ПРИМЕРЫ ИСПОЛЬЗОВАНИЯ:
+    - Письма за последние 3 дня: days=3
+    - Письма за неделю: days=7
+    - Письма за месяц: days=30
+    - Последние 10 писем без фильтра: max_results=10 (days не указывай)
+    
+    ⚠️ НЕ НУЖНО вычислять даты программно!
+    Просто используй параметр days=N где N — количество дней.
+    
+    Используй этот инструмент когда пользователь просит:
+    - "покажи письма", "покажи почту", "что в почте"
+    - "письма за последние N дней" - используй параметр days=N (например, days=3 для "за последние три дня")
+    - "недавние письма" - используй days=7 для последней недели
+    - "входящие письма", "непрочитанные письма"
+    
+    Параметры:
+    - days: Фильтр по времени - количество дней назад (например, 3 для "за последние три дня")
+    - max_results: Максимальное количество писем (по умолчанию 10)
+    - label: Папка для поиска (по умолчанию INBOX)
+    
+    Ключевые слова: письма, email, почта, показать письма, список писем, входящие, недавние письма.
     """
     args_schema: type = ListEmailsInput
     
     @retry_on_mcp_error()
-    async def _arun(self, max_results: int = 10, label: str = "INBOX") -> str:
+    async def _arun(self, max_results: int = 10, label: str = "INBOX", days: Optional[int] = None) -> str:
         """Execute the tool asynchronously."""
         try:
             args = {
@@ -401,8 +453,24 @@ class ListEmailsTool(BaseTool):
             }
             
             mcp_manager = get_mcp_manager()
-            # Using gmail_list_messages
-            result = await mcp_manager.call_tool("gmail_list_messages", args, server_name="gmail")
+            
+            # If days filter is specified, use gmail_search instead of gmail_list_messages
+            if days is not None and days > 0:
+                # Use search with newer_than query for time filtering
+                query = f"newer_than:{days}d"
+                search_args = {
+                    "query": query,
+                    "maxResults": max_results
+                }
+                # Add label filter if not default INBOX
+                if label and label != "INBOX":
+                    query = f"{query} label:{label}"
+                    search_args["query"] = query
+                # Using gmail_search for time-filtered queries (correct tool name)
+                result = await mcp_manager.call_tool("gmail_search", search_args, server_name="gmail")
+            else:
+                # Using gmail_list_messages for simple listing (no time filter)
+                result = await mcp_manager.call_tool("gmail_list_messages", args, server_name="gmail")
             
             # Parse result - handle different return types from MCP
             # MCP can return: string JSON, dict, or list of TextContent objects

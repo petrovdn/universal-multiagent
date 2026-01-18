@@ -48,12 +48,17 @@ class SmartToolSelector:
     Smart tool selector using semantic search.
     
     Использует embeddings для поиска релевантных инструментов по запросу пользователя.
+    
+    Оптимизация: предзагружает embeddings всех инструментов в память при инициализации
+    для избежания дисковых операций при каждом вызове select_tools.
     """
     
     def __init__(
         self,
         capabilities: List[ActionCapability],
-        cache_dir: Optional[Path] = None
+        cache_dir: Optional[Path] = None,
+        preload_embeddings: bool = True,
+        force_recompute: bool = False
     ):
         """
         Инициализация SmartToolSelector.
@@ -61,10 +66,68 @@ class SmartToolSelector:
         Args:
             capabilities: Список доступных capabilities
             cache_dir: Директория для кэша embeddings (опционально)
+            preload_embeddings: Предзагрузить embeddings всех инструментов в память (по умолчанию: True)
+            force_recompute: Принудительно пересчитать все embeddings при инициализации (по умолчанию: False)
         """
         self.capabilities = capabilities
         self.embedding_cache = EmbeddingCache(cache_dir=cache_dir)
-        logger.info(f"[SmartToolSelector] Initialized with {len(capabilities)} capabilities")
+        
+        # In-memory cache для embeddings инструментов (предзагруженные из кэша)
+        # Ключ: tool_name, Значение: numpy array с embedding
+        self._tool_embeddings_cache: dict[str, any] = {}
+        
+        if preload_embeddings:
+            self._preload_all_embeddings(force_recompute=force_recompute)
+        
+        logger.info(f"[SmartToolSelector] Initialized with {len(capabilities)} capabilities (preloaded: {len(self._tool_embeddings_cache)})")
+    
+    def _preload_all_embeddings(self, force_recompute: bool = False):
+        """
+        Предзагрузить embeddings всех инструментов в память.
+        
+        Args:
+            force_recompute: Принудительно пересчитать все embeddings
+        """
+        import time
+        _preload_start = time.time()
+        
+        if force_recompute:
+            logger.info(f"[SmartToolSelector] Force recompute: clearing cache before preload")
+            self.embedding_cache.clear_cache()
+        
+        # Предзагружаем embeddings для всех инструментов
+        # get_embedding автоматически использует кэш если он валиден,
+        # или пересчитывает если описание изменилось
+        for cap in self.capabilities:
+            try:
+                # Проверяем, нужно ли пересчитать
+                if force_recompute:
+                    self.embedding_cache.invalidate_cache(cap.name)
+                
+                # Загружаем или вычисляем embedding
+                # get_embedding автоматически использует кэш если он валиден
+                embedding = self.embedding_cache.get_embedding(
+                    tool_name=cap.name,
+                    description=cap.description
+                )
+                
+                # Сохраняем в памяти для быстрого доступа
+                self._tool_embeddings_cache[cap.name] = embedding
+                
+                # Упрощенная проверка: если файл кэша существует ДО вызова get_embedding,
+                # то скорее всего embedding был загружен из кэша (но не гарантировано, т.к. 
+                # описание могло измениться). Для точной статистики это не критично.
+                # get_embedding сам проверяет валидность кэша и пересчитывает если нужно.
+                    
+            except Exception as e:
+                logger.error(f"[SmartToolSelector] Failed to preload embedding for {cap.name}: {e}")
+                continue
+        
+        _preload_duration = time.time() - _preload_start
+        logger.info(
+            f"[SmartToolSelector] Preloaded {len(self._tool_embeddings_cache)} embeddings "
+            f"in {_preload_duration:.3f}s"
+        )
     
     def select_tools(
         self,
@@ -114,20 +177,28 @@ class SmartToolSelector:
         logger.info(f"[SmartToolSelector] Query embedding took {_query_embed_duration:.3f}s")
         
         # Вычисляем similarity для каждого инструмента
+        # ОПТИМИЗАЦИЯ: используем предзагруженные embeddings из памяти вместо дисковых операций
         _tools_embed_start = time.time()
         similarities = []
         for cap in available_caps:
-            # Получаем embedding для описания инструмента
-            tool_embedding = self.embedding_cache.get_embedding(
-                tool_name=cap.name,
-                description=cap.description
-            )
+            # Получаем embedding из in-memory cache (быстро)
+            if cap.name in self._tool_embeddings_cache:
+                tool_embedding = self._tool_embeddings_cache[cap.name]
+            else:
+                # Fallback: если embedding не был предзагружен, загружаем/вычисляем
+                logger.warning(f"[SmartToolSelector] Embedding for {cap.name} not in cache, loading on-demand")
+                tool_embedding = self.embedding_cache.get_embedding(
+                    tool_name=cap.name,
+                    description=cap.description
+                )
+                # Сохраняем в памяти для следующих раз
+                self._tool_embeddings_cache[cap.name] = tool_embedding
             
             # Вычисляем cosine similarity
             similarity = cosine_similarity(query_embedding, tool_embedding)
             similarities.append((cap, similarity))
         _tools_embed_duration = time.time() - _tools_embed_start
-        logger.info(f"[SmartToolSelector] Tool embeddings for {len(available_caps)} tools took {_tools_embed_duration:.3f}s")
+        logger.info(f"[SmartToolSelector] Tool embeddings for {len(available_caps)} tools took {_tools_embed_duration:.3f}s (from memory cache)")
         
         # Сортируем по similarity (убывание)
         _sort_start = time.time()
@@ -143,6 +214,21 @@ class SmartToolSelector:
             f"(total: {total_duration:.3f}s, query_embed: {_query_embed_duration:.3f}s, "
             f"tools_embed: {_tools_embed_duration:.3f}s, sort: {_sort_duration:.3f}s)"
         )
+        
+        # Log top-10 similarity scores for debugging
+        top_10 = similarities[:10]
+        scores_info = [(cap.name, f"{score:.3f}") for cap, score in top_10]
+        logger.info(f"[SmartToolSelector] Top-10 similarity scores: {scores_info}")
+        
+        # Для email запросов логируем подробности email tools
+        if any(keyword in query.lower() for keyword in ["письма", "email", "почта", "mail"]):
+            email_tools_scores = [
+                (cap.name, f"{score:.3f}", cap.description[:100])
+                for cap, score in similarities
+                if "email" in cap.name.lower() or "gmail" in cap.name.lower() or "mail" in cap.name.lower()
+            ][:5]
+            if email_tools_scores:
+                logger.info(f"[SmartToolSelector] Email tools similarity for query '{query[:50]}': {email_tools_scores}")
         
         return result
     

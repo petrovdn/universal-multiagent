@@ -46,19 +46,24 @@ class CreateEventTool(BaseTool):
     
     name: str = "create_event"
     description: str = """
-    Create a calendar event in Google Calendar.
+    Создать событие в календаре Google Calendar.
     
-    Required:
-    - title: Event title
-    - start_time: Start time (ISO 8601 or 'YYYY-MM-DD HH:MM')
+    ⚠️ ВАЖНО: Этот инструмент ТРЕБУЕТ явного запроса пользователя на создание встречи!
+    НЕ используй для простых запросов "покажи встречи" — используй get_calendar_events.
     
-    Optional:
-    - end_time: End time (or use duration)
-    - duration: Event duration (e.g., '1h', '30m')
-    - attendees: List of attendee email addresses
-    - description: Event description
-    - location: Event location
-    - timezone: Timezone (default: Europe/Moscow)
+    Обязательные параметры:
+    - title: Название события
+    - start_time: Время начала (ISO 8601 или 'YYYY-MM-DD HH:MM')
+    
+    Опциональные параметры:
+    - end_time: Время окончания (или используй duration)
+    - duration: Длительность события (например, '1h', '30m')
+    - attendees: Список email адресов участников
+    - description: Описание события
+    - location: Место проведения
+    - timezone: Часовой пояс (по умолчанию: Europe/Moscow)
+    
+    Ключевые слова: создать встречу, создать событие, запланировать встречу, добавить в календарь.
     """
     args_schema: type = CreateEventInput
     
@@ -370,11 +375,11 @@ class GetCalendarEventsInput(BaseModel):
     
     start_time: Optional[str] = Field(
         default="сегодня", 
-        description="Start of time range. DEFAULTS TO 'сегодня' (today) if not specified. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'на прошлой неделе' (previous calendar week Mon-Sun), 'за прошлые две недели' (past two weeks), 'в текущем месяце', 'в январе', 'в первом квартале', 'в 2026', ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
+        description="Start of time range. DEFAULTS TO 'сегодня' (today) if not specified. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'на следующей неделе' (next week), 'на прошлой неделе' (previous calendar week Mon-Sun), 'за прошлые две недели' (past two weeks), 'в текущем месяце', 'в январе', 'в первом квартале', 'в 2026', ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
     )
     end_time: Optional[str] = Field(
         default=None, 
-        description="End of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'на прошлой неделе' (previous calendar week Mon-Sun), 'за прошлые две недели' (past two weeks), 'в текущем месяце', 'в январе', 'в первом квартале', 'в 2026', ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
+        description="End of time range. Supports natural language: 'сегодня' (today), 'завтра' (tomorrow), 'на неделе' (this week), 'на следующей неделе' (next week), 'на прошлой неделе' (previous calendar week Mon-Sun), 'за прошлые две недели' (past two weeks), 'в текущем месяце', 'в январе', 'в первом квартале', 'в 2026', ISO 8601 format, or 'YYYY-MM-DD HH:MM'. Timezone is automatically handled."
     )
     attendee_filter: Optional[str] = Field(
         default=None,
@@ -388,31 +393,40 @@ class GetCalendarEventsTool(BaseTool):
     
     name: str = "get_calendar_events"
     description: str = """
-    Get calendar events for a time range, optionally filtered by attendees.
+    Получить события календаря Google за указанный период, опционально отфильтрованные по участникам.
     
-    IMPORTANT: You can use natural language for dates:
-    - 'сегодня' (today) - events for today
-    - 'завтра' (tomorrow) - events for tomorrow
-    - 'на неделе' or 'на этой неделе' (this week) - events for current week (Monday to Sunday)
-    - 'за прошлую неделю' or 'на прошлой неделе' (last week) - events for previous calendar week (Monday to Sunday)
-    - 'за прошлые две недели' or 'за последние две недели' (past two weeks) - events for past 14 days
-    - 'в январе', 'в феврале', etc. - events for specific month
-    - 'в текущем месяце', 'в прошлом месяце' - events for current/previous month
-    - ISO 8601 format: '2024-01-15T14:30:00+03:00'
-    - Simple format: '2024-01-15 14:30'
+    📋 ПРИМЕРЫ ИСПОЛЬЗОВАНИЯ:
+    - События на неделю: start_time="next_week" или "на следующей неделе"
+    - События сегодня: start_time="today" или "сегодня"
+    - События завтра: start_time="tomorrow" или "завтра"
+    - Конкретный период: start_time="2026-01-20", end_time="2026-01-27"
+    - С событиями участника: start_time="на неделе", attendee_filter="Марат"
+    - С несколькими участниками: start_time="на неделе", attendee_filter="Марат и Аня"
     
-    ATTENDEE FILTERING (use attendee_filter parameter):
-    - 'Марат' or 'marat@' - events with this attendee (partial match supported)
-    - 'Марат и Аня' - events with BOTH attendees (AND)
-    - 'Марат или Аня' - events with ANY of these attendees (OR)
-    - '@lad24.ru' - events with attendees from this domain
+    ⚠️ НЕ НУЖНО вычислять даты программно!
+    Инструмент сам понимает "на следующей неделе", "завтра" и т.д.
     
-    The system automatically handles timezone conversion.
+    Поддерживаемые форматы дат:
+    - 'сегодня' (today) - события на сегодня
+    - 'завтра' (tomorrow) - события на завтра
+    - 'на неделе' or 'на этой неделе' (this week) - события текущей недели (понедельник-воскресенье)
+    - 'на следующей неделе' (next week) - события следующей недели (понедельник-воскресенье)
+    - 'за прошлую неделю' or 'на прошлой неделе' (last week) - события прошлой недели
+    - 'за прошлые две недели' or 'за последние две недели' (past two weeks) - события за последние 14 дней
+    - 'в январе', 'в феврале', etc. - события за конкретный месяц
+    - 'в текущем месяце', 'в прошлом месяце' - события за текущий/прошлый месяц
+    - ISO 8601 формат: '2024-01-15T14:30:00+03:00'
+    - Простой формат: '2024-01-15 14:30'
     
-    Examples:
-    - start_time='в январе', attendee_filter='marat@' - events in January with marat@
-    - start_time='на неделе', attendee_filter='Марат и Аня' - this week's events with both Marat AND Anna
-    - start_time='сегодня', attendee_filter='@lad24.ru' - today's events with lad24.ru attendees
+    ФИЛЬТРАЦИЯ ПО УЧАСТНИКАМ (параметр attendee_filter):
+    - 'Марат' or 'marat@' - события с этим участником (поддерживается частичное совпадение)
+    - 'Марат и Аня' - события с ОБОИМИ участниками (AND)
+    - 'Марат или Аня' - события с ЛЮБЫМ из участников (OR)
+    - '@lad24.ru' - события с участниками из этого домена
+    
+    Система автоматически обрабатывает конвертацию часовых поясов.
+    
+    Ключевые слова: встречи, события, календарь, расписание, мероприятия, встречи на неделе.
     """
     args_schema: type = GetCalendarEventsInput
     
@@ -474,6 +488,26 @@ class GetCalendarEventsTool(BaseTool):
                 else:
                     end_dt = parse_datetime(end_time, timezone)
                     args["timeMax"] = end_dt.isoformat()
+            # Handle "на следующей неделе" / "next week" - automatically set next week range
+            elif start_time and ("на следующей неделе" in start_lower or "следующей неделе" in start_lower or "next week" in start_lower):
+                # Calculate start of next week (Monday)
+                days_since_monday = now.weekday()  # 0 = Monday, 6 = Sunday
+                days_until_next_monday = 7 - days_since_monday
+                next_week_monday = now + timedelta(days=days_until_next_monday)
+                next_week_monday = next_week_monday.replace(hour=0, minute=0, second=0, microsecond=0)
+                next_week_sunday = next_week_monday + timedelta(days=6, hours=23, minutes=59, seconds=59)
+                
+                args["timeMin"] = next_week_monday.isoformat()
+                
+                # If end_time not specified, set to end of next week (Sunday)
+                end_lower = end_time.lower() if end_time else ""
+                if not end_time or "неделе" in end_lower or "week" in end_lower:
+                    args["timeMax"] = next_week_sunday.isoformat()
+                else:
+                    end_dt = parse_datetime(end_time, timezone)
+                    args["timeMax"] = end_dt.isoformat()
+                
+                logger.info(f"[GetCalendarEventsTool] 'на следующей неделе' detected: {next_week_monday.strftime('%Y-%m-%d')} to {next_week_sunday.strftime('%Y-%m-%d')}")
             # Handle "на неделе" / "this week" - automatically set week range
             elif start_time and ("на неделе" in start_time.lower() or "на этой неделе" in start_time.lower() or "this week" in start_time.lower()):
                 # Calculate start of current week (Monday)
@@ -517,15 +551,28 @@ class GetCalendarEventsTool(BaseTool):
                 
                 # Only call parse_datetime if date_range didn't work
                 if not date_range_parsed:
-                    start_dt = parse_datetime(start_time, timezone)
-                    args["timeMin"] = start_dt.isoformat()
+                    # PHASE 0 FIX: For "сегодня" and "завтра", use start of day, not current time
+                    start_lower = start_time.lower() if start_time else ""
+                    if "сегодня" in start_lower or "today" in start_lower:
+                        # Set timeMin to start of today (00:00:00)
+                        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                        args["timeMin"] = day_start.isoformat()
+                    elif "завтра" in start_lower or "tomorrow" in start_lower:
+                        # Set timeMin to start of tomorrow (00:00:00)
+                        tomorrow = now + timedelta(days=1)
+                        day_start = tomorrow.replace(hour=0, minute=0, second=0, microsecond=0)
+                        args["timeMin"] = day_start.isoformat()
+                    else:
+                        start_dt = parse_datetime(start_time, timezone)
+                        args["timeMin"] = start_dt.isoformat()
                 
                 # If end_time not specified and start_time is "сегодня" or "завтра", set end to end of that day
                 if not end_time:
-                    if "сегодня" in start_time.lower() or "today" in start_time.lower():
+                    start_lower = start_time.lower() if start_time else ""
+                    if "сегодня" in start_lower or "today" in start_lower:
                         end_dt = now.replace(hour=23, minute=59, second=59, microsecond=0)
                         args["timeMax"] = end_dt.isoformat()
-                    elif "завтра" in start_time.lower() or "tomorrow" in start_time.lower():
+                    elif "завтра" in start_lower or "tomorrow" in start_lower:
                         tomorrow = now + timedelta(days=1)
                         end_dt = tomorrow.replace(hour=23, minute=59, second=59, microsecond=0)
                         args["timeMax"] = end_dt.isoformat()
@@ -546,8 +593,26 @@ class GetCalendarEventsTool(BaseTool):
                     end_dt = parse_datetime(end_time, timezone)
                 args["timeMax"] = end_dt.isoformat()
             
+            # #region agent log
+            import json as _debug_json_cal; import time as _debug_time_cal
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_cal:
+                    _debug_f_cal.write(_debug_json_cal.dumps({"id":f"log_{int(_debug_time_cal.time()*1000)}_calendar_tool_args","timestamp":int(_debug_time_cal.time()*1000),"location":"calendar_tools.py:549","message":"get_calendar_events calling MCP list_events","data":{"start_time":start_time,"end_time":end_time,"mcp_args":args,"timezone":timezone},"sessionId":"debug-session","runId":"run1","hypothesisId":"J"}) + '\n')
+            except:
+                pass
+            # #endregion
+            
             mcp_manager = get_mcp_manager()
             result = await mcp_manager.call_tool("list_events", args, server_name="calendar")
+            
+            # #region agent log
+            try:
+                result_preview = str(result)[:500] if result else "None"
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_cal:
+                    _debug_f_cal.write(_debug_json_cal.dumps({"id":f"log_{int(_debug_time_cal.time()*1000)}_calendar_mcp_result","timestamp":int(_debug_time_cal.time()*1000),"location":"calendar_tools.py:551","message":"MCP list_events returned result","data":{"result_type":type(result).__name__,"result_preview":result_preview},"sessionId":"debug-session","runId":"run1","hypothesisId":"J"}) + '\n')
+            except:
+                pass
+            # #endregion
             
             # Handle MCP result format (TextContent list or dict)
             if isinstance(result, list) and len(result) > 0:
@@ -571,6 +636,15 @@ class GetCalendarEventsTool(BaseTool):
                     result = {"items": [], "count": 0}
             
             events = result.get("items", []) if isinstance(result, dict) else []
+            
+            # #region agent log
+            try:
+                events_count = len(events) if isinstance(events, list) else 0
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_cal:
+                    _debug_f_cal.write(_debug_json_cal.dumps({"id":f"log_{int(_debug_time_cal.time()*1000)}_calendar_events_parsed","timestamp":int(_debug_time_cal.time()*1000),"location":"calendar_tools.py:573","message":"Parsed events from MCP result","data":{"events_count":events_count,"has_attendee_filter":bool(attendee_filter)},"sessionId":"debug-session","runId":"run1","hypothesisId":"J"}) + '\n')
+            except:
+                pass
+            # #endregion
             
             # Apply attendee filter if provided
             if attendee_filter:

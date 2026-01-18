@@ -29,12 +29,14 @@ class AddRowsTool(BaseTool):
     
     name: str = "add_rows"
     description: str = """
-    Add rows of data to a Google Sheets spreadsheet.
+    Добавить строки данных в Google Sheets таблицу.
     
-    Input:
-    - spreadsheet_id: The ID of the spreadsheet
-    - sheet_name: Name of the sheet within the spreadsheet
-    - values: List of rows, where each row is a list of cell values
+    Параметры:
+    - spreadsheet_id: ID таблицы
+    - sheet_name: Имя листа в таблице
+    - values: Список строк, где каждая строка — это список значений ячеек
+    
+    Ключевые слова: добавить строки, вставить данные, добавить данные в таблицу.
     """
     args_schema: type = AddRowsInput
     
@@ -94,12 +96,14 @@ class UpdateCellsTool(BaseTool):
     
     name: str = "update_cells"
     description: str = """
-    Update cells in a Google Sheets spreadsheet.
+    Обновить ячейки в Google Sheets таблице.
     
-    Input:
-    - spreadsheet_id: The ID of the spreadsheet
-    - range: Cell range in A1 notation (e.g., 'A1:B10', 'Sheet1!A1:B10')
-    - values: Values to write (list of rows, where each row is a list of cell values)
+    Параметры:
+    - spreadsheet_id: ID таблицы
+    - range: Диапазон ячеек в нотации A1 (например, 'A1:B10', 'Sheet1!A1:B10')
+    - values: Значения для записи (список строк, где каждая строка — это список значений ячеек)
+    
+    Ключевые слова: обновить ячейки, изменить данные, записать в таблицу, обновить таблицу.
     """
     args_schema: type = UpdateCellsInput
     
@@ -156,11 +160,13 @@ class CreateSpreadsheetTool(BaseTool):
     
     name: str = "create_spreadsheet"
     description: str = """
-    Create a new Google Sheets spreadsheet.
+    Создать новую Google Sheets таблицу.
     
-    Input:
-    - title: Title of the spreadsheet
-    - sheet_names: Optional list of initial sheet names (default: ['Sheet1'])
+    Параметры:
+    - title: Название таблицы
+    - sheet_names: Опциональный список имен начальных листов (по умолчанию: ['Sheet1'])
+    
+    Ключевые слова: создать таблицу, новая таблица, создать spreadsheet.
     """
     args_schema: type = CreateSpreadsheetInput
     
@@ -230,12 +236,14 @@ class GetSheetDataTool(BaseTool):
     
     name: str = "get_sheet_data"
     description: str = """
-    Read data from a Google Sheets spreadsheet.
+    Прочитать данные из Google Sheets таблицы.
     
-    Input:
-    - spreadsheet_id: The ID of the spreadsheet
-    - range: Cell range in A1 notation (e.g., 'A1:B10', 'Sheet1!A1:B10')
-    - sheet_name: Optional sheet name (if not included in range)
+    Параметры:
+    - spreadsheet_id: ID таблицы
+    - range: Диапазон ячеек в нотации A1 (например, 'A1:B10', 'Sheet1!A1:B10')
+    - sheet_name: Опциональное имя листа (если не указано в range)
+    
+    Ключевые слова: прочитать таблицу, получить данные, показать таблицу, данные из таблицы.
     """
     args_schema: type = GetSheetDataInput
     
@@ -705,22 +713,22 @@ class GetAllSheetsDataTool(BaseTool):
     
     name: str = "get_all_sheets_data"
     description: str = """
-    ⚠️ USE THIS TOOL when analyzing data from spreadsheets with multiple tabs/sheets!
+    ⚠️ ИСПОЛЬЗУЙ ЭТОТ ИНСТРУМЕНТ при анализе данных из таблиц с несколькими вкладками/листами!
     
-    Read data from ALL sheets in a Google Sheets spreadsheet in ONE call.
-    This is the PREFERRED tool for:
-    - Analysis tasks requiring data from multiple tabs
-    - Comparing data across different sheets
-    - Creating charts/dashboards from multi-sheet data
-    - Any task where user mentions "несколько вкладок", "две вкладки", "все вкладки"
+    Прочитать данные из ВСЕХ листов Google Sheets таблицы за ОДИН вызов.
+    Это ПРЕДПОЧТИТЕЛЬНЫЙ инструмент для:
+    - Задач анализа, требующих данные из нескольких вкладок
+    - Сравнения данных между разными листами
+    - Создания графиков/дашбордов из данных нескольких листов
+    - Любых задач, где пользователь упоминает "несколько вкладок", "две вкладки", "все вкладки"
     
-    DO NOT use get_sheet_data if you need data from multiple tabs - use this tool instead!
+    ❌ НЕ используй get_sheet_data если нужны данные из нескольких вкладок — используй этот инструмент!
     
-    Input:
-    - spreadsheet_id: The ID or URL of the spreadsheet
-    - max_rows: Maximum rows to read per sheet (default: 1000, use 0 for all rows)
+    Параметры:
+    - spreadsheet_id: ID или URL таблицы
+    - max_rows: Максимальное количество строк для чтения с каждого листа (по умолчанию: 1000, используй 0 для всех строк)
     
-    Returns JSON with structure:
+    Возвращает JSON со структурой:
     {
       "spreadsheetTitle": "...",
       "sheets": [
@@ -729,11 +737,13 @@ class GetAllSheetsDataTool(BaseTool):
       ]
     }
     
-    Each sheet in the "sheets" array contains:
-    - name: Sheet name/tab name
-    - values: 2D array of cell values (first row is usually headers)
-    - rowCount: Number of rows
-    - columnCount: Number of columns
+    Каждый лист в массиве "sheets" содержит:
+    - name: Имя листа/вкладки
+    - values: 2D массив значений ячеек (первая строка обычно заголовки)
+    - rowCount: Количество строк
+    - columnCount: Количество столбцов
+    
+    Ключевые слова: все листы, несколько вкладок, все данные таблицы, прочитать все листы.
     """
     args_schema: type = GetAllSheetsDataInput
     

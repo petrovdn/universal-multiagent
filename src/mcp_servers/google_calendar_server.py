@@ -359,6 +359,15 @@ class GoogleCalendarMCPServer:
                     time_max = arguments.get("timeMax")
                     max_results = arguments.get("maxResults", 10)
                     
+                    # #region agent log
+                    import json as _debug_json_srv; import time as _debug_time_srv
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_srv:
+                            _debug_f_srv.write(_debug_json_srv.dumps({"id":f"log_{int(_debug_time_srv.time()*1000)}_calendar_server_list_events","timestamp":int(_debug_time_srv.time()*1000),"location":"google_calendar_server.py:362","message":"MCP server list_events called","data":{"calendar_id":calendar_id,"time_min":time_min,"time_max":time_max,"max_results":max_results},"sessionId":"debug-session","runId":"run1","hypothesisId":"K"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    
                     events_result = service.events().list(
                         calendarId=calendar_id,
                         timeMin=time_min,
@@ -369,6 +378,14 @@ class GoogleCalendarMCPServer:
                     ).execute()
                     
                     events = events_result.get('items', [])
+                    
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_srv:
+                            _debug_f_srv.write(_debug_json_srv.dumps({"id":f"log_{int(_debug_time_srv.time()*1000)}_calendar_server_api_result","timestamp":int(_debug_time_srv.time()*1000),"location":"google_calendar_server.py:371","message":"Google Calendar API returned events","data":{"events_count":len(events),"has_items_key":'items' in events_result},"sessionId":"debug-session","runId":"run1","hypothesisId":"K"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
                     return [TextContent(
                         type="text",
                         text=json.dumps({

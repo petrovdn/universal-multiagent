@@ -27,11 +27,13 @@ class CreateDocumentTool(BaseTool):
     
     name: str = "create_document"
     description: str = """
-    Create a new Google Docs document in the workspace folder.
+    Создать новый документ Google Docs в рабочей папке.
     
-    Input:
-    - title: Title of the document
-    - initial_text: Optional initial text content
+    Параметры:
+    - title: Название документа
+    - initial_text: Опциональный начальный текст
+    
+    Ключевые слова: создать документ, новый документ, создать Google Docs.
     """
     args_schema: type = CreateDocumentInput
     
@@ -84,10 +86,12 @@ class ReadDocumentTool(BaseTool):
     
     name: str = "read_document"
     description: str = """
-    Read the full content of a Google Docs document.
+    Прочитать полное содержимое документа Google Docs.
     
-    Input:
-    - document_id: Document ID or URL
+    Параметры:
+    - document_id: ID документа или URL
+    
+    Ключевые слова: прочитать документ, открыть документ, показать документ, содержимое документа.
     """
     args_schema: type = ReadDocumentInput
     

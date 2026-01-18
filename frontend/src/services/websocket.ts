@@ -752,8 +752,16 @@ export class WebSocketClient {
         const finalWorkflowId = iterStartWorkflowId
         const finalIntentId = eventIntentId || iterStartStateAfter.activeIntentId
         
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:752',message:'iteration_start - BEFORE startIteration',data:{eventIntentId,iterStartWorkflowId,finalIntentId,hasWorkflow:!!finalWorkflowId,hasIntent:!!finalIntentId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
+        // #endregion
+        
         if (finalWorkflowId && finalIntentId) {
           chatStore.startIteration(finalWorkflowId, finalIntentId, iterNumber)
+        } else {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:760',message:'iteration_start - SKIPPED startIteration - missing workflow or intent',data:{finalWorkflowId,finalIntentId,eventIntentId,activeWorkflowId:iterStartStateAfter.activeWorkflowId,activeIntentId:iterStartStateAfter.activeIntentId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'M'})}).catch(()=>{});
+          // #endregion
         }
         break
       }
@@ -881,14 +889,34 @@ export class WebSocketClient {
 
       case 'parallel_branch_iteration_start': {
         console.log('[WebSocket] Parallel branch iteration started:', event.data)
-        const branchIterStartState = useChatStore.getState()
-        const branchIterStartWorkflowId = branchIterStartState.activeWorkflowId
-        const branchIterStartIntentId = event.data.intent_id || branchIterStartState.activeIntentId
+        const branchIterStartIntentId = event.data.intent_id
         const branchId = event.data.branch_id
         const iterationNumber = event.data.iteration_number || 1
+        
+        // PHASE 0 FIX: Find workflow that contains this intent_id (don't create new one)
+        // The workflow was already created in parallel_branch_start
+        let branchIterStartWorkflowId: string | null = null
+        const branchIterStartState = useChatStore.getState()
+        // Search for workflow that contains the intent
+        for (const [workflowId, intents] of Object.entries(branchIterStartState.intentBlocks)) {
+          if (intents.some(i => i.id === branchIterStartIntentId)) {
+            branchIterStartWorkflowId = workflowId
+            break
+          }
+        }
+        
+        // If not found, try ensureActiveWorkflow as fallback
+        if (!branchIterStartWorkflowId) {
+          branchIterStartWorkflowId = ensureActiveWorkflow()
+        }
+        
         // #region agent log
-        const existingIntentsForIter = branchIterStartState.intentBlocks[branchIterStartWorkflowId] || []
+        const existingIntentsForIter = branchIterStartState.intentBlocks[branchIterStartWorkflowId || ''] || []
         const targetIntentForIter = existingIntentsForIter.find(i => i.id === branchIterStartIntentId)
+        // PHASE 0 FIX: Create intent if it doesn't exist (since intent_start is disabled)
+        if (branchIterStartWorkflowId && branchIterStartIntentId && !targetIntentForIter) {
+          chatStore.startIntent(branchIterStartWorkflowId, branchIterStartIntentId, 'Выполняю задачу...')
+        }
         const targetBranchForIter = targetIntentForIter?.parallelBranches?.find(b => b.branchId === branchId)
         fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:859',message:'parallel_branch_iteration_start - BEFORE startBranchIteration',data:{event_intent_id:event.data.intent_id,event_branch_id:branchId,resolved_intent_id:branchIterStartIntentId,workflowId:branchIterStartWorkflowId,intentFound:!!targetIntentForIter,branchFound:!!targetBranchForIter,existingIntentIds:existingIntentsForIter.map(i=>i.id),existingBranchIds:targetIntentForIter?.parallelBranches?.map(b=>b.branchId)||[]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
         // #endregion

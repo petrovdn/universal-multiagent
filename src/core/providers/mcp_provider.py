@@ -1,8 +1,11 @@
 """
 MCP Tool Provider - wraps existing MCP/LangChain tools as ActionProvider.
 Loads all MCP tools and classifies them as READ or WRITE capabilities.
+
+Теперь использует динамическую генерацию tools из MCP серверов для гарантии синхронизации.
 """
 
+import asyncio
 from typing import Dict, List
 from langchain_core.tools import BaseTool
 
@@ -12,6 +15,7 @@ from src.core.action_provider import (
     ProviderType,
     CapabilityCategory
 )
+from src.core.mcp_tool_factory import load_tools_from_mcp_servers
 from src.utils.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -26,72 +30,208 @@ class MCPToolProvider(ActionProvider):
     def __init__(self):
         """Initialize MCP tool provider and load all tools."""
         self.tools: Dict[str, BaseTool] = {}
+        self._mcp_tools_loaded = False
+        
+        # #region agent log - начало инициализации
+        import json as _debug_json_init; import time as _debug_time_init
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_init:
+                _debug_f_init.write(_debug_json_init.dumps({"id":f"log_{int(_debug_time_init.time()*1000)}_mcp_provider_init_start","timestamp":int(_debug_time_init.time()*1000),"location":"mcp_provider.py:30","message":"MCPToolProvider __init__ started","data":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"INIT"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         self._load_all_tools()
+        
+        # #region agent log - конец инициализации
+        try:
+            tool_names = list(self.tools.keys())
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_init:
+                _debug_f_init.write(_debug_json_init.dumps({"id":f"log_{int(_debug_time_init.time()*1000)}_mcp_provider_init_end","timestamp":int(_debug_time_init.time()*1000),"location":"mcp_provider.py:35","message":"MCPToolProvider __init__ completed","data":{"tools_count":len(self.tools),"tool_names":tool_names,"has_list_emails":"list_emails" in tool_names,"has_search_emails":"search_emails" in tool_names,"has_get_calendar_events":"get_calendar_events" in tool_names,"mcp_tools_loaded":self._mcp_tools_loaded},"sessionId":"debug-session","runId":"run1","hypothesisId":"INIT"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         logger.info(f"[MCPToolProvider] Loaded {len(self.tools)} MCP tools")
     
     def _load_all_tools(self):
-        """Load all MCP tools from tool modules."""
+        """
+        Load all MCP tools.
+        
+        Приоритет:
+        1. Динамическая загрузка из MCP серверов (гарантирует синхронизацию)
+        2. Fallback на ручные обёртки (для кастомной логики или если MCP недоступен)
+        """
         tools = []
         
+        # ШАГ 1: Попытка загрузить tools динамически из MCP серверов
         try:
-            # Load workspace tools
-            from src.mcp_tools.workspace_tools import get_workspace_tools
-            tools.extend(get_workspace_tools())
+            logger.info("[MCPToolProvider] Attempting to load tools from MCP servers...")
             
-            # Load sheets tools
-            from src.mcp_tools.sheets_tools import get_sheets_tools
-            tools.extend(get_sheets_tools())
-            
-            # Load gmail tools
-            from src.mcp_tools.gmail_tools import get_gmail_tools
-            tools.extend(get_gmail_tools())
-            
-            # Load calendar tools
-            from src.mcp_tools.calendar_tools import get_calendar_tools
-            tools.extend(get_calendar_tools())
-            
-            # Load slides tools
-            from src.mcp_tools.slides_tools import get_slides_tools
-            slides_tools_list = get_slides_tools()
-            tools.extend(slides_tools_list)
-            
-            # Load docs tools
-            from src.mcp_tools.docs_tools import get_docs_tools
-            tools.extend(get_docs_tools())
-            
-            # Load 1C tools
+            # Проверяем, есть ли уже запущенный event loop
             try:
-                from src.mcp_tools.onec_tools import get_onec_tools
-                tools.extend(get_onec_tools())
-            except ImportError:
-                logger.debug("[MCPToolProvider] 1C tools not available")
-            
-            # Load Project Lad tools
-            try:
-                from src.mcp_tools.projectlad_tools import get_projectlad_tools
-                projectlad_tools_list = get_projectlad_tools()
-                tools.extend(projectlad_tools_list)
-            except ImportError as e:
-                logger.debug("[MCPToolProvider] ProjectLad tools not available")
-            
-            # Load code execution tools
+                loop = asyncio.get_running_loop()
+                # Если loop уже запущен, создаём task в нём
+                # Но в __init__ это обычно не так, поэтому используем другой подход
+                logger.warning(
+                    "[MCPToolProvider] Event loop already running, "
+                    "MCP tools will be loaded lazily on first use. Using manual wrappers as fallback."
+                )
+                # #region agent log - event loop уже запущен
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_loop:
+                        _debug_f_loop.write(_debug_json_build.dumps({"id":f"log_{int(_debug_time_build.time()*1000)}_event_loop_running","timestamp":int(_debug_time_build.time()*1000),"location":"mcp_provider.py:53","message":"Event loop already running, skipping MCP load","data":{"will_use_manual_wrappers":True},"sessionId":"debug-session","runId":"run1","hypothesisId":"LOOP"}) + '\n')
+                except:
+                    pass
+                # #endregion
+                # Помечаем, что нужно загрузить позже
+                self._mcp_tools_loaded = False
+            except RuntimeError:
+                # Нет запущенного loop - можем использовать asyncio.run()
+                mcp_tools = asyncio.run(load_tools_from_mcp_servers())
+                if mcp_tools:
+                    tools.extend(mcp_tools)
+                    # Логируем email tools для отладки
+                    email_tools = [t for t in mcp_tools if "email" in t.name.lower() or "gmail" in t.name.lower()]
+                    if email_tools:
+                        for tool in email_tools:
+                            desc_preview = tool.description[:150] if tool.description else "no description"
+                            logger.info(
+                                f"[MCPToolProvider] Loaded email tool from MCP: {tool.name} - "
+                                f"description: {desc_preview}... (has Russian: {'Русские ключевые слова' in (tool.description or '')})"
+                            )
+                    logger.info(f"[MCPToolProvider] Loaded {len(mcp_tools)} tools from MCP servers (email tools: {len(email_tools)})")
+                    self._mcp_tools_loaded = True
+                else:
+                    logger.warning("[MCPToolProvider] No tools loaded from MCP servers, using fallback")
+                    self._mcp_tools_loaded = False
+                    
+        except Exception as e:
+            logger.warning(
+                f"[MCPToolProvider] Failed to load tools from MCP servers: {e}. "
+                "Falling back to manual tool wrappers.",
+                exc_info=True
+            )
+            self._mcp_tools_loaded = False
+        
+        # ШАГ 2: Fallback на ручные обёртки (для инструментов с кастомной логикой)
+        # Загружаем только те, которые не были загружены из MCP
+        loaded_tool_names = {tool.name for tool in tools}
+        
+        # #region agent log - перед загрузкой ручных обёрток
+        import json as _debug_json_manual; import time as _debug_time_manual
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_manual:
+                _debug_f_manual.write(_debug_json_manual.dumps({"id":f"log_{int(_debug_time_manual.time()*1000)}_manual_wrappers_start","timestamp":int(_debug_time_manual.time()*1000),"location":"mcp_provider.py:90","message":"Loading manual tool wrappers","data":{"mcp_tools_loaded":self._mcp_tools_loaded,"loaded_tool_names":list(loaded_tool_names),"loaded_count":len(loaded_tool_names)},"sessionId":"debug-session","runId":"run1","hypothesisId":"LOAD"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
+        try:
+            # Code execution tools обычно не в MCP, загружаем вручную
             try:
                 from src.mcp_tools.code_execution_tools import get_code_execution_tools
-                tools.extend(get_code_execution_tools())
+                code_tools = get_code_execution_tools()
+                for tool in code_tools:
+                    if tool.name not in loaded_tool_names:
+                        tools.append(tool)
+                        logger.debug(f"[MCPToolProvider] Added manual wrapper: {tool.name}")
             except ImportError:
                 logger.debug("[MCPToolProvider] Code execution tools not available")
             
-            # Remove duplicates by name
-            seen_names = set()
-            for tool in tools:
-                if tool.name not in seen_names:
-                    seen_names.add(tool.name)
-                    self.tools[tool.name] = tool
-                else:
-                    logger.warning(f"[MCPToolProvider] Duplicate tool name: {tool.name}")
-                    
+            # КРИТИЧНО: Если MCP tools не загрузились (event loop уже запущен или ошибка),
+            # загружаем ручные обёртки для всех инструментов
+            if not self._mcp_tools_loaded or len(loaded_tool_names) == 0:
+                logger.warning(
+                    "[MCPToolProvider] MCP tools not loaded, loading manual wrappers for all tools"
+                )
+                
+                # Gmail tools
+                try:
+                    from src.mcp_tools.gmail_tools import get_gmail_tools
+                    gmail_tools = get_gmail_tools()
+                    for tool in gmail_tools:
+                        if tool.name not in loaded_tool_names:
+                            tools.append(tool)
+                            logger.info(f"[MCPToolProvider] Added manual Gmail wrapper: {tool.name}")
+                except ImportError as e:
+                    logger.warning(f"[MCPToolProvider] Failed to load Gmail tools: {e}")
+                
+                # Calendar tools
+                try:
+                    from src.mcp_tools.calendar_tools import get_calendar_tools
+                    calendar_tools = get_calendar_tools()
+                    for tool in calendar_tools:
+                        if tool.name not in loaded_tool_names:
+                            tools.append(tool)
+                            logger.info(f"[MCPToolProvider] Added manual Calendar wrapper: {tool.name}")
+                except ImportError as e:
+                    logger.warning(f"[MCPToolProvider] Failed to load Calendar tools: {e}")
+                
+                # Sheets tools
+                try:
+                    from src.mcp_tools.sheets_tools import get_sheets_tools
+                    sheets_tools = get_sheets_tools()
+                    for tool in sheets_tools:
+                        if tool.name not in loaded_tool_names:
+                            tools.append(tool)
+                            logger.info(f"[MCPToolProvider] Added manual Sheets wrapper: {tool.name}")
+                except ImportError as e:
+                    logger.warning(f"[MCPToolProvider] Failed to load Sheets tools: {e}")
+                
+                # Docs tools
+                try:
+                    from src.mcp_tools.docs_tools import get_docs_tools
+                    docs_tools = get_docs_tools()
+                    for tool in docs_tools:
+                        if tool.name not in loaded_tool_names:
+                            tools.append(tool)
+                            logger.info(f"[MCPToolProvider] Added manual Docs wrapper: {tool.name}")
+                except ImportError as e:
+                    logger.warning(f"[MCPToolProvider] Failed to load Docs tools: {e}")
+                
+                # Slides tools
+                try:
+                    from src.mcp_tools.slides_tools import get_slides_tools
+                    slides_tools = get_slides_tools()
+                    for tool in slides_tools:
+                        if tool.name not in loaded_tool_names:
+                            tools.append(tool)
+                            logger.info(f"[MCPToolProvider] Added manual Slides wrapper: {tool.name}")
+                except ImportError as e:
+                    logger.warning(f"[MCPToolProvider] Failed to load Slides tools: {e}")
+                
+                # Workspace tools
+                try:
+                    from src.mcp_tools.workspace_tools import get_workspace_tools
+                    workspace_tools = get_workspace_tools()
+                    for tool in workspace_tools:
+                        if tool.name not in loaded_tool_names:
+                            tools.append(tool)
+                            logger.info(f"[MCPToolProvider] Added manual Workspace wrapper: {tool.name}")
+                except ImportError as e:
+                    logger.warning(f"[MCPToolProvider] Failed to load Workspace tools: {e}")
+            
         except Exception as e:
-            logger.error(f"[MCPToolProvider] Failed to load some tools: {e}", exc_info=True)
+            logger.warning(f"[MCPToolProvider] Failed to load some manual wrappers: {e}", exc_info=True)
+        
+        # #region agent log - после загрузки ручных обёрток
+        try:
+            final_tool_names = [t.name for t in tools]
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_manual:
+                _debug_f_manual.write(_debug_json_manual.dumps({"id":f"log_{int(_debug_time_manual.time()*1000)}_manual_wrappers_end","timestamp":int(_debug_time_manual.time()*1000),"location":"mcp_provider.py:120","message":"Manual wrappers loaded","data":{"final_tool_count":len(tools),"final_tool_names":final_tool_names,"has_list_emails":any(t.name == "list_emails" for t in tools),"has_search_emails":any(t.name == "search_emails" for t in tools),"has_get_calendar_events":any(t.name == "get_calendar_events" for t in tools)},"sessionId":"debug-session","runId":"run1","hypothesisId":"LOAD"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
+        # Удаляем дубликаты (приоритет у MCP tools)
+        seen_names = set()
+        for tool in tools:
+            if tool.name not in seen_names:
+                seen_names.add(tool.name)
+                self.tools[tool.name] = tool
+            else:
+                logger.warning(f"[MCPToolProvider] Duplicate tool name: {tool.name}, keeping first")
     
     def get_capabilities(self) -> List[ActionCapability]:
         """Return list of capabilities from all loaded MCP tools."""
@@ -114,15 +254,24 @@ class MCPToolProvider(ActionProvider):
                 # Get service name
                 service = self._get_service(name)
                 
+                tool_description = tool.description or f"Tool: {name}"
                 capabilities.append(ActionCapability(
                     name=name,
-                    description=tool.description or f"Tool: {name}",
+                    description=tool_description,
                     category=category,
                     provider_type=ProviderType.MCP_TOOL,
                     input_schema=input_schema,
                     service=service,
                     tags=self._get_tags(name)
                 ))
+                
+                # Логируем описания для email tools для отладки
+                if "email" in name.lower() or "gmail" in name.lower() or "mail" in name.lower():
+                    logger.info(
+                        f"[MCPToolProvider] Email tool capability: {name} - "
+                        f"description length: {len(tool_description)}, "
+                        f"has Russian keywords: {'Русские ключевые слова' in tool_description}"
+                    )
             except Exception as e:
                 logger.error(f"[MCPToolProvider] Failed to create capability for {name}: {e}")
                 continue

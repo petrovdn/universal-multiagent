@@ -86,9 +86,25 @@ class UnifiedReActEngine:
         self.capabilities = self.registry.get_capabilities(
             categories=config.allowed_categories
         )
+        # #region agent log
+        import json as _debug_json_tools; import time as _debug_time_tools
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tools:
+                _debug_f_tools.write(_debug_json_tools.dumps({"id":f"log_{int(_debug_time_tools.time()*1000)}_capabilities_loaded","timestamp":int(_debug_time_tools.time()*1000),"location":"unified_react_engine.py:86","message":"Capabilities loaded from registry","data":{"capabilities_count":len(self.capabilities),"capability_names":[c.name for c in self.capabilities[:20]],"has_list_emails":any(c.name == "list_emails" for c in self.capabilities),"registry_providers_count":len(self.registry.providers),"provider_types":[p.provider_type.value for p in self.registry.providers]},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Build LLM tools from capabilities for planning
         self.tools = self._build_tools_from_capabilities()
+        # #region agent log
+        try:
+            tool_names = [t.name for t in self.tools]
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tools:
+                _debug_f_tools.write(_debug_json_tools.dumps({"id":f"log_{int(_debug_time_tools.time()*1000)}_tools_built","timestamp":int(_debug_time_tools.time()*1000),"location":"unified_react_engine.py:91","message":"Tools built from capabilities","data":{"tools_count":len(self.tools),"tool_names":tool_names[:30],"has_list_emails":any(t.name == "list_emails" for t in self.tools)},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Create LLM with thinking support
         self.llm = self._create_llm_with_thinking()
@@ -130,9 +146,9 @@ class UnifiedReActEngine:
         self.synthesis_agent = SynthesisAgent()
         
         # Smart tool selection (Phase 3.1)
-        # Feature flag: USE_SMART_TOOL_SELECTION (default: False for gradual rollout)
+        # Feature flag: USE_SMART_TOOL_SELECTION (default: True - semantic search for tools)
         import os
-        self.use_smart_tool_selection = os.getenv("USE_SMART_TOOL_SELECTION", "false").lower() == "true"
+        self.use_smart_tool_selection = os.getenv("USE_SMART_TOOL_SELECTION", "true").lower() == "true"
         
         self.smart_tool_selector = None
         self.skill_selector = None
@@ -148,12 +164,44 @@ class UnifiedReActEngine:
                 from src.core.skills.skill_selector import SkillSelector
                 from pathlib import Path
                 
+                # #region agent log - время инициализации SmartToolSelector
+                import json as _debug_json_init; import time as _debug_time_init
+                _smart_init_start = _debug_time_init.time()
+                # #endregion
+                
                 # Initialize SmartToolSelector
                 cache_dir = DATA_DIR / "tool_embeddings"
+                
+                # Опция для принудительного пересчета embeddings при перезагрузке сервера
+                # Установите FORCE_RECOMPUTE_EMBEDDINGS=true для пересчета всех embeddings
+                import os
+                force_recompute = os.getenv("FORCE_RECOMPUTE_EMBEDDINGS", "false").lower() == "true"
+                
+                if force_recompute:
+                    logger.info("[UnifiedReActEngine] FORCE_RECOMPUTE_EMBEDDINGS=true: will recompute all embeddings")
+                
+                _cache_init_start = _debug_time_init.time()
+                _cache_init_duration = 0  # Инициализация EmbeddingCache теперь внутри SmartToolSelector
+                
+                _selector_init_start = _debug_time_init.time()
+                # SmartToolSelector теперь предзагружает embeddings в память при инициализации
+                # Это позволяет избежать дисковых операций при каждом вызове select_tools
                 self.smart_tool_selector = SmartToolSelector(
                     capabilities=self.capabilities,
-                    cache_dir=cache_dir
+                    cache_dir=cache_dir,
+                    preload_embeddings=True,  # Предзагрузить embeddings в память
+                    force_recompute=force_recompute  # Принудительно пересчитать если флаг установлен
                 )
+                _selector_init_duration = _debug_time_init.time() - _selector_init_start
+                _smart_init_duration = _debug_time_init.time() - _smart_init_start
+                
+                # #region agent log - время инициализации SmartToolSelector
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_init:
+                        _debug_f_init.write(_debug_json_init.dumps({"id":f"log_{int(_debug_time_init.time()*1000)}_smart_selector_init","timestamp":int(_debug_time_init.time()*1000),"location":"unified_react_engine.py:178","message":"SmartToolSelector initialization completed","data":{"cache_init_ms":_cache_init_duration*1000,"selector_init_ms":_selector_init_duration*1000,"total_init_ms":_smart_init_duration*1000,"capabilities_count":len(self.capabilities)},"sessionId":"debug-session","runId":"run1","hypothesisId":"INIT_TIME"}) + '\n')
+                except:
+                    pass
+                # #endregion
                 
                 # Initialize SkillLoader and SkillSelector
                 project_root = Path(__file__).parent.parent.parent
@@ -250,14 +298,40 @@ class UnifiedReActEngine:
         tools = []
 
         # Get MCP provider if available
+        # #region agent log
+        import json as _debug_json_build; import time as _debug_time_build
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_build:
+                _debug_f_build.write(_debug_json_build.dumps({"id":f"log_{int(_debug_time_build.time()*1000)}_build_tools_start","timestamp":int(_debug_time_build.time()*1000),"location":"unified_react_engine.py:241","message":"Building tools from capabilities","data":{"providers_count":len(self.registry.providers),"provider_types":[p.provider_type.value for p in self.registry.providers]},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+        except:
+            pass
+        # #endregion
         for provider in self.registry.providers:
             if provider.provider_type.value == "mcp_tool":
                 # MCP provider has direct access to BaseTool instances
+                # #region agent log
+                try:
+                    has_tools_attr = hasattr(provider, 'tools')
+                    tools_dict_size = len(provider.tools) if has_tools_attr else 0
+                    provider_tool_names = list(provider.tools.keys())[:30] if has_tools_attr else []
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_build:
+                        _debug_f_build.write(_debug_json_build.dumps({"id":f"log_{int(_debug_time_build.time()*1000)}_mcp_provider_found","timestamp":int(_debug_time_build.time()*1000),"location":"unified_react_engine.py:255","message":"MCP provider found","data":{"has_tools_attr":has_tools_attr,"tools_dict_size":tools_dict_size,"provider_tool_names":provider_tool_names,"has_list_emails":has_tools_attr and "list_emails" in provider.tools},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+                except:
+                    pass
+                # #endregion
                 if hasattr(provider, 'tools'):
                     tools.extend(provider.tools.values())
                 break
 
         logger.info(f"[UnifiedReActEngine] Built {len(tools)} tools for LLM planning")
+        # #region agent log
+        try:
+            built_tool_names = [t.name for t in tools]
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_build:
+                _debug_f_build.write(_debug_json_build.dumps({"id":f"log_{int(_debug_time_build.time()*1000)}_build_tools_end","timestamp":int(_debug_time_build.time()*1000),"location":"unified_react_engine.py:260","message":"Tools built successfully","data":{"tools_count":len(tools),"built_tool_names":built_tool_names[:30],"has_list_emails":any(t.name == "list_emails" for t in tools)},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+        except:
+            pass
+        # #endregion
         return tools
     
     def _create_fast_llm(self) -> BaseChatModel:
@@ -661,7 +735,12 @@ class UnifiedReActEngine:
         if use_existing_intent_id:
             task_intent_id = use_existing_intent_id
             self._current_intent_id = task_intent_id
-            self._use_existing_intent_id = use_existing_intent_id  # Store for ReAct loop to send parallel_branch_iteration events
+            # PHASE 0 FIX: Only set _use_existing_intent_id if it's not None (for parallel branches)
+            # For simple queries, use_existing_intent_id is None, so we should NOT set it
+            if use_existing_intent_id is not None:
+                self._use_existing_intent_id = use_existing_intent_id  # Store for ReAct loop to send parallel_branch_iteration events
+            else:
+                self._use_existing_intent_id = None  # Explicitly clear for simple queries
             logger.info(f"[UnifiedReActEngine] Using existing intent_id for subtask: {task_intent_id}")
             # #region agent log
             import json
@@ -775,12 +854,6 @@ class UnifiedReActEngine:
                 # Fallback to normal ReAct cycle
                 logger.info(f"[UnifiedReActEngine] Falling back to normal ReAct cycle")
         
-        _needs_tools_start = time.time()
-        # NOW check if query needs tools (may take 500-2000ms with LLM)
-        # Check if query needs tools or can be answered directly (like Cursor does)
-        # Pass file_ids to detect questions about attached files (e.g., "что видишь?")
-        needs_tools = await self._needs_tools(goal, context, file_ids)
-        _needs_tools_end = time.time()
         # Анализируем сложность задачи и выбираем модель/budget
         complexity = self.complexity_analyzer.analyze(goal)
         
@@ -792,29 +865,9 @@ class UnifiedReActEngine:
             # Используем основную модель с адаптивным budget
             self.llm = self._create_llm_with_thinking(complexity.budget_tokens)
         
-        # Запускаем SmartProgress с оценочным временем (только если нужны инструменты)
-        if needs_tools:
-            await self.smart_progress.start(goal, complexity.estimated_duration_sec)
-        
-        if not needs_tools:
-            # Simple query - answer directly without tools
-            logger.info(f"[UnifiedReActEngine] Simple query detected, answering directly without tools")
-            # Complete the intent since we're finishing early
-            # PHASE 0 FIX: Disable intent_complete events
-            # if self._current_intent_id:
-            #     await self.ws_manager.send_event(
-            #         self.session_id,
-            #         "intent_complete",
-            #         {
-            #             "intent_id": self._current_intent_id,
-            #             "summary": "Завершено"
-            #         }
-            #     )
-            try:
-                return await self._answer_directly(goal, context, state)
-            except Exception as e:
-                logger.warning(f"[UnifiedReActEngine] Direct answer failed, falling back to ReAct: {e}")
-                # Continue with normal ReAct loop if direct answer fails
+        # Запускаем SmartProgress с оценочным временем
+        # Всегда запускаем ReAct цикл - LLM сам решит, нужны ли инструменты
+        await self.smart_progress.start(goal, complexity.estimated_duration_sec)
         
         # Send start event (legacy)
         await self.ws_manager.send_event(
@@ -831,6 +884,17 @@ class UnifiedReActEngine:
             "thinking_started",
             {"thinking_id": self._current_thinking_id, "started_at": int(time.time() * 1000)}
         )
+        
+        # #region agent log - время начала ReAct цикла
+        import time as _debug_time_loop
+        _react_loop_start = _debug_time_loop.time()
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_loop:
+                import json as _debug_json_loop
+                _debug_f_loop.write(_debug_json_loop.dumps({"id":f"log_{int(_debug_time_loop.time()*1000)}_react_loop_start","timestamp":int(_debug_time_loop.time()*1000),"location":"unified_react_engine.py:885","message":"ReAct loop starting","data":{"goal":goal[:100],"max_iterations":state.max_iterations},"sessionId":"debug-session","runId":"run1","hypothesisId":"TIMING"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         try:
             # Main ReAct loop
@@ -853,10 +917,22 @@ class UnifiedReActEngine:
                 # CRITICAL: If use_existing_intent_id is set (from parallel branch execution),
                 # we need to send parallel_branch_iteration_* events instead of regular iteration_* events
                 # The use_existing_intent_id is the branch_id from parallel_branch_start
-                if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
+                use_existing_value = getattr(self, '_use_existing_intent_id', None)
+                is_parallel = hasattr(self, '_use_existing_intent_id') and use_existing_value is not None
+                # #region agent log
+                import json as _debug_json_iter; import time as _debug_time_iter
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_iter:
+                        _debug_f_iter.write(_debug_json_iter.dumps({"id":f"log_{int(_debug_time_iter.time()*1000)}_iteration_start_decision","timestamp":int(_debug_time_iter.time()*1000),"location":"unified_react_engine.py:898","message":"Decision: parallel_branch_iteration_start vs iteration_start","data":{"has_attr":hasattr(self,'_use_existing_intent_id'),"use_existing_value":use_existing_value,"is_parallel":is_parallel,"iteration_intent_id":iteration_intent_id,"iteration_number":state.iteration},"sessionId":"debug-session","runId":"run1","hypothesisId":"N"}) + '\n')
+                except:
+                    pass
+                # #endregion
+                if is_parallel:
                     branch_id = self._use_existing_intent_id
-                    # Main task intent_id (parent intent) - use _task_intent_id or saved intent from parent execution
-                    main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                    # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
+                    # Main task intent_id (parent intent) - use from context or fallback to _task_intent_id
+                    main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
                     await self.ws_manager.send_event(
                         self.session_id,
                         "parallel_branch_iteration_start",
@@ -895,9 +971,11 @@ class UnifiedReActEngine:
                 think_duration = _think_plan_end - _think_plan_start
                 
                 # CRITICAL: If this is a parallel branch iteration, send parallel_branch_iteration events
-                if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
+                if hasattr(self, '_use_existing_intent_id') and getattr(self, '_use_existing_intent_id', None) is not None:
                     branch_id = self._use_existing_intent_id
-                    main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                    # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
+                    main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
                     await self.ws_manager.send_event(
                         self.session_id,
                         "parallel_branch_iteration_thinking_complete",
@@ -922,9 +1000,11 @@ class UnifiedReActEngine:
                 # === Send iteration_thinking_result event (Cursor-style) ===
                 thinking_result = self._determine_thinking_result(action_plan)
                 if thinking_result:
-                    if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                    # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
+                    if hasattr(self, '_use_existing_intent_id') and getattr(self, '_use_existing_intent_id', None) is not None:
                         branch_id = self._use_existing_intent_id
-                        main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                        # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
+                        main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
                         await self.ws_manager.send_event(
                             self.session_id,
                             "parallel_branch_iteration_thinking_result",
@@ -953,9 +1033,12 @@ class UnifiedReActEngine:
                 state.status = "acting"
                 planned_tool = action_plan.get("tool_name", "")
                 # #region agent log
-                import json as _debug_json; import time as _debug_time
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_execute_start","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:693","message":"Starting action execution","data":{"planned_tool":planned_tool,"goal":state.goal[:100] if state.goal else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+                import json as _debug_json_planned; import time as _debug_time_planned
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_planned:
+                        _debug_f_planned.write(_debug_json_planned.dumps({"id":f"log_{int(_debug_time_planned.time()*1000)}_planned_tool_initial","timestamp":int(_debug_time_planned.time()*1000),"location":"unified_react_engine.py:991","message":"Initial planned_tool from action_plan","data":{"planned_tool":planned_tool,"goal":state.goal[:100],"action_plan_tool_name":action_plan.get("tool_name","")},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+                except:
+                    pass
                 # #endregion
                 
                 # === Send iteration_plan event ===
@@ -1372,50 +1455,59 @@ class UnifiedReActEngine:
                 
                 # === UNIVERSAL ANTI-LOOP: Detect repeated failed tool calls ===
                 # If same tool failed 2+ times (not necessarily consecutive), block it
-                if planned_tool.upper() != "FINISH" and len(state.observations) >= 2:
-                    # Count ALL failures of the same tool (not just consecutive)
-                    failed_same_tool_count = sum(
-                        1 for obs in state.observations 
-                        if obs.action.tool_name == planned_tool and not obs.success
-                    )
+                # NEW FALLBACK LOGIC: Try next tool from relevant_tools list (max 3 attempts)
+                if planned_tool.upper() != "FINISH" and hasattr(self, '_current_relevant_tools') and self._current_relevant_tools:
+                    # Count how many tools from relevant_tools list we've tried
+                    tried_relevant_tools = [
+                        obs.action.tool_name 
+                        for obs in state.observations 
+                        if obs.action.tool_name in self._current_relevant_tools and not obs.success
+                    ]
+                    attempts_count = len(tried_relevant_tools)
                     
-                    if failed_same_tool_count >= 2:
-                        # Tool failed 2+ times, we need to try something different
-                        logger.warning(f"[UnifiedReActEngine] UNIVERSAL ANTI-LOOP: Tool {planned_tool} failed {failed_same_tool_count} times in a row!")
+                    if attempts_count >= 1 and attempts_count < 3:
+                        # Find next tool from relevant_tools list that we haven't tried
+                        next_tool = None
+                        for tool_name in self._current_relevant_tools:
+                            if tool_name not in tried_relevant_tools:
+                                next_tool = tool_name
+                                break
                         
-                        # Map blocked tool to alternative
-                        tool_alternatives = {
-                            "find_and_open_file": "read_document",  # Google Docs
-                            "open_file": "read_document",
-                            "search_files": "list_workspace_files",
-                        }
-                        
-                        alternative = tool_alternatives.get(planned_tool)
-                        if alternative:
-                            logger.info(f"[UnifiedReActEngine] Switching from {planned_tool} to {alternative}")
+                        if next_tool:
+                            logger.info(f"[UnifiedReActEngine] Tool {planned_tool} failed ({attempts_count} attempt(s)), switching to next relevant tool: {next_tool}")
                             
-                            # Get document ID from previous attempts if available
-                            doc_id = None
-                            for obs in state.observations:
-                                if "Сказка" in str(obs.raw_result) or "сказка" in str(obs.raw_result):
-                                    # Try to extract document ID
-                                    import re
-                                    id_match = re.search(r'ID[:\s]+([a-zA-Z0-9_-]{20,})', str(obs.raw_result))
-                                    if id_match:
-                                        doc_id = id_match.group(1)
-                                        break
+                            # #region agent log - tool alternative switch
+                            import json as _debug_json_alt; import time as _debug_time_alt
+                            try:
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_alt:
+                                    _debug_f_alt.write(_debug_json_alt.dumps({"id":f"log_{int(_debug_time_alt.time()*1000)}_tool_next_relevant","timestamp":int(_debug_time_alt.time()*1000),"location":"unified_react_engine.py:1425","message":"Switching to next relevant tool","data":{"previous_tool":planned_tool,"next_tool":next_tool,"attempts_count":attempts_count,"relevant_tools":self._current_relevant_tools,"tried_tools":tried_relevant_tools,"goal":state.goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+                            except:
+                                pass
+                            # #endregion
+                            
+                            # Get error from last observation for context
+                            last_error = ""
+                            if state.observations:
+                                last_obs = state.observations[-1]
+                                if last_obs.error_message:
+                                    last_error = last_obs.error_message[:200]
+                                elif not last_obs.success:
+                                    last_error = str(last_obs.raw_result)[:200]
+                            
+                            # Store error for next prompt
+                            self._last_tool_error = last_error
                             
                             # Override action_plan
                             action_plan = {
-                                "tool_name": alternative,
-                                "arguments": {"query": "сказка"} if not doc_id else {"document_id": doc_id},
-                                "description": f"Автоматическое переключение с {planned_tool} на {alternative}",
-                                "reasoning": f"Инструмент {planned_tool} не работает, пробуем {alternative}"
+                                "tool_name": next_tool,
+                                "arguments": action_plan.get("arguments", {}),  # Keep same arguments
+                                "description": f"Переключение на следующий релевантный инструмент: {next_tool}",
+                                "reasoning": f"Инструмент {planned_tool} не сработал (попытка {attempts_count}/3). Пробуем следующий релевантный инструмент из списка."
                             }
-                            planned_tool = alternative
-                        else:
-                            # No known alternative, force FINISH with explanation
-                            logger.warning(f"[UnifiedReActEngine] No alternative for {planned_tool}, forcing FINISH")
+                            planned_tool = next_tool
+                        elif attempts_count >= 3:
+                            # All relevant tools tried, force FINISH
+                            logger.warning(f"[UnifiedReActEngine] All {attempts_count} attempts on relevant tools failed, forcing FINISH")
                             _last_obs = state.observations[-1] if state.observations else None
                             _error_msg = "неизвестная"
                             if _last_obs:
@@ -1426,7 +1518,7 @@ class UnifiedReActEngine:
                             action_plan = {
                                 "tool_name": "FINISH",
                                 "arguments": {},
-                                "final_answer": f"Не удалось выполнить задачу: инструмент {planned_tool} недоступен или не работает корректно. Ошибка: {_error_msg}"
+                                "final_answer": f"Не удалось выполнить задачу: испробовано {attempts_count} инструментов из релевантных, ни один не сработал. Последняя ошибка: {_error_msg}"
                             }
                             planned_tool = "FINISH"
                 
@@ -1434,6 +1526,14 @@ class UnifiedReActEngine:
                 # IMPORTANT: Check transitions even if task wasn't initially detected as multi-phase
                 # This allows dynamic detection when different tool categories are used
                 if planned_tool.upper() != "FINISH":
+                    # #region agent log
+                    import json as _debug_json_before_exec; import time as _debug_time_before_exec
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_before_exec:
+                            _debug_f_before_exec.write(_debug_json_before_exec.dumps({"id":f"log_{int(_debug_time_before_exec.time()*1000)}_planned_tool_before_exec","timestamp":int(_debug_time_before_exec.time()*1000),"location":"unified_react_engine.py:1476","message":"planned_tool before execution","data":{"planned_tool":planned_tool,"goal":state.goal[:100],"action_plan_tool_name":action_plan.get("tool_name",""),"initial_tool":action_plan.get("tool_name","")},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
                     new_category = self._get_tool_category(planned_tool)
                     # Check if we're transitioning to a new phase
                     # Allow transition if:
@@ -1687,9 +1787,11 @@ class UnifiedReActEngine:
                 
                 # === Send iteration_action_start event for UI ===
                 action_title = self._get_tool_display_name(planned_tool, action_plan.get("arguments", {}))
-                if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
+                if hasattr(self, '_use_existing_intent_id') and getattr(self, '_use_existing_intent_id', None) is not None:
                     branch_id = self._use_existing_intent_id
-                    main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                    # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
+                    main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
                     await self.ws_manager.send_event(
                         self.session_id,
                         "parallel_branch_iteration_action_start",
@@ -1716,9 +1818,47 @@ class UnifiedReActEngine:
                 # Сохраняем state для доступа в _execute_action (для auto-fix input_data)
                 self._current_state = state
                 
+                # #region agent log - action_plan before execution
+                import json as _debug_json_exec; import time as _debug_time_exec
+                try:
+                    action_plan_tool_name = action_plan.get("tool_name", "") if isinstance(action_plan, dict) else "not_dict"
+                    planned_tool_str = str(planned_tool) if planned_tool else "None"
+                    tool_names_match = (action_plan_tool_name == planned_tool_str)
+                    action_plan_args = action_plan.get("arguments", {}) if isinstance(action_plan.get("arguments"), dict) else {}
+                    # Логируем сами значения аргументов (особенно важно для query, days и других параметров)
+                    arguments_values = {k: (str(v)[:200] if v else None) for k, v in action_plan_args.items()}
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_exec:
+                        _debug_f_exec.write(_debug_json_exec.dumps({"id":f"log_{int(_debug_time_exec.time()*1000)}_action_plan_before_exec","timestamp":int(_debug_time_exec.time()*1000),"location":"unified_react_engine.py:1770","message":"action_plan before _execute_action","data":{"tool_name":action_plan_tool_name,"planned_tool":planned_tool_str,"tool_names_match":tool_names_match,"goal":state.goal[:100],"arguments_keys":list(action_plan_args.keys()),"arguments_values":arguments_values,"action_plan_keys":list(action_plan.keys()) if isinstance(action_plan, dict) else "not_dict","is_list_emails":action_plan_tool_name=="list_emails","is_list_workspace":action_plan_tool_name=="list_workspace_files"},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
+                except:
+                    pass
+                # #endregion
+                
+                # CRITICAL: Ensure action_plan["tool_name"] matches planned_tool before execution
+                # This prevents cases where planned_tool was changed but action_plan wasn't updated
+                if action_plan.get("tool_name") != planned_tool:
+                    # #region agent log - tool name mismatch
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_exec:
+                            _debug_f_exec.write(_debug_json_exec.dumps({"id":f"log_{int(_debug_time_exec.time()*1000)}_tool_name_mismatch","timestamp":int(_debug_time_exec.time()*1000),"location":"unified_react_engine.py:1780","message":"MISMATCH: action_plan tool_name != planned_tool","data":{"action_plan_tool_name":action_plan.get("tool_name"),"planned_tool":planned_tool,"goal":state.goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    # Use planned_tool (which is the most up-to-date value)
+                    action_plan["tool_name"] = planned_tool
+                
                 try:
                     result = await self._execute_action(action_plan, context)
                     _exec_action_end = time.time()
+                    # #region agent log
+                    import json as _debug_json_action; import time as _debug_time_action
+                    try:
+                        result_str = str(result)[:500] if result else "None"
+                        result_type = type(result).__name__
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_action:
+                            _debug_f_action.write(_debug_json_action.dumps({"id":f"log_{int(_debug_time_action.time()*1000)}_action_result","timestamp":int(_debug_time_action.time()*1000),"location":"unified_react_engine.py:1766","message":"Tool action executed and got result","data":{"tool_name":action_plan.get("tool_name"),"result_type":result_type,"result_length":len(str(result)) if result else 0,"result_preview":result_str,"is_parallel":getattr(self,'_is_parallel_subtask',False)},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
                     
                     # === Update source as completed (Phase 1.2) ===
                     # Skip for orchestrated tasks (no source tracking to prevent old card UI)
@@ -1731,9 +1871,11 @@ class UnifiedReActEngine:
                     
                     # === Send iteration_action_complete event for UI ===
                     result_summary = "Выполнено"
-                    if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                    # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
+                    if hasattr(self, '_use_existing_intent_id') and getattr(self, '_use_existing_intent_id', None) is not None:
                         branch_id = self._use_existing_intent_id
-                        main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                        # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
+                        main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
                         await self.ws_manager.send_event(
                             self.session_id,
                             "parallel_branch_iteration_action_complete",
@@ -1759,6 +1901,14 @@ class UnifiedReActEngine:
                     error_msg = str(e)
                     logger.error(f"[UnifiedReActEngine] Action execution failed: {error_msg}")
                     
+                    # CRITICAL: Log error details for debugging
+                    import json as _debug_json_err; import time as _debug_time_err
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_err:
+                            _debug_f_err.write(_debug_json_err.dumps({"id":f"log_{int(_debug_time_err.time()*1000)}_tool_execution_error","timestamp":int(_debug_time_err.time()*1000),"location":"unified_react_engine.py:1856","message":"Tool execution error","data":{"tool_name":planned_tool,"error_message":error_msg[:500],"error_type":type(e).__name__,"arguments":str(action_plan.get("arguments",{}))[:200],"goal":state.goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                    except:
+                        pass
+                    
                     # === Update source as error (Phase 1.2) ===
                     # Skip for orchestrated tasks (no source tracking to prevent old card UI)
                     if source_id:
@@ -1769,9 +1919,11 @@ class UnifiedReActEngine:
                         )
                     
                     # === Send iteration_action_complete event for UI (error case) ===
-                    if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                    # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
+                    if hasattr(self, '_use_existing_intent_id') and getattr(self, '_use_existing_intent_id', None) is not None:
                         branch_id = self._use_existing_intent_id
-                        main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                        # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
+                        main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
                         await self.ws_manager.send_event(
                             self.session_id,
                             "parallel_branch_iteration_action_complete",
@@ -1834,6 +1986,30 @@ class UnifiedReActEngine:
                 observation.success = analysis.is_success
                 observation.error_message = analysis.error_message
                 observation.extracted_data = analysis.extracted_data
+                
+                # CRITICAL: Store error for next prompt if tool failed
+                # This allows LLM to retry with different parameters if error is about parameters
+                if not analysis.is_success and analysis.error_message:
+                    self._last_tool_error = analysis.error_message
+                    # Also check if error is about parameters (can retry with different params)
+                    error_lower = analysis.error_message.lower()
+                    is_param_error = any(keyword in error_lower for keyword in [
+                        "parameter", "param", "argument", "arg", "invalid", "missing", 
+                        "required", "неверный", "параметр", "аргумент", "неправильный",
+                        "отсутствует", "требуется", "invalid id", "invalid value",
+                        "not found", "tool.*not found", "available tools"
+                    ])
+                    # Also check if it's a tool execution error that might be fixable
+                    is_tool_error = any(keyword in error_lower for keyword in [
+                        "tool.*not found", "available tools", "failed to", "error"
+                    ])
+                    if is_param_error or is_tool_error:
+                        # Mark that this tool can be retried with different parameters or approach
+                        self._can_retry_with_params = True
+                        self._failed_tool_name = action_record.tool_name
+                    else:
+                        self._can_retry_with_params = False
+                        self._failed_tool_name = None
                 
                 state.add_reasoning_step("observe", f"Analysis: {analysis.progress_toward_goal:.0%} progress", {
                     "success": analysis.is_success,
@@ -1930,6 +2106,18 @@ class UnifiedReActEngine:
             
             # Max iterations reached
             logger.warning(f"[UnifiedReActEngine] Max iterations reached")
+            _react_loop_end = time.time()
+            _react_loop_duration = _react_loop_end - _react_loop_start
+            
+            # #region agent log - время окончания ReAct цикла
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_loop_end:
+                    import json as _debug_json_loop_end
+                    _debug_f_loop_end.write(_debug_json_loop_end.dumps({"id":f"log_{int(time.time()*1000)}_react_loop_end","timestamp":int(time.time()*1000),"location":"unified_react_engine.py:2100","message":"ReAct loop ended","data":{"duration_ms":_react_loop_duration*1000,"iterations":state.iteration,"reason":"max_iterations"},"sessionId":"debug-session","runId":"run1","hypothesisId":"TIMING"}) + '\n')
+            except:
+                pass
+            # #endregion
+            
             return await self._finalize_timeout(state, context)
             
         except Exception as e:
@@ -1950,6 +2138,10 @@ class UnifiedReActEngine:
     async def _needs_tools(self, goal: str, context: ConversationContext, file_ids: Optional[List[str]] = None) -> bool:
         """
         Determine if the query needs tools or can be answered directly.
+        
+        NOTE: This method is DEPRECATED and no longer used in the main execution flow.
+        We always run ReAct cycle now - LLM decides whether to use tools or not.
+        Kept for potential future use or debugging.
         
         Simple queries (greetings, simple questions) don't need tools.
         Complex queries (data retrieval, file operations) need tools.
@@ -3159,7 +3351,8 @@ class UnifiedReActEngine:
             self.thought_content = ""
             self.thinking_id = f"thinking_{session_id}_{int(time.time() * 1000)}"
             # Check if this is a parallel branch iteration
-            self.is_parallel_branch = engine and hasattr(engine, '_use_existing_intent_id') and engine._use_existing_intent_id
+            # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
+            self.is_parallel_branch = engine and hasattr(engine, '_use_existing_intent_id') and getattr(engine, '_use_existing_intent_id', None) is not None
             self.branch_id = engine._use_existing_intent_id if self.is_parallel_branch else None
             
             # Для стриминга Python кода в реальном времени
@@ -3978,7 +4171,7 @@ class UnifiedReActEngine:
                 return {
                     "tool_name": fallback_cap.name,
                     "arguments": {},
-                    "description": f"Fallback: использование {fallback_cap.name}",
+                    "description": f"Выполняю {fallback_cap.name}",
                     "reasoning": f"Ошибка планирования: {str(e)}. Используется fallback инструмент."
                 }
             else:
@@ -3997,6 +4190,16 @@ class UnifiedReActEngine:
         Использует SmartToolSelector если включен (USE_SMART_TOOL_SELECTION=true),
         иначе использует keyword-based подход (legacy).
         """
+        # #region agent log - доступные инструменты перед выбором
+        import json as _debug_json_avail; import time as _debug_time_avail
+        try:
+            available_cap_names = [c.name for c in self.capabilities]
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_avail:
+                _debug_f_avail.write(_debug_json_avail.dumps({"id":f"log_{int(_debug_time_avail.time()*1000)}_available_capabilities","timestamp":int(_debug_time_avail.time()*1000),"location":"unified_react_engine.py:4136","message":"Available capabilities before tool selection","data":{"goal":goal,"capabilities_count":len(self.capabilities),"capability_names":available_cap_names,"has_list_emails":"list_emails" in available_cap_names,"has_search_emails":"search_emails" in available_cap_names,"has_get_calendar_events":"get_calendar_events" in available_cap_names,"has_execute_python_code":"execute_python_code" in available_cap_names},"sessionId":"debug-session","runId":"run1","hypothesisId":"AVAIL"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         # Try smart tool selection first (if enabled)
         if self.use_smart_tool_selection and self.smart_tool_selector:
             try:
@@ -4012,10 +4215,10 @@ class UnifiedReActEngine:
                 # Convert to dict format
                 result = []
                 for cap in selected_caps:
-                    desc = cap.description[:200]  # Limit description length
+                    # Не обрезаем описание - передаём полное для лучшего понимания LLM
                     result.append({
                         "name": cap.name,
-                        "description": desc
+                        "description": cap.description
                     })
                 
                 # Always add FINISH
@@ -4025,10 +4228,21 @@ class UnifiedReActEngine:
                         "description": "Завершить задачу, когда все шаги выполнены"
                     })
                 
+                selected_names = [t["name"] for t in result]
                 logger.info(
                     f"[UnifiedReActEngine] Smart tool selection: {len(result)} tools selected "
                     f"in {_smart_select_duration:.3f}s for goal: {goal[:50]}"
                 )
+                logger.info(f"[UnifiedReActEngine] Selected tools: {selected_names}")
+                
+                # #region agent log - результат выбора инструментов
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_select:
+                        _debug_f_select.write(_debug_json_avail.dumps({"id":f"log_{int(_debug_time_avail.time()*1000)}_tools_selected","timestamp":int(_debug_time_avail.time()*1000),"location":"unified_react_engine.py:4188","message":"Tools selected by SmartToolSelector","data":{"goal":goal,"selected_tools":selected_names,"selected_count":len(result),"selection_duration":_smart_select_duration,"has_list_emails":"list_emails" in selected_names,"has_search_emails":"search_emails" in selected_names},"sessionId":"debug-session","runId":"run1","hypothesisId":"SELECT"}) + '\n')
+                except:
+                    pass
+                # #endregion
+                
                 return result[:7]  # Max 7 tools
                 
             except Exception as e:
@@ -4165,7 +4379,7 @@ class UnifiedReActEngine:
         calendar_tool_params = {
             "schedule_group_meeting": "Input: title (ОБЯЗАТЕЛЬНО! заголовок встречи), attendees (list of emails), duration (default '50m'), description (optional), working_hours_start (hour 0-23, default 9, для 'после обеда' используй 13), working_hours_end (hour 0-23, default 18), confirmed (False для поиска времени, True для создания), slot_start (required when confirmed=True). ПРОЦЕСС: 1) Вызов с confirmed=False → находит время, 2) Показываешь пользователю → ждешь подтверждения, 3) Вызов с confirmed=True + slot_start → создает встречу",
             "create_event": "Input: title (ОБЯЗАТЕЛЬНО!), start_time (ISO format), attendees (optional list), description (optional), location (optional)",
-            "get_calendar_events": "Input: start_time (ОБЯЗАТЕЛЬНО! используй '15 января' или '2026-01-15' для конкретной даты), end_time (optional), max_results (default 10), attendee_filter (optional). Примеры: start_time='15 января', start_time='сегодня', start_time='на неделе'"
+            "get_calendar_events": "Input: start_time (ОБЯЗАТЕЛЬНО! ВАЖНО: если пользователь говорит 'на неделе', 'на этой неделе', 'за неделю' - используй start_time='на неделе', НЕ 'сегодня'! Используй '15 января' или '2026-01-15' для конкретной даты, 'сегодня' только если пользователь явно говорит 'сегодня'). Примеры: start_time='на неделе' (для запросов 'посмотри на неделю'), start_time='сегодня' (только если пользователь говорит 'сегодня'), start_time='15 января'"
         }
         
         # Для 1С salary tool - приоритетное описание
@@ -4299,6 +4513,15 @@ if salary_sheet:
         
         final_result = result[:7]  # Максимум 7 инструментов
         
+        # #region agent log - результат keyword-based выбора
+        try:
+            selected_names = [t["name"] for t in final_result]
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_keyword:
+                _debug_f_keyword.write(_debug_json_avail.dumps({"id":f"log_{int(_debug_time_avail.time()*1000)}_keyword_tools_selected","timestamp":int(_debug_time_avail.time()*1000),"location":"unified_react_engine.py:4467","message":"Tools selected by keyword-based fallback","data":{"goal":goal,"selected_tools":selected_names,"selected_count":len(final_result),"filtered_names":filtered_names if 'filtered_names' in locals() else [],"relevant_tool_names_before_filter":list(relevant_tool_names) if 'relevant_tool_names' in locals() else [],"has_list_emails":"list_emails" in selected_names,"has_search_emails":"search_emails" in selected_names},"sessionId":"debug-session","runId":"run1","hypothesisId":"KEYWORD"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         return final_result
     
     def _determine_next_step(self, goal: str, completed_tools: List[str], observations: List) -> str:
@@ -4428,6 +4651,14 @@ if salary_sheet:
         
         # Собираем список выполненных инструментов
         completed_tools = [a.tool_name for a in state.action_history] if state.action_history else []
+        # #region agent log
+        import json as _debug_json_think; import time as _debug_time_think
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_think:
+                _debug_f_think.write(_debug_json_think.dumps({"id":f"log_{int(_debug_time_think.time()*1000)}_think_and_plan_state","timestamp":int(_debug_time_think.time()*1000),"location":"unified_react_engine.py:4472","message":"_think_and_plan state check","data":{"goal":state.goal[:100] if state.goal else None,"completed_tools":completed_tools,"action_history_count":len(state.action_history) if state.action_history else 0,"use_existing_intent_id":getattr(self,'_use_existing_intent_id',None),"current_intent_id":self._current_intent_id,"task_intent_id":getattr(self,'_task_intent_id',None)},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Определяем следующий шаг
         _next_step_start = time.time()
@@ -4440,7 +4671,21 @@ if salary_sheet:
         relevant_tools = self._get_relevant_tools(state.goal, completed_tools)
         _tools_duration = time.time() - _tools_start
         logger.info(f"[UnifiedReActEngine] _get_relevant_tools took {_tools_duration:.3f}s, selected {len(relevant_tools)} tools")
+        
+        # CRITICAL: Store relevant tools list for fallback logic
+        # Tools are already sorted by relevance (first is most relevant)
+        self._current_relevant_tools = [t['name'] for t in relevant_tools]
+        
         tools_str = "\n".join([f"- {t['name']}: {t['description']}" for t in relevant_tools])
+        # #region agent log
+        import json as _debug_json_tools; import time as _debug_time_tools
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tools:
+                tool_names = [t['name'] for t in relevant_tools]
+                _debug_f_tools.write(_debug_json_tools.dumps({"id":f"log_{int(_debug_time_tools.time()*1000)}_relevant_tools_selected","timestamp":int(_debug_time_tools.time()*1000),"location":"unified_react_engine.py:4503","message":"Relevant tools selected for LLM","data":{"goal":state.goal[:100],"tool_names":tool_names,"has_list_emails":"list_emails" in tool_names,"has_list_workspace":"list_workspace_files" in tool_names,"tools_count":len(relevant_tools)},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Select relevant skill (if smart tool selection is enabled)
         skill_instructions = ""
@@ -4469,9 +4714,23 @@ if salary_sheet:
             logger.info(f"[UnifiedReActEngine] Skill selection took {_skill_duration:.3f}s")
         
         # ===== СЕКЦИЯ 1: TASK_STATUS (в начале!) =====
+        # Подсчитываем количество неудачных попыток подряд
+        consecutive_errors = 0
+        if state.action_history and state.observations:
+            for i in range(len(state.action_history) - 1, -1, -1):
+                if i < len(state.observations) and state.observations[i] and not state.observations[i].success:
+                    consecutive_errors += 1
+                else:
+                    break
+        
+        # Если 3 или больше ошибок подряд - запросить помощь у пользователя
+        error_status = ""
+        if consecutive_errors >= 3:
+            error_status = f"\n⚠️ КРИТИЧНО: {consecutive_errors} неудачных попыток подряд. Нужна помощь пользователя для продолжения."
+        
         task_status = f"""<task_status>
 Цель: {state.goal}
-Итерация: {state.iteration} из {state.max_iterations}
+Итерация: {state.iteration}{error_status}
 Дата: {current_date_str}
 </task_status>"""
         
@@ -4496,14 +4755,44 @@ if salary_sheet:
                         result_preview = f" → {str(obs.raw_result)[:150]}..."
                 completed_lines.append(f"{i+1}. {action.tool_name} — {status}{result_preview}")
             
+            # Determine if we can retry failed tools (if error was about parameters)
+            can_retry_note = ""
+            if hasattr(self, '_can_retry_with_params') and self._can_retry_with_params and hasattr(self, '_failed_tool_name') and self._failed_tool_name:
+                can_retry_note = f"\n\n⚠️ ВАЖНО: Инструмент {self._failed_tool_name} завершился с ошибкой параметров. МОЖНО повторить этот инструмент с ДРУГИМИ параметрами!"
+            
             completed_section = f"""
 <completed_actions>
-ВЫПОЛНЕННЫЕ ДЕЙСТВИЯ (НЕ ПОВТОРЯЙ!):
-{chr(10).join(completed_lines)}
+ВЫПОЛНЕННЫЕ ДЕЙСТВИЯ:
+{chr(10).join(completed_lines)}{can_retry_note}
+
+ПРАВИЛО: Не повторяй одно и то же действие с теми же параметрами. Но если действие завершилось с ошибкой параметров - МОЖНО повторить с другими параметрами.
 </completed_actions>"""
         
-        # ===== СЕКЦИЯ 3: NEXT_REQUIRED_STEP (явное указание) =====
-        blocked_tools = ", ".join(completed_tools) if completed_tools else "нет"
+        # ===== СЕКЦИЯ 3: PREVIOUS_ERRORS (если были ошибки при предыдущих попытках) =====
+        error_section = ""
+        if hasattr(self, '_last_tool_error') and self._last_tool_error:
+            retry_instruction = ""
+            if hasattr(self, '_can_retry_with_params') and self._can_retry_with_params and hasattr(self, '_failed_tool_name') and self._failed_tool_name:
+                retry_instruction = f"\n\n💡 РЕШЕНИЕ: Попробуй использовать инструмент {self._failed_tool_name} снова, но с ДРУГИМИ параметрами, которые соответствуют ошибке выше."
+            else:
+                retry_instruction = "\n\n💡 РЕШЕНИЕ: Попробуй другой подход или другой инструмент."
+            
+            error_section = f"""
+<previous_errors>
+⚠️ ПРЕДЫДУЩАЯ ПОПЫТКА НЕ УДАЛАСЬ:
+{self._last_tool_error}{retry_instruction}
+</previous_errors>"""
+            # Clear error after using it (but keep retry flags for completed_section)
+            # Don't clear _can_retry_with_params and _failed_tool_name yet - they're used in completed_section
+        
+        # ===== СЕКЦИЯ 4: NEXT_REQUIRED_STEP (явное указание) =====
+        # Исключаем failed_tool_name из blocked_tools, если можно повторить с другими параметрами
+        tools_to_block = completed_tools.copy() if completed_tools else []
+        if hasattr(self, '_can_retry_with_params') and self._can_retry_with_params and hasattr(self, '_failed_tool_name') and self._failed_tool_name:
+            # Если инструмент можно повторить с другими параметрами - не блокируем его
+            if self._failed_tool_name in tools_to_block:
+                tools_to_block.remove(self._failed_tool_name)
+        blocked_tools = ", ".join(tools_to_block) if tools_to_block else "нет"
         
         # Специальные блокировки для get_all_sheets_data
         extra_blocked = []
@@ -4532,7 +4821,7 @@ if salary_sheet:
 ЗАПРЕЩЕНО ПОВТОРЯТЬ: {blocked_str}
 </next_required_step>"""
         
-        # ===== СЕКЦИЯ 4: CONTEXT (открытые файлы, прикреплённые файлы) =====
+        # ===== СЕКЦИЯ 5: CONTEXT (открытые файлы, прикреплённые файлы) =====
         context_section = ""
         
         # Открытые файлы
@@ -4731,8 +5020,35 @@ if salary_sheet:
         
         # ===== СОБИРАЕМ ПРОМПТ =====
         # Порядок критичен! История СРАЗУ после статуса (первые 10% контекста)
+        # #region agent log - tools in prompt
+        import json as _debug_json_prompt; import time as _debug_time_prompt
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_prompt:
+                _debug_f_prompt.write(_debug_json_prompt.dumps({"id":f"log_{int(_debug_time_prompt.time()*1000)}_tools_in_prompt","timestamp":int(_debug_time_prompt.time()*1000),"location":"unified_react_engine.py:4806","message":"Tools included in prompt","data":{"goal":state.goal[:100],"tools_str_preview":tools_str[:500] if tools_str else "empty","tools_count":len(relevant_tools),"has_list_emails":"list_emails" in tools_str if tools_str else False,"has_list_workspace":"list_workspace_files" in tools_str if tools_str else False},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
+        # CRITICAL: Log prompt content for debugging
+        import json as _debug_json_prompt_full; import time as _debug_time_prompt_full
+        try:
+            prompt_content = f"""{task_status}
+{completed_section}
+{error_section}
+{next_step_section}
+{context_section}
+{skill_instructions}
+{tools_section}
+{rules_section}
+{format_section}"""
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_prompt_full:
+                _debug_f_prompt_full.write(_debug_json_prompt_full.dumps({"id":f"log_{int(_debug_time_prompt_full.time()*1000)}_prompt_full_content","timestamp":int(_debug_time_prompt_full.time()*1000),"location":"unified_react_engine.py:4882","message":"Full prompt content for next iteration","data":{"goal":state.goal[:100],"iteration":state.iteration,"completed_actions_count":len(state.action_history) if state.action_history else 0,"has_error_section":bool(error_section),"error_message":self._last_tool_error[:200] if hasattr(self, '_last_tool_error') and self._last_tool_error else None,"can_retry_with_params":getattr(self, '_can_retry_with_params', False),"failed_tool_name":getattr(self, '_failed_tool_name', None),"prompt_length":len(prompt_content),"completed_section_preview":completed_section[:500],"error_section_preview":error_section[:500] if error_section else None},"sessionId":"debug-session","runId":"run1","hypothesisId":"H"}) + '\n')
+        except:
+            pass
+        
         prompt = f"""{task_status}
 {completed_section}
+{error_section}
 {next_step_section}
 {context_section}
 {skill_instructions}
@@ -4746,6 +5062,19 @@ if salary_sheet:
                 HumanMessage(content=prompt)
             ]
             
+            # CRITICAL: Создаём llm_with_tools ТОЛЬКО с релевантными инструментами
+            # Это предотвращает выбор инструментов, которых нет в списке релевантных
+            relevant_tool_names = [t['name'] for t in relevant_tools]
+            
+            # #region agent log - полный промт для LLM
+            import json as _debug_json_prompt_complete; import time as _debug_time_prompt_complete
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_prompt_complete:
+                    _debug_f_prompt_complete.write(_debug_json_prompt_complete.dumps({"id":f"log_{int(_debug_time_prompt_complete.time()*1000)}_llm_prompt_complete","timestamp":int(_debug_time_prompt_complete.time()*1000),"location":"unified_react_engine.py:4979","message":"COMPLETE PROMPT sent to LLM on this iteration","data":{"iteration":state.iteration,"goal":state.goal,"system_message":messages[0].content if messages else None,"prompt_text":prompt,"prompt_length":len(prompt),"relevant_tools":relevant_tools,"relevant_tool_names":relevant_tool_names,"completed_actions_count":len(state.action_history) if state.action_history else 0,"has_error_section":bool(error_section),"last_tool_error":self._last_tool_error if hasattr(self, '_last_tool_error') and self._last_tool_error else None,"can_retry_with_params":getattr(self, '_can_retry_with_params', False),"failed_tool_name":getattr(self, '_failed_tool_name', None)},"sessionId":"debug-session","runId":"run1","hypothesisId":"PROMPT"}) + '\n')
+            except:
+                pass
+            # #endregion
+            
             # Создаём парсер для стриминга thought
             # ВАЖНО: Используем _task_intent_id (первый intent) для ВСЕХ итераций,
             # чтобы все iteration_thinking_chunk шли в один intent block
@@ -4758,19 +5087,30 @@ if salary_sheet:
                 iteration_number=state.iteration,
                 engine=self  # Передаем engine для сохранения operation_id
             )
+            relevant_base_tools = [t for t in self.tools if t.name in relevant_tool_names]
             
-            # Используем основную модель для ВСЕХ итераций
-            # Haiku на итерациях 2+ игнорирует историю действий (Lost in the Middle)
-            # Sonnet более надёжно следует инструкциям
-            llm_to_use = self.llm
+            # Создаём llm_with_tools только с релевантными инструментами
+            llm_with_relevant_tools = self.llm.bind_tools(relevant_base_tools)
+            llm_to_use = llm_with_relevant_tools
+            
+            # #region agent log
+            import json as _debug_json_llm_use; import time as _debug_time_llm_use
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_llm_use:
+                    _debug_f_llm_use.write(_debug_json_llm_use.dumps({"id":f"log_{int(_debug_time_llm_use.time()*1000)}_llm_with_relevant_tools","timestamp":int(_debug_time_llm_use.time()*1000),"location":"unified_react_engine.py:4826","message":"Using llm_with_relevant_tools (filtered)","data":{"relevant_tools_count":len(relevant_base_tools),"relevant_tool_names":[t.name for t in relevant_base_tools],"all_tools_count":len(self.tools),"has_list_emails":any(t.name == "list_emails" for t in relevant_base_tools),"has_list_workspace":any(t.name == "list_workspace_files" for t in relevant_base_tools)},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+            except:
+                pass
+            # #endregion
             
             # Стримим ответ
             import time
             _llm_start = time.time()
             full_response = ""
             _chunk_count = 0
+            last_chunk = None  # Сохраняем последний chunk для проверки tool_calls
             async for chunk in llm_to_use.astream(messages):
                 _chunk_count += 1
+                last_chunk = chunk  # Сохраняем для проверки tool_calls
                 chunk_text = ""
                 if hasattr(chunk, 'content') and chunk.content:
                     if isinstance(chunk.content, list):
@@ -4793,8 +5133,56 @@ if salary_sheet:
             _llm_duration = time.time() - _llm_start
             logger.info(f"[UnifiedReActEngine] LLM streaming took {_llm_duration:.3f}s ({_chunk_count} chunks)")
             
+            # #region agent log - проверка tool_calls
+            import json as _debug_json_toolcalls; import time as _debug_time_toolcalls
+            try:
+                tool_calls_info = None
+                if last_chunk and hasattr(last_chunk, 'tool_calls') and last_chunk.tool_calls:
+                    tool_calls_info = [{"name": tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", None), "id": tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)} for tc in last_chunk.tool_calls]
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_toolcalls:
+                    _debug_f_toolcalls.write(_debug_json_toolcalls.dumps({"id":f"log_{int(_debug_time_toolcalls.time()*1000)}_llm_response_check","timestamp":int(_debug_time_toolcalls.time()*1000),"location":"unified_react_engine.py:4862","message":"LLM response check for tool_calls","data":{"has_tool_calls":tool_calls_info is not None,"tool_calls":tool_calls_info,"response_length":len(full_response),"has_action_tags":"<action>" in full_response},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+            except:
+                pass
+            # #endregion
+            
             # Получаем thought из парсера
             thought = parser.get_thought()
+            
+            # CRITICAL: Проверяем tool_calls в ответе LLM (если используется llm_with_tools)
+            # Если LLM вернул tool_calls, используем их вместо парсинга XML
+            action_plan_from_tool_calls = None
+            if last_chunk and hasattr(last_chunk, 'tool_calls') and last_chunk.tool_calls:
+                # LLM вернул tool_calls - используем их
+                tool_calls = last_chunk.tool_calls
+                if tool_calls and len(tool_calls) > 0:
+                    # Берем первый tool_call (обычно один)
+                    first_tool_call = tool_calls[0]
+                    tool_name = None
+                    tool_args = {}
+                    
+                    # Обрабатываем разные форматы tool_calls
+                    if isinstance(first_tool_call, dict):
+                        tool_name = first_tool_call.get("name")
+                        tool_args = first_tool_call.get("args", {})
+                    elif hasattr(first_tool_call, "name"):
+                        tool_name = first_tool_call.name
+                        tool_args = getattr(first_tool_call, "args", {})
+                    
+                    if tool_name:
+                        action_plan_from_tool_calls = {
+                            "tool_name": tool_name,
+                            "arguments": tool_args,
+                            "description": f"Вызов инструмента {tool_name}",
+                            "reasoning": f"LLM выбрал инструмент {tool_name} для выполнения задачи"
+                        }
+                        # #region agent log
+                        import json as _debug_json_tc_used; import time as _debug_time_tc_used
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tc_used:
+                                _debug_f_tc_used.write(_debug_json_tc_used.dumps({"id":f"log_{int(_debug_time_tc_used.time()*1000)}_tool_calls_used","timestamp":int(_debug_time_tc_used.time()*1000),"location":"unified_react_engine.py:4925","message":"Using tool_calls from LLM response","data":{"tool_name":tool_name,"tool_args_keys":list(tool_args.keys()) if isinstance(tool_args, dict) else "not_dict","tool_calls_count":len(tool_calls)},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+                        except:
+                            pass
+                        # #endregion
             
             # Remove duplicate patterns from thought
             # Some LLMs (especially Claude 3 Haiku) tend to repeat their analysis
@@ -4847,55 +5235,59 @@ if salary_sheet:
             remaining_buffer = parser.get_remaining_buffer()
             response_text = remaining_buffer if remaining_buffer else full_response
             
-            # Ищем action блок
-            # #region agent log
-            import json as _debug_json; import time as _debug_time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_think_parse","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4321","message":"Parsing action from LLM response","data":{"response_length":len(response_text),"full_response_length":len(full_response),"has_action_tags":"<action>" in response_text},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
-            # #endregion
-            action_match = re.search(r'<action>([\s\S]*?)</action>', response_text, re.DOTALL)
-            if not action_match:
-                # Пробуем найти JSON без тегов
-                action_match = re.search(r'\{[\s\S]*"tool_name"[\s\S]*\}', response_text)
-            
-            if action_match:
-                action_text = action_match.group(1) if action_match.lastindex else action_match.group(0)
-                # Очищаем от тегов если есть
-                action_text = re.sub(r'</?action>', '', action_text).strip()
+            # Если есть action_plan из tool_calls, используем его, иначе парсим XML
+            if action_plan_from_tool_calls:
+                action_plan = action_plan_from_tool_calls
+            else:
+                # Ищем action блок в тексте (fallback для случаев, когда LLM не использует tool_calls)
+                # #region agent log
+                import json as _debug_json; import time as _debug_time
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_think_parse","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4974","message":"Parsing action from LLM response text (no tool_calls)","data":{"response_length":len(response_text),"full_response_length":len(full_response),"has_action_tags":"<action>" in response_text,"response_preview":response_text[:1000],"goal":state.goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                # #endregion
+                action_match = re.search(r'<action>([\s\S]*?)</action>', response_text, re.DOTALL)
+                if not action_match:
+                    # Пробуем найти JSON без тегов
+                    action_match = re.search(r'\{[\s\S]*"tool_name"[\s\S]*\}', response_text)
                 
-                # Парсим JSON
-                json_match = re.search(r'\{[\s\S]*\}', action_text)
-                if json_match:
-                    json_str = json_match.group(0)
+                if action_match:
+                    action_text = action_match.group(1) if action_match.lastindex else action_match.group(0)
+                    # Очищаем от тегов если есть
+                    action_text = re.sub(r'</?action>', '', action_text).strip()
                     
-                    # Fix: escape real newlines inside "code" value
-                    # LLM sometimes generates code with real \n instead of \\n
-                    def fix_code_newlines(match):
-                        code_value = match.group(1)
-                        # Replace real newlines with escaped
-                        fixed = code_value.replace('\n', '\\n').replace('\r', '\\r')
-                        return f'"code": "{fixed}"'
-                    
-                    json_str = re.sub(r'"code":\s*"((?:[^"\\]|\\.)*)"\s*(?=[,}])', fix_code_newlines, json_str, flags=re.DOTALL)
-                    
-                    try:
-                        action_plan = json.loads(json_str)
-                    except json.JSONDecodeError as json_err:
-                        # Fallback на парсинг всего текста
+                    # Парсим JSON
+                    json_match = re.search(r'\{[\s\S]*\}', action_text)
+                    if json_match:
+                        json_str = json_match.group(0)
+                        
+                        # Fix: escape real newlines inside "code" value
+                        # LLM sometimes generates code with real \n instead of \\n
+                        def fix_code_newlines(match):
+                            code_value = match.group(1)
+                            # Replace real newlines with escaped
+                            fixed = code_value.replace('\n', '\\n').replace('\r', '\\r')
+                            return f'"code": "{fixed}"'
+                        
+                        json_str = re.sub(r'"code":\s*"((?:[^"\\]|\\.)*)"\s*(?=[,}])', fix_code_newlines, json_str, flags=re.DOTALL)
+                        
+                        try:
+                            action_plan = json.loads(json_str)
+                        except json.JSONDecodeError as json_err:
+                            # Fallback на парсинг всего текста
+                            action_plan = json.loads(action_text)
+                    else:
                         action_plan = json.loads(action_text)
                 else:
-                    action_plan = json.loads(action_text)
-            else:
-                # Fallback: пытаемся найти JSON в ответе
-                json_match = re.search(r'\{[\s\S]*"tool_name"[\s\S]*\}', full_response)
-                if json_match:
-                    action_plan = json.loads(json_match.group(0))
-                else:
-                    # #region agent log
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                        _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_no_action","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4359","message":"No action found in LLM response","data":{"response_preview":full_response[:500]},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
-                    # #endregion
-                    raise ValueError("Could not find action plan in response")
+                    # Fallback: пытаемся найти JSON в ответе
+                    json_match = re.search(r'\{[\s\S]*"tool_name"[\s\S]*\}', full_response)
+                    if json_match:
+                        action_plan = json.loads(json_match.group(0))
+                    else:
+                        # #region agent log
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_no_action","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4970","message":"No action found in LLM response","data":{"response_preview":full_response[:500]},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+                        # #endregion
+                        raise ValueError("Could not find action plan in response")
             
             # Валидация
             if "tool_name" not in action_plan:
@@ -4905,10 +5297,49 @@ if salary_sheet:
                 # #endregion
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
+            
+            # CRITICAL: Remove prefix like "functions." if LLM returns it
+            # Some LLMs return "functions.list_emails" instead of "list_emails"
+            if tool_name.startswith("functions."):
+                tool_name = tool_name.replace("functions.", "", 1)
+                action_plan["tool_name"] = tool_name  # Update action_plan too
+            # Also handle other possible prefixes
+            if "." in tool_name and not tool_name.startswith("FINISH"):
+                # If tool_name contains dot and is not FINISH, try to extract base name
+                # e.g., "functions.list_emails" -> "list_emails"
+                parts = tool_name.split(".")
+                if len(parts) > 1:
+                    # Take the last part as the actual tool name
+                    potential_tool_name = parts[-1]
+                    # Check if this tool exists in capabilities
+                    if any(c.name == potential_tool_name for c in self.capabilities):
+                        tool_name = potential_tool_name
+                        action_plan["tool_name"] = tool_name
+            
             # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_tool_name","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4364","message":"Parsed tool_name from action","data":{"tool_name":tool_name,"is_finish":tool_name=="FINISH","has_arguments":"arguments" in action_plan},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+            import json as _debug_json_toolname; import time as _debug_time_toolname
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_toolname:
+                    _debug_f_toolname.write(_debug_json_toolname.dumps({"id":f"log_{int(_debug_time_toolname.time()*1000)}_tool_name_parsed","timestamp":int(_debug_time_toolname.time()*1000),"location":"unified_react_engine.py:5031","message":"Parsed tool_name from action_plan","data":{"tool_name":tool_name,"goal":state.goal[:100],"is_finish":tool_name=="FINISH","has_arguments":"arguments" in action_plan,"action_plan_keys":list(action_plan.keys()) if isinstance(action_plan, dict) else "not_dict","is_list_emails":tool_name=="list_emails","is_list_workspace":tool_name=="list_workspace_files","original_tool_name":action_plan.get("tool_name","")},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+            except:
+                pass
             # #endregion
+            
+            # CRITICAL: Validate that tool_name is in relevant_tools list
+            # If LLM returned a tool that's not in the relevant list, replace it with the first relevant tool
+            if hasattr(self, '_current_relevant_tools') and self._current_relevant_tools:
+                if tool_name not in self._current_relevant_tools and tool_name.upper() != "FINISH":
+                    logger.warning(f"[UnifiedReActEngine] LLM selected tool '{tool_name}' which is NOT in relevant_tools list. Replacing with first relevant tool: {self._current_relevant_tools[0]}")
+                    # #region agent log - tool replacement
+                    import json as _debug_json_replace; import time as _debug_time_replace
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_replace:
+                            _debug_f_replace.write(_debug_json_replace.dumps({"id":f"log_{int(_debug_time_replace.time()*1000)}_tool_replaced_not_relevant","timestamp":int(_debug_time_replace.time()*1000),"location":"unified_react_engine.py:5165","message":"Tool replaced - not in relevant list","data":{"original_tool":tool_name,"replacement_tool":self._current_relevant_tools[0],"relevant_tools":self._current_relevant_tools,"goal":state.goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    tool_name = self._current_relevant_tools[0]
+                    action_plan["tool_name"] = tool_name
             
             # Validate execute_python_code has code
             if tool_name == "execute_python_code":
@@ -4974,6 +5405,16 @@ raise ValueError("Код анализа не был предоставлен. П
                 f"skill: {_skill_duration:.3f}s, llm: {_llm_duration:.3f}s, "
                 f"other: {_other_time:.3f}s)"
             )
+            
+            # #region agent log - время выхода из _think_and_plan
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_think_exit:
+                    import json as _debug_json_think_exit
+                    _debug_f_think_exit.write(_debug_json_think_exit.dumps({"id":f"log_{int(time.time()*1000)}_think_and_plan_complete","timestamp":int(time.time()*1000),"location":"unified_react_engine.py:5388","message":"_think_and_plan completed","data":{"total_duration_ms":_think_plan_total*1000,"next_step_ms":_next_step_duration*1000,"tools_ms":_tools_duration*1000,"skill_ms":_skill_duration*1000,"llm_ms":_llm_duration*1000,"other_ms":_other_time*1000,"tool_name":action_plan.get("tool_name") if isinstance(action_plan, dict) else None},"sessionId":"debug-session","runId":"run1","hypothesisId":"TIMING"}) + '\n')
+            except:
+                pass
+            # #endregion
+            
             return thought, action_plan
 
         except Exception as e:
@@ -4987,11 +5428,37 @@ raise ValueError("Код анализа не был предоставлен. П
             goal_lower = state.goal.lower() if state.goal else ""
             fallback_tool = None
             
-            # Определяем подходящий инструмент на основе ключевых слов
-            if any(kw in goal_lower for kw in ["встреч", "календар", "meeting", "назначь"]):
-                # Календарные задачи - ищем schedule_group_meeting или create_event
+            # Определяем подходящий инструмент и аргументы на основе ключевых слов
+            fallback_arguments = {}
+            
+            if any(kw in goal_lower for kw in ["встреч", "календар", "meeting"]):
+                # Календарные задачи - разделяем READ и WRITE операции
+                create_keywords = ["создай", "назначь", "запланир", "добавь", "schedule", "create"]
+                is_create_request = any(kw in goal_lower for kw in create_keywords)
+                
+                if is_create_request:
+                    # Создание встречи
+                    preferred_tools = ["schedule_group_meeting", "create_event"]
+                else:
+                    # Просмотр встреч (по умолчанию) - get_calendar_events ПЕРВЫМ
+                    preferred_tools = ["get_calendar_events"]
+                    
+                    # Извлекаем временной период из запроса для аргументов
+                    if "следующ" in goal_lower and "недел" in goal_lower:
+                        fallback_arguments = {"start_time": "на следующей неделе"}
+                    elif "прошл" in goal_lower and "недел" in goal_lower:
+                        fallback_arguments = {"start_time": "на прошлой неделе"}
+                    elif "эт" in goal_lower and "недел" in goal_lower:
+                        fallback_arguments = {"start_time": "на этой неделе"}
+                    elif "недел" in goal_lower:
+                        fallback_arguments = {"start_time": "на неделе"}
+                    elif "завтра" in goal_lower:
+                        fallback_arguments = {"start_time": "завтра"}
+                    elif "сегодня" in goal_lower:
+                        fallback_arguments = {"start_time": "сегодня"}
+                
                 for cap in self.capabilities:
-                    if cap.name in ["schedule_group_meeting", "create_event", "get_calendar_events"]:
+                    if cap.name in preferred_tools:
                         fallback_tool = cap
                         break
             elif any(kw in goal_lower for kw in ["документ", "doc", "текст"]):
@@ -5008,9 +5475,9 @@ raise ValueError("Код анализа не был предоставлен. П
             if fallback_tool:
                 fallback_plan = {
                     "tool_name": fallback_tool.name,
-                    "arguments": {},
-                    "description": f"Fallback: использование {fallback_tool.name}",
-                    "reasoning": f"Ошибка планирования: {str(e)}. Используется fallback инструмент для задачи."
+                    "arguments": fallback_arguments,
+                    "description": f"Выполняю {fallback_tool.name}",
+                    "reasoning": f"Выполняю действие для достижения цели"
                 }
             else:
                 fallback_plan = {
@@ -5067,7 +5534,13 @@ raise ValueError("Код анализа не был предоставлен. П
                         if isinstance(result, dict) and "error" in result:
                             errors[task_id] = result["error"]
                         else:
-                            all_results[task_id] = result
+                            # PHASE 0 FIX: Extract final_result from execution_result dict for synthesis
+                            # synthesis_agent expects actual tool results, not full execution_result dict
+                            if isinstance(result, dict) and "final_result" in result:
+                                # Extract final_result which contains actual tool data
+                                all_results[task_id] = result.get("final_result", result)
+                            else:
+                                all_results[task_id] = result
                 else:
                     # Sequential execution (for dependencies)
                     # CRITICAL: Skip source tracking for orchestrated tasks to prevent old card UI
@@ -5446,8 +5919,10 @@ raise ValueError("Код анализа не был предоставлен. П
             # Save current intent_id and task_intent_id to restore after subtask execution
             saved_intent_id = self._current_intent_id
             saved_task_intent_id = self._task_intent_id
+            # PHASE 0 FIX: Store main_intent_id in context instead of self (race condition in parallel execution)
             # Use provided main_intent_id (parent) - needed for parallel_branch_iteration events
-            self._saved_main_intent_id = main_intent_id  # Store for use in ReAct loop
+            # Store in context to avoid race condition when multiple branches execute in parallel
+            context._parallel_main_intent_id = main_intent_id  # Store for use in ReAct loop
             # CRITICAL: Mark this as a parallel subtask BEFORE execute() call
             # This flag is used to skip final_result/message_complete for subtasks
             self._is_parallel_subtask = True
@@ -5465,10 +5940,29 @@ raise ValueError("Код анализа не был предоставлен. П
                 )
                 
                 # Extract result from execution_result dict
+                # #region agent log
+                import json as _debug_json_result; import time as _debug_time_result
+                try:
+                    exec_result_type = type(execution_result).__name__
+                    exec_result_keys = list(execution_result.keys()) if isinstance(execution_result, dict) else None
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_result:
+                        _debug_f_result.write(_debug_json_result.dumps({"id":f"log_{int(_debug_time_result.time()*1000)}_execution_result_before_extract","timestamp":int(_debug_time_result.time()*1000),"location":"unified_react_engine.py:5525","message":"Execution result before extraction","data":{"execution_result_type":exec_result_type,"execution_result_keys":exec_result_keys,"is_dict":isinstance(execution_result,dict)},"sessionId":"debug-session","runId":"run1","hypothesisId":"H"}) + '\n')
+                except:
+                    pass
+                # #endregion
                 if isinstance(execution_result, dict):
                     result = execution_result.get("response", execution_result)
                 else:
                     result = execution_result
+                # #region agent log
+                try:
+                    result_str = str(result)[:500] if result else "None"
+                    result_type = type(result).__name__
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_result:
+                        _debug_f_result.write(_debug_json_result.dumps({"id":f"log_{int(_debug_time_result.time()*1000)}_execution_result_extracted","timestamp":int(_debug_time_result.time()*1000),"location":"unified_react_engine.py:5527","message":"Result extracted from execution_result","data":{"result_type":result_type,"result_length":len(str(result)) if result else 0,"result_preview":result_str,"subtask_description":subtask.description[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"I"}) + '\n')
+                except:
+                    pass
+                # #endregion
             finally:
                 # Restore original intent_id and task_intent_id
                 self._current_intent_id = saved_intent_id
@@ -5996,10 +6490,12 @@ raise ValueError("Код анализа не был предоставлен. П
         
         # Registry routes to appropriate provider (MCP or A2A)
         # #region agent log
-        if capability_name == "create_presentation_batch":
-            import json as _debug_json; import time as _debug_time
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_registry_execute","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4988","message":"Calling registry.execute","data":{"capability_name":capability_name,"arguments_keys":list(arguments.keys()),"has_title":"title" in arguments,"has_slides":"slides" in arguments,"has_theme":"theme" in arguments,"title_preview":str(arguments.get("title",""))[:30] if arguments.get("title") else "","slides_count":len(arguments.get("slides",[])) if arguments.get("slides") else 0},"sessionId":"debug-session","runId":"run1","hypothesisId":"I"}) + '\n')
+        import json as _debug_json_registry; import time as _debug_time_registry
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_registry:
+                _debug_f_registry.write(_debug_json_registry.dumps({"id":f"log_{int(_debug_time_registry.time()*1000)}_registry_execute","timestamp":int(_debug_time_registry.time()*1000),"location":"unified_react_engine.py:6234","message":"Calling registry.execute","data":{"capability_name":capability_name,"arguments_keys":list(arguments.keys()) if isinstance(arguments, dict) else "not_dict","has_list_emails":capability_name=="list_emails","has_list_workspace":capability_name=="list_workspace_files","capability_exists":any(c.name == capability_name for c in self.capabilities)},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
+        except:
+            pass
         # #endregion
         try:
             result = await self.registry.execute(capability_name, arguments)
@@ -7204,13 +7700,20 @@ raise ValueError("Код анализа не был предоставлен. П
         elif is_parallel_subtask:
             # CRITICAL: For parallel subtasks, DON'T call _generate_final_answer
             # It sends final_result_start/chunk/complete events that overwrite tabs in UI
-            # Just use a brief summary - synthesis will aggregate all results later
+            # PHASE 0 FIX: Include actual tool result instead of just brief summary
+            # This preserves tool data for synthesis step later
             if state.observations:
                 last_obs = state.observations[-1]
-                human_answer = f"✓ {last_obs.action.tool_name}: выполнено"
+                # Include actual result from tool, not just tool name
+                if last_obs.raw_result:
+                    result_str = str(last_obs.raw_result)
+                    # Keep result but add tool name for context
+                    human_answer = f"✓ {last_obs.action.tool_name}: {result_str}"
+                else:
+                    human_answer = f"✓ {last_obs.action.tool_name}: выполнено"
             else:
                 human_answer = "✓ Выполнено"
-            logger.info(f"[UnifiedReActEngine] Parallel subtask - skipping _generate_final_answer, using brief result")
+            logger.info(f"[UnifiedReActEngine] Parallel subtask - skipping _generate_final_answer, using tool result")
         else:
             # Generate human-friendly final answer instead of raw result
             human_answer = await self._generate_final_answer(state, context, file_ids)

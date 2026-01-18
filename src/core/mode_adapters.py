@@ -172,7 +172,19 @@ class AgentModeAdapter:
         Returns:
             Execution result
         """
+        # #region agent log - время создания UnifiedReActEngine
+        import json as _debug_json_agent; import time
+        _debug_time_agent = time
+        _agent_exec_start = time.time()
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_agent:
+                _debug_f_agent.write(_debug_json_agent.dumps({"id":f"log_{int(_debug_time_agent.time()*1000)}_agent_execute_entry","timestamp":int(_debug_time_agent.time()*1000),"location":"mode_adapters.py:158","message":"AgentModeAdapter.execute entry","data":{"goal":goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"INIT_TIME"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         config = self.get_config()
+        _engine_init_start = time.time()
         engine = UnifiedReActEngine(
             config=config,
             capability_registry=self.registry,
@@ -180,12 +192,33 @@ class AgentModeAdapter:
             session_id=self.session_id,
             model_name=self.model_name
         )
+        _engine_init_duration = time.time() - _engine_init_start
+        
+        # #region agent log - время создания UnifiedReActEngine
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_agent:
+                _debug_f_agent.write(_debug_json_agent.dumps({"id":f"log_{int(_debug_time_agent.time()*1000)}_engine_init_complete","timestamp":int(_debug_time_agent.time()*1000),"location":"mode_adapters.py:182","message":"UnifiedReActEngine __init__ completed","data":{"init_duration_ms":_engine_init_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"INIT_TIME"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Save reference for stop() method
         self._active_engine = engine
         
         try:
+            _execute_start = time.time()
             result = await engine.execute(goal, context, file_ids)
+            _execute_duration = time.time() - _execute_start
+            
+            # #region agent log - время выполнения execute
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_exec_end:
+                    import json as _debug_json_exec_end
+                    _debug_f_exec_end.write(_debug_json_exec_end.dumps({"id":f"log_{int(time.time()*1000)}_agent_execute_complete","timestamp":int(time.time()*1000),"location":"mode_adapters.py:209","message":"AgentModeAdapter.execute completed","data":{"execute_duration_ms":_execute_duration*1000,"has_response":"response" in result if isinstance(result, dict) else False},"sessionId":"debug-session","runId":"run1","hypothesisId":"TIMING"}) + '\n')
+            except:
+                pass
+            # #endregion
+            
             return {
                 **result,
                 "mode": "agent"
