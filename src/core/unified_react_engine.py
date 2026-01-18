@@ -138,6 +138,9 @@ class UnifiedReActEngine:
         self.skill_selector = None
         self.active_skill = None
         
+        # Intent tracking for parallel branches
+        self._use_existing_intent_id = None  # Set when executing parallel branch subtasks
+        
         if self.use_smart_tool_selection:
             try:
                 from src.core.tool_selection.smart_selector import SmartToolSelector
@@ -310,7 +313,9 @@ class UnifiedReActEngine:
         goal: str,
         context: ConversationContext,
         file_ids: Optional[List[str]] = None,
-        phase: Optional[str] = None  # For Plan Mode: "research", "plan", "execute"
+        phase: Optional[str] = None,  # For Plan Mode: "research", "plan", "execute"
+        skip_orchestration: bool = False,  # Skip orchestration for subtasks
+        use_existing_intent_id: Optional[str] = None  # Use existing intent_id for subtasks (from parallel_branch_start)
     ) -> Dict[str, Any]:
         """
         Execute ReAct cycle for goal.
@@ -612,7 +617,14 @@ class UnifiedReActEngine:
         self._current_phase_category = None
         self._phase_intent_ids = {}  # category -> intent_id mapping
         # Create intent_start IMMEDIATELY (before any LLM calls)
-        if self._is_multi_phase:
+        # Use existing intent_id if provided (for parallel subtasks)
+        if use_existing_intent_id:
+            task_intent_id = use_existing_intent_id
+            self._current_intent_id = task_intent_id
+            self._use_existing_intent_id = use_existing_intent_id  # Store for ReAct loop to send parallel_branch_iteration events
+            logger.info(f"[UnifiedReActEngine] Using existing intent_id for subtask: {task_intent_id}")
+        elif self._is_multi_phase:
+            self._use_existing_intent_id = None  # Clear previous value
             logger.info(f"[UnifiedReActEngine] Multi-phase task detected: {len(task_phases)} phases")
             # Create the FIRST phase intent
             first_phase = task_phases[0]
@@ -627,6 +639,7 @@ class UnifiedReActEngine:
             )
         else:
             # Single-phase task: Create ONE task-level intent for the entire goal
+            self._use_existing_intent_id = None  # Clear previous value
             task_intent_id = f"task-{int(time.time() * 1000)}"
             self._current_intent_id = task_intent_id
             
@@ -642,7 +655,7 @@ class UnifiedReActEngine:
         
         # Phase 2, Steps 1-2: Test decomposition and dependency analysis in UI
         # Phase 2, Step 3: Real parallel execution for multi-tool queries
-        if self._is_multi_tool_query(goal):
+        if not skip_orchestration and self._is_multi_tool_query(goal):
             try:
                 logger.info(f"[UnifiedReActEngine] Multi-tool query detected, using orchestration")
                 decomposition = await self.task_decomposer.decompose(goal)
@@ -658,6 +671,11 @@ class UnifiedReActEngine:
                     if not execution_plan.execution_groups:
                         logger.warning(f"[UnifiedReActEngine] No execution groups, falling back to normal ReAct")
                         # Fall through to normal ReAct cycle
+                    # CRITICAL: If only one subtask, use normal ReAct cycle instead of orchestration
+                    # This ensures LLM generates content (e.g., slides for presentations)
+                    elif len(decomposition.subtasks) == 1:
+                        logger.info(f"[UnifiedReActEngine] Single subtask detected ({decomposition.subtasks[0].tool_name}), falling back to normal ReAct for proper content generation")
+                        # Fall through to normal ReAct cycle (will handle single task properly)
                     else:
                         # Send decomposition visualization event
                         await self.ws_manager.send_event(
@@ -762,14 +780,55 @@ class UnifiedReActEngine:
                 iteration_intent_id = getattr(self, '_task_intent_id', None) or self._current_intent_id
                 # Сохраняем для использования в операциях - операция должна быть в том же intent, что и итерация
                 self._iteration_intent_id = iteration_intent_id
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "iteration_start",
-                    {
-                        "intent_id": iteration_intent_id,
-                        "iteration_number": state.iteration
-                    }
-                )
+                
+                # #region agent log
+                import json as _debug_json_iter; import time as _debug_time_iter
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_iter:
+                        _debug_f_iter.write(_debug_json_iter.dumps({"id":f"log_{int(_debug_time_iter.time()*1000)}_iteration_start_check","timestamp":int(_debug_time_iter.time()*1000),"location":"unified_react_engine.py:771","message":"Checking if this is a parallel branch iteration","data":{"iteration_intent_id":iteration_intent_id,"current_intent_id":self._current_intent_id,"task_intent_id":getattr(self,'_task_intent_id',None),"use_existing_intent_id":getattr(self,'_use_existing_intent_id',None),"iteration_number":state.iteration},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                except:
+                    pass
+                # #endregion
+                
+                # CRITICAL: If use_existing_intent_id is set (from parallel branch execution),
+                # we need to send parallel_branch_iteration_* events instead of regular iteration_* events
+                # The use_existing_intent_id is the branch_id from parallel_branch_start
+                if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                    branch_id = self._use_existing_intent_id
+                    # Main task intent_id (parent intent) - use _task_intent_id or saved intent from parent execution
+                    main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_iter:
+                            _debug_f_iter.write(_debug_json_iter.dumps({"id":f"log_{int(_debug_time_iter.time()*1000)}_parallel_branch_iteration_start","timestamp":int(_debug_time_iter.time()*1000),"location":"unified_react_engine.py:777","message":"Sending parallel_branch_iteration_start event","data":{"branch_id":branch_id,"iteration_number":state.iteration,"main_intent_id":main_intent_id,"current_intent_id":self._current_intent_id,"task_intent_id":getattr(self,'_task_intent_id',None)},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "parallel_branch_iteration_start",
+                        {
+                            "intent_id": main_intent_id,  # Main task intent (parent)
+                            "branch_id": branch_id,  # Branch ID (same as use_existing_intent_id)
+                            "iteration_number": state.iteration
+                        }
+                    )
+                else:
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_iter:
+                            _debug_f_iter.write(_debug_json_iter.dumps({"id":f"log_{int(_debug_time_iter.time()*1000)}_regular_iteration_start","timestamp":int(_debug_time_iter.time()*1000),"location":"unified_react_engine.py:777","message":"Sending regular iteration_start event","data":{"iteration_intent_id":iteration_intent_id,"iteration_number":state.iteration},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "iteration_start",
+                        {
+                            "intent_id": iteration_intent_id,
+                            "iteration_number": state.iteration
+                        }
+                    )
                 
                 # 1. THINK - Analyze current situation
                 state.status = "thinking"
@@ -788,28 +847,58 @@ class UnifiedReActEngine:
                 
                 # === Send iteration_thinking_complete event ===
                 think_duration = _think_plan_end - _think_plan_start
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "iteration_thinking_complete",
-                    {
-                        "intent_id": self._current_intent_id,
-                        "iteration_number": state.iteration,
-                        "duration_sec": think_duration
-                    }
-                )
+                
+                # CRITICAL: If this is a parallel branch iteration, send parallel_branch_iteration events
+                if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                    branch_id = self._use_existing_intent_id
+                    main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "parallel_branch_iteration_thinking_complete",
+                        {
+                            "intent_id": main_intent_id,  # Main task intent (parent)
+                            "branch_id": branch_id,
+                            "iteration_number": state.iteration,
+                            "duration_sec": think_duration
+                        }
+                    )
+                else:
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "iteration_thinking_complete",
+                        {
+                            "intent_id": self._current_intent_id,
+                            "iteration_number": state.iteration,
+                            "duration_sec": think_duration
+                        }
+                    )
                 
                 # === Send iteration_thinking_result event (Cursor-style) ===
                 thinking_result = self._determine_thinking_result(action_plan)
                 if thinking_result:
-                    await self.ws_manager.send_event(
-                        self.session_id,
-                        "iteration_thinking_result",
-                        {
-                            "intent_id": self._current_intent_id,
-                            "iteration_number": state.iteration,
-                            "result": thinking_result
-                        }
-                    )
+                    if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                        branch_id = self._use_existing_intent_id
+                        main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "parallel_branch_iteration_thinking_result",
+                            {
+                                "intent_id": main_intent_id,  # Main task intent (parent)
+                                "branch_id": branch_id,
+                                "iteration_number": state.iteration,
+                                "result": thinking_result
+                            }
+                        )
+                    else:
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "iteration_thinking_result",
+                            {
+                                "intent_id": self._current_intent_id,
+                                "iteration_number": state.iteration,
+                                "result": thinking_result
+                            }
+                        )
                 
                 if self._stop_requested:
                     break
@@ -1526,15 +1615,29 @@ class UnifiedReActEngine:
                 
                 # === Send iteration_action_start event for UI ===
                 action_title = self._get_tool_display_name(planned_tool, action_plan.get("arguments", {}))
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "iteration_action_start",
-                    {
-                        "intent_id": self._current_intent_id,
-                        "iteration_number": state.iteration,
-                        "title": action_title
-                    }
-                )
+                if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                    branch_id = self._use_existing_intent_id
+                    main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "parallel_branch_iteration_action_start",
+                        {
+                            "intent_id": main_intent_id,  # Main task intent (parent)
+                            "branch_id": branch_id,
+                            "iteration_number": state.iteration,
+                            "title": action_title
+                        }
+                    )
+                else:
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "iteration_action_start",
+                        {
+                            "intent_id": self._current_intent_id,
+                            "iteration_number": state.iteration,
+                            "title": action_title
+                        }
+                    )
                 
                 _exec_action_start = time.time()
                 
@@ -1554,15 +1657,29 @@ class UnifiedReActEngine:
                     
                     # === Send iteration_action_complete event for UI ===
                     result_summary = "Выполнено"
-                    await self.ws_manager.send_event(
-                        self.session_id,
-                        "iteration_action_complete",
-                        {
-                            "intent_id": self._current_intent_id,
-                            "iteration_number": state.iteration,
-                            "result": result_summary
-                        }
-                    )
+                    if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                        branch_id = self._use_existing_intent_id
+                        main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "parallel_branch_iteration_action_complete",
+                            {
+                                "intent_id": main_intent_id,  # Main task intent (parent)
+                                "branch_id": branch_id,
+                                "iteration_number": state.iteration,
+                                "result": result_summary
+                            }
+                        )
+                    else:
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "iteration_action_complete",
+                            {
+                                "intent_id": self._current_intent_id,
+                                "iteration_number": state.iteration,
+                                "result": result_summary
+                            }
+                        )
                 except Exception as e:
                     _exec_action_end = time.time()
                     error_msg = str(e)
@@ -1576,15 +1693,29 @@ class UnifiedReActEngine:
                     )
                     
                     # === Send iteration_action_complete event for UI (error case) ===
-                    await self.ws_manager.send_event(
-                        self.session_id,
-                        "iteration_action_complete",
-                        {
-                            "intent_id": self._current_intent_id,
-                            "iteration_number": state.iteration,
-                            "result": f"Ошибка: {error_msg[:50]}..."
-                        }
-                    )
+                    if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
+                        branch_id = self._use_existing_intent_id
+                        main_intent_id = getattr(self, '_saved_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "parallel_branch_iteration_action_complete",
+                            {
+                                "intent_id": main_intent_id,  # Main task intent (parent)
+                                "branch_id": branch_id,
+                                "iteration_number": state.iteration,
+                                "result": f"Ошибка: {error_msg[:50]}..."
+                            }
+                        )
+                    else:
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "iteration_action_complete",
+                            {
+                                "intent_id": self._current_intent_id,
+                                "iteration_number": state.iteration,
+                                "result": f"Ошибка: {error_msg[:50]}..."
+                            }
+                        )
                     
                     # Проверяем, не пытается ли инструмент открыть уже загруженный файл
                     if planned_tool in ["open_file", "find_and_open_file", "workspace_open_file", "workspace_find_and_open_file"]:
@@ -2673,23 +2804,12 @@ class UnifiedReActEngine:
         """
         goal_lower = goal.lower()
         
-        # #region agent log
-        import json as _debug_json
-        import time as _debug_time
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_is_multi_tool_start","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2664","message":"_is_multi_tool_query called","data":{"goal":goal},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
-        # #endregion
-        
         # Check for explicit multi-tool keywords
         multi_keywords = [
             "фокус", "focus", "сводка", "обзор", "summary", "overview",
             "все", "всё", "все вместе"
         ]
         if any(kw in goal_lower for kw in multi_keywords):
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_multi_keyword_match","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2681","message":"Multi-keyword match found","data":{"matched_keywords":[kw for kw in multi_keywords if kw in goal_lower]},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
-            # #endregion
             return True
         
         # Check for multiple data sources mentioned together
@@ -2700,47 +2820,59 @@ class UnifiedReActEngine:
             "sheets": ["таблиц", "sheet", "spreadsheet"]
         }
         
+        # Check for action keywords (create, send, etc.)
+        action_keywords = {
+            "create": ["создай", "сделай", "create", "make", "презентац", "presentation", "документ", "document"],
+            "send": ["отправь", "send", "send_email", "отправь письмо"],
+            "check": ["проверь", "check", "проверить", "посмотри"],
+            "read": ["прочитай", "read", "покажи", "show"]
+        }
+        
         # Count how many different sources are mentioned
         sources_found = set()
         for source_type, keywords in source_keywords.items():
             if any(kw in goal_lower for kw in keywords):
                 sources_found.add(source_type)
         
-        # #region agent log
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_sources_found","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2696","message":"Sources detected","data":{"sources_found":list(sources_found),"count":len(sources_found)},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
-        # #endregion
+        # Count how many different actions are mentioned
+        actions_found = set()
+        for action_type, keywords in action_keywords.items():
+            if any(kw in goal_lower for kw in keywords):
+                actions_found.add(action_type)
+        
         
         # If 2+ sources mentioned, it's a multi-tool query
         if len(sources_found) >= 2:
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_multi_tool_by_sources","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2700","message":"Multi-tool query detected by sources","data":{"sources":list(sources_found)},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
-            # #endregion
             return True
         
-        # Check for explicit "и" (and) between sources
+        # If action + source (e.g., "создай презентацию и проверь почту"), it's multi-tool
+        if len(actions_found) > 0 and len(sources_found) > 0:
+            return True
+        
+        # Check for explicit "и" (and) between sources or actions
         if " и " in goal_lower or " and " in goal_lower:
-            # #region agent log
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_and_detected","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2714","message":"'и'/'and' detected in query","data":{"goal":goal},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
-            # #endregion
-            # Check if both sides mention different sources
+            # Check if both sides mention different sources or actions
             parts = goal_lower.replace(" и ", "|").replace(" and ", "|").split("|")
             if len(parts) >= 2:
                 sources_in_parts = []
+                actions_in_parts = []
+                
                 for part in parts:
+                    # Check sources in this part
                     part_sources = set()
                     for source_type, keywords in source_keywords.items():
                         if any(kw in part for kw in keywords):
                             part_sources.add(source_type)
                     if part_sources:
                         sources_in_parts.append(part_sources)
-                
-                # #region agent log
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                    _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_parts_analysis","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2720","message":"Analyzing parts after 'и'","data":{"parts":parts,"sources_in_parts":[list(ps) for ps in sources_in_parts]},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
-                # #endregion
+                    
+                    # Check actions in this part
+                    part_actions = set()
+                    for action_type, keywords in action_keywords.items():
+                        if any(kw in part for kw in keywords):
+                            part_actions.add(action_type)
+                    if part_actions:
+                        actions_in_parts.append(part_actions)
                 
                 # If different sources in different parts, it's multi-tool
                 if len(sources_in_parts) >= 2:
@@ -2748,16 +2880,24 @@ class UnifiedReActEngine:
                     for ps in sources_in_parts:
                         all_sources.update(ps)
                     if len(all_sources) >= 2:
-                        # #region agent log
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-                            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_multi_tool_by_and","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2732","message":"Multi-tool query detected by 'и'","data":{"all_sources":list(all_sources)},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
-                        # #endregion
                         return True
-        
-        # #region agent log
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_is_multi_tool_false","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:2735","message":"_is_multi_tool_query returning False","data":{"goal":goal,"sources_found":list(sources_found) if 'sources_found' in locals() else []},"sessionId":"debug-session","runId":"run1","hypothesisId":"A,B"}) + '\n')
-        # #endregion
+                
+                # If action in one part and source in another, it's multi-tool (unless dependency)
+                # Check for dependency: "создай X и отправь ее" - sequential
+                dependency_indicators = ["ее", "его", "их", "it", "them", "тот же", "тот же самый"]
+                has_dependency = any(ind in goal_lower for ind in dependency_indicators)
+                
+                if not has_dependency and len(actions_in_parts) > 0 and len(sources_in_parts) > 0:
+                    return True
+                
+                # If 2+ different actions in different parts (without dependency), it's multi-tool
+                if not has_dependency and len(actions_in_parts) >= 2:
+                    all_actions = set()
+                    for pa in actions_in_parts:
+                        all_actions.update(pa)
+                    if len(all_actions) >= 2:
+                        return True
+
         return False
     
     def _get_source_name(self, tool_name: str) -> str:
@@ -2942,6 +3082,9 @@ class UnifiedReActEngine:
             self.thought_complete = False
             self.thought_content = ""
             self.thinking_id = f"thinking_{session_id}_{int(time.time() * 1000)}"
+            # Check if this is a parallel branch iteration
+            self.is_parallel_branch = engine and hasattr(engine, '_use_existing_intent_id') and engine._use_existing_intent_id
+            self.branch_id = engine._use_existing_intent_id if self.is_parallel_branch else None
             
             # Для стриминга Python кода в реальном времени
             self.code_streaming_started = False
@@ -3035,15 +3178,30 @@ class UnifiedReActEngine:
                             )
                             # Стримим iteration_thinking_chunk для IterationBlock UI
                             if self.intent_id:
-                                await self.ws_manager.send_event(
-                                    self.session_id,
-                                    "iteration_thinking_chunk",
-                                    {
-                                        "intent_id": self.intent_id,
-                                        "iteration_number": self.iteration_number,
-                                    "chunk": new_chunk
-                                }
-                            )
+                                if self.is_parallel_branch and self.branch_id:
+                                    # Send parallel_branch_iteration_thinking_chunk for parallel branches
+                                    main_intent_id = getattr(self.engine, '_saved_main_intent_id', None) or getattr(self.engine, '_task_intent_id', None) or self.intent_id
+                                    await self.ws_manager.send_event(
+                                        self.session_id,
+                                        "parallel_branch_iteration_thinking_chunk",
+                                        {
+                                            "intent_id": main_intent_id,  # Main task intent (parent)
+                                            "branch_id": self.branch_id,
+                                            "iteration_number": self.iteration_number,
+                                            "chunk": new_chunk
+                                        }
+                                    )
+                                else:
+                                    # Send regular iteration_thinking_chunk
+                                    await self.ws_manager.send_event(
+                                        self.session_id,
+                                        "iteration_thinking_chunk",
+                                        {
+                                            "intent_id": self.intent_id,
+                                            "iteration_number": self.iteration_number,
+                                            "chunk": new_chunk
+                                        }
+                                    )
                             # Отправляем как intent_thinking_append для streaming в UI
                             await self._send_intent_detail(new_chunk)
         
@@ -4948,6 +5106,36 @@ raise ValueError("Код анализа не был предоставлен. П
         logger.info(f"[DEBUG] Parallel execution start: {len(subtasks)} subtasks, IDs: {[st.task_id for st in subtasks]}")
         # #endregion
         
+        # CRITICAL: Send parallel_branch_start events FIRST for new UI (ParallelExecutionContainer)
+        # Then track sources for source cards (existing UI)
+        _branch_start_time = _debug_time.time()
+        
+        # Send parallel_branch_start for each subtask (for new ParallelExecutionContainer UI)
+        branch_start_tasks = []
+        for subtask in subtasks:
+            branch_start_tasks.append(
+                self.ws_manager.send_event(
+                    self.session_id,
+                    "parallel_branch_start",
+                    {
+                        "intent_id": self._current_intent_id,
+                        "branch_id": subtask.task_id,
+                        "description": subtask.description,
+                        "tool_name": subtask.tool_name
+                    }
+                )
+            )
+        
+        # Send all branch_start events in parallel
+        await asyncio.gather(*branch_start_tasks)
+        
+        # #region agent log
+        _branch_sent_time = _debug_time.time()
+        import json as _debug_json
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_parallel_branch_start_sent","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4961","message":"parallel_branch_start events sent","data":{"subtasks_count":len(subtasks),"intent_id":self._current_intent_id,"subtask_ids":[st.task_id for st in subtasks]},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        # #endregion
+        
         # CRITICAL: Track all sources FIRST (before execution) to send events simultaneously
         # This ensures UI sees all source cards appear at once
         source_ids = {}
@@ -4965,7 +5153,6 @@ raise ValueError("Код анализа не был предоставлен. П
             )
         
         # #region agent log
-        import time as _debug_time
         _track_start = _debug_time.time()
         logger.info(f"[DEBUG] Starting parallel track_source for {len(track_tasks)} sources at {_track_start:.3f}")
         # #endregion
@@ -4998,17 +5185,60 @@ raise ValueError("Код анализа не был предоставлен. П
         logger.info(f"[DEBUG] asyncio.gather completed: {len(results)} results")
         # #endregion
         
-        # Collect results
+        # Collect results and send parallel_branch_complete events
         result_dict = {}
+        branch_complete_tasks = []
+        import time as _debug_time_finish
+        _parallel_end_time = _debug_time_finish.time()
+        _parallel_duration = _parallel_end_time - _parallel_start
+        
         for subtask, result in zip(subtasks, results):
             if isinstance(result, Exception):
                 logger.error(f"[UnifiedReActEngine] Subtask {subtask.task_id} failed: {result}")
                 result_dict[subtask.task_id] = {"error": str(result)}
+                
+                # Send parallel_branch_complete with error
+                branch_complete_tasks.append(
+                    self.ws_manager.send_event(
+                        self.session_id,
+                        "parallel_branch_complete",
+                        {
+                            "intent_id": self._current_intent_id,
+                            "branch_id": subtask.task_id,
+                            "status": "failed",
+                            "duration_sec": _parallel_duration,
+                            "error": str(result)
+                        }
+                    )
+                )
             else:
                 result_dict[subtask.task_id] = result
+                
+                # Send parallel_branch_complete with success
+                # Use main task intent_id (from when parallel execution started)
+                main_intent_id = self._current_intent_id  # This is the main task intent
+                branch_complete_tasks.append(
+                    self.ws_manager.send_event(
+                        self.session_id,
+                        "parallel_branch_complete",
+                        {
+                            "intent_id": main_intent_id,
+                            "branch_id": subtask.task_id,
+                            "status": "completed",
+                            "duration_sec": _parallel_duration
+                        }
+                    )
+                )
+        
+        # Send all branch_complete events
+        await asyncio.gather(*branch_complete_tasks)
         
         # #region agent log
         logger.info(f"[DEBUG] Parallel execution completed: {list(result_dict.keys())}")
+        import json as _debug_json
+        import time as _debug_time_log
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
+            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time_log.time()*1000)}_parallel_branch_complete_sent","timestamp":int(_debug_time_log.time()*1000),"location":"unified_react_engine.py:5040","message":"parallel_branch_complete events sent","data":{"completed_count":len([r for r in results if not isinstance(r, Exception)]),"failed_count":len([r for r in results if isinstance(r, Exception)])},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
         # #endregion
         
         return result_dict
@@ -5059,36 +5289,103 @@ raise ValueError("Код анализа не был предоставлен. П
         Returns:
             Execution result
         """
-        # #region agent log
-        import time as _debug_time
-        _subtask_start_ts = _debug_time.time()
-        logger.info(f"[DEBUG] Subtask execution started: {subtask.task_id}, tool: {subtask.tool_name}, timestamp: {_subtask_start_ts}")
-        # #endregion
-        
         try:
-            # Execute through registry
-            result = await self.registry.execute(
-                subtask.tool_name,
-                subtask.arguments
-            )
+            # Transform arguments if needed (e.g., legacy format -> new format)
+            arguments = subtask.arguments.copy() if subtask.arguments else {}
             
-            # #region agent log
-            logger.info(f"[DEBUG] Subtask execution succeeded: {subtask.task_id}, result_type: {type(result).__name__}")
-            # #endregion
+            # Handle create_presentation_batch: if arguments have "topic"/"query" instead of "title"/"slides"
+            if subtask.tool_name == "create_presentation_batch":
+                # #region agent log
+                import json as _debug_json_subtask; import time as _debug_time_subtask
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_subtask:
+                    _debug_f_subtask.write(_debug_json_subtask.dumps({"id":f"log_{int(_debug_time_subtask.time()*1000)}_subtask_args_check","timestamp":int(_debug_time_subtask.time()*1000),"location":"unified_react_engine.py:5150","message":"Checking subtask arguments","data":{"tool_name":subtask.tool_name,"arguments_keys":list(arguments.keys()),"has_topic":"topic" in arguments,"has_query":"query" in arguments,"has_title":"title" in arguments,"has_slides":"slides" in arguments,"slides_count":len(arguments.get("slides",[])) if "slides" in arguments else 0},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+                # #endregion
+                
+                # Legacy format: {"topic": "...", "query": "..."} -> convert to {"title": "...", "slides": [...]}
+                if "topic" in arguments and "title" not in arguments:
+                    topic = arguments.get("topic", "презентацию")
+                    query_for_context = arguments.get("query", "")
+                    title = f"Презентация про {topic}"
+                    arguments = {
+                        "title": title,
+                        "slides": [],  # Will be filled below if empty
+                        "query": query_for_context  # Keep query for context
+                    }
+                    # #region agent log
+                    import json as _debug_json_conv; import time as _debug_time_conv
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_conv:
+                        _debug_f_conv.write(_debug_json_conv.dumps({"id":f"log_{int(_debug_time_conv.time()*1000)}_subtask_args_converted","timestamp":int(_debug_time_conv.time()*1000),"location":"unified_react_engine.py:5162","message":"Converted legacy arguments format","data":{"original_keys":["topic","query"],"converted_keys":list(arguments.keys()),"title":arguments.get("title","")[:50]},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+                    # #endregion
+                
+                # CRITICAL: If slides array is empty, generate a basic slide with title
+                # MCP server requires at least one slide
+                slides = arguments.get("slides", [])
+                if not slides or len(slides) == 0:
+                    title = arguments.get("title", "Презентация")
+                    # Extract topic from title if possible (e.g., "Презентация про собак" -> "собак")
+                    topic_text = title
+                    if "про " in title.lower():
+                        topic_text = title.lower().split("про ", 1)[-1].strip()
+                    elif "about " in title.lower():
+                        topic_text = title.lower().split("about ", 1)[-1].strip()
+                    
+                    # Create a basic introductory slide
+                    basic_slide = {
+                        "title": title,
+                        "content": f"Презентация о {topic_text}",
+                        "layout": "TITLE_AND_BODY"
+                    }
+                    arguments["slides"] = [basic_slide]
+                    # #region agent log
+                    import json as _debug_json_slide; import time as _debug_time_slide
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_slide:
+                        _debug_f_slide.write(_debug_json_slide.dumps({"id":f"log_{int(_debug_time_slide.time()*1000)}_subtask_slide_generated","timestamp":int(_debug_time_slide.time()*1000),"location":"unified_react_engine.py:5175","message":"Generated basic slide for empty slides array","data":{"title":title[:50],"topic_text":topic_text[:30],"has_slides":len(arguments.get("slides",[])) > 0},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+                    # #endregion
+            
+            # CRITICAL: Execute through full ReAct cycle instead of direct registry.execute
+            # This ensures LLM generates content (e.g., slides for presentations, query for emails)
+            # Save current intent_id and task_intent_id to restore after subtask execution
+            saved_intent_id = self._current_intent_id
+            saved_task_intent_id = self._task_intent_id
+            # Save main task intent_id (parent) - needed for parallel_branch_iteration events
+            main_task_intent_id = saved_intent_id  # This is the parent intent where parallel branches belong
+            self._saved_main_intent_id = main_task_intent_id  # Store for use in ReAct loop
+            
+            try:
+                # Execute through full ReAct cycle with skip_orchestration=True to avoid recursion
+                # Use subtask.task_id as intent_id (matches parallel_branch_start event)
+                execution_result = await self.execute(
+                    goal=subtask.description,
+                    context=context,
+                    file_ids=None,
+                    phase=None,
+                    skip_orchestration=True,  # Don't try to decompose subtasks again
+                    use_existing_intent_id=subtask.task_id  # Use branch intent_id from parallel_branch_start
+                )
+                
+                # Extract result from execution_result dict
+                if isinstance(execution_result, dict):
+                    result = execution_result.get("response", execution_result)
+                else:
+                    result = execution_result
+            finally:
+                # Restore original intent_id and task_intent_id
+                self._current_intent_id = saved_intent_id
+                self._task_intent_id = saved_task_intent_id
+                # Clear use_existing_intent_id and saved_main_intent_id after subtask execution
+                self._use_existing_intent_id = None
+                if hasattr(self, '_saved_main_intent_id'):
+                    delattr(self, '_saved_main_intent_id')
             
             # Update source as completed
             await self.source_tracker.update_source_complete(
                 source_id=source_id,
                 result=result,
-                intent_id=self._current_intent_id
+                intent_id=saved_intent_id  # Use saved intent_id (main task intent)
             )
             
             return result
         except Exception as e:
-            # #region agent log
-            logger.error(f"[DEBUG] Subtask execution failed: {subtask.task_id}, error: {str(e)}")
-            # #endregion
-            
             # Update source as error
             await self.source_tracker.update_source_error(
                 source_id=source_id,

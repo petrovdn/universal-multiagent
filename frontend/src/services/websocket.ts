@@ -801,6 +801,9 @@ export class WebSocketClient {
       // Parallel Branch events
       case 'parallel_branch_start': {
         console.log('[WebSocket] Parallel branch started:', event.data)
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:802',message:'parallel_branch_start received',data:event.data,timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         const branchStartState = useChatStore.getState()
         const branchStartWorkflowId = branchStartState.activeWorkflowId
         const branchStartIntentId = event.data.intent_id || branchStartState.activeIntentId
@@ -808,8 +811,19 @@ export class WebSocketClient {
         const description = event.data.description || ''
         const toolName = event.data.tool_name || ''
 
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:813',message:'parallel_branch_start processing',data:{branchStartWorkflowId,branchStartIntentId,branchId,hasWorkflow:!!branchStartWorkflowId,hasIntent:!!branchStartIntentId,hasBranchId:!!branchId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+
         if (branchStartWorkflowId && branchStartIntentId && branchId) {
           chatStore.startParallelBranch(branchStartWorkflowId, branchStartIntentId, branchId, description, toolName)
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:817',message:'startParallelBranch called',data:{branchStartWorkflowId,branchStartIntentId,branchId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+        } else {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:821',message:'parallel_branch_start skipped - missing params',data:{branchStartWorkflowId,branchStartIntentId,branchId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
         }
         break
       }

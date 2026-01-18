@@ -95,51 +95,92 @@ class TaskDecomposer:
                 execution_order=[]
             )
         
-        # Detect data sources from query
+        # Detect data sources and actions from query
         sources = self._detect_sources(query)
+        actions = self._detect_actions(query)
         
-        if not sources:
+        # Combine sources and actions into tasks
+        all_tasks = sources + actions
+        
+        if not all_tasks:
             # Single tool query - minimal decomposition
             return self._create_single_tool_decomposition(query)
         
-        # Multi-source query - create subtasks
+        # Multi-task query - create subtasks
         subtasks = []
-        source_task_ids = []
+        task_ids = []
         
-        # Create subtask for each source
-        for source_info in sources:
+        # Create subtask for each source/action
+        task_info_map = {}  # Map task_id -> task_info for dependency resolution
+        for task_info in all_tasks:
             task_id = f"task-{uuid4().hex[:8]}"
-            source_task_ids.append(task_id)
+            task_ids.append(task_id)
+            task_info_map[task_id] = task_info
             
             subtask = SubTask(
                 task_id=task_id,
-                description=source_info["description"],
-                tool_name=source_info["tool_name"],
-                arguments=source_info.get("arguments", {}),
-                dependencies=[],
+                description=task_info["description"],
+                tool_name=task_info["tool_name"],
+                arguments=task_info.get("arguments", {}),
+                dependencies=[],  # Will be set after all tasks created
                 is_synthesis=False,
                 priority=1
             )
             subtasks.append(subtask)
         
-        # Create synthesis task that depends on all sources
-        synthesis_id = f"task-{uuid4().hex[:8]}"
-        synthesis_task = SubTask(
-            task_id=synthesis_id,
-            description=f"Синтезировать результаты из {len(sources)} источников",
-            tool_name="synthesize",
-            arguments={"query": query, "source_task_ids": source_task_ids},
-            dependencies=source_task_ids,
-            is_synthesis=True,
-            priority=2
-        )
-        subtasks.append(synthesis_task)
+        # Resolve dependencies: if query has "ее"/"его" (it/them), actions depend on previous actions
+        query_lower = query.lower()
+        dependency_indicators = ["ее", "его", "их", "it", "them"]
+        has_dependency_reference = any(ind in query_lower for ind in dependency_indicators)
         
-        # Create parallel groups (all source tasks can run in parallel)
-        parallel_groups = [source_task_ids]
+        if has_dependency_reference:
+            # Find create action and send action
+            create_task_id = None
+            send_task_id = None
+            
+            for task_id in task_ids:
+                task_info = task_info_map.get(task_id)
+                if not task_info:
+                    continue
+                tool_name = task_info.get("tool_name", "")
+                description = task_info.get("description", "").lower()
+                
+                if "create" in tool_name or "созда" in description:
+                    create_task_id = task_id
+                elif "send" in tool_name or "отправ" in description:
+                    send_task_id = task_id
+            
+            # Set dependency: send depends on create
+            if create_task_id and send_task_id:
+                for subtask in subtasks:
+                    if subtask.task_id == send_task_id:
+                        subtask.dependencies.append(create_task_id)
+                        logger.info(f"[TaskDecomposer] Set dependency: {send_task_id} ({subtask.tool_name}) depends on {create_task_id} (due to 'ее'/'его' in query)")
         
-        # Execution order: parallel sources, then synthesis
-        execution_order = source_task_ids + [synthesis_id]
+        # Create synthesis task only if we have 2+ source tasks (not actions)
+        # Actions don't need synthesis, they produce their own results
+        source_task_ids = [tid for tid, t in zip(task_ids, all_tasks) if "source" in t.get("type", "")]
+        
+        if len(source_task_ids) >= 2:
+            synthesis_id = f"task-{uuid4().hex[:8]}"
+            synthesis_task = SubTask(
+                task_id=synthesis_id,
+                description=f"Синтезировать результаты из {len(source_task_ids)} источников",
+                tool_name="synthesize",
+                arguments={"query": query, "source_task_ids": source_task_ids},
+                dependencies=source_task_ids,
+                is_synthesis=True,
+                priority=2
+            )
+            subtasks.append(synthesis_task)
+            execution_order = task_ids + [synthesis_id]
+        else:
+            # No synthesis needed for actions or single source
+            execution_order = task_ids
+        
+        # Create parallel groups (all tasks without dependencies can run in parallel)
+        # DependencyAnalyzer will handle this, but we create initial groups here
+        parallel_groups = [task_ids] if len(task_ids) > 1 else []
         
         return DecompositionResult(
             subtasks=subtasks,
@@ -167,13 +208,37 @@ class TaskDecomposer:
         is_focus_query = any(fk in query_lower for fk in focus_keywords) and \
                         any(tk in query_lower for tk in today_keywords)
         
-        # Check for email/Gmail
-        if any(kw in query_lower for kw in ["почт", "письм", "email", "gmail"]) or is_focus_query:
-            sources.append({
-                "description": "Проверяю непрочитанные письма",
-                "tool_name": "list_emails",
-                "arguments": {"query": "is:unread", "max_results": 10}
-            })
+        # Check for email/Gmail (only if checking/reading, not sending)
+        email_keywords = ["почт", "письм", "email", "gmail"]
+        send_keywords = ["отправь", "send", "отправь по", "send by"]
+        is_email_sending = any(sk in query_lower for sk in send_keywords)
+        is_email_reading = any(ek in query_lower for ek in email_keywords)
+        
+        if (is_email_reading and not is_email_sending) or is_focus_query:
+            # Check if query mentions unread emails or has time filters (requires search_emails)
+            has_unread_keywords = any(kw in query_lower for kw in ["непрочитанн", "unread", "новые", "new"])
+            has_time_filters = any(kw in query_lower for kw in ["недел", "week", "день", "day", "месяц", "month"])
+            
+            if has_unread_keywords or has_time_filters:
+                # Use search_emails for queries with filters (like "is:unread" or "newer_than:7d")
+                query_for_search = "is:unread"
+                if "недел" in query_lower or "week" in query_lower:
+                    query_for_search = "is:unread newer_than:7d"
+                
+                sources.append({
+                    "type": "source",
+                    "description": "Проверяю непрочитанные письма",
+                    "tool_name": "search_emails",
+                    "arguments": {"query": query_for_search, "max_results": 10}
+                })
+            else:
+                # Use list_emails for simple listing (no filters)
+                sources.append({
+                    "type": "source",
+                    "description": "Проверяю письма",
+                    "tool_name": "list_emails",
+                    "arguments": {"max_results": 10, "label": "INBOX"}
+                })
         
         # Check for calendar
         if any(kw in query_lower for kw in ["календар", "встреч", "событ", "calendar", "event"]) or is_focus_query:
@@ -182,6 +247,7 @@ class TaskDecomposer:
             tomorrow = today + timedelta(days=1)
             
             sources.append({
+                "type": "source",
                 "description": "Проверяю встречи на сегодня",
                 "tool_name": "get_calendar_events",
                 "arguments": {
@@ -196,6 +262,7 @@ class TaskDecomposer:
            (is_focus_query and "файл" not in query_lower and "file" not in query_lower):
             # For focus queries, include files only if not explicitly excluded
             sources.append({
+                "type": "source",
                 "description": "Проверяю последние файлы",
                 "tool_name": "list_files",
                 "arguments": {"max_results": 10}
@@ -204,12 +271,71 @@ class TaskDecomposer:
         # Check for sheets
         if any(kw in query_lower for kw in ["таблиц", "sheet", "spreadsheet"]):
             sources.append({
+                "type": "source",
                 "description": "Проверяю данные в таблицах",
                 "tool_name": "get_all_sheets_data",
                 "arguments": {}
             })
         
         return sources
+    
+    def _detect_actions(self, query: str) -> List[Dict[str, Any]]:
+        """
+        Detect actions (create, send, etc.) from query.
+        
+        Args:
+            query: User query
+            
+        Returns:
+            List of action info dicts
+        """
+        query_lower = query.lower()
+        actions = []
+        
+        # Check for presentation creation
+        if any(kw in query_lower for kw in ["презентац", "presentation", "создай презентацию", "сделай презентацию"]):
+            # Extract presentation topic/description
+            topic = "презентацию"
+            # Try to extract topic from query
+            import re
+            match = re.search(r"(?:про|about|on)\s+([^,и]+?)(?:,|и|$)", query_lower)
+            if match:
+                topic = match.group(1).strip()
+            
+            # Create proper arguments for CreatePresentationBatchInput (requires title and slides)
+            # For orchestrated execution, we'll pass minimal valid structure
+            # The actual slides content generation will happen in the tool itself if needed
+            title = f"Презентация про {topic}"
+            
+            actions.append({
+                "type": "action",
+                "description": f"Создаю презентацию про {topic}",
+                "tool_name": "create_presentation_batch",
+                "arguments": {
+                    "title": title,
+                    "slides": [],  # Empty array - tool will generate content if needed, or use query for context
+                    "query": query  # Pass query for context (tool may use it for content generation)
+                },
+                "dependencies": []
+            })
+        
+        # Check for email sending (if not just checking)
+        if any(kw in query_lower for kw in ["отправь", "send"]) and "проверь" not in query_lower:
+            # Check if it's sending something specific (dependency)
+            dependency_indicators = ["ее", "его", "их", "it", "them", "тот же"]
+            has_dependency = any(ind in query_lower for ind in dependency_indicators)
+            
+            # If dependency found (e.g., "отправь ее"), we'll mark it but DependencyAnalyzer will handle it
+            actions.append({
+                "type": "action",
+                "description": "Отправляю письмо",
+                "tool_name": "send_email",
+                "arguments": {"query": query},
+                "dependencies": [],  # DependencyAnalyzer will set this based on "ее"/"его" in query
+                "has_dependency_reference": has_dependency  # Flag for DependencyAnalyzer
+            })
+        
+        return actions
     
     def _create_single_tool_decomposition(self, query: str) -> DecompositionResult:
         """
