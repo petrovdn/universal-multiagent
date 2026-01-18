@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Варианты отображения инструментов</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+      background: #f5f5f5;
+      color: #333333;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      margin-bottom: 30px;
+      color: #222;
+      font-size: 28px;
+    }
+    
+    h2 {
+      margin: 30px 0 15px 0;
+      color: #444;
+      font-size: 20px;
+      border-bottom: 2px solid #ddd;
+      padding-bottom: 8px;
+    }
+    
+    .variant {
+      background: #ffffff;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 30px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .variant-description {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 20px;
+      padding: 10px;
+      background: #f9f9f9;
+      border-radius: 4px;
+    }
+    
+    /* Iteration Block */
+    .iteration-block {
+      border-left: 3px solid #007acc;
+      padding-left: 16px;
+      margin-bottom: 16px;
+    }
+    
+    .iteration-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #333;
+    }
+    
+    .iteration-number {
+      color: #666;
+    }
+    
+    .iteration-duration {
+      font-size: 11px;
+      color: #999;
+      font-weight: 400;
+    }
+    
+    /* Thinking Section */
+    .thinking-section {
+      margin-left: 20px;
+      margin-bottom: 8px;
+    }
+    
+    .thinking-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #888;
+      cursor: pointer;
+      padding: 4px 0;
+      user-select: none;
+    }
+    
+    .thinking-header:hover {
+      color: #555;
+    }
+    
+    .chevron {
+      font-size: 10px;
+      transition: transform 0.2s;
+      color: #999;
+    }
+    
+    .chevron.collapsed {
+      transform: rotate(-90deg);
+    }
+    
+    .thinking-content {
+      margin-top: 6px;
+      padding: 10px 12px;
+      background: #f8f8f8;
+      border-radius: 4px;
+      font-size: 12px;
+      color: #555;
+      white-space: pre-wrap;
+      border-left: 2px solid #007acc;
+      display: none;
+    }
+    
+    .thinking-content.expanded {
+      display: block;
+    }
+    
+    /* Action Section Base */
+    .action-section {
+      margin-left: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    
+    .action-icon {
+      font-size: 14px;
+    }
+    
+    .action-icon.done {
+      color: #4CAF50;
+    }
+    
+    .action-icon.pending {
+      color: #999;
+    }
+    
+    .action-title {
+      font-size: 13px;
+      color: #333;
+    }
+    
+    .action-result {
+      font-size: 11px;
+      color: #666;
+    }
+    
+    /* Variant 1: No Tool Info (Current) */
+    /* (uses base styles above) */
+    
+    /* Variant 2: Mini Tool Card Inline */
+    .tool-card-inline {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: #fff3e0;
+      border: 1px solid #ffcc80;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-left: 8px;
+    }
+    
+    .tool-card-inline.loading {
+      background: #fff3e0;
+      border-color: #ffcc80;
+    }
+    
+    .tool-card-inline.completed {
+      background: #e8f5e9;
+      border-color: #81c784;
+    }
+    
+    .tool-card-inline.error {
+      background: #ffebee;
+      border-color: #ef5350;
+    }
+    
+    .tool-card-icon {
+      font-size: 14px;
+    }
+    
+    .tool-card-name {
+      font-weight: 500;
+      color: #333;
+    }
+    
+    .tool-card-status {
+      font-size: 10px;
+    }
+    
+    /* Variant 3: Tool Badge */
+    .tool-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      background: #e3f2fd;
+      border: 1px solid #90caf9;
+      border-radius: 12px;
+      font-size: 11px;
+      margin-left: 8px;
+      font-weight: 500;
+      color: #1976d2;
+    }
+    
+    .tool-badge.completed {
+      background: #e8f5e9;
+      border-color: #81c784;
+      color: #2e7d32;
+    }
+    
+    .tool-badge.error {
+      background: #ffebee;
+      border-color: #ef5350;
+      color: #c62828;
+    }
+    
+    /* Variant 4: Tool Text Only */
+    .tool-text {
+      font-size: 11px;
+      color: #666;
+      font-style: italic;
+      margin-left: 8px;
+    }
+    
+    .tool-text::before {
+      content: "🔧 ";
+    }
+    
+    /* Variant 5: Tool Card Above Action */
+    .tool-card-above {
+      margin-left: 20px;
+      margin-bottom: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      background: #fff3e0;
+      border: 1px solid #ffcc80;
+      border-radius: 5px;
+      font-size: 12px;
+      max-width: fit-content;
+    }
+    
+    .tool-card-above.completed {
+      background: #e8f5e9;
+      border-color: #81c784;
+    }
+    
+    .tool-card-above.error {
+      background: #ffebee;
+      border-color: #ef5350;
+    }
+    
+    .tool-card-above-icon {
+      font-size: 16px;
+    }
+    
+    .tool-card-above-name {
+      font-weight: 500;
+      color: #333;
+    }
+    
+    .tool-card-above-status {
+      font-size: 10px;
+      color: #666;
+    }
+    
+    /* Streaming Section */
+    .streaming-section {
+      margin-left: 20px;
+      margin-bottom: 10px;
+    }
+    
+    .streaming-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #888;
+      cursor: pointer;
+      padding: 4px 0;
+      user-select: none;
+    }
+    
+    .streaming-header:hover {
+      color: #555;
+    }
+    
+    .streaming-content {
+      margin-top: 6px;
+      padding: 10px 12px;
+      background: #f8f8f8;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      font-size: 11px;
+      color: #666;
+      white-space: pre-wrap;
+      max-height: 150px;
+      overflow-y: auto;
+      display: none;
+    }
+    
+    .streaming-content.expanded {
+      display: block;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Варианты отображения инструментов в итерациях</h1>
+    
+    <!-- Variant 1: No Tool Info (Current) -->
+    <div class="variant">
+      <h2>Вариант 1: Без информации об инструменте (текущий)</h2>
+      <div class="variant-description">
+        Показывается только действие с описанием. Инструмент не отображается явно.
+      </div>
+      
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 1</span>
+          <span class="iteration-duration">(1.2с)</span>
+        </div>
+        
+        <div class="thinking-section">
+          <div class="thinking-header" onclick="toggleThinking(this)">
+            <span class="chevron collapsed">▼</span>
+            <span>Думал: Выбираю инструмент создания слайда</span>
+          </div>
+          <div class="thinking-content">Анализирую доступные инструменты...
+Выбрал create_slide с параметрами:
+- title: "Отчет Q4 2024"
+- layout: "title_slide"</div>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon done">✓</span>
+          <span class="action-title">Создаю слайд с заголовком</span>
+          <span class="action-result">→ Создан слайд #1</span>
+        </div>
+        
+        <div class="streaming-section">
+          <div class="streaming-header" onclick="toggleStreaming(this)">
+            <span class="chevron collapsed">▼</span>
+            <span>Стриминг (450 символов)</span>
+          </div>
+          <div class="streaming-content">Создание слайда...
+Применение заголовка "Отчет Q4 2024"
+Установка подзаголовка "Итоги и достижения"
+Применение корпоративного шаблона
+Слайд успешно создан с ID: slide_001</div>
+        </div>
+      </div>
+      
+      <!-- Second iteration -->
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 2</span>
+          <span class="iteration-duration">(0.8с)</span>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon done">✓</span>
+          <span class="action-title">Читаю письма из почты</span>
+          <span class="action-result">→ Найдено 5 писем</span>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Variant 2: Mini Tool Card Inline -->
+    <div class="variant">
+      <h2>Вариант 2: Мини-карточка инструмента inline</h2>
+      <div class="variant-description">
+        Компактная карточка с иконкой и названием инструмента внутри строки действия. Показывает статус (loading/completed/error).
+      </div>
+      
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 1</span>
+          <span class="iteration-duration">(1.2с)</span>
+        </div>
+        
+        <div class="thinking-section">
+          <div class="thinking-header" onclick="toggleThinking(this)">
+            <span class="chevron collapsed">▼</span>
+            <span>Думал: Выбираю инструмент создания слайда</span>
+          </div>
+          <div class="thinking-content">Анализирую доступные инструменты...</div>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon done">✓</span>
+          <span class="action-title">Создаю слайд с заголовком</span>
+          <span class="tool-card-inline completed">
+            <span class="tool-card-icon">📽️</span>
+            <span class="tool-card-name">create_slide</span>
+            <span class="tool-card-status">✓</span>
+          </span>
+          <span class="action-result">→ Создан слайд #1</span>
+        </div>
+      </div>
+      
+      <!-- Loading state -->
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 2</span>
+          <span class="iteration-duration">(0.8с)</span>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon pending">○</span>
+          <span class="action-title">Читаю письма из почты</span>
+          <span class="tool-card-inline loading">
+            <span class="tool-card-icon">📧</span>
+            <span class="tool-card-name">read_email</span>
+            <span class="tool-card-status">⏳</span>
+          </span>
+        </div>
+      </div>
+      
+      <!-- Error state -->
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 3</span>
+          <span class="iteration-duration">(1.1с)</span>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon error">❌</span>
+          <span class="action-title">Отправляю письма</span>
+          <span class="tool-card-inline error">
+            <span class="tool-card-icon">📧</span>
+            <span class="tool-card-name">send_email</span>
+            <span class="tool-card-status">✗</span>
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Variant 3: Tool Badge -->
+    <div class="variant">
+      <h2>Вариант 3: Badge с инструментом</h2>
+      <div class="variant-description">
+        Компактный badge с иконкой и названием инструмента. Минималистичный стиль, не занимает много места.
+      </div>
+      
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 1</span>
+          <span class="iteration-duration">(1.2с)</span>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon done">✓</span>
+          <span class="action-title">Создаю слайд с заголовком</span>
+          <span class="tool-badge completed">
+            <span>📽️</span>
+            <span>create_slide</span>
+          </span>
+          <span class="action-result">→ Создан слайд #1</span>
+        </div>
+      </div>
+      
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 2</span>
+          <span class="iteration-duration">(0.8с)</span>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon done">✓</span>
+          <span class="action-title">Читаю письма из почты</span>
+          <span class="tool-badge completed">
+            <span>📧</span>
+            <span>read_email</span>
+          </span>
+          <span class="action-result">→ Найдено 5 писем</span>
+        </div>
+      </div>
+      
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 3</span>
+          <span class="iteration-duration">(1.1с)</span>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon error">❌</span>
+          <span class="action-title">Отправляю письма</span>
+          <span class="tool-badge error">
+            <span>📧</span>
+            <span>send_email</span>
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Variant 4: Tool Text Only -->
+    <div class="variant">
+      <h2>Вариант 4: Только текст инструмента</h2>
+      <div class="variant-description">
+        Просто текст с названием инструмента курсивом. Максимально минималистично, без визуальных элементов.
+      </div>
+      
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 1</span>
+          <span class="iteration-duration">(1.2с)</span>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon done">✓</span>
+          <span class="action-title">Создаю слайд с заголовком</span>
+          <span class="tool-text">create_slide</span>
+          <span class="action-result">→ Создан слайд #1</span>
+        </div>
+      </div>
+      
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 2</span>
+          <span class="iteration-duration">(0.8с)</span>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon done">✓</span>
+          <span class="action-title">Читаю письма из почты</span>
+          <span class="tool-text">read_email</span>
+          <span class="action-result">→ Найдено 5 писем</span>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Variant 5: Tool Card Above Action -->
+    <div class="variant">
+      <h2>Вариант 5: Карточка инструмента над действием</h2>
+      <div class="variant-description">
+        Отдельная карточка инструмента над блоком действия. Более заметно, но занимает больше места.
+      </div>
+      
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 1</span>
+          <span class="iteration-duration">(1.2с)</span>
+        </div>
+        
+        <div class="thinking-section">
+          <div class="thinking-header" onclick="toggleThinking(this)">
+            <span class="chevron collapsed">▼</span>
+            <span>Думал: Выбираю инструмент создания слайда</span>
+          </div>
+          <div class="thinking-content">Анализирую доступные инструменты...</div>
+        </div>
+        
+        <div class="tool-card-above completed">
+          <span class="tool-card-above-icon">📽️</span>
+          <span class="tool-card-above-name">Google Slides</span>
+          <span class="tool-card-above-status">create_slide</span>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon done">✓</span>
+          <span class="action-title">Создаю слайд с заголовком</span>
+          <span class="action-result">→ Создан слайд #1</span>
+        </div>
+      </div>
+      
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 2</span>
+          <span class="iteration-duration">(0.8с)</span>
+        </div>
+        
+        <div class="tool-card-above completed">
+          <span class="tool-card-above-icon">📧</span>
+          <span class="tool-card-above-name">Gmail</span>
+          <span class="tool-card-above-status">read_email</span>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon done">✓</span>
+          <span class="action-title">Читаю письма из почты</span>
+          <span class="action-result">→ Найдено 5 писем</span>
+        </div>
+      </div>
+      
+      <div class="iteration-block">
+        <div class="iteration-header">
+          <span>▼</span>
+          <span class="iteration-number">Шаг 3</span>
+          <span class="iteration-duration">(1.1с)</span>
+        </div>
+        
+        <div class="tool-card-above error">
+          <span class="tool-card-above-icon">📧</span>
+          <span class="tool-card-above-name">Gmail</span>
+          <span class="tool-card-above-status">send_email</span>
+        </div>
+        
+        <div class="action-section">
+          <span class="action-icon error">❌</span>
+          <span class="action-title">Отправляю письма</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    function toggleThinking(element) {
+      const chevron = element.querySelector('.chevron');
+      chevron.classList.toggle('collapsed');
+      
+      const content = element.nextElementSibling;
+      content.classList.toggle('expanded');
+    }
+    
+    function toggleStreaming(element) {
+      const chevron = element.querySelector('.chevron');
+      chevron.classList.toggle('collapsed');
+      
+      const content = element.nextElementSibling;
+      content.classList.toggle('expanded');
+    }
+  </script>
+</body>
+</html>

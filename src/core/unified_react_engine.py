@@ -347,6 +347,17 @@ class UnifiedReActEngine:
         # This is checked at the end to skip final_result for subtasks
         _local_is_parallel_subtask = use_existing_intent_id is not None
         
+        # CRITICAL: Save skip_orchestration flag as class attribute for ReAct cycle
+        # Used to skip source tracking in orchestrated tasks (prevents old card UI)
+        self._skip_source_tracking = skip_orchestration or _local_is_parallel_subtask
+        
+        # #region agent log
+        if self._skip_source_tracking:
+            import json as _debug_json_skip; import time as _debug_time_skip
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_skip:
+                _debug_f_skip.write(_debug_json_skip.dumps({"id":f"log_{int(_debug_time_skip.time()*1000)}_skip_source_tracking_set","timestamp":int(_debug_time_skip.time()*1000),"location":"unified_react_engine.py:352","message":"_skip_source_tracking set","data":{"skip_orchestration":skip_orchestration,"_local_is_parallel_subtask":_local_is_parallel_subtask,"goal":goal[:80] if goal else None},"sessionId":"debug-session","runId":"run1","hypothesisId":"H"}) + '\n')
+        # #endregion
+        
         # #region agent log - parallel subtask flag
         with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_flag:
             _debug_f_flag.write(_debug_json_entry.dumps({"id":f"log_{int(_debug_time_entry.time()*1000)}_parallel_flag","timestamp":int(_debug_time_entry.time()*1000),"location":"unified_react_engine.py:342","message":"_local_is_parallel_subtask set","data":{"value":_local_is_parallel_subtask,"use_existing_intent_id":use_existing_intent_id},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
@@ -705,6 +716,17 @@ class UnifiedReActEngine:
                     logger.warning(f"[UnifiedReActEngine] Empty decomposition, falling back to normal ReAct")
                     # Fall through to normal ReAct cycle
                 else:
+                    # CRITICAL: For orchestrated main task, skip source tracking to prevent old card UI
+                    # Sources break tab UI and should never be shown for orchestrated execution
+                    if not self._skip_source_tracking:
+                        self._skip_source_tracking = True
+                        logger.info(f"[UnifiedReActEngine] Setting _skip_source_tracking=True for orchestrated main task to prevent old card UI")
+                        # #region agent log
+                        import json as _debug_json_main; import time as _debug_time_main
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_main:
+                            _debug_f_main.write(_debug_json_main.dumps({"id":f"log_{int(_debug_time_main.time()*1000)}_main_task_skip_source","timestamp":int(_debug_time_main.time()*1000),"location":"unified_react_engine.py:719","message":"Setting _skip_source_tracking for orchestrated main task","data":{"goal":goal[:80] if goal else None,"subtasks_count":len(decomposition.subtasks)},"sessionId":"debug-session","runId":"run1","hypothesisId":"H"}) + '\n')
+                        # #endregion
+                    
                     execution_plan = self.dependency_analyzer.analyze(decomposition.subtasks)
                     
                     # Edge case: No execution groups
@@ -1655,13 +1677,24 @@ class UnifiedReActEngine:
                 )
                 
                 # === Track source (Phase 1.2) ===
-                source_name = self._get_source_name(planned_tool)
-                source_id = await self.source_tracker.track_source(
-                    source_name=source_name,
-                    tool_name=planned_tool,
-                    preview_data=tool_explanation,
-                    intent_id=self._current_intent_id
-                )
+                # CRITICAL: Skip source tracking for orchestrated tasks (parallel or sequential) to prevent old card UI
+                source_id = None
+                _skip_source_tracking_flag = getattr(self, '_skip_source_tracking', False)
+                if not _skip_source_tracking_flag:
+                    source_name = self._get_source_name(planned_tool)
+                    source_id = await self.source_tracker.track_source(
+                        source_name=source_name,
+                        tool_name=planned_tool,
+                        preview_data=tool_explanation,
+                        intent_id=self._current_intent_id
+                    )
+                else:
+                    # #region agent log
+                    import json as _debug_json_skip_react; import time as _debug_time_skip_react
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_skip_react:
+                        _debug_f_skip_react.write(_debug_json_skip_react.dumps({"id":f"log_{int(_debug_time_skip_react.time()*1000)}_skip_track_source_react","timestamp":int(_debug_time_skip_react.time()*1000),"location":"unified_react_engine.py:1662","message":"Skipping track_source in ReAct cycle","data":{"tool_name":planned_tool,"_skip_source_tracking":_skip_source_tracking_flag,"current_intent_id":self._current_intent_id},"sessionId":"debug-session","runId":"run1","hypothesisId":"H"}) + '\n')
+                    # #endregion
+                    logger.debug(f"[UnifiedReActEngine] Skipping track_source in ReAct cycle for orchestrated task (tool: {planned_tool}) to prevent old card UI")
                 
                 # === Send iteration_action_start event for UI ===
                 action_title = self._get_tool_display_name(planned_tool, action_plan.get("arguments", {}))
@@ -1699,11 +1732,13 @@ class UnifiedReActEngine:
                     _exec_action_end = time.time()
                     
                     # === Update source as completed (Phase 1.2) ===
-                    await self.source_tracker.update_source_complete(
-                        source_id=source_id,
-                        result=result,
-                        intent_id=self._current_intent_id
-                    )
+                    # Skip for orchestrated tasks (no source tracking to prevent old card UI)
+                    if source_id:
+                        await self.source_tracker.update_source_complete(
+                            source_id=source_id,
+                            result=result,
+                            intent_id=self._current_intent_id
+                        )
                     
                     # === Send iteration_action_complete event for UI ===
                     result_summary = "Выполнено"
@@ -1736,11 +1771,13 @@ class UnifiedReActEngine:
                     logger.error(f"[UnifiedReActEngine] Action execution failed: {error_msg}")
                     
                     # === Update source as error (Phase 1.2) ===
-                    await self.source_tracker.update_source_error(
-                        source_id=source_id,
-                        error=error_msg,
-                        intent_id=self._current_intent_id
-                    )
+                    # Skip for orchestrated tasks (no source tracking to prevent old card UI)
+                    if source_id:
+                        await self.source_tracker.update_source_error(
+                            source_id=source_id,
+                            error=error_msg,
+                            intent_id=self._current_intent_id
+                        )
                     
                     # === Send iteration_action_complete event for UI (error case) ===
                     if hasattr(self, '_use_existing_intent_id') and self._use_existing_intent_id:
@@ -5044,9 +5081,10 @@ raise ValueError("Код анализа не был предоставлен. П
                             all_results[task_id] = result
                 else:
                     # Sequential execution (for dependencies)
+                    # CRITICAL: Skip source tracking for orchestrated tasks to prevent old card UI
                     for subtask in group_subtasks:
                         try:
-                            result = await self._execute_single_subtask(subtask, context)
+                            result = await self._execute_single_subtask(subtask, context, skip_source_tracking=True)
                             all_results[subtask.task_id] = result
                         except Exception as e:
                             logger.error(f"[UnifiedReActEngine] Subtask {subtask.task_id} failed: {e}")
@@ -5196,88 +5234,30 @@ raise ValueError("Код анализа не был предоставлен. П
             _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_parallel_branch_start_sent","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4961","message":"parallel_branch_start events sent","data":{"subtasks_count":len(subtasks),"intent_id":main_intent_id,"subtask_ids":[st.task_id for st in subtasks]},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
         # #endregion
         
-        # CRITICAL: Track all sources FIRST (before execution) to send events simultaneously
-        # This ensures UI sees all source cards appear at once
+        # CRITICAL: DO NOT track sources for parallel subtasks - they break tab UI with old card mode
+        # Parallel branches are tracked through parallel_branch_start/complete events, not source_loading
+        # Sources (SourceCard) are an old UI mode that should never appear for parallel execution
         source_ids = {}
-        track_tasks = []
-        for subtask in subtasks:
-            source_name = self._get_source_name(subtask.tool_name)
-            # Create track_source coroutine for each subtask
-            track_tasks.append(
-                self.source_tracker.track_source(
-                    source_name=source_name,
-                    tool_name=subtask.tool_name,
-                    preview_data=subtask.description,
-                    intent_id=main_intent_id  # Use saved main_intent_id
-                )
-            )
+        # Skip track_source for all parallel subtasks - use empty source_ids
+        logger.info(f"[UnifiedReActEngine] Skipping track_source for {len(subtasks)} parallel subtasks - using tab UI instead of old card mode")
         
         # #region agent log
         _track_start = _debug_time.time()
-        logger.info(f"[DEBUG] Starting parallel track_source for {len(track_tasks)} sources at {_track_start:.3f}")
+        logger.info(f"[DEBUG] Skipping parallel track_source to prevent old card UI - parallel branches use tab UI")
         # #endregion
         
-        # Track all sources in parallel (sends source_loading events simultaneously)
-        tracked_source_ids = await asyncio.gather(*track_tasks)
-        
-        # #region agent log
-        _track_end = _debug_time.time()
-        logger.info(f"[DEBUG] Parallel track_source completed in {_track_end - _track_start:.3f}s at {_track_end:.3f}")
-        # #endregion
-        
-        # Map source_ids to subtasks
-        for subtask, source_id in zip(subtasks, tracked_source_ids):
-            source_ids[subtask.task_id] = source_id
-        
-        # Create coroutines for each subtask execution (without track_source - already done)
-        tasks = []
-        for subtask in subtasks:
-            tasks.append(self._execute_single_subtask_with_source_id(
-                subtask, 
-                context, 
-                source_ids[subtask.task_id],
-                main_intent_id  # Pass main_intent_id to each subtask
-            ))
-        
-        # #region agent log
-        logger.info(f"[DEBUG] Starting asyncio.gather with {len(tasks)} tasks")
-        # #endregion
-        
-        # Execute in parallel
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # #region agent log
-        logger.info(f"[DEBUG] asyncio.gather completed: {len(results)} results")
-        # #endregion
-        
-        # Collect results and send parallel_branch_complete events
-        result_dict = {}
-        branch_complete_tasks = []
-        import time as _debug_time_finish
-        _parallel_end_time = _debug_time_finish.time()
-        _parallel_duration = _parallel_end_time - _parallel_start
-        
-        for subtask, result in zip(subtasks, results):
-            if isinstance(result, Exception):
-                logger.error(f"[UnifiedReActEngine] Subtask {subtask.task_id} failed: {result}")
-                result_dict[subtask.task_id] = {"error": str(result)}
-                
-                # Send parallel_branch_complete with error
-                branch_complete_tasks.append(
-                    self.ws_manager.send_event(
-                        self.session_id,
-                        "parallel_branch_complete",
-                        {
-                            "intent_id": main_intent_id,  # Use saved main_intent_id
-                            "branch_id": subtask.task_id,
-                            "status": "failed",
-                            "duration_sec": _parallel_duration,
-                            "error": str(result)
-                        }
-                    )
+        # Create wrapper functions that send events immediately after each task completes
+        async def execute_and_send_complete(subtask, source_id):
+            """Execute subtask and send parallel_branch_complete event immediately upon completion."""
+            task_start_time = time.time()
+            try:
+                result = await self._execute_single_subtask_with_source_id(
+                    subtask, 
+                    context, 
+                    source_id,
+                    main_intent_id  # Pass main_intent_id to each subtask
                 )
-            else:
-                result_dict[subtask.task_id] = result
+                task_duration = time.time() - task_start_time
                 
                 # Extract brief result summary for display in tab
                 result_summary = ""
@@ -5291,26 +5271,70 @@ raise ValueError("Код анализа не был предоставлен. П
                 # #region agent log - branch complete with result
                 import json as _debug_json_branch; import time as _debug_time_branch
                 with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_branch:
-                    _debug_f_branch.write(_debug_json_branch.dumps({"id":f"log_{int(_debug_time_branch.time()*1000)}_branch_complete_with_result","timestamp":int(_debug_time_branch.time()*1000),"location":"unified_react_engine.py:5292","message":"Sending parallel_branch_complete with result_summary","data":{"branch_id":subtask.task_id,"result_summary_preview":result_summary[:100] if result_summary else None,"result_type":type(result).__name__,"main_intent_id":main_intent_id},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                    _debug_f_branch.write(_debug_json_branch.dumps({"id":f"log_{int(_debug_time_branch.time()*1000)}_branch_complete_with_result","timestamp":int(_debug_time_branch.time()*1000),"location":"unified_react_engine.py:5235","message":"Sending parallel_branch_complete immediately after task completion","data":{"branch_id":subtask.task_id,"result_summary_preview":result_summary[:100] if result_summary else None,"result_type":type(result).__name__,"main_intent_id":main_intent_id,"duration_sec":task_duration},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
                 # #endregion
                 
-                # Send parallel_branch_complete with success and result
-                branch_complete_tasks.append(
-                    self.ws_manager.send_event(
-                        self.session_id,
-                        "parallel_branch_complete",
-                        {
-                            "intent_id": main_intent_id,  # Use saved main_intent_id
-                            "branch_id": subtask.task_id,
-                            "status": "completed",
-                            "duration_sec": _parallel_duration,
-                            "result_summary": result_summary  # Brief result for display in tab
-                        }
-                    )
+                # CRITICAL: Send parallel_branch_complete IMMEDIATELY after task completion
+                # This allows UI to update tab status and show result right away
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "parallel_branch_complete",
+                    {
+                        "intent_id": main_intent_id,  # Use saved main_intent_id
+                        "branch_id": subtask.task_id,
+                        "status": "completed",
+                        "duration_sec": task_duration,  # Use actual task duration, not total parallel duration
+                        "result_summary": result_summary  # Brief result for display in tab
+                    }
                 )
+                
+                return result
+            except Exception as e:
+                task_duration = time.time() - task_start_time
+                logger.error(f"[UnifiedReActEngine] Subtask {subtask.task_id} failed: {e}")
+                
+                # Send parallel_branch_complete with error IMMEDIATELY
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "parallel_branch_complete",
+                    {
+                        "intent_id": main_intent_id,  # Use saved main_intent_id
+                        "branch_id": subtask.task_id,
+                        "status": "failed",
+                        "duration_sec": task_duration,
+                        "error": str(e)
+                    }
+                )
+                
+                raise  # Re-raise to be caught by asyncio.gather
         
-        # Send all branch_complete events
-        await asyncio.gather(*branch_complete_tasks)
+        # Create coroutines for each subtask execution with immediate event sending
+        # CRITICAL: Pass None for source_id since we don't track sources for parallel subtasks
+        tasks = []
+        for subtask in subtasks:
+            tasks.append(execute_and_send_complete(
+                subtask,
+                None  # No source tracking for parallel subtasks - use tab UI instead
+            ))
+        
+        # #region agent log
+        logger.info(f"[DEBUG] Starting asyncio.gather with {len(tasks)} tasks (events sent immediately)")
+        # #endregion
+        
+        # Execute in parallel - events are sent immediately as each task completes
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # #region agent log
+        logger.info(f"[DEBUG] asyncio.gather completed: {len(results)} results")
+        # #endregion
+        
+        # Collect results (events already sent)
+        result_dict = {}
+        for subtask, result in zip(subtasks, results):
+            if isinstance(result, Exception):
+                result_dict[subtask.task_id] = {"error": str(result)}
+            else:
+                result_dict[subtask.task_id] = result
         
         # #region agent log
         logger.info(f"[DEBUG] Parallel execution completed: {list(result_dict.keys())}")
@@ -5325,7 +5349,8 @@ raise ValueError("Код анализа не был предоставлен. П
     async def _execute_single_subtask(
         self,
         subtask: SubTask,
-        context: ConversationContext
+        context: ConversationContext,
+        skip_source_tracking: bool = False  # Skip source tracking for orchestrated tasks (prevents old card UI)
     ) -> Any:
         """
         Execute a single subtask with source tracking (Phase 2, Step 3).
@@ -5336,26 +5361,31 @@ raise ValueError("Код анализа не был предоставлен. П
         Args:
             subtask: SubTask to execute
             context: Conversation context
+            skip_source_tracking: If True, skip source tracking (for orchestrated tasks to prevent old card UI)
             
         Returns:
             Execution result
         """
-        # Track source first (for sequential execution)
-        source_name = self._get_source_name(subtask.tool_name)
-        source_id = await self.source_tracker.track_source(
-            source_name=source_name,
-            tool_name=subtask.tool_name,
-            preview_data=subtask.description,
-            intent_id=self._current_intent_id
-        )
+        # Track source first (for sequential execution), but skip for orchestrated tasks
+        source_id = None
+        if not skip_source_tracking:
+            source_name = self._get_source_name(subtask.tool_name)
+            source_id = await self.source_tracker.track_source(
+                source_name=source_name,
+                tool_name=subtask.tool_name,
+                preview_data=subtask.description,
+                intent_id=self._current_intent_id
+            )
+        else:
+            logger.debug(f"[UnifiedReActEngine] Skipping track_source for orchestrated subtask {subtask.task_id} to prevent old card UI")
         
-        return await self._execute_single_subtask_with_source_id(subtask, context, source_id)
+        return await self._execute_single_subtask_with_source_id(subtask, context, source_id, self._task_intent_id)
     
     async def _execute_single_subtask_with_source_id(
         self,
         subtask: SubTask,
         context: ConversationContext,
-        source_id: str,
+        source_id: Optional[str],  # None for parallel subtasks (no source tracking)
         main_intent_id: str  # CRITICAL: Parent intent_id for parallel branches
     ) -> Any:
         """
@@ -5457,21 +5487,27 @@ raise ValueError("Код анализа не был предоставлен. П
                 # Note: _saved_main_intent_id is NOT cleared here to avoid race conditions
                 # It will be naturally overwritten by the next parallel subtask if any
             
-            # Update source as completed
-            await self.source_tracker.update_source_complete(
-                source_id=source_id,
-                result=result,
-                intent_id=saved_intent_id  # Use saved intent_id (main task intent)
-            )
+            # Update source as completed (skip for parallel subtasks - no source tracking)
+            if source_id:
+                await self.source_tracker.update_source_complete(
+                    source_id=source_id,
+                    result=result,
+                    intent_id=saved_intent_id  # Use saved intent_id (main task intent)
+                )
+            else:
+                logger.debug(f"[UnifiedReActEngine] Skipping update_source_complete for parallel subtask (no source_id)")
             
             return result
         except Exception as e:
-            # Update source as error
-            await self.source_tracker.update_source_error(
-                source_id=source_id,
-                error=str(e),
-                intent_id=self._current_intent_id
-            )
+            # Update source as error (skip for parallel subtasks - no source tracking)
+            if source_id:
+                await self.source_tracker.update_source_error(
+                    source_id=source_id,
+                    error=str(e),
+                    intent_id=self._current_intent_id
+                )
+            else:
+                logger.debug(f"[UnifiedReActEngine] Skipping update_source_error for parallel subtask (no source_id)")
             raise
     
     async def _execute_action(

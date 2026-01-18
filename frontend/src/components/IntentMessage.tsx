@@ -192,7 +192,8 @@ export function IntentMessage({
           )}
           
           {/* Phase 1.2: Source cards (Perplexity-style) */}
-          {block.sources && block.sources.length > 0 && (
+          {/* CRITICAL: Hide source cards for parallel branches - they break tab UI */}
+          {block.sources && block.sources.length > 0 && !hasParallelBranches && (
             <div style={{ marginBottom: '12px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {block.sources.map((source) => (
                 <SourceCard key={source.id} source={source} />

@@ -202,7 +202,9 @@ export interface IterationBlock {
   // Думание (Think фаза)
   thinking: {
     content: string              // Мысли модели
-    durationSec: number          // "Думаю... 5с"
+    durationSec?: number         // "Думаю... 5с" (legacy, use elapsedSeconds)
+    elapsedSeconds?: number      // Elapsed seconds (for timer persistence)
+    startedAt?: number           // Start timestamp (for timer persistence across tab switches)
     isStreaming: boolean
     isCollapsed: boolean
     context?: ThinkingContext    // Динамический контекст (Cursor-style)
@@ -1688,6 +1690,12 @@ export const useChatStore = create<ChatState>()(
           const existingIntents = state.intentBlocks[workflowId] || []
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
+              // CRITICAL: Never add sources if parallel branches exist - they break tab UI
+              if (intent.parallelBranches && intent.parallelBranches.length > 0) {
+                console.log(`[chatStore] Skipping addSourceToIntent - parallel branches exist (${intent.parallelBranches.length} branches)`)
+                return intent
+              }
+              
               return {
                 ...intent,
                 sources: [...(intent.sources || []), source],
@@ -1709,6 +1717,12 @@ export const useChatStore = create<ChatState>()(
           const existingIntents = state.intentBlocks[workflowId] || []
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
+              // CRITICAL: Never update sources if parallel branches exist - they break tab UI
+              if (intent.parallelBranches && intent.parallelBranches.length > 0) {
+                console.log(`[chatStore] Skipping updateSourceStatus - parallel branches exist (${intent.parallelBranches.length} branches)`)
+                return intent
+              }
+              
               const updatedSources = (intent.sources || []).map(source => {
                 if (source.id === sourceId) {
                   return {
@@ -2389,9 +2403,19 @@ export const useChatStore = create<ChatState>()(
                 startTime: Date.now(),
               }
               
+              // CRITICAL: When creating first parallel branch, clear sources to prevent old card UI
+              // Sources break tab UI and should never be shown for parallel execution
+              const isFirstBranch = parallelBranches.length === 0
+              const shouldClearSources = isFirstBranch && intent.sources && intent.sources.length > 0
+              
+              if (shouldClearSources) {
+                console.log(`[chatStore] Clearing ${intent.sources.length} sources for parallel branches to prevent old card UI`)
+              }
+              
               return {
                 ...intent,
                 parallelBranches: [...parallelBranches, newBranch],
+                sources: shouldClearSources ? [] : intent.sources,  // Clear sources for parallel branches
               }
             }
             return intent
@@ -2411,6 +2435,20 @@ export const useChatStore = create<ChatState>()(
             if (intent.id === intentId && intent.parallelBranches) {
               const updatedBranches = intent.parallelBranches.map(branch => {
                 if (branch.branchId === branchId) {
+                  // CRITICAL: When branch completes, stop all streaming and collapse all thinking blocks
+                  const updatedIterations = branch.iterations.map(iter => ({
+                    ...iter,
+                    thinking: {
+                      ...iter.thinking,
+                      isStreaming: false,  // Stop streaming to stop timers
+                      // Preserve elapsedSeconds if already set, otherwise use durationSec if this is the last iteration
+                      elapsedSeconds: iter.thinking.elapsedSeconds !== undefined 
+                        ? iter.thinking.elapsedSeconds 
+                        : (iter.iterationNumber === Math.max(...branch.iterations.map(i => i.iterationNumber || 0), 0) ? durationSec : iter.thinking.elapsedSeconds),
+                      isCollapsed: true,  // Auto-collapse all thinking blocks when branch completes
+                    },
+                  }))
+                  
                   return {
                     ...branch,
                     status,
@@ -2418,6 +2456,7 @@ export const useChatStore = create<ChatState>()(
                     error,
                     resultSummary,  // Brief result for display in tab
                     endTime: Date.now(),
+                    iterations: updatedIterations,  // Update iterations with stopped streaming
                   }
                 }
                 return branch
@@ -2472,6 +2511,7 @@ export const useChatStore = create<ChatState>()(
                       durationSec: 0,
                       isStreaming: true,
                       isCollapsed: false,
+                      startedAt: Date.now(),  // Save start time for timer persistence across tab switches
                     },
                   }
                   
@@ -2506,11 +2546,14 @@ export const useChatStore = create<ChatState>()(
                 if (branch.branchId === branchId) {
                   const updatedIterations = branch.iterations.map(iter => {
                     if (iter.iterationNumber === iterationNumber) {
+                      // Set startedAt on first chunk if not already set (for timer persistence)
+                      const startedAt = iter.thinking.startedAt || (iter.thinking.isStreaming ? Date.now() : undefined)
                       return {
                         ...iter,
                         thinking: {
                           ...iter.thinking,
                           content: iter.thinking.content + chunk,
+                          startedAt: startedAt || iter.thinking.startedAt,  // Preserve existing or set new
                         },
                       }
                     }
@@ -2545,14 +2588,25 @@ export const useChatStore = create<ChatState>()(
             if (intent.id === intentId && intent.parallelBranches) {
               const updatedBranches = intent.parallelBranches.map(branch => {
                 if (branch.branchId === branchId) {
+                  // Find max iteration number BEFORE updating to determine if this is the last one
+                  const maxIterationNumber = Math.max(...branch.iterations.map(iter => iter.iterationNumber || 0), 0)
+                  const isLastIteration = iterationNumber >= maxIterationNumber
+                  
+                  // Also check if branch is completed - if so, this is definitely the last iteration
+                  const isBranchCompleted = branch.status === 'completed' || branch.status === 'failed'
+                  
                   const updatedIterations = branch.iterations.map(iter => {
                     if (iter.iterationNumber === iterationNumber) {
+                      // Auto-collapse if this is the last iteration OR branch is completed
+                      const shouldAutoCollapse = isLastIteration || isBranchCompleted
+                      
                       return {
                         ...iter,
                         thinking: {
                           ...iter.thinking,
-                          isStreaming: false,
-                          durationSec,
+                          isStreaming: false,  // CRITICAL: Stop streaming to stop timer
+                          elapsedSeconds: durationSec,  // Save elapsed time for persistence
+                          isCollapsed: shouldAutoCollapse ? true : iter.thinking.isCollapsed,  // Auto-collapse last thinking block
                         },
                       }
                     }

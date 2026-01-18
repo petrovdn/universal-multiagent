@@ -24,23 +24,32 @@ export function IterationBlock({
   const operationContentRef = useRef<HTMLDivElement>(null)
   
   // Обратный отсчёт времени во время думания
-  const [elapsedSeconds, setElapsedSeconds] = useState(0)
-  const startTimeRef = useRef<number | null>(null)
+  // CRITICAL: Use thinking.startedAt from store to preserve time across tab switches
+  const [elapsedSeconds, setElapsedSeconds] = useState(() => {
+    // Initialize from store if available (for persisted time)
+    if (thinking.startedAt) {
+      return Math.floor((Date.now() - thinking.startedAt) / 1000)
+    }
+    return 0
+  })
   
   useEffect(() => {
     if (thinking.isStreaming) {
-      if (!startTimeRef.current) {
-        startTimeRef.current = Date.now()
-      }
+      // Use thinking.startedAt from store if available, otherwise use current time
+      const startTime = thinking.startedAt || Date.now()
+      
       const interval = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - (startTimeRef.current || Date.now())) / 1000)
+        const elapsed = Math.floor((Date.now() - startTime) / 1000)
         setElapsedSeconds(elapsed)
       }, 1000)
       return () => clearInterval(interval)
     } else {
-      startTimeRef.current = null
+      // When streaming stops, use elapsedSeconds from store if available
+      if (thinking.elapsedSeconds !== undefined) {
+        setElapsedSeconds(thinking.elapsedSeconds)
+      }
     }
-  }, [thinking.isStreaming])
+  }, [thinking.isStreaming, thinking.startedAt, thinking.elapsedSeconds])
   
   // Форматирование времени думания
   const formatDuration = (sec: number) => {
@@ -48,8 +57,10 @@ export function IterationBlock({
     return `${Math.round(sec)}с`
   }
   
-  // Время для отображения: только во время стриминга
-  const displayTime = thinking.isStreaming ? elapsedSeconds : 0
+  // Время для отображения: during streaming use elapsedSeconds, after completion use thinking.elapsedSeconds
+  const displayTime = thinking.isStreaming 
+    ? elapsedSeconds 
+    : (thinking.elapsedSeconds !== undefined ? thinking.elapsedSeconds : 0)
   
   // Получение динамического текста заголовка в зависимости от контекста
   const getThinkingLabel = (): string => {

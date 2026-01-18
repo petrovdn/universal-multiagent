@@ -89,40 +89,43 @@ export function ParallelExecutionContainer({
               operation={linkedOperation}
               onToggleThinkingCollapse={() => {
                 // Toggle thinking collapse для итерации в ветке
-                const store = useChatStore.getState()
-                const existingIntents = store.intentBlocks[workflowId] || []
-                const updatedIntents = existingIntents.map(intent => {
-                  if (intent.id === intentId && intent.parallelBranches) {
-                    const updatedBranches = intent.parallelBranches.map(branch => {
-                      if (branch.branchId === activeBranch.branchId) {
-                        const updatedIterations = branch.iterations.map(iter => {
-                          if (iter.id === iteration.id || iter.iterationNumber === iteration.iterationNumber) {
-                            return {
-                              ...iter,
-                              thinking: {
-                                ...iter.thinking,
-                                isCollapsed: !iter.thinking.isCollapsed,
-                              },
+                useChatStore.setState((state) => {
+                  const existingIntents = state.intentBlocks[workflowId] || []
+                  const updatedIntents = existingIntents.map(intent => {
+                    if (intent.id === intentId && intent.parallelBranches) {
+                      const updatedBranches = intent.parallelBranches.map(branch => {
+                        if (branch.branchId === activeBranch.branchId) {
+                          const updatedIterations = branch.iterations.map(iter => {
+                            if (iter.id === iteration.id || iter.iterationNumber === iteration.iterationNumber) {
+                              const newCollapsedState = !iter.thinking.isCollapsed
+                              console.log(`[ParallelExecutionContainer] Toggling thinking collapse for iteration ${iter.iterationNumber}: ${iter.thinking.isCollapsed} -> ${newCollapsedState}`)
+                              return {
+                                ...iter,
+                                thinking: {
+                                  ...iter.thinking,
+                                  isCollapsed: newCollapsedState,
+                                },
+                              }
                             }
+                            return iter
+                          })
+                          return {
+                            ...branch,
+                            iterations: updatedIterations,
                           }
-                          return iter
-                        })
-                        return {
-                          ...branch,
-                          iterations: updatedIterations,
                         }
-                      }
-                      return branch
-                    })
-                    return { ...intent, parallelBranches: updatedBranches }
+                        return branch
+                      })
+                      return { ...intent, parallelBranches: updatedBranches }
+                    }
+                    return intent
+                  })
+                  return {
+                    intentBlocks: {
+                      ...state.intentBlocks,
+                      [workflowId]: updatedIntents,
+                    },
                   }
-                  return intent
-                })
-                store.setState({
-                  intentBlocks: {
-                    ...store.intentBlocks,
-                    [workflowId]: updatedIntents,
-                  },
                 })
               }}
               onToggleOperationCollapse={linkedOperation ? () => {
