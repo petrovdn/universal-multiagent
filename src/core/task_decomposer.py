@@ -157,25 +157,33 @@ class TaskDecomposer:
                         subtask.dependencies.append(create_task_id)
                         logger.info(f"[TaskDecomposer] Set dependency: {send_task_id} ({subtask.tool_name}) depends on {create_task_id} (due to 'ее'/'его' in query)")
         
-        # Create synthesis task only if we have 2+ source tasks (not actions)
-        # Actions don't need synthesis, they produce their own results
-        source_task_ids = [tid for tid, t in zip(task_ids, all_tasks) if "source" in t.get("type", "")]
+        # Create synthesis task if we have 2+ tasks (ANY type - source OR action)
+        # Synthesis aggregates results from all parallel tasks into a unified summary
+        # OLD: only for source tasks - source_task_ids = [tid for tid, t in zip(task_ids, all_tasks) if "source" in t.get("type", "")]
+        # NEW: for ALL tasks when there are 2+ parallel tasks
+        all_task_ids_for_synthesis = task_ids  # All tasks, not just sources
         
-        if len(source_task_ids) >= 2:
+        # #region agent log
+        import json as _debug_json_synth; import time as _debug_time_synth
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_synth:
+            _debug_f_synth.write(_debug_json_synth.dumps({"id":f"log_{int(_debug_time_synth.time()*1000)}_synthesis_check","timestamp":int(_debug_time_synth.time()*1000),"location":"task_decomposer.py:163","message":"Checking if synthesis needed","data":{"all_task_ids_for_synthesis":all_task_ids_for_synthesis,"all_task_types":[t.get("type","") for t in all_tasks],"task_ids":task_ids,"total_tasks":len(all_tasks)},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
+        # #endregion
+        
+        if len(all_task_ids_for_synthesis) >= 2:
             synthesis_id = f"task-{uuid4().hex[:8]}"
             synthesis_task = SubTask(
                 task_id=synthesis_id,
-                description=f"Синтезировать результаты из {len(source_task_ids)} источников",
+                description=f"Синтезировать результаты из {len(all_task_ids_for_synthesis)} задач",
                 tool_name="synthesize",
-                arguments={"query": query, "source_task_ids": source_task_ids},
-                dependencies=source_task_ids,
+                arguments={"query": query, "source_task_ids": all_task_ids_for_synthesis},
+                dependencies=all_task_ids_for_synthesis,
                 is_synthesis=True,
                 priority=2
             )
             subtasks.append(synthesis_task)
             execution_order = task_ids + [synthesis_id]
         else:
-            # No synthesis needed for actions or single source
+            # No synthesis needed for single task
             execution_order = task_ids
         
         # Create parallel groups (all tasks without dependencies can run in parallel)
@@ -296,9 +304,15 @@ class TaskDecomposer:
         if any(kw in query_lower for kw in ["презентац", "presentation", "создай презентацию", "сделай презентацию"]):
             # Extract presentation topic/description
             topic = "презентацию"
-            # Try to extract topic from query
+            # Try to extract topic from query - improved regex to capture full topic
             import re
-            match = re.search(r"(?:про|about|on)\s+([^,и]+?)(?:,|и|$)", query_lower)
+            # CRITICAL: Match "про X" or "о X" where X is everything until:
+            # - comma followed by space ", " 
+            # - " и " (word boundary - space before and after "и")
+            # - end of string
+            # IMPORTANT: Don't stop on letter "и" inside words like "тиранозавра"!
+            # Support prepositions: про, о, об, about, on
+            match = re.search(r"(?:про|об?|about|on)\s+(.+?)(?:,\s|\s+и\s+|$)", query_lower)
             if match:
                 topic = match.group(1).strip()
             
@@ -307,9 +321,15 @@ class TaskDecomposer:
             # The actual slides content generation will happen in the tool itself if needed
             title = f"Презентация про {topic}"
             
+            description = f"Создаю презентацию про {topic}"
+            # #region agent log
+            import json as _debug_json_td; import time as _debug_time_td
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_td:
+                _debug_f_td.write(_debug_json_td.dumps({"id":f"log_{int(_debug_time_td.time()*1000)}_task_decomposer_topic","timestamp":int(_debug_time_td.time()*1000),"location":"task_decomposer.py:312","message":"Extracted presentation topic","data":{"original_query":query,"query_lower":query_lower,"extracted_topic":topic,"description":description,"description_length":len(description)},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+            # #endregion
             actions.append({
                 "type": "action",
-                "description": f"Создаю презентацию про {topic}",
+                "description": description,
                 "tool_name": "create_presentation_batch",
                 "arguments": {
                     "title": title,

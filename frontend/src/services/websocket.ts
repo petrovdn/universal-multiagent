@@ -729,10 +729,15 @@ export class WebSocketClient {
       // Новые события для отображения итераций (Think → Summary → Act → Result)
       case 'iteration_start': {
         console.log('[WebSocket] Iteration started:', event.data)
+        // #region agent log
         const iterStartState = useChatStore.getState()
         const iterStartWorkflowId = iterStartState.activeWorkflowId
         const iterStartIntentId = event.data.intent_id || iterStartState.activeIntentId
         const iterNumber = event.data.iteration_number || 1
+        const existingIntent = iterStartState.intentBlocks[iterStartWorkflowId]?.find(i => i.id === iterStartIntentId)
+        const hasParallelBranches = existingIntent?.parallelBranches && existingIntent.parallelBranches.length > 0
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:730',message:'iteration_start received - checking for parallel branches',data:{workflowId:iterStartWorkflowId,intentId:iterStartIntentId,iterationNumber:iterNumber,hasParallelBranches:hasParallelBranches,parallelBranchesCount:existingIntent?.parallelBranches?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         
         if (iterStartWorkflowId && iterStartIntentId) {
           chatStore.startIteration(iterStartWorkflowId, iterStartIntentId, iterNumber)
@@ -801,9 +806,6 @@ export class WebSocketClient {
       // Parallel Branch events
       case 'parallel_branch_start': {
         console.log('[WebSocket] Parallel branch started:', event.data)
-        // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:802',message:'parallel_branch_start received',data:event.data,timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
         const branchStartState = useChatStore.getState()
         const branchStartWorkflowId = branchStartState.activeWorkflowId
         const branchStartIntentId = event.data.intent_id || branchStartState.activeIntentId
@@ -812,18 +814,13 @@ export class WebSocketClient {
         const toolName = event.data.tool_name || ''
 
         // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:813',message:'parallel_branch_start processing',data:{branchStartWorkflowId,branchStartIntentId,branchId,hasWorkflow:!!branchStartWorkflowId,hasIntent:!!branchStartIntentId,hasBranchId:!!branchId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        const existingIntentsForBranch = branchStartState.intentBlocks[branchStartWorkflowId] || []
+        const targetIntentForBranch = existingIntentsForBranch.find(i => i.id === branchStartIntentId)
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:807',message:'parallel_branch_start - BEFORE startParallelBranch',data:{event_intent_id:event.data.intent_id,event_branch_id:branchId,resolved_intent_id:branchStartIntentId,workflowId:branchStartWorkflowId,intentFound:!!targetIntentForBranch,existingIntentIds:existingIntentsForBranch.map(i=>i.id),description:description?.slice(0,50)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
         // #endregion
 
         if (branchStartWorkflowId && branchStartIntentId && branchId) {
           chatStore.startParallelBranch(branchStartWorkflowId, branchStartIntentId, branchId, description, toolName)
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:817',message:'startParallelBranch called',data:{branchStartWorkflowId,branchStartIntentId,branchId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
-        } else {
-          // #region agent log
-          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:821',message:'parallel_branch_start skipped - missing params',data:{branchStartWorkflowId,branchStartIntentId,branchId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
         }
         break
       }
@@ -837,6 +834,11 @@ export class WebSocketClient {
         const status = event.data.status || 'completed'
         const durationSec = event.data.duration_sec
         const error = event.data.error
+        const resultSummary = event.data.result_summary  // Brief result for display in tab
+
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:828',message:'parallel_branch_complete received',data:{workflowId:branchCompleteWorkflowId,intentId:branchCompleteIntentId,branchId,status,resultSummaryPreview:resultSummary?.slice(0,80),resultSummaryLength:resultSummary?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1','hypothesisId':'G'})}).catch(()=>{});
+        // #endregion
 
         if (branchCompleteWorkflowId && branchCompleteIntentId && branchId) {
           chatStore.completeParallelBranch(
@@ -845,7 +847,8 @@ export class WebSocketClient {
             branchId,
             status as 'completed' | 'failed',
             durationSec,
-            error
+            error,
+            resultSummary
           )
         }
         break
@@ -858,9 +861,22 @@ export class WebSocketClient {
         const branchIterStartIntentId = event.data.intent_id || branchIterStartState.activeIntentId
         const branchId = event.data.branch_id
         const iterationNumber = event.data.iteration_number || 1
+        // #region agent log
+        const existingIntentsForIter = branchIterStartState.intentBlocks[branchIterStartWorkflowId] || []
+        const targetIntentForIter = existingIntentsForIter.find(i => i.id === branchIterStartIntentId)
+        const targetBranchForIter = targetIntentForIter?.parallelBranches?.find(b => b.branchId === branchId)
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:859',message:'parallel_branch_iteration_start - BEFORE startBranchIteration',data:{event_intent_id:event.data.intent_id,event_branch_id:branchId,resolved_intent_id:branchIterStartIntentId,workflowId:branchIterStartWorkflowId,intentFound:!!targetIntentForIter,branchFound:!!targetBranchForIter,existingIntentIds:existingIntentsForIter.map(i=>i.id),existingBranchIds:targetIntentForIter?.parallelBranches?.map(b=>b.branchId)||[]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
 
         if (branchIterStartWorkflowId && branchIterStartIntentId && branchId) {
           chatStore.startBranchIteration(branchIterStartWorkflowId, branchIterStartIntentId, branchId, iterationNumber)
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:863',message:'Called chatStore.startBranchIteration',data:{workflowId:branchIterStartWorkflowId,intentId:branchIterStartIntentId,branchId:branchId,iterationNumber:iterationNumber},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+        } else {
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:863',message:'SKIPPED chatStore.startBranchIteration - missing params',data:{workflowId:branchIterStartWorkflowId,intentId:branchIterStartIntentId,branchId:branchId,activeWorkflowIdFromState:branchIterStartState.activeWorkflowId,activeIntentIdFromState:branchIterStartState.activeIntentId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
         }
         break
       }
@@ -1258,26 +1274,27 @@ export class WebSocketClient {
 
       case 'final_result': {
         // Legacy: Set final result for the active workflow
-        // This is used for:
-        // 1. Simple queries (_answer_directly) - no streaming
-        // 2. Timeout/error scenarios
-        // BUT: Don't overwrite if streaming already provided longer content
         const finalResultWorkflowId = ensureActiveWorkflow()
         if (finalResultWorkflowId) {
-          const currentContent = useChatStore.getState().workflows[finalResultWorkflowId]?.finalResult || ''
+          const finalResultState = useChatStore.getState()
+          const finalResultIntentId = finalResultState.activeIntentId
+          const existingIntents = finalResultState.intentBlocks[finalResultWorkflowId] || []
+          const existingIntent = existingIntents.find(i => i.id === finalResultIntentId)
+          const hasParallelBranches = existingIntent?.parallelBranches && existingIntent.parallelBranches.length > 0
           const newContent = event.data.content || ''
           
-          // Only update if:
-          // 1. No current content (simple query case)
-          // 2. New content is longer (streaming didn't happen or was shorter)
-          if (!currentContent || newContent.length >= currentContent.length) {
-            chatStore.setWorkflowFinalResult(finalResultWorkflowId, newContent)
-            console.log('[WebSocket] Final result set:', newContent.length, 'chars')
-          } else {
-            console.log('[WebSocket] Final result skipped (streaming provided longer content):', currentContent.length, '>', newContent.length)
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:1274',message:'final_result received',data:{workflowId:finalResultWorkflowId,intentId:finalResultIntentId,hasParallelBranches,parallelBranchesCount:existingIntent?.parallelBranches?.length||0,contentPreview:newContent?.slice(0,80),contentLength:newContent?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1','hypothesisId':'D'})}).catch(()=>{});
+          // #endregion
+
+          // Set final result (will be displayed BELOW parallel tabs)
+          chatStore.setWorkflowFinalResult(finalResultWorkflowId, newContent)
+          console.log('[WebSocket] Final result set:', newContent.length, 'chars')
+          
+          // CRITICAL: Do NOT collapse intents if they have parallel branches
+          if (!hasParallelBranches) {
+            chatStore.collapseAllIntents(finalResultWorkflowId)
           }
-          // Collapse all intents when final result arrives
-          chatStore.collapseAllIntents(finalResultWorkflowId)
         }
         chatStore.setAgentTyping(false)
         break
@@ -2123,9 +2140,23 @@ export class WebSocketClient {
         // ReAct cycle completed successfully - FALLBACK: complete thinking block
         console.log('[WebSocket] ReAct cycle completed (fallback to thinking):', event.data)
         
-        // Collapse all intents when react cycle completes
         const reactCompleteState = useChatStore.getState()
         const reactCompleteWorkflowId = reactCompleteState.activeWorkflowId
+        const reactCompleteIntentId = reactCompleteState.activeIntentId
+        
+        // Check if this intent has parallel branches
+        const existingIntents = reactCompleteState.intentBlocks[reactCompleteWorkflowId || ''] || []
+        const existingIntent = existingIntents.find(i => i.id === reactCompleteIntentId)
+        const hasParallelBranches = existingIntent?.parallelBranches && existingIntent.parallelBranches.length > 0
+        
+        // CRITICAL: Do NOT collapse intents or set finalResult if this is a parallel branch
+        // Parallel branches should only show results in tabs, not as general result
+        if (hasParallelBranches) {
+          console.log('[WebSocket] react_complete: skipping for parallel branches - results shown in tabs')
+          break
+        }
+        
+        // Collapse all intents when react cycle completes (only for non-parallel tasks)
         if (reactCompleteWorkflowId) {
           chatStore.collapseAllIntents(reactCompleteWorkflowId)
         }

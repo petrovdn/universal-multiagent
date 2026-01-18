@@ -329,12 +329,28 @@ class UnifiedReActEngine:
         Returns:
             Execution result
         """
+        # #region agent log - execute entry
+        import json as _debug_json_entry; import time as _debug_time_entry
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_entry:
+            _debug_f_entry.write(_debug_json_entry.dumps({"id":f"log_{int(_debug_time_entry.time()*1000)}_execute_entry","timestamp":int(_debug_time_entry.time()*1000),"location":"unified_react_engine.py:320","message":"Execute function entry","data":{"goal":(goal[:80] if goal else None),"use_existing_intent_id":use_existing_intent_id,"skip_orchestration":skip_orchestration,"phase":phase},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+        # #endregion
+        
         # Нормализуем неразрывные пробелы (U+00A0) в обычные пробелы
         # Это критично для keyword matching в DANGEROUS_OPERATIONS и других проверках
         if goal:
             goal = goal.replace('\u00a0', ' ').replace('\xa0', ' ')
         
         file_ids = file_ids or []
+        
+        # CRITICAL: Save parallel subtask flag as LOCAL variable at the VERY START
+        # This must be defined before ANY early returns to avoid NameError
+        # This is checked at the end to skip final_result for subtasks
+        _local_is_parallel_subtask = use_existing_intent_id is not None
+        
+        # #region agent log - parallel subtask flag
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_flag:
+            _debug_f_flag.write(_debug_json_entry.dumps({"id":f"log_{int(_debug_time_entry.time()*1000)}_parallel_flag","timestamp":int(_debug_time_entry.time()*1000),"location":"unified_react_engine.py:342","message":"_local_is_parallel_subtask set","data":{"value":_local_is_parallel_subtask,"use_existing_intent_id":use_existing_intent_id},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+        # #endregion
         
         # Send research phase started event
         if phase == "research":
@@ -600,6 +616,9 @@ class UnifiedReActEngine:
             print(f"[execute] Context has {total_files} uploaded files: {list(context.uploaded_files.keys())}", flush=True)
         _exec_start = time.time()
         _calendar_caps = [c.name for c in self.capabilities if 'calendar' in c.name.lower() or 'event' in c.name.lower()]
+        
+        # Note: _local_is_parallel_subtask is already defined at the start of execute()
+        
         # Initialize state
         state = ReActState(goal=goal)
         state.context = {
@@ -611,8 +630,14 @@ class UnifiedReActEngine:
         
         # === OPTIMIZATION: Send intent_start IMMEDIATELY for instant feedback ===
         # Analyze task phases (fast - regex only, no LLM)
-        task_phases = self._analyze_task_phases(goal)
-        self._is_multi_phase = len(task_phases) >= 2
+        # CRITICAL: For parallel subtasks, DISABLE multi-phase to avoid creating new intents
+        if use_existing_intent_id:
+            # Parallel subtask: use provided intent_id, disable multi-phase
+            task_phases = []
+            self._is_multi_phase = False
+        else:
+            task_phases = self._analyze_task_phases(goal)
+            self._is_multi_phase = len(task_phases) >= 2
         self._task_phases = task_phases
         self._current_phase_category = None
         self._phase_intent_ids = {}  # category -> intent_id mapping
@@ -623,8 +648,23 @@ class UnifiedReActEngine:
             self._current_intent_id = task_intent_id
             self._use_existing_intent_id = use_existing_intent_id  # Store for ReAct loop to send parallel_branch_iteration events
             logger.info(f"[UnifiedReActEngine] Using existing intent_id for subtask: {task_intent_id}")
+            # #region agent log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"id": f"log_{int(time.time() * 1000)}_use_existing_set", "timestamp": int(time.time() * 1000), "location": "unified_react_engine.py:624", "message": "Set _use_existing_intent_id for parallel branch", "data": {"use_existing_intent_id": use_existing_intent_id, "is_multi_phase": self._is_multi_phase, "goal": goal[:100] if goal else None}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
+            # #endregion
         elif self._is_multi_phase:
+            # #region agent log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"id": f"log_{int(time.time() * 1000)}_multi_phase_clear_check", "timestamp": int(time.time() * 1000), "location": "unified_react_engine.py:627", "message": "BEFORE clearing _use_existing_intent_id in multi-phase", "data": {"current_use_existing_intent_id": self._use_existing_intent_id, "is_multi_phase": self._is_multi_phase, "num_phases": len(task_phases)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
+            # #endregion
             self._use_existing_intent_id = None  # Clear previous value
+            # #region agent log
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"id": f"log_{int(time.time() * 1000)}_multi_phase_clear_done", "timestamp": int(time.time() * 1000), "location": "unified_react_engine.py:627", "message": "AFTER clearing _use_existing_intent_id in multi-phase", "data": {"use_existing_intent_id_after": self._use_existing_intent_id}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
+            # #endregion
             logger.info(f"[UnifiedReActEngine] Multi-phase task detected: {len(task_phases)} phases")
             # Create the FIRST phase intent
             first_phase = task_phases[0]
@@ -1407,6 +1447,11 @@ class UnifiedReActEngine:
                     )
                     
                     if should_transition:
+                        # #region agent log
+                        import json
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"id": f"log_{int(time.time() * 1000)}_phase_transition_start", "timestamp": int(time.time() * 1000), "location": "unified_react_engine.py:1424", "message": "Phase transition starting", "data": {"old_category": self._current_phase_category, "new_category": new_category, "current_intent_id": self._current_intent_id, "use_existing_intent_id_before": self._use_existing_intent_id}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + '\n')
+                        # #endregion
                         # Complete current intent before starting new one
                         if self._current_intent_id:
                             await self.ws_manager.send_event(
@@ -1427,6 +1472,11 @@ class UnifiedReActEngine:
                             new_intent_id = f"phase-{int(time.time() * 1000)}"
                             self._phase_intent_ids[new_category] = new_intent_id
                             self._current_intent_id = new_intent_id
+                        # #region agent log
+                        import json
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                            f.write(json.dumps({"id": f"log_{int(time.time() * 1000)}_phase_transition_end", "timestamp": int(time.time() * 1000), "location": "unified_react_engine.py:1444", "message": "Phase transition completed", "data": {"new_category": new_category, "new_current_intent_id": self._current_intent_id, "use_existing_intent_id_after": self._use_existing_intent_id}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "B"}) + '\n')
+                        # #endregion
                             
                             phase_description = self._get_phase_description_for_category(new_category)
                             await self.ws_manager.send_event(
@@ -1493,7 +1543,7 @@ class UnifiedReActEngine:
                     
                     # FIX: Break the loop and finalize when FINISH marker is detected
                     # Previously, code continued to execute FINISH as a tool, causing errors and infinite loop
-                    return await self._finalize_success(state, finish_reasoning, context, file_ids)
+                    return await self._finalize_success(state, finish_reasoning, context, file_ids, is_parallel_subtask=_local_is_parallel_subtask)
                 
                 # Check for "ASK_CLARIFICATION" marker
                 elif tool_name.upper() == "ASK_CLARIFICATION" or tool_name == "ask_clarification":
@@ -1770,7 +1820,7 @@ class UnifiedReActEngine:
                 
                 if analysis.is_goal_achieved:
                     logger.info(f"[UnifiedReActEngine] Goal achieved at iteration {state.iteration}")
-                    return await self._finalize_success(state, result, context, file_ids)
+                    return await self._finalize_success(state, result, context, file_ids, is_parallel_subtask=_local_is_parallel_subtask)
                 
                 elif analysis.is_error:
                     # === ИСПРАВЛЕНИЕ E: Retry counter вместо немедленного FINISH ===
@@ -5040,6 +5090,11 @@ raise ValueError("Код анализа не был предоставлен. П
                     synthesis_result.summary += error_summary
                 
                 # Send final result
+                # #region agent log
+                import json as _debug_json_synth; import time as _debug_time_synth
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_synth:
+                    _debug_f_synth.write(_debug_json_synth.dumps({"id":f"log_{int(_debug_time_synth.time()*1000)}_synthesis_final_result","timestamp":int(_debug_time_synth.time()*1000),"location":"unified_react_engine.py:5070","message":"Sending SYNTHESIS final_result (should be the ONLY one)","data":{"summary_preview":synthesis_result.summary[:100] if synthesis_result.summary else None,"has_errors":bool(errors),"current_intent_id":self._current_intent_id},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                # #endregion
                 await self.ws_manager.send_event(
                     self.session_id,
                     "final_result",
@@ -5106,6 +5161,11 @@ raise ValueError("Код анализа не был предоставлен. П
         logger.info(f"[DEBUG] Parallel execution start: {len(subtasks)} subtasks, IDs: {[st.task_id for st in subtasks]}")
         # #endregion
         
+        # CRITICAL: Save main intent_id BEFORE starting parallel branches
+        # This is the parent intent where all parallel branches belong
+        main_intent_id = self._current_intent_id
+        logger.info(f"[UnifiedReActEngine] Parallel execution: main_intent_id={main_intent_id}, branches={[st.task_id for st in subtasks]}")
+        
         # CRITICAL: Send parallel_branch_start events FIRST for new UI (ParallelExecutionContainer)
         # Then track sources for source cards (existing UI)
         _branch_start_time = _debug_time.time()
@@ -5118,7 +5178,7 @@ raise ValueError("Код анализа не был предоставлен. П
                     self.session_id,
                     "parallel_branch_start",
                     {
-                        "intent_id": self._current_intent_id,
+                        "intent_id": main_intent_id,  # Use saved main_intent_id (NOT self._current_intent_id which changes)
                         "branch_id": subtask.task_id,
                         "description": subtask.description,
                         "tool_name": subtask.tool_name
@@ -5133,7 +5193,7 @@ raise ValueError("Код анализа не был предоставлен. П
         _branch_sent_time = _debug_time.time()
         import json as _debug_json
         with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f:
-            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_parallel_branch_start_sent","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4961","message":"parallel_branch_start events sent","data":{"subtasks_count":len(subtasks),"intent_id":self._current_intent_id,"subtask_ids":[st.task_id for st in subtasks]},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+            _debug_f.write(_debug_json.dumps({"id":f"log_{int(_debug_time.time()*1000)}_parallel_branch_start_sent","timestamp":int(_debug_time.time()*1000),"location":"unified_react_engine.py:4961","message":"parallel_branch_start events sent","data":{"subtasks_count":len(subtasks),"intent_id":main_intent_id,"subtask_ids":[st.task_id for st in subtasks]},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
         # #endregion
         
         # CRITICAL: Track all sources FIRST (before execution) to send events simultaneously
@@ -5148,7 +5208,7 @@ raise ValueError("Код анализа не был предоставлен. П
                     source_name=source_name,
                     tool_name=subtask.tool_name,
                     preview_data=subtask.description,
-                    intent_id=self._current_intent_id
+                    intent_id=main_intent_id  # Use saved main_intent_id
                 )
             )
         
@@ -5172,7 +5232,12 @@ raise ValueError("Код анализа не был предоставлен. П
         # Create coroutines for each subtask execution (without track_source - already done)
         tasks = []
         for subtask in subtasks:
-            tasks.append(self._execute_single_subtask_with_source_id(subtask, context, source_ids[subtask.task_id]))
+            tasks.append(self._execute_single_subtask_with_source_id(
+                subtask, 
+                context, 
+                source_ids[subtask.task_id],
+                main_intent_id  # Pass main_intent_id to each subtask
+            ))
         
         # #region agent log
         logger.info(f"[DEBUG] Starting asyncio.gather with {len(tasks)} tasks")
@@ -5203,7 +5268,7 @@ raise ValueError("Код анализа не был предоставлен. П
                         self.session_id,
                         "parallel_branch_complete",
                         {
-                            "intent_id": self._current_intent_id,
+                            "intent_id": main_intent_id,  # Use saved main_intent_id
                             "branch_id": subtask.task_id,
                             "status": "failed",
                             "duration_sec": _parallel_duration,
@@ -5214,18 +5279,32 @@ raise ValueError("Код анализа не был предоставлен. П
             else:
                 result_dict[subtask.task_id] = result
                 
-                # Send parallel_branch_complete with success
-                # Use main task intent_id (from when parallel execution started)
-                main_intent_id = self._current_intent_id  # This is the main task intent
+                # Extract brief result summary for display in tab
+                result_summary = ""
+                if isinstance(result, dict):
+                    result_summary = result.get("final_result", result.get("response", "✓ Выполнено"))
+                    if isinstance(result_summary, str) and len(result_summary) > 200:
+                        result_summary = result_summary[:200] + "..."
+                else:
+                    result_summary = str(result)[:200] if result else "✓ Выполнено"
+                
+                # #region agent log - branch complete with result
+                import json as _debug_json_branch; import time as _debug_time_branch
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_branch:
+                    _debug_f_branch.write(_debug_json_branch.dumps({"id":f"log_{int(_debug_time_branch.time()*1000)}_branch_complete_with_result","timestamp":int(_debug_time_branch.time()*1000),"location":"unified_react_engine.py:5292","message":"Sending parallel_branch_complete with result_summary","data":{"branch_id":subtask.task_id,"result_summary_preview":result_summary[:100] if result_summary else None,"result_type":type(result).__name__,"main_intent_id":main_intent_id},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                # #endregion
+                
+                # Send parallel_branch_complete with success and result
                 branch_complete_tasks.append(
                     self.ws_manager.send_event(
                         self.session_id,
                         "parallel_branch_complete",
                         {
-                            "intent_id": main_intent_id,
+                            "intent_id": main_intent_id,  # Use saved main_intent_id
                             "branch_id": subtask.task_id,
                             "status": "completed",
-                            "duration_sec": _parallel_duration
+                            "duration_sec": _parallel_duration,
+                            "result_summary": result_summary  # Brief result for display in tab
                         }
                     )
                 )
@@ -5276,7 +5355,8 @@ raise ValueError("Код анализа не был предоставлен. П
         self,
         subtask: SubTask,
         context: ConversationContext,
-        source_id: str
+        source_id: str,
+        main_intent_id: str  # CRITICAL: Parent intent_id for parallel branches
     ) -> Any:
         """
         Execute a single subtask with pre-tracked source (Phase 2, Step 3).
@@ -5347,9 +5427,11 @@ raise ValueError("Код анализа не был предоставлен. П
             # Save current intent_id and task_intent_id to restore after subtask execution
             saved_intent_id = self._current_intent_id
             saved_task_intent_id = self._task_intent_id
-            # Save main task intent_id (parent) - needed for parallel_branch_iteration events
-            main_task_intent_id = saved_intent_id  # This is the parent intent where parallel branches belong
-            self._saved_main_intent_id = main_task_intent_id  # Store for use in ReAct loop
+            # Use provided main_intent_id (parent) - needed for parallel_branch_iteration events
+            self._saved_main_intent_id = main_intent_id  # Store for use in ReAct loop
+            # CRITICAL: Mark this as a parallel subtask BEFORE execute() call
+            # This flag is used to skip final_result/message_complete for subtasks
+            self._is_parallel_subtask = True
             
             try:
                 # Execute through full ReAct cycle with skip_orchestration=True to avoid recursion
@@ -5372,10 +5454,8 @@ raise ValueError("Код анализа не был предоставлен. П
                 # Restore original intent_id and task_intent_id
                 self._current_intent_id = saved_intent_id
                 self._task_intent_id = saved_task_intent_id
-                # Clear use_existing_intent_id and saved_main_intent_id after subtask execution
-                self._use_existing_intent_id = None
-                if hasattr(self, '_saved_main_intent_id'):
-                    delattr(self, '_saved_main_intent_id')
+                # Note: _saved_main_intent_id is NOT cleared here to avoid race conditions
+                # It will be naturally overwritten by the next parallel subtask if any
             
             # Update source as completed
             await self.source_tracker.update_source_complete(
@@ -7003,7 +7083,8 @@ raise ValueError("Код анализа не был предоставлен. П
         state: ReActState,
         final_result: Any,
         context: ConversationContext,
-        file_ids: Optional[List[str]] = None
+        file_ids: Optional[List[str]] = None,
+        is_parallel_subtask: bool = False  # CRITICAL: passed from execute() to skip final_result for subtasks
     ) -> Dict[str, Any]:
         """Finalize successful execution."""
         state.status = "done"
@@ -7092,6 +7173,16 @@ raise ValueError("Код анализа не был предоставлен. П
                         }
                         logger.info(f"[UnifiedReActEngine] Saved pending confirmation: slot_start={slot_start}, description={description[:50] if description else None}")
                     break
+        elif is_parallel_subtask:
+            # CRITICAL: For parallel subtasks, DON'T call _generate_final_answer
+            # It sends final_result_start/chunk/complete events that overwrite tabs in UI
+            # Just use a brief summary - synthesis will aggregate all results later
+            if state.observations:
+                last_obs = state.observations[-1]
+                human_answer = f"✓ {last_obs.action.tool_name}: выполнено"
+            else:
+                human_answer = "✓ Выполнено"
+            logger.info(f"[UnifiedReActEngine] Parallel subtask - skipping _generate_final_answer, using brief result")
         else:
             # Generate human-friendly final answer instead of raw result
             human_answer = await self._generate_final_answer(state, context, file_ids)
@@ -7131,7 +7222,14 @@ raise ValueError("Код анализа не был предоставлен. П
             self._current_thinking_id = None
             self._thinking_start_time = None
         
-        # Send react_complete event
+        # CRITICAL: Skip sending react_complete and final_result for parallel subtasks
+        # Their results will be aggregated by synthesis and shown in parallel tabs
+        # react_complete on frontend sets finalResult, which overwrites tabs
+        if is_parallel_subtask:
+            logger.info(f"[UnifiedReActEngine] Skipping react_complete and final events for parallel subtask: {state.goal[:50]}")
+            return result_summary
+        
+        # Send react_complete event (only for non-parallel tasks)
         await self.ws_manager.send_event(
             self.session_id,
             "react_complete",
@@ -7144,6 +7242,13 @@ raise ValueError("Код анализа не был предоставлен. П
         # Send final_result or message_complete event based on mode
         # NOTE: final_result_start, final_result_chunk, final_result_complete are already sent by _generate_final_answer
         # So we only send final_result here as a final confirmation (or skip if already sent)
+        # CRITICAL: Use is_parallel_subtask parameter (passed from execute()) - thread-safe for asyncio
+        # #region agent log
+        import json as _debug_json_final; import time as _debug_time_final
+        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_final:
+            _debug_f_final.write(_debug_json_final.dumps({"id":f"log_{int(_debug_time_final.time()*1000)}_final_event_check","timestamp":int(_debug_time_final.time()*1000),"location":"unified_react_engine.py:7177","message":"About to send final event","data":{"mode":self.config.mode,"is_parallel_subtask":is_parallel_subtask,"current_intent_id":self._current_intent_id,"goal":state.goal[:80] if state.goal else None},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        # #endregion
+        
         if self.config.mode == "query":
             # For query mode, send workflow_stopped to indicate completion (stops animations)
             await self.ws_manager.send_event(

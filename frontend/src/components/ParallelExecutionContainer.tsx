@@ -139,6 +139,13 @@ export function ParallelExecutionContainer({
             <strong>Критическая ошибка:</strong> {activeBranch.error}
           </div>
         )}
+        
+        {/* Branch result summary - shown when branch completed */}
+        {activeBranch.status === 'completed' && activeBranch.resultSummary && (
+          <div className="branch-result-summary">
+            <div className="result-content">{activeBranch.resultSummary}</div>
+          </div>
+        )}
       </div>
     </div>
   )

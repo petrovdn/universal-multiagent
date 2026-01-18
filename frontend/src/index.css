@@ -5269,6 +5269,15 @@ div[style*="padding: '10px'"] .prose li {
   flex: 0 1 auto;
   min-width: 0;
   max-width: 280px;
+  overflow: hidden; /* Fix for text truncation */
+}
+
+.branch-tab > span:not(.tab-status):not(.tab-meta) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
 .branch-tab:hover {
@@ -5330,6 +5339,23 @@ div[style*="padding: '10px'"] .prose li {
 
 .branch-error-message .error-icon {
   margin-right: 4px;
+}
+
+/* Branch Result Summary - displayed inside tab when branch completes */
+.branch-result-summary {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(76, 175, 80, 0.08);
+  border-left: 3px solid #4CAF50;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--text-primary, #333);
+}
+
+.branch-result-summary .result-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
 }
 
 /* ============================================

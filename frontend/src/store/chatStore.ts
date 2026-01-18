@@ -271,6 +271,7 @@ export interface ParallelBranch {
   durationSec?: number
   startTime?: number
   endTime?: number
+  resultSummary?: string  // Brief result for display in tab when completed
 }
 
 export interface IntentBlock {
@@ -487,7 +488,7 @@ interface ChatState {
   
   // Parallel Branch methods (для параллельных веток выполнения)
   startParallelBranch: (workflowId: string, intentId: string, branchId: string, description: string, toolName: string) => void
-  completeParallelBranch: (workflowId: string, intentId: string, branchId: string, status: 'completed' | 'failed', durationSec?: number, error?: string) => void
+  completeParallelBranch: (workflowId: string, intentId: string, branchId: string, status: 'completed' | 'failed', durationSec?: number, error?: string, resultSummary?: string) => void
   startBranchIteration: (workflowId: string, intentId: string, branchId: string, iterationNumber: number) => void
   appendBranchIterationThinking: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, chunk: string) => void
   completeBranchIterationThinking: (workflowId: string, intentId: string, branchId: string, iterationNumber: number, durationSec: number) => void
@@ -2061,7 +2062,22 @@ export const useChatStore = create<ChatState>()(
       // Iteration methods (для ReAct итераций внутри Intent)
       startIteration: (workflowId: string, intentId: string, iterationNumber: number) =>
         set((state) => {
+          // #region agent log
           const existingIntents = state.intentBlocks[workflowId] || []
+          const existingIntent = existingIntents.find(i => i.id === intentId)
+          const hasParallelBranches = existingIntent?.parallelBranches && existingIntent.parallelBranches.length > 0
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:2062',message:'startIteration called - BEFORE update',data:{workflowId,intentId,iterationNumber,hasParallelBranches,parallelBranchesCount:existingIntent?.parallelBranches?.length||0,existingIterationsCount:existingIntent?.iterations?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          
+          // CRITICAL: If intent has parallel branches, DO NOT create regular iterations
+          // Parallel branches have their own iterations managed separately
+          if (hasParallelBranches) {
+            // #region agent log
+            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:2067',message:'startIteration SKIPPED - has parallel branches',data:{workflowId,intentId,iterationNumber,parallelBranchesCount:existingIntent?.parallelBranches?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+            // #endregion
+            return state  // Return unchanged state - don't create iterations for parallel execution
+          }
+          
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
               // Проверяем, существует ли уже итерация с таким номером
@@ -2100,11 +2116,15 @@ export const useChatStore = create<ChatState>()(
                 },
               }
               
-              return {
+              const updatedIntent = {
                 ...intent,
                 iterations: [...collapsedIterations, newIteration],
                 operations: collapsedOperations,
               }
+              // #region agent log
+              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:2103',message:'startIteration - AFTER creating iteration',data:{workflowId,intentId,iterationNumber,hasParallelBranches:updatedIntent.parallelBranches?.length>0,parallelBranchesCount:updatedIntent.parallelBranches?.length||0,iterationsCount:updatedIntent.iterations.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+              // #endregion
+              return updatedIntent
             }
             return intent
           })
@@ -2348,6 +2368,10 @@ export const useChatStore = create<ChatState>()(
       startParallelBranch: (workflowId: string, intentId: string, branchId: string, description: string, toolName: string) =>
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []
+          // #region agent log
+          const targetIntent = existingIntents.find(i => i.id === intentId)
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:2367',message:'startParallelBranch called',data:{workflowId,intentId,branchId,description:description?.slice(0,50),intentFound:!!targetIntent,existingBranchesCount:targetIntent?.parallelBranches?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId) {
               const parallelBranches = intent.parallelBranches || []
@@ -2380,7 +2404,7 @@ export const useChatStore = create<ChatState>()(
           }
         }),
       
-      completeParallelBranch: (workflowId: string, intentId: string, branchId: string, status: 'completed' | 'failed', durationSec?: number, error?: string) =>
+      completeParallelBranch: (workflowId: string, intentId: string, branchId: string, status: 'completed' | 'failed', durationSec?: number, error?: string, resultSummary?: string) =>
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []
           const updatedIntents = existingIntents.map(intent => {
@@ -2392,6 +2416,7 @@ export const useChatStore = create<ChatState>()(
                     status,
                     durationSec,
                     error,
+                    resultSummary,  // Brief result for display in tab
                     endTime: Date.now(),
                   }
                 }
@@ -2415,6 +2440,11 @@ export const useChatStore = create<ChatState>()(
       startBranchIteration: (workflowId: string, intentId: string, branchId: string, iterationNumber: number) =>
         set((state) => {
           const existingIntents = state.intentBlocks[workflowId] || []
+          // #region agent log
+          const targetIntent = existingIntents.find(i => i.id === intentId)
+          const targetBranch = targetIntent?.parallelBranches?.find(b => b.branchId === branchId)
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:2434',message:'startBranchIteration called',data:{workflowId,intentId,branchId,iterationNumber,intentFound:!!targetIntent,branchFound:!!targetBranch,hasParallelBranches:!!targetIntent?.parallelBranches,branchIterationsCount:targetBranch?.iterations?.length||0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
           const updatedIntents = existingIntents.map(intent => {
             if (intent.id === intentId && intent.parallelBranches) {
               const updatedBranches = intent.parallelBranches.map(branch => {

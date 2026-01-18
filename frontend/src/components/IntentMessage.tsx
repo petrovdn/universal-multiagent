@@ -32,6 +32,11 @@ export function IntentMessage({
   const hasOperations = block.operations && Object.keys(block.operations).length > 0
   const hasIterations = block.iterations && block.iterations.length > 0
   const hasParallelBranches = block.parallelBranches && block.parallelBranches.length > 0
+  // #region agent log
+  if (hasParallelBranches || hasIterations) {
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'IntentMessage.tsx:34',message:'IntentMessage render - flags check',data:{intentId:block.id,hasParallelBranches,hasIterations,parallelBranchesCount:block.parallelBranches?.length||0,iterationsCount:block.iterations?.length||0,phase:block.phase},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+  }
+  // #endregion
 
   // НОВЫЙ ФОРМАТ: Если есть iterations, используем их вместо старых секций
   // Показывать секцию "Планирую" если есть thinking или в фазе planning (только если НЕТ iterations и НЕТ parallelBranches)
