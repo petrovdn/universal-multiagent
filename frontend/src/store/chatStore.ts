@@ -232,20 +232,6 @@ export interface ToolExplanation {
   timestamp: string
 }
 
-// Source card (Phase 1.2)
-export interface SourceCard {
-  id: string
-  name: string
-  icon: string
-  tool_name: string
-  preview: string
-  status: 'loading' | 'completed' | 'error'
-  item_count?: number
-  error?: string
-  timestamp: string
-  completed_at?: string
-}
-
 // Task decomposition (Phase 2, Steps 1-2)
 export interface TaskDecomposition {
   query: string
@@ -286,7 +272,6 @@ export interface IntentBlock {
   iterations: IterationBlock[]      // Новый формат: массив итераций ReAct цикла
   parallelBranches?: ParallelBranch[] // Параллельные ветки выполнения (variant 1: tabs)
   toolExplanations: ToolExplanation[] // Phase 1.1: Cursor-style explanations before tool execution
-  sources: SourceCard[] // Phase 1.2: Source cards (Perplexity-style)
   taskDecomposition?: TaskDecomposition // Phase 2: Task decomposition visualization
   thinkingText?: string             // Streaming thinking text (фаза planning) - устаревший
   summary?: string                  // "Найдено 5 встреч" - показывается в свёрнутом виде
@@ -448,8 +433,6 @@ interface ChatState {
   startIntent: (workflowId: string, intentId: string, intentText: string) => void
   addIntentDetail: (workflowId: string, intentId: string, detail: IntentDetail) => void
   addToolExplanation: (workflowId: string, intentId: string, explanation: ToolExplanation) => void
-  addSourceToIntent: (workflowId: string, intentId: string, source: SourceCard) => void
-  updateSourceStatus: (workflowId: string, intentId: string, sourceId: string, status: 'loading' | 'completed' | 'error', sourceData?: Partial<SourceCard>) => void
   clearIntentThinking: (workflowId: string, intentId: string) => void
   appendIntentThinking: (workflowId: string, intentId: string, text: string) => void
   setIntentPhase: (workflowId: string, intentId: string, phase: IntentPhase) => void
@@ -1624,7 +1607,6 @@ export const useChatStore = create<ChatState>()(
             operations: {},
             iterations: [],     // Новый массив итераций
             toolExplanations: [], // Phase 1.1: Tool explanations
-            sources: [], // Phase 1.2: Source cards
             isCollapsed: false,
             planningCollapsed: false,
             executingCollapsed: false,
@@ -1672,70 +1654,6 @@ export const useChatStore = create<ChatState>()(
               return {
                 ...intent,
                 toolExplanations: [...(intent.toolExplanations || []), explanation],
-              }
-            }
-            return intent
-          })
-          return {
-            intentBlocks: {
-              ...state.intentBlocks,
-              [workflowId]: updatedIntents,
-            },
-          }
-        }),
-      
-      // Phase 1.2: Add source to intent (Perplexity-style)
-      addSourceToIntent: (workflowId: string, intentId: string, source: SourceCard) =>
-        set((state) => {
-          const existingIntents = state.intentBlocks[workflowId] || []
-          const updatedIntents = existingIntents.map(intent => {
-            if (intent.id === intentId) {
-              // CRITICAL: Never add sources if parallel branches exist - they break tab UI
-              if (intent.parallelBranches && intent.parallelBranches.length > 0) {
-                console.log(`[chatStore] Skipping addSourceToIntent - parallel branches exist (${intent.parallelBranches.length} branches)`)
-                return intent
-              }
-              
-              return {
-                ...intent,
-                sources: [...(intent.sources || []), source],
-              }
-            }
-            return intent
-          })
-          return {
-            intentBlocks: {
-              ...state.intentBlocks,
-              [workflowId]: updatedIntents,
-            },
-          }
-        }),
-      
-      // Phase 1.2: Update source status
-      updateSourceStatus: (workflowId: string, intentId: string, sourceId: string, status: 'loading' | 'completed' | 'error', sourceData?: Partial<SourceCard>) =>
-        set((state) => {
-          const existingIntents = state.intentBlocks[workflowId] || []
-          const updatedIntents = existingIntents.map(intent => {
-            if (intent.id === intentId) {
-              // CRITICAL: Never update sources if parallel branches exist - they break tab UI
-              if (intent.parallelBranches && intent.parallelBranches.length > 0) {
-                console.log(`[chatStore] Skipping updateSourceStatus - parallel branches exist (${intent.parallelBranches.length} branches)`)
-                return intent
-              }
-              
-              const updatedSources = (intent.sources || []).map(source => {
-                if (source.id === sourceId) {
-                  return {
-                    ...source,
-                    status,
-                    ...sourceData,
-                  }
-                }
-                return source
-              })
-              return {
-                ...intent,
-                sources: updatedSources,
               }
             }
             return intent
@@ -2403,19 +2321,9 @@ export const useChatStore = create<ChatState>()(
                 startTime: Date.now(),
               }
               
-              // CRITICAL: When creating first parallel branch, clear sources to prevent old card UI
-              // Sources break tab UI and should never be shown for parallel execution
-              const isFirstBranch = parallelBranches.length === 0
-              const shouldClearSources = isFirstBranch && intent.sources && intent.sources.length > 0
-              
-              if (shouldClearSources) {
-                console.log(`[chatStore] Clearing ${intent.sources.length} sources for parallel branches to prevent old card UI`)
-              }
-              
               return {
                 ...intent,
                 parallelBranches: [...parallelBranches, newBranch],
-                sources: shouldClearSources ? [] : intent.sources,  // Clear sources for parallel branches
               }
             }
             return intent

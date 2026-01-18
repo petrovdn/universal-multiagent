@@ -1,9 +1,7 @@
 import React from 'react'
 import { IntentBlock, useChatStore } from '../store/chatStore'
-import { PlanningBlock } from './PlanningBlock'
 import { OperationBlock } from './OperationBlock'
 import { IterationBlock } from './IterationBlock'
-import { SourceCard } from './SourceCard'
 import { ParallelExecutionContainer } from './ParallelExecutionContainer'
 
 interface IntentMessageProps {
@@ -24,10 +22,8 @@ export function IntentMessage({
   onToggleExecutingCollapse 
 }: IntentMessageProps) {
   
-  const isPlanning = block.phase === 'planning'
   const isExecuting = block.phase === 'executing'
   const isCompleted = block.phase === 'completed'
-  const hasThinkingText = !!block.thinkingText
   const hasDetails = block.details.length > 0
   const hasOperations = block.operations && Object.keys(block.operations).length > 0
   const hasIterations = block.iterations && block.iterations.length > 0
@@ -39,9 +35,6 @@ export function IntentMessage({
   // #endregion
 
   // НОВЫЙ ФОРМАТ: Если есть iterations, используем их вместо старых секций
-  // Показывать секцию "Планирую" если есть thinking или в фазе planning (только если НЕТ iterations и НЕТ parallelBranches)
-  const showPlanningSection = !hasIterations && !hasParallelBranches && (hasThinkingText || isPlanning)
-  
   // Показывать секцию "Выполняю" если есть operations, details или в фазе executing/completed (только если НЕТ iterations и НЕТ parallelBranches)
   // ВАЖНО: Если есть операции, игнорируем старые details, чтобы избежать дублирования
   const showExecutingSection = !hasIterations && !hasParallelBranches && (hasOperations || (!hasOperations && hasDetails) || isExecuting || isCompleted)
@@ -104,9 +97,6 @@ export function IntentMessage({
                   {group.map(taskId => {
                     const subtask = block.taskDecomposition.subtasks.find(st => st.task_id === taskId)
                     if (!subtask) return null
-                    // Check if this subtask has a corresponding source card (to show execution status)
-                    const hasSource = block.sources.some(s => s.tool_name === subtask.tool_name)
-                    const sourceStatus = block.sources.find(s => s.tool_name === subtask.tool_name)?.status
                     return (
                       <div 
                         key={taskId} 
@@ -116,7 +106,7 @@ export function IntentMessage({
                           padding: '6px 10px', 
                           backgroundColor: 'white', 
                           borderRadius: '4px',
-                          border: `1px solid ${sourceStatus === 'loading' ? '#2196F3' : sourceStatus === 'completed' ? '#4CAF50' : '#e0e0e0'}`,
+                          border: '1px solid #e0e0e0',
                           display: 'inline-block',
                           minWidth: isParallel ? '200px' : 'auto',
                           position: 'relative'
@@ -125,12 +115,6 @@ export function IntentMessage({
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           {subtask.is_synthesis ? '🔄' : '📌'}
                           <span style={{ flex: 1 }}>{subtask.description}</span>
-                          {sourceStatus === 'loading' && (
-                            <span style={{ fontSize: '10px', color: '#2196F3' }}>⏳</span>
-                          )}
-                          {sourceStatus === 'completed' && (
-                            <span style={{ fontSize: '10px', color: '#4CAF50' }}>✓</span>
-                          )}
                         </div>
                         {subtask.dependencies.length > 0 && (
                           <div style={{ fontSize: '10px', color: '#999', marginTop: '4px' }}>
@@ -159,24 +143,6 @@ export function IntentMessage({
         </div>
       )}
       
-      {/* Фаза 1: Планирую - используем PlanningBlock */}
-      {showPlanningSection && (
-        <div style={{ marginBottom: '8px' }}>
-          <PlanningBlock
-            content={block.thinkingText || ''}
-            isStreaming={isPlanning}
-            estimatedSeconds={estimatedSeconds}
-            initialCollapsed={block.planningCollapsed}
-            onCollapseChange={(collapsed) => {
-              // Только если состояние действительно изменилось
-              if (onTogglePlanningCollapse && collapsed !== block.planningCollapsed) {
-                onTogglePlanningCollapse()
-              }
-            }}
-          />
-        </div>
-      )}
-      
       {/* Фаза 2: Выполняю - операции и детали */}
       {showExecutingSection && (
         <div style={{ marginTop: '8px' }}>
@@ -187,16 +153,6 @@ export function IntentMessage({
                 <div key={idx} style={{ marginBottom: idx < block.toolExplanations.length - 1 ? '6px' : '0' }}>
                   <span style={{ color: '#666', fontStyle: 'italic' }}>{explanation.explanation}</span>
                 </div>
-              ))}
-            </div>
-          )}
-          
-          {/* Phase 1.2: Source cards (Perplexity-style) */}
-          {/* CRITICAL: Hide source cards for parallel branches - they break tab UI */}
-          {block.sources && block.sources.length > 0 && !hasParallelBranches && (
-            <div style={{ marginBottom: '12px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-              {block.sources.map((source) => (
-                <SourceCard key={source.id} source={source} />
               ))}
             </div>
           )}

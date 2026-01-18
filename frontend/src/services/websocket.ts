@@ -1032,22 +1032,6 @@ export class WebSocketClient {
         const decompIntentId = event.data.intent_id || decompState.activeIntentId
 
         if (decompWorkflowId && decompIntentId) {
-          // CRITICAL: Clear any sources that may have been created before orchestration
-          // Sources (SourceCard) break tab UI and should never be shown for orchestrated execution
-          const existingIntents = decompState.intentBlocks[decompWorkflowId] || []
-          const targetIntent = existingIntents.find(i => i.id === decompIntentId)
-          if (targetIntent && targetIntent.sources && targetIntent.sources.length > 0) {
-            console.log(`[WebSocket] Clearing ${targetIntent.sources.length} sources for orchestrated task to prevent old card UI`)
-            // Clear sources by setting empty array
-            const updatedIntents = existingIntents.map(intent => {
-              if (intent.id === decompIntentId) {
-                return { ...intent, sources: [] }
-              }
-              return intent
-            })
-            chatStore.setState({ intentBlocks: { ...decompState.intentBlocks, [decompWorkflowId]: updatedIntents } })
-          }
-          
           // Store decomposition for display
           chatStore.setTaskDecomposition(decompWorkflowId, decompIntentId, {
             query: event.data.query,
@@ -1089,72 +1073,6 @@ export class WebSocketClient {
             explanation: explanation,
             timestamp: new Date().toISOString()
           })
-        }
-        break
-      }
-      
-      case 'source_loading': {
-        // Phase 1.2: Source is loading
-        console.log('[WebSocket] Source loading:', event.data)
-        const sourceLoadingState = useChatStore.getState()
-        const sourceLoadingWorkflowId = sourceLoadingState.activeWorkflowId
-        const sourceLoadingIntentId = event.data.intent_id || sourceLoadingState.activeIntentId
-        
-        // CRITICAL: Skip adding sources for parallel branches - they break tab UI
-        if (sourceLoadingWorkflowId && sourceLoadingIntentId && event.data.source) {
-          const existingIntents = sourceLoadingState.intentBlocks[sourceLoadingWorkflowId] || []
-          const targetIntent = existingIntents.find(i => i.id === sourceLoadingIntentId)
-          const hasParallelBranches = targetIntent?.parallelBranches && targetIntent.parallelBranches.length > 0
-          
-          if (!hasParallelBranches) {
-            chatStore.addSourceToIntent(sourceLoadingWorkflowId, sourceLoadingIntentId, event.data.source)
-          } else {
-            console.log('[WebSocket] Skipping source_loading for parallel branches - sources shown in tabs')
-          }
-        }
-        break
-      }
-      
-      case 'source_completed': {
-        // Phase 1.2: Source completed successfully
-        console.log('[WebSocket] Source completed:', event.data)
-        const sourceCompletedState = useChatStore.getState()
-        const sourceCompletedWorkflowId = sourceCompletedState.activeWorkflowId
-        const sourceCompletedIntentId = event.data.intent_id || sourceCompletedState.activeIntentId
-        
-        // CRITICAL: Skip updating sources for parallel branches - they break tab UI
-        if (sourceCompletedWorkflowId && sourceCompletedIntentId && event.data.source) {
-          const existingIntents = sourceCompletedState.intentBlocks[sourceCompletedWorkflowId] || []
-          const targetIntent = existingIntents.find(i => i.id === sourceCompletedIntentId)
-          const hasParallelBranches = targetIntent?.parallelBranches && targetIntent.parallelBranches.length > 0
-          
-          if (!hasParallelBranches) {
-            chatStore.updateSourceStatus(sourceCompletedWorkflowId, sourceCompletedIntentId, event.data.source.id, 'completed', event.data.source)
-          } else {
-            console.log('[WebSocket] Skipping source_completed for parallel branches')
-          }
-        }
-        break
-      }
-      
-      case 'source_error': {
-        // Phase 1.2: Source error
-        console.log('[WebSocket] Source error:', event.data)
-        const sourceErrorState = useChatStore.getState()
-        const sourceErrorWorkflowId = sourceErrorState.activeWorkflowId
-        const sourceErrorIntentId = event.data.intent_id || sourceErrorState.activeIntentId
-        
-        // CRITICAL: Skip updating sources for parallel branches - they break tab UI
-        if (sourceErrorWorkflowId && sourceErrorIntentId && event.data.source) {
-          const existingIntents = sourceErrorState.intentBlocks[sourceErrorWorkflowId] || []
-          const targetIntent = existingIntents.find(i => i.id === sourceErrorIntentId)
-          const hasParallelBranches = targetIntent?.parallelBranches && targetIntent.parallelBranches.length > 0
-          
-          if (!hasParallelBranches) {
-            chatStore.updateSourceStatus(sourceErrorWorkflowId, sourceErrorIntentId, event.data.source.id, 'error', event.data.source)
-          } else {
-            console.log('[WebSocket] Skipping source_error for parallel branches')
-          }
         }
         break
       }
