@@ -709,9 +709,26 @@ class UnifiedReActEngine:
             # )
         
         self._task_intent_id = self._current_intent_id  # Store for the entire execution
+        # #region agent log
+        try:
+            import json
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
+                f.write(json.dumps({"id": f"log_{int(time.time() * 1000)}_task_intent_id_set", "timestamp": int(time.time() * 1000), "location": "unified_react_engine.py:711", "message": "AFTER setting _task_intent_id", "data": {"task_intent_id": self._task_intent_id, "current_intent_id": self._current_intent_id, "is_multi_phase": self._is_multi_phase, "use_existing_intent_id": getattr(self, '_use_existing_intent_id', None)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Phase 2, Steps 1-2: Test decomposition and dependency analysis in UI
         # Phase 2, Step 3: Real parallel execution for multi-tool queries
+        # #region agent log
+        import json as _debug_json_orch; import time as _debug_time_orch
+        try:
+            is_multi_tool = self._is_multi_tool_query(goal)
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_orch:
+                _debug_f_orch.write(_debug_json_orch.dumps({"id":f"log_{int(_debug_time_orch.time()*1000)}_orchestration_check","timestamp":int(_debug_time_orch.time()*1000),"location":"unified_react_engine.py:723","message":"Checking if orchestration should run","data":{"goal":goal[:100] if goal else None,"skip_orchestration":skip_orchestration,"is_multi_tool_query":is_multi_tool,"will_run_orchestration":not skip_orchestration and is_multi_tool},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+        except:
+            pass
+        # #endregion
         if not skip_orchestration and self._is_multi_tool_query(goal):
             try:
                 logger.info(f"[UnifiedReActEngine] Multi-tool query detected, using orchestration")
@@ -854,7 +871,7 @@ class UnifiedReActEngine:
                 import json as _debug_json_iter; import time as _debug_time_iter
                 try:
                     with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_iter:
-                        _debug_f_iter.write(_debug_json_iter.dumps({"id":f"log_{int(_debug_time_iter.time()*1000)}_iteration_start_check","timestamp":int(_debug_time_iter.time()*1000),"location":"unified_react_engine.py:771","message":"Checking if this is a parallel branch iteration","data":{"iteration_intent_id":iteration_intent_id,"current_intent_id":self._current_intent_id,"task_intent_id":getattr(self,'_task_intent_id',None),"use_existing_intent_id":getattr(self,'_use_existing_intent_id',None),"iteration_number":state.iteration},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                        _debug_f_iter.write(_debug_json_iter.dumps({"id":f"log_{int(_debug_time_iter.time()*1000)}_iteration_start_check","timestamp":int(_debug_time_iter.time()*1000),"location":"unified_react_engine.py:849","message":"BEFORE iteration_start - checking intent IDs","data":{"iteration_intent_id":iteration_intent_id,"current_intent_id":self._current_intent_id,"task_intent_id":getattr(self,'_task_intent_id',None),"use_existing_intent_id":getattr(self,'_use_existing_intent_id',None),"iteration_number":state.iteration,"has_task_intent_id":hasattr(self,'_task_intent_id'),"has_current_intent_id":hasattr(self,'_current_intent_id')},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
                 except:
                     pass
                 # #endregion
@@ -887,6 +904,13 @@ class UnifiedReActEngine:
                     try:
                         with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_iter:
                             _debug_f_iter.write(_debug_json_iter.dumps({"id":f"log_{int(_debug_time_iter.time()*1000)}_regular_iteration_start","timestamp":int(_debug_time_iter.time()*1000),"location":"unified_react_engine.py:777","message":"Sending regular iteration_start event","data":{"iteration_intent_id":iteration_intent_id,"iteration_number":state.iteration},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_iter:
+                            _debug_f_iter.write(_debug_json_iter.dumps({"id":f"log_{int(_debug_time_iter.time()*1000)}_iteration_start_sending","timestamp":int(_debug_time_iter.time()*1000),"location":"unified_react_engine.py:893","message":"SENDING iteration_start event","data":{"intent_id":iteration_intent_id,"iteration_number":state.iteration,"intent_id_is_none":iteration_intent_id is None,"session_id":self.session_id},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
                     except:
                         pass
                     # #endregion
