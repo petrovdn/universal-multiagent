@@ -169,6 +169,9 @@ class TaskDecomposer:
             _debug_f_synth.write(_debug_json_synth.dumps({"id":f"log_{int(_debug_time_synth.time()*1000)}_synthesis_check","timestamp":int(_debug_time_synth.time()*1000),"location":"task_decomposer.py:163","message":"Checking if synthesis needed","data":{"all_task_ids_for_synthesis":all_task_ids_for_synthesis,"all_task_types":[t.get("type","") for t in all_tasks],"task_ids":task_ids,"total_tasks":len(all_tasks)},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
         # #endregion
         
+        # CRITICAL: Synthesis tasks are NOT added to execution_order.
+        # They are handled separately via SynthesisAgent after all groups complete.
+        # But we keep them in subtasks for tracking purposes.
         if len(all_task_ids_for_synthesis) >= 2:
             synthesis_id = f"task-{uuid4().hex[:8]}"
             synthesis_task = SubTask(
@@ -181,7 +184,8 @@ class TaskDecomposer:
                 priority=2
             )
             subtasks.append(synthesis_task)
-            execution_order = task_ids + [synthesis_id]
+            # Do NOT add synthesis_id to execution_order - it's handled separately
+            execution_order = task_ids
         else:
             # No synthesis needed for single task
             execution_order = task_ids

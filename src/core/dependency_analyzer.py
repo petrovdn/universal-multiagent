@@ -30,6 +30,9 @@ class DependencyAnalyzer:
         
         Uses topological sort (Kahn's algorithm) to determine execution order.
         
+        CRITICAL: Synthesis tasks are excluded from execution groups.
+        They are handled separately via SynthesisAgent after all groups complete.
+        
         Args:
             subtasks: List of subtasks with dependencies
             
@@ -39,13 +42,17 @@ class DependencyAnalyzer:
         if not subtasks:
             return ExecutionPlan(execution_groups=[], group_types=[])
         
-        # Build task dictionary
-        task_dict: Dict[str, SubTask] = {task.task_id: task for task in subtasks}
+        # Filter out synthesis tasks - they are handled separately
+        non_synthesis_tasks = [task for task in subtasks if not task.is_synthesis]
+        
+        # Build task dictionary (only non-synthesis tasks)
+        task_dict: Dict[str, SubTask] = {task.task_id: task for task in non_synthesis_tasks}
         
         # Calculate in-degrees (number of dependencies)
+        # Only count dependencies on non-synthesis tasks
         in_degree: Dict[str, int] = {task_id: 0 for task_id in task_dict.keys()}
         
-        for task in subtasks:
+        for task in non_synthesis_tasks:
             for dep_id in task.dependencies:
                 if dep_id in in_degree:
                     in_degree[task.task_id] += 1
@@ -75,8 +82,8 @@ class DependencyAnalyzer:
             for task_id in current_group:
                 task = task_dict[task_id]
                 
-                # Find tasks that depend on this one
-                for dependent_task in subtasks:
+                # Find tasks that depend on this one (only non-synthesis tasks)
+                for dependent_task in non_synthesis_tasks:
                     if task_id in dependent_task.dependencies:
                         in_degree[dependent_task.task_id] -= 1
                         

@@ -3278,51 +3278,89 @@ class UnifiedReActEngine:
             Human-readable description (e.g., "📅 Получаю события из календаря")
         """
         tool_map = {
-            # Calendar
-            'calendar_list_events': '📅 Получаю события из календаря',
-            'calendar_create_event': '📅 Создаю встречу',
-            'calendar_update_event': '📅 Обновляю событие',
-            'calendar_delete_event': '📅 Удаляю событие',
-            'calendar_get_event': '📅 Получаю информацию о событии',
+            # Calendar (новые имена MCP)
+            'get_calendar_events': 'Получаю события из календаря',
+            'create_event': 'Создаю встречу',
+            'update_event': 'Обновляю событие',
+            'delete_calendar_events': 'Удаляю событие',
+            'schedule_group_meeting': 'Назначаю встречу с участниками',
+            'get_next_availability': 'Ищу свободное время',
             
-            # Gmail
-            'gmail_search': '📧 Ищу письма',
-            'gmail_send_email': '📧 Отправляю письмо',
-            'gmail_get_message': '📧 Читаю письмо',
-            'gmail_list_messages': '📧 Получаю список писем',
+            # Calendar (старые имена, для совместимости)
+            'calendar_list_events': 'Получаю события из календаря',
+            'calendar_create_event': 'Создаю встречу',
+            'calendar_update_event': 'Обновляю событие',
+            'calendar_delete_event': 'Удаляю событие',
+            'calendar_get_event': 'Получаю информацию о событии',
             
-            # Sheets
-            'sheets_read_range': '📊 Читаю данные из таблицы',
-            'sheets_write_range': '📊 Записываю данные в таблицу',
-            'sheets_append_rows': '📊 Добавляю строки в таблицу',
-            'sheets_get_spreadsheet': '📊 Получаю информацию о таблице',
+            # Gmail (новые имена MCP)
+            'list_emails': 'Получаю список писем',
+            'search_emails': 'Ищу письма',
+            'read_email': 'Читаю письмо',
+            'send_email': 'Отправляю письмо',
+            'draft_email': 'Создаю черновик письма',
             
-            # Docs
-            'docs_read': '📄 Читаю документ',
-            'docs_create': '📄 Создаю документ',
-            'docs_update': '📄 Обновляю документ',
+            # Gmail (старые имена, для совместимости)
+            'gmail_search': 'Ищу письма',
+            'gmail_send_email': 'Отправляю письмо',
+            'gmail_get_message': 'Читаю письмо',
+            'gmail_list_messages': 'Получаю список писем',
             
-            # Files / Workspace
-            'workspace_search_files': '📁 Ищу файлы',
-            'workspace_find_and_open_file': '📁 Открываю файл',
-            'workspace_get_file_info': '📁 Получаю информацию о файле',
+            # Sheets (новые имена MCP)
+            'read_sheets': 'Читаю данные из таблицы',
+            'write_sheets': 'Записываю данные в таблицу',
+            'append_rows': 'Добавляю строки в таблицу',
+            'get_spreadsheet': 'Получаю информацию о таблице',
+            'merge_cells': 'Объединяю ячейки',
             
-            # Slides
-            'slides_create': '🎨 Создаю презентацию',
-            'slides_create_slide': '🎨 Добавляю слайд',
+            # Sheets (старые имена, для совместимости)
+            'sheets_read_range': 'Читаю данные из таблицы',
+            'sheets_write_range': 'Записываю данные в таблицу',
+            'sheets_append_rows': 'Добавляю строки в таблицу',
+            'sheets_get_spreadsheet': 'Получаю информацию о таблице',
+            
+            # Docs (новые имена MCP)
+            'read_document': 'Читаю документ',
+            'create_document': 'Создаю документ',
+            'update_document': 'Обновляю документ',
+            'append_to_document': 'Добавляю текст в документ',
+            'insert_into_document': 'Вставляю текст в документ',
+            
+            # Docs (старые имена, для совместимости)
+            'docs_read': 'Читаю документ',
+            'docs_create': 'Создаю документ',
+            'docs_update': 'Обновляю документ',
+            
+            # Files / Workspace (новые имена MCP)
+            'search_document_text': 'Ищу текст в документах',
+            'workspace_search_files': 'Ищу файлы',
+            'workspace_find_and_open_file': 'Открываю файл',
+            'workspace_get_file_info': 'Получаю информацию о файле',
+            
+            # Slides (новые имена MCP)
+            'create_presentation_batch': 'Создаю презентацию',
+            'create_slide': 'Добавляю слайд',
+            
+            # Slides (старые имена, для совместимости)
+            'slides_create': 'Создаю презентацию',
+            'slides_create_slide': 'Добавляю слайд',
             
             # 1C
-            'onec_get_data': '🏢 Запрашиваю данные из 1С',
-            'onec_query': '🏢 Выполняю запрос к 1С',
+            'onec_get_data': 'Запрашиваю данные из 1С',
+            'onec_query': 'Выполняю запрос к 1С',
+            
+            # Python code
+            'execute_python_code': 'Выполняю Python код',
         }
         
         # Get base action name
         base_name = tool_map.get(tool_name)
         
         if not base_name:
-            # Fallback: convert snake_case to readable format
-            readable = tool_name.replace('_', ' ').title()
-            base_name = f"🔧 {readable}"
+            # Fallback: convert snake_case to readable format (без эмодзи)
+            readable = tool_name.replace('_', ' ').lower()
+            # Capitalize first letter
+            base_name = readable.capitalize() if readable else tool_name
         
         # Add context from arguments if available
         if 'query' in args:
@@ -3394,6 +3432,79 @@ class UnifiedReActEngine:
         
         return None
     
+    def _get_smart_result_summary(self, subtask: Any, result: Any) -> str:
+        """
+        Generate smart, brief summary for parallel branch result display.
+        
+        Returns short summary like "Найдено 7 событий" instead of full data.
+        
+        Args:
+            subtask: SubTask object with tool_name
+            result: Execution result (dict or raw result)
+            
+        Returns:
+            Brief summary string
+        """
+        tool_name = subtask.tool_name if hasattr(subtask, 'tool_name') else None
+        
+        # Extract actual result from execution_result dict if needed
+        actual_result = result
+        if isinstance(result, dict):
+            # Try to extract tool result from execution_result
+            if "final_result" in result:
+                # final_result might contain tool data or formatted string
+                actual_result = result["final_result"]
+            elif "response" in result:
+                actual_result = result["response"]
+            else:
+                # Look for raw result in observations
+                actual_result = result
+        
+        # Try using _get_result_summary first if we have tool_name
+        if tool_name and actual_result:
+            summary = self._get_result_summary(tool_name, actual_result)
+            if summary:
+                # Remove emoji from summary for cleaner display
+                summary = summary.replace("✅ ", "").replace("❌ ", "").strip()
+                return summary
+        
+        # Fallback: create smart summary based on tool_name and result
+        result_str = str(actual_result) if actual_result else ""
+        
+        if 'calendar' in (tool_name or '').lower() or 'events' in result_str.lower():
+            # Extract count from result
+            import re
+            count_match = re.search(r'(\d+)\s+event', result_str, re.IGNORECASE)
+            if count_match:
+                count = count_match.group(1)
+                return f"Найдено {count} событий"
+            elif 'Found 0' in result_str or 'найдено 0' in result_str.lower():
+                return "Событий не найдено"
+            else:
+                return "Получены события календаря"
+        
+        if 'email' in (tool_name or '').lower() or 'mail' in (tool_name or '').lower() or 'emails' in result_str.lower():
+            # Extract count from result
+            import re
+            count_match = re.search(r'(\d+)\s+(?:email|письм)', result_str, re.IGNORECASE)
+            if count_match:
+                count = count_match.group(1)
+                return f"Найдено {count} писем"
+            elif 'Found 0' in result_str or 'найдено 0' in result_str.lower():
+                return "Писем не найдено"
+            else:
+                return "Получены данные почты"
+        
+        # Generic fallback
+        if isinstance(result, dict):
+            return "✓ Выполнено"
+        elif result_str:
+            # First line only, max 50 chars
+            first_line = result_str.split('\n')[0][:50]
+            return first_line + ("..." if len(result_str) > 50 else "")
+        else:
+            return "✓ Выполнено"
+    
     class StreamingThoughtParser:
         """Парсит thought из стрима и отправляет по WebSocket.
         
@@ -3414,6 +3525,8 @@ class UnifiedReActEngine:
             self.thought_complete = False
             self.thought_content = ""
             self.thinking_id = f"thinking_{session_id}_{int(time.time() * 1000)}"
+            self.thinking_context = None  # Для динамических заголовков "Думаю"
+            self.context_sent = False  # Флаг что context уже отправлен
             # Check if this is a parallel branch iteration
             # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
             self.is_parallel_branch = engine and hasattr(engine, '_use_existing_intent_id') and getattr(engine, '_use_existing_intent_id', None) is not None
@@ -3501,6 +3614,11 @@ class UnifiedReActEngine:
                         self.thought_content = self.buffer
                         
                         if new_chunk.strip():
+                            # Определяем context для динамических заголовков "Думаю" при первом chunk
+                            if self.thinking_context is None and self.engine and hasattr(self.engine, '_detect_thinking_context'):
+                                # Используем накопленный контент для определения context
+                                self.thinking_context = self.engine._detect_thinking_context(self.thought_content)
+                            
                             await self.ws_manager.send_event(
                                 self.session_id,
                                 "thinking_chunk",
@@ -3537,26 +3655,38 @@ class UnifiedReActEngine:
                                         pass
                                     # #endregion
                                     
+                                    event_data = {
+                                        "intent_id": main_intent_id,  # Main task intent (parent)
+                                        "branch_id": self.branch_id,
+                                        "iteration_number": self.iteration_number,
+                                        "chunk": new_chunk
+                                    }
+                                    # Добавляем context для динамических заголовков (только при первом chunk)
+                                    if self.thinking_context and not self.context_sent:
+                                        event_data["context"] = self.thinking_context
+                                        self.context_sent = True
+                                    
                                     await self.ws_manager.send_event(
                                         self.session_id,
                                         "parallel_branch_iteration_thinking_chunk",
-                                        {
-                                            "intent_id": main_intent_id,  # Main task intent (parent)
-                                            "branch_id": self.branch_id,
-                                            "iteration_number": self.iteration_number,
-                                            "chunk": new_chunk
-                                        }
+                                        event_data
                                     )
                                 else:
                                     # Send regular iteration_thinking_chunk
+                                    event_data = {
+                                        "intent_id": self.intent_id,
+                                        "iteration_number": self.iteration_number,
+                                        "chunk": new_chunk
+                                    }
+                                    # Добавляем context для динамических заголовков (только при первом chunk)
+                                    if self.thinking_context and not self.context_sent:
+                                        event_data["context"] = self.thinking_context
+                                        self.context_sent = True
+                                    
                                     await self.ws_manager.send_event(
                                         self.session_id,
                                         "iteration_thinking_chunk",
-                                        {
-                                            "intent_id": self.intent_id,
-                                            "iteration_number": self.iteration_number,
-                                            "chunk": new_chunk
-                                        }
+                                        event_data
                                     )
                             # Отправляем как intent_thinking_append для streaming в UI
                             await self._send_intent_detail(new_chunk)
@@ -5468,61 +5598,6 @@ if salary_sheet:
                         tool_name = potential_tool_name
                         action_plan["tool_name"] = tool_name
             
-            # CRITICAL: Validate that tool_name is in relevant_tools list
-            # If LLM returned a tool that's not in the relevant list, replace it with the first relevant tool
-            # NOTE: Use LOCAL relevant_tool_names (not self._current_relevant_tools) to avoid race condition
-            # in parallel execution where another branch could overwrite self._current_relevant_tools
-            if relevant_tool_names:
-                if tool_name not in relevant_tool_names and tool_name.upper() != "FINISH":
-                    logger.warning(f"[UnifiedReActEngine] LLM selected tool '{tool_name}' which is NOT in relevant_tools list. Replacing with first relevant tool: {relevant_tool_names[0]}")
-                    tool_name = relevant_tool_names[0]
-                    action_plan["tool_name"] = tool_name
-            
-            # CRITICAL FIX: Валидация выбранного инструмента для параллельных веток
-            # Проверяем, что выбранный инструмент есть в списке доступных инструментов
-            # Это предотвращает выбор инструментов из других веток
-            # ВАЖНО: Эта проверка должна быть ПОСЛЕ нормализации tool_name (удаление "functions." prefix)
-            use_existing_value_validate = self._get_use_existing_intent_id(state)
-            is_parallel_validate = use_existing_value_validate is not None
-            if is_parallel_validate and tool_name and tool_name not in relevant_tool_names and tool_name.upper() != "FINISH":
-                # Инструмент не в списке доступных - это ошибка для параллельных веток
-                logger.error(
-                    f"[UnifiedReActEngine] CRITICAL: Parallel branch selected tool '{tool_name}' "
-                    f"which is NOT in relevant_tools! Available: {relevant_tool_names}, "
-                    f"Goal: {state.goal[:100]}"
-                )
-                # #region agent log - логирование недопустимого выбора инструмента
-                import json as _debug_json_invalid; import time as _debug_time_invalid
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_invalid:
-                        _debug_f_invalid.write(_debug_json_invalid.dumps({"id":f"log_{int(_debug_time_invalid.time()*1000)}_invalid_tool_selection","timestamp":int(_debug_time_invalid.time()*1000),"location":"unified_react_engine.py:5390","message":"Invalid tool selected in parallel branch (AFTER normalization)","data":{"is_parallel":True,"use_existing_intent_id":use_existing_value_validate,"goal":state.goal[:100],"selected_tool":tool_name,"relevant_tools":relevant_tool_names,"action_plan":action_plan},"sessionId":"debug-session","runId":"run1","hypothesisId":"H"}) + '\n')
-                except:
-                    pass
-                # #endregion
-                # Заменяем на первый доступный инструмент из списка
-                if relevant_tool_names:
-                    fallback_tool = relevant_tool_names[0]
-                    logger.warning(
-                        f"[UnifiedReActEngine] Replacing invalid tool '{tool_name}' "
-                        f"with '{fallback_tool}' for parallel branch"
-                    )
-                    original_tool = tool_name
-                    tool_name = fallback_tool
-                    action_plan["tool_name"] = fallback_tool
-                    action_plan["reasoning"] = (
-                        f"Исправлено: выбран неправильный инструмент '{original_tool}'. "
-                        f"Используется '{fallback_tool}' для задачи: {state.goal[:100]}"
-                    )
-                else:
-                    # Если нет доступных инструментов, завершаем задачу
-                    tool_name = "FINISH"
-                    action_plan = {
-                        "tool_name": "FINISH",
-                        "arguments": {},
-                        "description": "Задача не может быть выполнена - нет доступных инструментов",
-                        "reasoning": f"Нет доступных инструментов для задачи: {state.goal[:100]}"
-                    }
-            
             # Validate execute_python_code has code
             if tool_name == "execute_python_code":
                 code = action_plan.get("arguments", {}).get("code", "")
@@ -5875,13 +5950,8 @@ raise ValueError("Код анализа не был предоставлен. П
                 task_duration = time.time() - task_start_time
                 
                 # Extract brief result summary for display in tab
-                result_summary = ""
-                if isinstance(result, dict):
-                    result_summary = result.get("final_result", result.get("response", "✓ Выполнено"))
-                    if isinstance(result_summary, str) and len(result_summary) > 200:
-                        result_summary = result_summary[:200] + "..."
-                else:
-                    result_summary = str(result)[:200] if result else "✓ Выполнено"
+                # Use smart summary instead of full result to avoid clutter
+                result_summary = self._get_smart_result_summary(subtask, result)
                 
                 # CRITICAL: Send parallel_branch_complete IMMEDIATELY after task completion
                 # This allows UI to update tab status and show result right away
