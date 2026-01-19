@@ -753,15 +753,13 @@ export class WebSocketClient {
       // Новые события для отображения итераций (Think → Summary → Act → Result)
       case 'iteration_start': {
         console.log('[WebSocket] Iteration started:', event.data)
-        const iterStartState = useChatStore.getState()
-        let iterStartWorkflowId = iterStartState.activeWorkflowId
         const eventIntentId = event.data.intent_id
         const iterNumber = event.data.iteration_number || 1
         
-        // PHASE 0 FIX: Create workflow if it doesn't exist (since intent_start is disabled)
-        if (!iterStartWorkflowId) {
-          iterStartWorkflowId = ensureActiveWorkflow()
-        }
+        // CRITICAL FIX: Always call ensureActiveWorkflow to get the workflow for the LAST user message
+        // Previously, this only ran if activeWorkflowId was null, causing intents from the 2nd message
+        // to be created in the 1st message's workflow
+        let iterStartWorkflowId = ensureActiveWorkflow()
         
         const iterStartStateAfter = useChatStore.getState()
         const iterStartIntentId = eventIntentId || iterStartStateAfter.activeIntentId
@@ -777,11 +775,16 @@ export class WebSocketClient {
         const finalIntentId = eventIntentId || iterStartStateAfter.activeIntentId
         
         // #region agent log
-        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:752',message:'iteration_start - BEFORE startIteration',data:{eventIntentId,iterStartWorkflowId,finalIntentId,hasWorkflow:!!finalWorkflowId,hasIntent:!!finalIntentId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'L'})}).catch(()=>{});
+        const lastUserMsg = useChatStore.getState().messages.filter(m => m.role === 'user').pop()
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:752',message:'iteration_start - AFTER FIX - ensureActiveWorkflow called',data:{eventIntentId,iterStartWorkflowId,finalIntentId,hasWorkflow:!!finalWorkflowId,hasIntent:!!finalIntentId,lastUserTimestamp:lastUserMsg?.timestamp,workflowMatchesLastUser:iterStartWorkflowId===lastUserMsg?.timestamp},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'E'})}).catch(()=>{});
         // #endregion
         
         if (finalWorkflowId && finalIntentId) {
           chatStore.startIteration(finalWorkflowId, finalIntentId, iterNumber)
+          // #region agent log
+          const afterIterState = useChatStore.getState()
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:785',message:'iteration_start - AFTER startIteration',data:{finalWorkflowId,finalIntentId,iterNumber,intentBlocksForWorkflow:afterIterState.intentBlocks[finalWorkflowId]?.length||0,allIntentBlockKeys:Object.keys(afterIterState.intentBlocks)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+          // #endregion
         } else {
           // #region agent log
           fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:760',message:'iteration_start - SKIPPED startIteration - missing workflow or intent',data:{finalWorkflowId,finalIntentId,eventIntentId,activeWorkflowId:iterStartStateAfter.activeWorkflowId,activeIntentId:iterStartStateAfter.activeIntentId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'M'})}).catch(()=>{});
@@ -827,6 +830,10 @@ export class WebSocketClient {
         const iterContextNumber = event.data.iteration_number || 1
         const context = event.data.context
 
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:821',message:'iteration_thinking_context received',data:{context,workflowId:iterContextWorkflowId,intentId:iterContextIntentId,iterNumber:iterContextNumber,willApply:!!(iterContextWorkflowId && iterContextIntentId && context)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+        // #endregion
+
         if (iterContextWorkflowId && iterContextIntentId && context) {
           chatStore.setIterationThinkingContext(iterContextWorkflowId, iterContextIntentId, iterContextNumber, context)
         }
@@ -851,17 +858,14 @@ export class WebSocketClient {
       // Parallel Branch events
       case 'parallel_branch_start': {
         console.log('[WebSocket] Parallel branch started:', event.data)
-        const branchStartState = useChatStore.getState()
-        let branchStartWorkflowId = branchStartState.activeWorkflowId
         const eventIntentId = event.data.intent_id
         const branchId = event.data.branch_id
         const description = event.data.description || ''
         const toolName = event.data.tool_name || ''
 
-        // PHASE 0 FIX: Create workflow if it doesn't exist (since intent_start is disabled)
-        if (!branchStartWorkflowId) {
-          branchStartWorkflowId = ensureActiveWorkflow()
-        }
+        // CRITICAL FIX: Always call ensureActiveWorkflow to get the workflow for the LAST user message
+        let branchStartWorkflowId = ensureActiveWorkflow()
+        const branchStartState = useChatStore.getState()
 
         const existingIntentsForBranch = branchStartState.intentBlocks[branchStartWorkflowId] || []
         const targetIntentForBranch = existingIntentsForBranch.find(i => i.id === eventIntentId)
@@ -1262,6 +1266,9 @@ export class WebSocketClient {
         break
 
       case 'final_result_start':
+        // #region debug log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:1264',message:'final_result_start received',data:{currentMessageId:this.currentMessageId,currentReasoningBlockId:this.currentReasoningBlockId,hasReactEvents:false},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         // Initialize final result for the active workflow
         const finalResultStartWorkflowId = ensureActiveWorkflow()
         if (finalResultStartWorkflowId) {
@@ -1989,6 +1996,9 @@ export class WebSocketClient {
       }
 
       case 'react_thinking': {
+        // #region debug log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:1994',message:'react_thinking received',data:{currentMessageId:this.currentMessageId,hasReasoningBlock:!!this.currentReasoningBlockId,iteration:event.data.iteration},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         // ReAct thinking phase - FALLBACK: update thinking block
         console.log('[WebSocket] ReAct thinking (fallback to thinking):', event.data)
         
@@ -2036,6 +2046,9 @@ export class WebSocketClient {
       }
 
       case 'react_action': {
+        // #region debug log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:2041',message:'react_action received',data:{currentMessageId:this.currentMessageId,hasReasoningBlock:!!this.currentReasoningBlockId,tool:event.data.tool,action:event.data.action?.substring(0,50)},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
         // ReAct action phase
         console.log('[WebSocket] ReAct action:', event.data)
         const actionMsgId = this.currentMessageId || `msg-${Date.now()}`
