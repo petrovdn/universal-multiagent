@@ -203,3 +203,111 @@ Content here
     # Should handle gracefully (skip or raise informative error)
     with pytest.raises((ValueError, KeyError), match="YAML|frontmatter|parse"):
         loader.load_skill("invalid-skill")
+
+
+# ========== Phase 1: Domain Skills Tests ==========
+
+def test_load_gmail_skill():
+    """Domain skill gmail должен загружаться с правильными metadata."""
+    from src.core.skills.skill_loader import SkillLoader
+    
+    loader = SkillLoader()
+    skill = loader.load_skill("gmail")
+    
+    assert skill.name == "gmail"
+    assert skill.metadata.get("type") == "domain"
+    assert "send_email" in skill.metadata.get("tools", [])
+
+
+def test_load_calendar_skill():
+    """Domain skill calendar должен загружаться с правильными metadata."""
+    from src.core.skills.skill_loader import SkillLoader
+    
+    loader = SkillLoader()
+    skill = loader.load_skill("calendar")
+    
+    assert skill.name == "calendar"
+    assert skill.metadata.get("type") == "domain"
+    assert "get_calendar_events" in skill.metadata.get("tools", [])
+
+
+def test_load_sheets_skill():
+    """Domain skill sheets должен загружаться с правильными metadata."""
+    from src.core.skills.skill_loader import SkillLoader
+    
+    loader = SkillLoader()
+    skill = loader.load_skill("sheets")
+    
+    assert skill.name == "sheets"
+    assert skill.metadata.get("type") == "domain"
+    assert "get_sheet_data" in skill.metadata.get("tools", [])
+
+
+def test_load_docs_skill():
+    """Domain skill docs должен загружаться с правильными metadata."""
+    from src.core.skills.skill_loader import SkillLoader
+    
+    loader = SkillLoader()
+    skill = loader.load_skill("docs")
+    
+    assert skill.name == "docs"
+    assert skill.metadata.get("type") == "domain"
+    assert "read_document" in skill.metadata.get("tools", [])
+
+
+def test_load_workspace_skill():
+    """Domain skill workspace должен загружаться с правильными metadata."""
+    from src.core.skills.skill_loader import SkillLoader
+    
+    loader = SkillLoader()
+    skill = loader.load_skill("workspace")
+    
+    assert skill.name == "workspace"
+    assert skill.metadata.get("type") == "domain"
+    assert "search_files" in skill.metadata.get("tools", [])
+
+
+def test_load_all_domain_skills():
+    """Все domain skills должны загружаться."""
+    from src.core.skills.skill_loader import SkillLoader
+    
+    loader = SkillLoader()
+    skills = loader.load_all_skills()
+    
+    domain_skills = [s for s in skills if s.metadata.get("type") == "domain"]
+    domain_names = [s.name for s in domain_skills]
+    
+    assert "gmail" in domain_names
+    assert "calendar" in domain_names
+    assert "sheets" in domain_names
+    assert "docs" in domain_names
+    assert "workspace" in domain_names
+
+
+# ========== Phase 1: Composite Skills Tests ==========
+
+def test_load_focus_day_composite_skill():
+    """Composite skill focus-day должен загружаться с domains."""
+    from src.core.skills.skill_loader import SkillLoader
+    
+    loader = SkillLoader()
+    skill = loader.load_skill("focus-day")
+    
+    assert skill.name == "focus-day"
+    assert skill.metadata.get("type") == "composite"
+    assert "gmail" in skill.metadata.get("domains", [])
+    assert "calendar" in skill.metadata.get("domains", [])
+    assert skill.metadata.get("execution") == "parallel"
+
+
+def test_load_meeting_prep_composite_skill():
+    """Composite skill meeting-prep должен загружаться с domains."""
+    from src.core.skills.skill_loader import SkillLoader
+    
+    loader = SkillLoader()
+    skill = loader.load_skill("meeting-prep")
+    
+    assert skill.name == "meeting-prep"
+    assert skill.metadata.get("type") == "composite"
+    assert "calendar" in skill.metadata.get("domains", [])
+    assert skill.metadata.get("execution") == "sequential"

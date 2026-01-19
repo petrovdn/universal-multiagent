@@ -68,12 +68,13 @@ class SkillSelector:
         self.similarity_threshold = similarity_threshold
         logger.info(f"[SkillSelector] Initialized with {len(skills)} skills, threshold={similarity_threshold}")
     
-    def select_skill(self, query: str) -> Optional[Skill]:
+    def select_skill(self, query: str, skill_type: Optional[str] = None) -> Optional[Skill]:
         """
         Выбрать наиболее релевантный skill для запроса.
         
         Args:
             query: Запрос пользователя
+            skill_type: Фильтр по типу ('domain', 'composite', None для всех)
             
         Returns:
             Наиболее релевантный Skill или None если нет подходящего
@@ -85,6 +86,17 @@ class SkillSelector:
         if not self.skills:
             logger.debug("[SkillSelector] No skills available")
             return None
+        
+        # Фильтруем skills по типу если указан
+        skills_to_search = self.skills
+        if skill_type:
+            skills_to_search = [
+                s for s in self.skills 
+                if s.metadata.get('type') == skill_type
+            ]
+            if not skills_to_search:
+                logger.debug(f"[SkillSelector] No skills of type '{skill_type}' found")
+                return None
         
         # Получаем embedding для запроса
         import hashlib
@@ -101,7 +113,7 @@ class SkillSelector:
         # Вычисляем similarity для каждого skill
         _skills_embed_start = time.time()
         similarities = []
-        for skill in self.skills:
+        for skill in skills_to_search:
             # Используем description для поиска (более краткое и релевантное)
             skill_embedding = self.embedding_cache.get_embedding(
                 tool_name=f"skill_{skill.name}",
@@ -111,7 +123,7 @@ class SkillSelector:
             similarity = cosine_similarity(query_embedding, skill_embedding)
             similarities.append((skill, similarity))
         _skills_embed_duration = time.time() - _skills_embed_start
-        logger.info(f"[SkillSelector] Skill embeddings for {len(self.skills)} skills took {_skills_embed_duration:.3f}s")
+        logger.info(f"[SkillSelector] Skill embeddings for {len(skills_to_search)} skills took {_skills_embed_duration:.3f}s")
         
         # Сортируем по similarity (убывание)
         _sort_start = time.time()
@@ -177,3 +189,22 @@ class SkillSelector:
         # Сортируем и возвращаем топ-K
         similarities.sort(key=lambda x: x[1], reverse=True)
         return similarities[:top_k]
+    
+    def get_domain_skills_for_composite(self, composite_skill: Skill) -> List[Skill]:
+        """
+        Получить domain skills для composite skill.
+        
+        Args:
+            composite_skill: Composite skill с metadata.domains
+            
+        Returns:
+            Список domain skills, указанных в composite_skill.metadata.domains
+        """
+        domains = composite_skill.metadata.get('domains', [])
+        if not domains:
+            logger.warning(f"[SkillSelector] Composite skill '{composite_skill.name}' has no domains")
+            return []
+        
+        domain_skills = [s for s in self.skills if s.name in domains]
+        logger.debug(f"[SkillSelector] Found {len(domain_skills)} domain skills for composite '{composite_skill.name}'")
+        return domain_skills

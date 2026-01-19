@@ -229,6 +229,24 @@ class UnifiedReActEngine:
         
         return 'thinking'
     
+    def _get_use_existing_intent_id(self, state: ReActState) -> Optional[str]:
+        """
+        Получить use_existing_intent_id из state.context для изоляции параллельных веток.
+        
+        CRITICAL FIX: Используем state.context вместо self._use_existing_intent_id
+        чтобы избежать race condition между параллельными ветками.
+        
+        Args:
+            state: ReActState с context, содержащим use_existing_intent_id
+            
+        Returns:
+            use_existing_intent_id или None
+        """
+        if state.context and "use_existing_intent_id" in state.context:
+            return state.context["use_existing_intent_id"]
+        # Fallback для backward compatibility (не должно использоваться для параллельных веток)
+        return getattr(self, '_use_existing_intent_id', None)
+    
     def _determine_thinking_result(self, action_plan: Dict[str, Any], observation: Optional[Any] = None) -> Optional[Dict[str, Any]]:
         """Определяем результат думания для отображения после завершения.
         
@@ -526,10 +544,12 @@ class UnifiedReActEngine:
                 tool_args["location"] = args["location"]
             
             # Execute tool directly
+            # CRITICAL FIX: Передаём state=None (fallback на self._current_state для backward compatibility)
             try:
                 result = await self._execute_action(
                     action_plan={"tool_name": "schedule_group_meeting", "arguments": tool_args},
-                    context=context
+                    context=context,
+                    state=None  # Fallback на self._current_state (для backward compatibility)
                 )
                 
                 logger.info(f"[UnifiedReActEngine] Direct tool call result type: {type(result)}, value: {str(result)[:200]}")
@@ -545,8 +565,10 @@ class UnifiedReActEngine:
                 logger.info(f"[UnifiedReActEngine] About to send final_result event with response: {response_text[:100]}")
                 
                 # CRITICAL FIX: Skip final_result for parallel subtasks - they use parallel_branch_complete instead
-                # Check if this is a parallel subtask by checking _use_existing_intent_id
-                is_parallel_subtask = getattr(self, '_use_existing_intent_id', None) is not None
+                # Check if this is a parallel subtask by checking use_existing_intent_id from state
+                # CRITICAL: Используем _local_is_parallel_subtask, который определён в начале execute()
+                # Не используем self._use_existing_intent_id из-за race condition между параллельными ветками
+                is_parallel_subtask = _local_is_parallel_subtask
                 if not is_parallel_subtask:
                     # Send final_result event through WebSocket directly (not via _stream_reasoning)
                     await self.ws_manager.send_event(
@@ -559,7 +581,7 @@ class UnifiedReActEngine:
                     )
                     logger.info(f"[UnifiedReActEngine] final_result event sent successfully")
                 else:
-                    logger.info(f"[UnifiedReActEngine] Skipping final_result for parallel subtask (use_existing_intent_id={getattr(self, '_use_existing_intent_id', None)})")
+                    logger.info(f"[UnifiedReActEngine] Skipping final_result for parallel subtask (use_existing_intent_id={use_existing_intent_id})")
                 
                 # Add assistant message to context
                 context.add_message("assistant", response_text)
@@ -657,17 +679,33 @@ class UnifiedReActEngine:
         
         # Note: _local_is_parallel_subtask is already defined at the start of execute()
         
+        # #region agent log - проверка изоляции state для параллельных веток
+        is_parallel_log = use_existing_intent_id is not None
+        if is_parallel_log:
+            import json as _debug_json_state_init; import time as _debug_time_state_init
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_state_init:
+                    _debug_f_state_init.write(_debug_json_state_init.dumps({"id":f"log_{int(_debug_time_state_init.time()*1000)}_state_init","timestamp":int(_debug_time_state_init.time()*1000),"location":"unified_react_engine.py:660","message":"Creating new ReActState for parallel branch","data":{"is_parallel":True,"use_existing_intent_id":use_existing_intent_id,"goal":goal[:100],"engine_id":id(self)},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+            except:
+                pass
+        # #endregion
+        
         # Initialize state
         state = ReActState(goal=goal)
+        # CRITICAL FIX: Сохраняем use_existing_intent_id в state.context для изоляции параллельных веток
+        # Это предотвращает race condition, когда параллельные ветки перезаписывают self._use_existing_intent_id
         state.context = {
             "file_ids": file_ids,
             "session_id": self.session_id,
-            "phase": phase
+            "phase": phase,
+            "use_existing_intent_id": use_existing_intent_id  # Изолированное значение для этой ветки
         }
         self._stop_requested = False
         
         # CRITICAL: Store context reference for StreamingThoughtParser access
-        self._current_context = context
+        # CRITICAL FIX: Не храним context в self для параллельных веток, чтобы избежать утечки данных
+        if not _local_is_parallel_subtask:
+            self._current_context = context
         
         # === OPTIMIZATION: Send intent_start IMMEDIATELY for instant feedback ===
         # Analyze task phases (fast - regex only, no LLM)
@@ -901,9 +939,9 @@ class UnifiedReActEngine:
                 # CRITICAL: If use_existing_intent_id is set (from parallel branch execution),
                 # we need to send parallel_branch_iteration_* events instead of regular iteration_* events
                 # The use_existing_intent_id is the branch_id from parallel_branch_start
-                # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
-                use_existing_value = getattr(self, '_use_existing_intent_id', None)
-                is_parallel = hasattr(self, '_use_existing_intent_id') and use_existing_value is not None
+                # CRITICAL FIX: Используем значение из state.context для изоляции параллельных веток
+                use_existing_value = self._get_use_existing_intent_id(state)
+                is_parallel = use_existing_value is not None
                 if is_parallel:
                     branch_id = self._use_existing_intent_id
                     # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
@@ -965,9 +1003,10 @@ class UnifiedReActEngine:
                 think_duration = _think_plan_end - _think_plan_start
                 
                 # CRITICAL: If this is a parallel branch iteration, send parallel_branch_iteration events
-                # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
-                if hasattr(self, '_use_existing_intent_id') and getattr(self, '_use_existing_intent_id', None) is not None:
-                    branch_id = self._use_existing_intent_id
+                # CRITICAL FIX: Используем значение из state.context для изоляции параллельных веток
+                use_existing_value = self._get_use_existing_intent_id(state)
+                if use_existing_value is not None:
+                    branch_id = use_existing_value
                     # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
                     main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
                     
@@ -1001,12 +1040,13 @@ class UnifiedReActEngine:
                         }
                     )
                 
-                # === Send iteration_thinking_result event (Cursor-style) ===
+                    # === Send iteration_thinking_result event (Cursor-style) ===
                 thinking_result = self._determine_thinking_result(action_plan)
                 if thinking_result:
-                    # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
-                    if hasattr(self, '_use_existing_intent_id') and getattr(self, '_use_existing_intent_id', None) is not None:
-                        branch_id = self._use_existing_intent_id
+                    # CRITICAL FIX: Используем значение из state.context для изоляции параллельных веток
+                    use_existing_value = self._get_use_existing_intent_id(state)
+                    if use_existing_value is not None:
+                        branch_id = use_existing_value
                         # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
                         main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
                         
@@ -1099,7 +1139,9 @@ class UnifiedReActEngine:
                     # CRITICAL FIX: Don't update intent title for parallel subtasks
                     # Parallel subtasks use parallel_branch_start events with their own titles
                     # Updating intent title here creates confusion in UI (tasks appear in wrong tabs)
-                    is_parallel_subtask = getattr(self, '_use_existing_intent_id', None) is not None
+                    # CRITICAL FIX: Используем значение из state.context для изоляции параллельных веток
+                    use_existing_value = self._get_use_existing_intent_id(state)
+                    is_parallel_subtask = use_existing_value is not None
                     if not is_parallel_subtask:
                         # Обновляем заголовок шага на основе первого действия (только для обычных задач)
                         short_title = self._get_short_action_title(planned_tool, action_plan.get("arguments", {}))
@@ -1113,7 +1155,8 @@ class UnifiedReActEngine:
                                 }
                             )
                     else:
-                        logger.debug(f"[UnifiedReActEngine] Skipping intent_title_update for parallel subtask (branch_id={getattr(self, '_use_existing_intent_id', None)})")
+                        use_existing_value = self._get_use_existing_intent_id(state)
+                        logger.debug(f"[UnifiedReActEngine] Skipping intent_title_update for parallel subtask (branch_id={use_existing_value})")
                 else:
                     # Последующие итерации - оценка предыдущего + план
                     prev_result = ""
@@ -1735,6 +1778,18 @@ class UnifiedReActEngine:
                 )
                 planned_tool = action_plan.get("tool_name", "unknown")
                 
+                # #region agent log - проверка изоляции state.action_history для параллельных веток
+                use_existing_value_action = self._get_use_existing_intent_id(state)
+                is_parallel_action = use_existing_value_action is not None
+                if is_parallel_action:
+                    import json as _debug_json_action; import time as _debug_time_action
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_action:
+                            _debug_f_action.write(_debug_json_action.dumps({"id":f"log_{int(_debug_time_action.time()*1000)}_action_added","timestamp":int(_debug_time_action.time()*1000),"location":"unified_react_engine.py:1775","message":"Action added to state.action_history","data":{"is_parallel":True,"use_existing_intent_id":use_existing_value_action,"goal":state.goal[:100],"tool_name":planned_tool,"state_id":id(state),"action_history_count":len(state.action_history) if state.action_history else 0,"action_history_tools":[a.tool_name for a in state.action_history] if state.action_history else []},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+                    except:
+                        pass
+                # #endregion
+                
                 # === Generate and send tool explanation (Phase 1.1) ===
                 tool_explanation = self.tool_explanation_generator.generate(
                     tool_name=planned_tool,
@@ -1768,9 +1823,10 @@ class UnifiedReActEngine:
                 
                 # === Send iteration_action_start event for UI ===
                 action_title = self._get_tool_display_name(planned_tool, action_plan.get("arguments", {}))
-                # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
-                if hasattr(self, '_use_existing_intent_id') and getattr(self, '_use_existing_intent_id', None) is not None:
-                    branch_id = self._use_existing_intent_id
+                # CRITICAL FIX: Используем значение из state.context для изоляции параллельных веток
+                use_existing_value = self._get_use_existing_intent_id(state)
+                if use_existing_value is not None:
+                    branch_id = use_existing_value
                     # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
                     main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
                     
@@ -1806,8 +1862,9 @@ class UnifiedReActEngine:
                 
                 _exec_action_start = time.time()
                 
-                # Сохраняем state для доступа в _execute_action (для auto-fix input_data)
-                self._current_state = state
+                # CRITICAL FIX: Передаём state как параметр вместо self._current_state
+                # Это предотвращает утечку данных между параллельными ветками
+                # Раньше self._current_state перезаписывался параллельными ветками
                 
                 # CRITICAL: Ensure action_plan["tool_name"] matches planned_tool before execution
                 # This prevents cases where planned_tool was changed but action_plan wasn't updated
@@ -1816,7 +1873,7 @@ class UnifiedReActEngine:
                     action_plan["tool_name"] = planned_tool
                 
                 try:
-                    result = await self._execute_action(action_plan, context)
+                    result = await self._execute_action(action_plan, context, state)
                     _exec_action_end = time.time()
                     
                     # === Update source as completed (Phase 1.2) ===
@@ -1830,9 +1887,10 @@ class UnifiedReActEngine:
                     
                     # === Send iteration_action_complete event for UI ===
                     result_summary = "Выполнено"
-                    # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
-                    if hasattr(self, '_use_existing_intent_id') and getattr(self, '_use_existing_intent_id', None) is not None:
-                        branch_id = self._use_existing_intent_id
+                    # CRITICAL FIX: Используем значение из state.context для изоляции параллельных веток
+                    use_existing_value = self._get_use_existing_intent_id(state)
+                    if use_existing_value is not None:
+                        branch_id = use_existing_value
                         # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
                         main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
                         
@@ -1882,9 +1940,10 @@ class UnifiedReActEngine:
                         )
                     
                     # === Send iteration_action_complete event for UI (error case) ===
-                    # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
-                    if hasattr(self, '_use_existing_intent_id') and getattr(self, '_use_existing_intent_id', None) is not None:
-                        branch_id = self._use_existing_intent_id
+                    # CRITICAL FIX: Используем значение из state.context для изоляции параллельных веток
+                    use_existing_value = self._get_use_existing_intent_id(state)
+                    if use_existing_value is not None:
+                        branch_id = use_existing_value
                         # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
                         main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
                         await self.ws_manager.send_event(
@@ -1932,6 +1991,18 @@ class UnifiedReActEngine:
                     result,
                     success=True  # Will be updated by analyzer
                 )
+                
+                # #region agent log - проверка изоляции state.observations для параллельных веток
+                use_existing_value_obs = self._get_use_existing_intent_id(state)
+                is_parallel_obs = use_existing_value_obs is not None
+                if is_parallel_obs:
+                    import json as _debug_json_obs; import time as _debug_time_obs
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_obs:
+                            _debug_f_obs.write(_debug_json_obs.dumps({"id":f"log_{int(_debug_time_obs.time()*1000)}_observation_added","timestamp":int(_debug_time_obs.time()*1000),"location":"unified_react_engine.py:1977","message":"Observation added to state.observations","data":{"is_parallel":True,"use_existing_intent_id":use_existing_value_obs,"goal":state.goal[:100],"tool_name":action_record.tool_name,"state_id":id(state),"observations_count":len(state.observations) if state.observations else 0,"observations_tools":[obs.action.tool_name for obs in state.observations] if state.observations else []},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+                    except:
+                        pass
+                # #endregion
                 await self._stream_reasoning("react_observation", {
                     "result": str(result),  # Full result - no truncation
                     "iteration": state.iteration
@@ -2254,9 +2325,16 @@ class UnifiedReActEngine:
         # Use LLM to determine if tools are needed (for edge cases)
         # NOW with context!
         try:
+            # CRITICAL FIX: Для параллельных веток НЕ добавляем context.messages,
+            # чтобы избежать утечки данных из других веток
+            # Каждая параллельная ветка должна работать только со своим контекстом
+            use_existing_value_needs = self._get_use_existing_intent_id(state)
+            is_parallel_needs = use_existing_value_needs is not None
+            
             # Build context string from recent messages
             context_str = ""
-            if hasattr(context, 'messages') and context.messages:
+            # Skip для параллельных веток - они не должны видеть контекст других веток
+            if not is_parallel_needs and hasattr(context, 'messages') and context.messages:
                 recent = context.get_recent_messages(4)
                 if recent:
                     context_str = "\n\nКонтекст предыдущих сообщений:\n"
@@ -2376,7 +2454,8 @@ class UnifiedReActEngine:
             
             # CRITICAL FIX: Use streaming instead of ainvoke for real-time response
             # Send final_result_start event
-            is_parallel_subtask = getattr(self, '_use_existing_intent_id', None) is not None
+            # CRITICAL FIX: Используем _local_is_parallel_subtask, который определён в начале execute()
+            is_parallel_subtask = _local_is_parallel_subtask
             if not is_parallel_subtask:
                 await self.ws_manager.send_event(
                     self.session_id,
@@ -2456,7 +2535,8 @@ class UnifiedReActEngine:
                         }
                     )
             else:
-                logger.info(f"[UnifiedReActEngine] Skipping final_result for parallel subtask (use_existing_intent_id={getattr(self, '_use_existing_intent_id', None)})")
+                use_existing_value_log = self._get_use_existing_intent_id(state)
+                logger.info(f"[UnifiedReActEngine] Skipping final_result for parallel subtask (use_existing_intent_id={use_existing_value_log})")
             
             # Save response to context for follow-up reference resolution
             if hasattr(context, 'add_message'):
@@ -3704,8 +3784,15 @@ class UnifiedReActEngine:
         """Generate thought about current situation."""
         context_str = f"Цель: {state.goal}\n\n"
         
+        # CRITICAL FIX: Для параллельных веток НЕ добавляем context.messages,
+        # чтобы избежать утечки данных из других веток
+        # Каждая параллельная ветка должна работать только со своим контекстом
+        use_existing_value_thought = self._get_use_existing_intent_id(state)
+        is_parallel_thought = use_existing_value_thought is not None
+        
         # Add conversation history for reference resolution (NEW)
-        if hasattr(context, 'messages') and context.messages:
+        # Skip для параллельных веток - они не должны видеть контекст других веток
+        if not is_parallel_thought and hasattr(context, 'messages') and context.messages:
             recent_messages = context.messages[-4:]  # Last 2 exchanges
             if recent_messages:
                 context_str += "📝 Контекст разговора (для понимания референсов):\n"
@@ -3914,8 +4001,15 @@ class UnifiedReActEngine:
         context_str = f"Цель: {state.goal}\n\n"
         context_str += f"Текущий анализ: {thought}\n\n"
         
+        # CRITICAL FIX: Для параллельных веток НЕ добавляем context.messages,
+        # чтобы избежать утечки данных из других веток
+        # Каждая параллельная ветка должна работать только со своим контекстом
+        use_existing_value_action = self._get_use_existing_intent_id(state)
+        is_parallel_action_gen = use_existing_value_action is not None
+        
         # Add conversation history for reference resolution (NEW)
-        if hasattr(context, 'messages') and context.messages:
+        # Skip для параллельных веток - они не должны видеть контекст других веток
+        if not is_parallel_action_gen and hasattr(context, 'messages') and context.messages:
             recent_messages = context.messages[-4:]  # Last 2 exchanges
             if recent_messages:
                 context_str += "📝 Контекст разговора (для понимания референсов типа 'его', 'это', 'еще'):\n"
@@ -4655,6 +4749,18 @@ if salary_sheet:
         # Собираем список выполненных инструментов
         completed_tools = [a.tool_name for a in state.action_history] if state.action_history else []
         
+        # #region agent log - проверка completed_tools для параллельных веток
+        use_existing_value_log = self._get_use_existing_intent_id(state)
+        is_parallel_check = use_existing_value_log is not None
+        if is_parallel_check:
+            import json as _debug_json_completed; import time as _debug_time_completed
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_completed:
+                    _debug_f_completed.write(_debug_json_completed.dumps({"id":f"log_{int(_debug_time_completed.time()*1000)}_parallel_completed_tools","timestamp":int(_debug_time_completed.time()*1000),"location":"unified_react_engine.py:4758","message":"Parallel branch - completed_tools check","data":{"is_parallel":True,"use_existing_intent_id":use_existing_value_log,"goal":state.goal[:100],"completed_tools":completed_tools,"action_history_count":len(state.action_history) if state.action_history else 0},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+            except:
+                pass
+        # #endregion
+        
         # Получаем релевантные инструменты (3-7 штук вместо 50)
         _tools_start = time.time()
         relevant_tools = self._get_relevant_tools(state.goal, completed_tools)
@@ -4725,6 +4831,17 @@ if salary_sheet:
         
         # ===== СЕКЦИЯ 2: COMPLETED_ACTIONS (сразу после статуса - критично!) =====
         completed_section = ""
+        # #region agent log - проверка изоляции контекста для параллельных веток
+        use_existing_value_parallel = self._get_use_existing_intent_id(state)
+        is_parallel = use_existing_value_parallel is not None
+        if is_parallel:
+            import json as _debug_json_parallel; import time as _debug_time_parallel
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_parallel:
+                    _debug_f_parallel.write(_debug_json_parallel.dumps({"id":f"log_{int(_debug_time_parallel.time()*1000)}_parallel_completed_actions","timestamp":int(_debug_time_parallel.time()*1000),"location":"unified_react_engine.py:4727","message":"Parallel branch - checking completed actions","data":{"is_parallel":True,"use_existing_intent_id":use_existing_value_parallel,"goal":state.goal[:100],"action_history_count":len(state.action_history) if state.action_history else 0,"action_history_tools":[a.tool_name for a in state.action_history] if state.action_history else []},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+            except:
+                pass
+        # #endregion
         if state.action_history and state.observations:
             completed_lines = []
             for i, action in enumerate(state.action_history):
@@ -5006,12 +5123,45 @@ if salary_sheet:
 {rules_section}
 {format_section}"""
         
-        # #region agent log
-        import json as _debug_json_full_prompt; import time as _debug_time_full_prompt
+        # #region agent log - ПОЛНОЕ логирование промпта для всех веток
+        use_existing_value_prompt = self._get_use_existing_intent_id(state)
+        is_parallel_prompt = use_existing_value_prompt is not None
+        import json as _debug_json_full_prompt_log; import time as _debug_time_full_prompt_log
         try:
+            # Собираем информацию о доступных инструментах
+            available_tools_list = []
+            if 'tools_section' in locals():
+                import re
+                tool_matches = re.findall(r'- (\w+):', tools_section)
+                available_tools_list = tool_matches
+            
+            relevant_tools_list = []
+            if 'relevant_tools' in locals():
+                relevant_tools_list = [t.get('name', '') for t in relevant_tools]
+            
+            # Формируем уникальный ID для этого промпта
+            prompt_id = f"prompt_{state.goal[:30].replace(' ', '_')}_{state.iteration}_{int(_debug_time_full_prompt_log.time()*1000)}"
+            
             with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_full_prompt:
-                _debug_f_full_prompt.write(_debug_json_full_prompt.dumps({"id":f"log_{int(_debug_time_full_prompt.time()*1000)}_full_prompt","timestamp":int(_debug_time_full_prompt.time()*1000),"location":"unified_react_engine.py:4885","message":"Full prompt sent to LLM","data":{"goal":state.goal,"prompt_length":len(prompt),"prompt_preview":prompt[:1000],"tools_section_preview":tools_section[:500] if 'tools_section' in locals() else "","has_doc_keywords":any(kw in state.goal.lower() for kw in ["документ", "doc", "текст", "сказк", "допиши", "напиши"]),"has_presentation_keywords":any(kw in state.goal.lower() for kw in ["презентац", "presentation", "slide", "слайд"]),"has_beautiful_keywords":any(kw in state.goal.lower() for kw in ["красиво", "красив", "оформить", "формат"])},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
-        except:
+                _debug_f_full_prompt.write(_debug_json_full_prompt_log.dumps({
+                    "id": prompt_id,
+                    "timestamp": int(_debug_time_full_prompt_log.time()*1000),
+                    "location": "unified_react_engine.py:5126",
+                    "message": "FULL PROMPT TO LLM",
+                    "data": {
+                        "is_parallel": is_parallel_prompt,
+                        "use_existing_intent_id": use_existing_value_prompt,
+                        "goal": state.goal,
+                        "iteration": state.iteration,
+                        "FULL_PROMPT": prompt,
+                        "relevant_tools": relevant_tools_list,
+                        "available_tools_in_prompt": available_tools_list
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "PROMPT"
+                }, ensure_ascii=False) + '\n')
+        except Exception as e:
             pass
         # #endregion
         
@@ -5039,7 +5189,19 @@ if salary_sheet:
             )
             relevant_base_tools = [t for t in self.tools if t.name in relevant_tool_names]
             
-            # Создаём llm_with_tools только с релевантными инструментами
+            # #region agent log - проверка инструментов, которые попадают в bind_tools для параллельных веток
+            use_existing_value_bind = self._get_use_existing_intent_id(state)
+            is_parallel_bind = use_existing_value_bind is not None
+            if is_parallel_bind:
+                import json as _debug_json_bind; import time as _debug_time_bind
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_bind:
+                        _debug_f_bind.write(_debug_json_bind.dumps({"id":f"log_{int(_debug_time_bind.time()*1000)}_bind_tools","timestamp":int(_debug_time_bind.time()*1000),"location":"unified_react_engine.py:5173","message":"Tools bound to LLM for parallel branch","data":{"is_parallel":True,"use_existing_intent_id":use_existing_value_bind,"goal":state.goal[:100],"relevant_tool_names":relevant_tool_names,"bound_tools_names":[t.name for t in relevant_base_tools],"bound_tools_count":len(relevant_base_tools),"has_get_calendar_events_in_bound":"get_calendar_events" in [t.name for t in relevant_base_tools],"has_list_emails_in_bound":"list_emails" in [t.name for t in relevant_base_tools]},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                except:
+                    pass
+            # #endregion
+            
+            # Создаём llm_with_relevant_tools только с релевантными инструментами
             llm_with_relevant_tools = self.llm.bind_tools(relevant_base_tools)
             llm_to_use = llm_with_relevant_tools
             
@@ -5073,6 +5235,32 @@ if salary_sheet:
             
             _llm_duration = time.time() - _llm_start
             logger.info(f"[UnifiedReActEngine] LLM streaming took {_llm_duration:.3f}s ({_chunk_count} chunks)")
+            
+            # #region agent log - ПОЛНЫЙ ответ LLM
+            try:
+                import json as _debug_json_llm_response; import time as _debug_time_llm_response
+                response_id = f"response_{state.goal[:30].replace(' ', '_')}_{state.iteration}_{int(_debug_time_llm_response.time()*1000)}"
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_llm_response:
+                    _debug_f_llm_response.write(_debug_json_llm_response.dumps({
+                        "id": response_id,
+                        "timestamp": int(_debug_time_llm_response.time()*1000),
+                        "location": "unified_react_engine.py:5237",
+                        "message": "FULL LLM RESPONSE",
+                        "data": {
+                            "is_parallel": self._get_use_existing_intent_id(state) is not None,
+                            "use_existing_intent_id": self._get_use_existing_intent_id(state),
+                            "goal": state.goal,
+                            "iteration": state.iteration,
+                            "FULL_RESPONSE": full_response,
+                            "duration_sec": _llm_duration
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "RESPONSE"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
             
             # Получаем thought из парсера
             thought = parser.get_thought()
@@ -5156,6 +5344,35 @@ if salary_sheet:
             remaining_buffer = parser.get_remaining_buffer()
             response_text = remaining_buffer if remaining_buffer else full_response
             
+            # #region agent log - логируем response_text перед парсингом
+            try:
+                import json as _debug_json_parse; import time as _debug_time_parse
+                parse_id = f"parse_{state.goal[:30].replace(' ', '_')}_{state.iteration}_{int(_debug_time_parse.time()*1000)}"
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_parse:
+                    _debug_f_parse.write(_debug_json_parse.dumps({
+                        "id": parse_id,
+                        "timestamp": int(_debug_time_parse.time()*1000),
+                        "location": "unified_react_engine.py:5345",
+                        "message": "PARSING ACTION FROM TEXT",
+                        "data": {
+                            "is_parallel": self._get_use_existing_intent_id(state) is not None,
+                            "use_existing_intent_id": self._get_use_existing_intent_id(state),
+                            "goal": state.goal,
+                            "iteration": state.iteration,
+                            "used_remaining_buffer": bool(remaining_buffer),
+                            "remaining_buffer_length": len(remaining_buffer) if remaining_buffer else 0,
+                            "full_response_length": len(full_response) if full_response else 0,
+                            "RESPONSE_TEXT_TO_PARSE": response_text,
+                            "full_response_preview": full_response[:500] if full_response else ""
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "PARSE"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
+            
             # Если есть action_plan из tool_calls, используем его, иначе парсим XML
             if action_plan_from_tool_calls:
                 action_plan = action_plan_from_tool_calls
@@ -5206,11 +5423,30 @@ if salary_sheet:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
             
-            # #region agent log
+            # #region agent log - ПОСЛЕ парсинга action_plan, ДО нормализации
             try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_action:
-                    _debug_f_action.write(_debug_json_full_prompt.dumps({"id":f"log_{int(_debug_time_full_prompt.time()*1000)}_llm_action_selected","timestamp":int(_debug_time_full_prompt.time()*1000),"location":"unified_react_engine.py:5095","message":"LLM selected action","data":{"goal":state.goal,"selected_tool":tool_name,"action_plan":action_plan,"was_from_tool_calls":action_plan_from_tool_calls is not None,"available_tools":relevant_tool_names,"thought_preview":thought[:200] if thought else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
-            except:
+                import json as _debug_json_parsed; import time as _debug_time_parsed
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_parsed:
+                    _debug_f_parsed.write(_debug_json_parsed.dumps({
+                        "id": f"log_{int(_debug_time_parsed.time()*1000)}_action_parsed",
+                        "timestamp": int(_debug_time_parsed.time()*1000),
+                        "location": "unified_react_engine.py:5420",
+                        "message": "ACTION PARSED (before normalization)",
+                        "data": {
+                            "is_parallel": self._get_use_existing_intent_id(state) is not None,
+                            "use_existing_intent_id": self._get_use_existing_intent_id(state),
+                            "goal": state.goal,
+                            "iteration": state.iteration,
+                            "selected_tool": tool_name,
+                            "action_plan": action_plan,
+                            "was_from_tool_calls": action_plan_from_tool_calls is not None,
+                            "relevant_tools": relevant_tool_names
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "PARSED"
+                    }, ensure_ascii=False) + '\n')
+            except Exception as e:
                 pass
             # #endregion
             
@@ -5234,11 +5470,58 @@ if salary_sheet:
             
             # CRITICAL: Validate that tool_name is in relevant_tools list
             # If LLM returned a tool that's not in the relevant list, replace it with the first relevant tool
-            if hasattr(self, '_current_relevant_tools') and self._current_relevant_tools:
-                if tool_name not in self._current_relevant_tools and tool_name.upper() != "FINISH":
-                    logger.warning(f"[UnifiedReActEngine] LLM selected tool '{tool_name}' which is NOT in relevant_tools list. Replacing with first relevant tool: {self._current_relevant_tools[0]}")
-                    tool_name = self._current_relevant_tools[0]
+            # NOTE: Use LOCAL relevant_tool_names (not self._current_relevant_tools) to avoid race condition
+            # in parallel execution where another branch could overwrite self._current_relevant_tools
+            if relevant_tool_names:
+                if tool_name not in relevant_tool_names and tool_name.upper() != "FINISH":
+                    logger.warning(f"[UnifiedReActEngine] LLM selected tool '{tool_name}' which is NOT in relevant_tools list. Replacing with first relevant tool: {relevant_tool_names[0]}")
+                    tool_name = relevant_tool_names[0]
                     action_plan["tool_name"] = tool_name
+            
+            # CRITICAL FIX: Валидация выбранного инструмента для параллельных веток
+            # Проверяем, что выбранный инструмент есть в списке доступных инструментов
+            # Это предотвращает выбор инструментов из других веток
+            # ВАЖНО: Эта проверка должна быть ПОСЛЕ нормализации tool_name (удаление "functions." prefix)
+            use_existing_value_validate = self._get_use_existing_intent_id(state)
+            is_parallel_validate = use_existing_value_validate is not None
+            if is_parallel_validate and tool_name and tool_name not in relevant_tool_names and tool_name.upper() != "FINISH":
+                # Инструмент не в списке доступных - это ошибка для параллельных веток
+                logger.error(
+                    f"[UnifiedReActEngine] CRITICAL: Parallel branch selected tool '{tool_name}' "
+                    f"which is NOT in relevant_tools! Available: {relevant_tool_names}, "
+                    f"Goal: {state.goal[:100]}"
+                )
+                # #region agent log - логирование недопустимого выбора инструмента
+                import json as _debug_json_invalid; import time as _debug_time_invalid
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_invalid:
+                        _debug_f_invalid.write(_debug_json_invalid.dumps({"id":f"log_{int(_debug_time_invalid.time()*1000)}_invalid_tool_selection","timestamp":int(_debug_time_invalid.time()*1000),"location":"unified_react_engine.py:5390","message":"Invalid tool selected in parallel branch (AFTER normalization)","data":{"is_parallel":True,"use_existing_intent_id":use_existing_value_validate,"goal":state.goal[:100],"selected_tool":tool_name,"relevant_tools":relevant_tool_names,"action_plan":action_plan},"sessionId":"debug-session","runId":"run1","hypothesisId":"H"}) + '\n')
+                except:
+                    pass
+                # #endregion
+                # Заменяем на первый доступный инструмент из списка
+                if relevant_tool_names:
+                    fallback_tool = relevant_tool_names[0]
+                    logger.warning(
+                        f"[UnifiedReActEngine] Replacing invalid tool '{tool_name}' "
+                        f"with '{fallback_tool}' for parallel branch"
+                    )
+                    original_tool = tool_name
+                    tool_name = fallback_tool
+                    action_plan["tool_name"] = fallback_tool
+                    action_plan["reasoning"] = (
+                        f"Исправлено: выбран неправильный инструмент '{original_tool}'. "
+                        f"Используется '{fallback_tool}' для задачи: {state.goal[:100]}"
+                    )
+                else:
+                    # Если нет доступных инструментов, завершаем задачу
+                    tool_name = "FINISH"
+                    action_plan = {
+                        "tool_name": "FINISH",
+                        "arguments": {},
+                        "description": "Задача не может быть выполнена - нет доступных инструментов",
+                        "reasoning": f"Нет доступных инструментов для задачи: {state.goal[:100]}"
+                    }
             
             # Validate execute_python_code has code
             if tool_name == "execute_python_code":
@@ -5818,9 +6101,17 @@ raise ValueError("Код анализа не был предоставлен. П
     async def _execute_action(
         self,
         action_plan: Dict[str, Any],
-        context: ConversationContext
+        context: ConversationContext,
+        state: Optional[ReActState] = None
     ) -> Any:
-        """Execute action through CapabilityRegistry (provider-agnostic)."""
+        """Execute action through CapabilityRegistry (provider-agnostic).
+        
+        Args:
+            action_plan: Action plan with tool_name and arguments
+            context: Conversation context
+            state: ReActState for access to observations (for auto-fix functionality)
+                   If None, uses self._current_state as fallback (for backward compatibility)
+        """
         capability_name = action_plan.get("tool_name")
         if not capability_name:
             logger.warning("[UnifiedReActEngine] No tool_name in action_plan, skipping execution")
@@ -6150,7 +6441,8 @@ raise ValueError("Код анализа не был предоставлен. П
         # Auto-fix: для execute_python_code автоматически передаём данные из get_all_sheets_data через input_data
         if capability_name == 'execute_python_code' and 'input_data' not in arguments:
             # Ищем результат get_all_sheets_data в предыдущих observations
-            current_state = getattr(self, '_current_state', None)
+            # CRITICAL FIX: Используем переданный state вместо self._current_state для изоляции параллельных веток
+            current_state = state if state else getattr(self, '_current_state', None)
             if current_state and hasattr(current_state, 'observations'):
                 for i, obs in enumerate(reversed(current_state.observations)):
                     if obs and hasattr(obs, 'raw_result'):

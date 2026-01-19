@@ -267,3 +267,47 @@ def test_selector_handles_empty_query(temp_skills_dir, temp_cache_dir, sample_sk
     
     # Может вернуть None или первый skill
     assert selected is None or isinstance(selected, Skill), "Should handle empty query gracefully"
+
+
+# ========== Phase 1: SkillSelector Filter Tests ==========
+
+def test_skill_selector_filters_by_domain_type(temp_cache_dir, mock_openai_class):
+    """SkillSelector должен фильтровать по type=domain."""
+    from src.core.skills.skill_selector import SkillSelector
+    from src.core.skills.skill_loader import SkillLoader
+    from pathlib import Path
+    
+    # Use real skills directory
+    project_root = Path(__file__).parent.parent
+    skills_dir = project_root / "skills"
+    
+    loader = SkillLoader(skills_dir=skills_dir)
+    skills = loader.load_all_skills()
+    
+    selector = SkillSelector(skills=skills, cache_dir=temp_cache_dir)
+    skill = selector.select_skill("покажи почту", skill_type="domain")
+    
+    assert skill is not None
+    assert skill.metadata.get("type") == "domain"
+
+
+def test_get_domain_skills_for_composite(temp_cache_dir, mock_openai_class):
+    """Метод должен возвращать domain skills для composite."""
+    from src.core.skills.skill_selector import SkillSelector
+    from src.core.skills.skill_loader import SkillLoader
+    from pathlib import Path
+    
+    # Use real skills directory
+    project_root = Path(__file__).parent.parent
+    skills_dir = project_root / "skills"
+    
+    loader = SkillLoader(skills_dir=skills_dir)
+    skills = loader.load_all_skills()
+    
+    selector = SkillSelector(skills=skills, cache_dir=temp_cache_dir)
+    composite = loader.load_skill("focus-day")
+    domain_skills = selector.get_domain_skills_for_composite(composite)
+    
+    domain_names = [s.name for s in domain_skills]
+    assert "gmail" in domain_names
+    assert "calendar" in domain_names
