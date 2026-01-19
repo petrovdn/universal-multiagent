@@ -1712,12 +1712,6 @@ class UnifiedReActEngine:
                     logger.error(f"[UnifiedReActEngine] Action execution failed: {error_msg}")
                     
                     # CRITICAL: Log error details for debugging
-                    import json as _debug_json_err; import time as _debug_time_err
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_err:
-                            _debug_f_err.write(_debug_json_err.dumps({"id":f"log_{int(_debug_time_err.time()*1000)}_tool_execution_error","timestamp":int(_debug_time_err.time()*1000),"location":"unified_react_engine.py:1856","message":"Tool execution error","data":{"tool_name":planned_tool,"error_message":error_msg[:500],"error_type":type(e).__name__,"arguments":str(action_plan.get("arguments",{}))[:200],"goal":state.goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
-                    except:
-                        pass
                     
                     # === Update source as error (Phase 1.2) ===
                     # Skip for orchestrated tasks (no source tracking to prevent old card UI)
