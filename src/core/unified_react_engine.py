@@ -2366,23 +2366,48 @@ class UnifiedReActEngine:
                 {"thinking_id": self._current_thinking_id, "started_at": int(time.time() * 1000)}
             )
             
-            response = await self.llm.ainvoke(messages)
+            # CRITICAL FIX: Use streaming instead of ainvoke for real-time response
+            # Send final_result_start event
+            is_parallel_subtask = getattr(self, '_use_existing_intent_id', None) is not None
+            if not is_parallel_subtask:
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "final_result_start",
+                    {}
+                )
             
-            # Extract response text
-            if isinstance(response.content, list):
-                text_parts = []
-                for block in response.content:
-                    if hasattr(block, "text"):
-                        text_parts.append(block.text)
-                    elif isinstance(block, dict) and "text" in block:
-                        text_parts.append(block["text"])
-                    elif isinstance(block, str):
-                        text_parts.append(block)
-                answer = " ".join(text_parts).strip()
-            elif isinstance(response.content, str):
-                answer = response.content.strip()
-            else:
-                answer = str(response.content).strip()
+            # Stream response chunks
+            answer = ""
+            async for chunk in self.llm.astream(messages):
+                chunk_text = ""
+                if hasattr(chunk, 'content') and chunk.content:
+                    content = chunk.content
+                    # Handle multimodal response where content is a list
+                    if isinstance(content, list):
+                        for block in content:
+                            if hasattr(block, 'text'):
+                                chunk_text += block.text
+                            elif isinstance(block, dict) and 'text' in block:
+                                chunk_text += block['text']
+                            elif isinstance(block, str):
+                                chunk_text += block
+                    elif isinstance(content, str):
+                        chunk_text = content
+                elif isinstance(chunk, str):
+                    chunk_text = chunk
+                
+                if chunk_text:
+                    answer += chunk_text
+                    # Send chunk for streaming
+                    if not is_parallel_subtask:
+                        if self.config.mode in ("query", "agent"):
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "final_result_chunk",
+                                {"content": answer}  # Send accumulated content
+                            )
+            
+            answer = answer.strip()
             
             # Send thinking_completed
             if self._current_thinking_id:
@@ -2400,16 +2425,14 @@ class UnifiedReActEngine:
                 self._current_thinking_id = None
                 self._thinking_start_time = None
             
-            # Send final result or message_complete based on mode
+            # Send final result complete or message_complete based on mode
             # CRITICAL FIX: Skip final_result for parallel subtasks - they use parallel_branch_complete instead
-            # Check if this is a parallel subtask by checking _use_existing_intent_id
-            is_parallel_subtask = getattr(self, '_use_existing_intent_id', None) is not None
             if not is_parallel_subtask:
                 # Agent mode uses final_result like query mode (UI expects workflow.finalResult)
                 if self.config.mode in ("query", "agent"):
                     await self.ws_manager.send_event(
                         self.session_id,
-                        "final_result",
+                        "final_result_complete",
                         {"content": answer}
                     )
                 else:
