@@ -929,6 +929,14 @@ class UnifiedReActEngine:
                         }
                     )
                 else:
+                    # #region agent log
+                    import json as _debug_json_iter; import time as _debug_time_iter
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_iter:
+                            _debug_f_iter.write(_debug_json_iter.dumps({"id":f"log_{int(_debug_time_iter.time()*1000)}_iteration_start","timestamp":int(_debug_time_iter.time()*1000),"location":"unified_react_engine.py:932","message":"Sending iteration_start","data":{"intent_id":iteration_intent_id,"iteration_number":state.iteration,"goal":state.goal[:100] if state.goal else "no_goal","session_id":self.session_id},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
                     await self.ws_manager.send_event(
                         self.session_id,
                         "iteration_start",
@@ -4612,99 +4620,6 @@ if salary_sheet:
         
         return final_result
     
-    def _determine_next_step(self, goal: str, completed_tools: List[str], observations: List) -> str:
-        """
-        Определяет следующий логический шаг на основе цели и выполненных действий.
-        """
-        goal_lower = goal.lower()
-        
-        # Проверяем что уже сделано
-        has_create = "create_document" in completed_tools
-        has_read = "read_document" in completed_tools
-        has_append = "append_to_document" in completed_tools
-        has_insert = "insert_into_document" in completed_tools
-        has_update = "update_document" in completed_tools
-        has_format_text = "format_document_text" in completed_tools
-        has_format_para = "format_document_paragraph" in completed_tools
-        
-        # Задачи с документами
-        is_doc_task = any(kw in goal_lower for kw in ["документ", "doc", "текст", "сказк"])
-        is_write_task = any(kw in goal_lower for kw in ["допиши", "добавь", "напиши", "вставь"])
-        is_format_task = any(kw in goal_lower for kw in ["формат", "красив", "оформи", "жирн", "выдели"])
-        
-        # Ключевые слова для СОЗДАНИЯ нового документа
-        create_keywords = ["создай документ", "создать документ", "новый документ", "create document", "создай новый", "создай файл"]
-        is_create_doc = any(kw in goal_lower for kw in create_keywords)
-        
-        if is_doc_task:
-            if is_create_doc:
-                # === СОЗДАНИЕ НОВОГО ДОКУМЕНТА ===
-                if not has_create:
-                    return "create_document — создать новый документ"
-                if not has_append:
-                    return "append_to_document — добавить контент в созданный документ"
-                if is_format_task and not has_format_para:
-                    return "format_document_paragraph — отформатировать документ"
-                return "FINISH — документ создан и заполнен"
-            else:
-                # === МОДИФИКАЦИЯ СУЩЕСТВУЮЩЕГО ===
-                if not has_read:
-                    return "read_document — прочитать содержимое документа"
-                if is_write_task and not (has_append or has_insert or has_update):
-                    return "append_to_document — добавить текст в конец документа"
-                # Skip format_document_text (bold) — go directly to paragraph formatting
-                if is_format_task and not has_format_para:
-                    return "format_document_paragraph — применить выравнивание абзацев"
-                return "FINISH — все шаги выполнены, задача завершена"
-        
-        # Задачи с таблицами
-        if any(kw in goal_lower for kw in ["таблиц", "sheet"]):
-            # Проверяем, был ли вызван get_all_sheets_data
-            has_get_all_sheets = "get_all_sheets_data" in completed_tools
-            needs_extended = any(kw in goal_lower for kw in ["расширенный", "большой", "подробный", "глубокий", "полный", "комплексный"])
-            
-            if has_get_all_sheets:
-                # Данные уже получены, не нужно читать повторно
-                if needs_extended:
-                    # Для расширенного анализа сразу используем execute_python_code
-                    if "execute_python_code" not in completed_tools:
-                        return "execute_python_code — написать Python код для расширенного анализа данных"
-                    return "FINISH — анализ выполнен"
-                else:
-                    # Простой анализ - можно завершить
-                    return "FINISH — данные получены, анализ выполнен"
-            
-            # Если get_all_sheets_data не был вызван, проверяем, нужен ли анализ нескольких вкладок
-            multi_sheet_keywords = ["несколько вкладок", "две вкладки", "все вкладки", "проанализируй", "анализ", "расширенный", "большой", "подробный", "глубокий", "полный", "комплексный"]
-            needs_multi_sheet = any(kw in goal_lower for kw in multi_sheet_keywords)
-            
-            if needs_multi_sheet:
-                # Для анализа нескольких вкладок ОБЯЗАТЕЛЬНО используем get_all_sheets_data ПЕРВЫМ
-                if "get_all_sheets_data" not in completed_tools:
-                    return "get_all_sheets_data — получить данные со всех вкладок таблицы (ОБЯЗАТЕЛЬНО для анализа нескольких вкладок!)"
-            else:
-                # Для простого чтения одной вкладки
-                if "sheets_read_range" not in completed_tools and "get_sheet_data" not in completed_tools:
-                    return "sheets_read_range — прочитать данные из таблицы"
-            return "FINISH — задача с таблицей выполнена"
-        
-        # Задачи с календарем
-        if any(kw in goal_lower for kw in ["календар", "встреч", "событ", "meeting", "назначь"]):
-            has_schedule = "schedule_group_meeting" in completed_tools
-            has_create_event = "create_event" in completed_tools
-            
-            # Проверяем групповую встречу (несколько участников) vs одиночное событие
-            has_attendees = "@" in goal
-            
-            if has_attendees and not has_schedule:
-                return "schedule_group_meeting (confirmed=False) — найти свободное время для всех участников"
-            elif not has_create_event:
-                return "create_event — создать событие в календаре"
-            return "FINISH — встреча запланирована"
-        
-        # По умолчанию
-        return "Определи следующий шаг на основе цели и истории"
-    
     async def _think_and_plan(
         self,
         state: ReActState,
@@ -4739,12 +4654,6 @@ if salary_sheet:
         
         # Собираем список выполненных инструментов
         completed_tools = [a.tool_name for a in state.action_history] if state.action_history else []
-        
-        # Определяем следующий шаг
-        _next_step_start = time.time()
-        next_step = self._determine_next_step(state.goal, completed_tools, state.observations)
-        _next_step_duration = time.time() - _next_step_start
-        logger.info(f"[UnifiedReActEngine] _determine_next_step took {_next_step_duration:.3f}s")
         
         # Получаем релевантные инструменты (3-7 штук вместо 50)
         _tools_start = time.time()
@@ -4865,41 +4774,28 @@ if salary_sheet:
             # Clear error after using it (but keep retry flags for completed_section)
             # Don't clear _can_retry_with_params and _failed_tool_name yet - they're used in completed_section
         
-        # ===== СЕКЦИЯ 4: NEXT_REQUIRED_STEP (явное указание) =====
+        # ===== СЕКЦИЯ 4: BLOCKED_TOOLS (не повторять выполненные) =====
         # Исключаем failed_tool_name из blocked_tools, если можно повторить с другими параметрами
         tools_to_block = completed_tools.copy() if completed_tools else []
         if hasattr(self, '_can_retry_with_params') and self._can_retry_with_params and hasattr(self, '_failed_tool_name') and self._failed_tool_name:
             # Если инструмент можно повторить с другими параметрами - не блокируем его
             if self._failed_tool_name in tools_to_block:
                 tools_to_block.remove(self._failed_tool_name)
-        blocked_tools = ", ".join(tools_to_block) if tools_to_block else "нет"
         
-        # Специальные блокировки для get_all_sheets_data
-        extra_blocked = []
+        # Специальные блокировки для get_all_sheets_data (чтобы не читать повторно)
         goal_lower_check = state.goal.lower()
-        needs_multi_sheet_analysis = any(kw in goal_lower_check for kw in ["несколько вкладок", "две вкладки", "все вкладки", "проанализируй", "анализ", "расширенный", "большой", "подробный", "глубокий", "полный", "комплексный"])
-        
-        # Если нужен анализ нескольких вкладок, но get_all_sheets_data еще не вызван - явно указываем его
-        if needs_multi_sheet_analysis and "get_all_sheets_data" not in completed_tools:
-            next_step = "get_all_sheets_data — получить данные со всех вкладок таблицы (ОБЯЗАТЕЛЬНО ПЕРВЫМ для анализа нескольких вкладок!)"
-            # Блокируем использование других инструментов чтения
-            extra_blocked.extend(["get_sheet_data", "sheets_read_range"])
-        
         if "get_all_sheets_data" in completed_tools:
-            extra_blocked.extend(["get_sheet_data", "sheets_read_range", "get_all_sheets_data"])
-            if any(kw in goal_lower_check for kw in ["расширенный", "большой", "подробный", "глубокий", "полный", "комплексный"]):
-                # Для расширенного анализа следующий шаг - execute_python_code
-                if "execute_python_code" not in completed_tools:
-                    next_step = "execute_python_code — написать Python код для расширенного анализа данных (данные уже получены через get_all_sheets_data)"
+            tools_to_block.extend(["get_sheet_data", "sheets_read_range", "get_all_sheets_data"])
         
-        all_blocked = list(set(blocked_tools.split(", ") + extra_blocked)) if blocked_tools != "нет" else extra_blocked
-        blocked_str = ", ".join(all_blocked) if all_blocked else "нет"
+        blocked_str = ", ".join(set(tools_to_block)) if tools_to_block else "нет"
         
-        next_step_section = f"""
-<next_required_step>
-СЛЕДУЮЩИЙ ШАГ: {next_step}
+        # Секция только если есть заблокированные инструменты
+        blocked_section = ""
+        if tools_to_block:
+            blocked_section = f"""
+<blocked_tools>
 ЗАПРЕЩЕНО ПОВТОРЯТЬ: {blocked_str}
-</next_required_step>"""
+</blocked_tools>"""
         
         # ===== СЕКЦИЯ 5: CONTEXT (открытые файлы, прикреплённые файлы) =====
         context_section = ""
@@ -5103,7 +4999,7 @@ if salary_sheet:
         prompt = f"""{task_status}
 {completed_section}
 {error_section}
-{next_step_section}
+{blocked_section}
 {context_section}
 {skill_instructions}
 {tools_section}
@@ -5401,12 +5297,11 @@ raise ValueError("Код анализа не был предоставлен. П
                 thought = f"Анализирую задачу: {state.goal[:100]}..."
             
             _think_plan_total = time.time() - _think_plan_start
-            _other_time = _think_plan_total - _next_step_duration - _tools_duration - _skill_duration - _llm_duration
+            _other_time = _think_plan_total - _tools_duration - _skill_duration - _llm_duration
             logger.info(
                 f"[UnifiedReActEngine] _think_and_plan total: {_think_plan_total:.3f}s "
-                f"(next_step: {_next_step_duration:.3f}s, tools: {_tools_duration:.3f}s, "
-                f"skill: {_skill_duration:.3f}s, llm: {_llm_duration:.3f}s, "
-                f"other: {_other_time:.3f}s)"
+                f"(tools: {_tools_duration:.3f}s, skill: {_skill_duration:.3f}s, "
+                f"llm: {_llm_duration:.3f}s, other: {_other_time:.3f}s)"
             )
             
             return thought, action_plan
