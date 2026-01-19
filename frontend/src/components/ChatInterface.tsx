@@ -1218,6 +1218,12 @@ export function ChatInterface() {
                   
                   {/* Sticky section: plan */}
                   {(() => {
+                    // План рендерится ТОЛЬКО в режиме 'plan'
+                    // В режимах 'agent' и 'query' план НЕ отображается
+                    if (executionMode !== 'plan') {
+                      return null
+                    }
+                    
                     // Проверяем, нужно ли рендерить план
                     const workflowPlan = workflow?.plan
                     const hasPlanContent = workflowPlan && (
@@ -1261,6 +1267,12 @@ export function ChatInterface() {
                   {/* Прокручиваемый контент - шаги */}
                   {/* Обертываем в дополнительный контейнер для контроля видимости */}
                   {(() => {
+                    // Шаги рендерятся ТОЛЬКО в режиме 'plan'
+                    // В режимах 'agent' и 'query' шаги НЕ отображаются
+                    if (executionMode !== 'plan') {
+                      return null
+                    }
+                    
                     // Проверяем, нужно ли рендерить шаги
                     const workflowPlan = workflow?.plan
                     const hasStepsContent = workflowPlan && 
