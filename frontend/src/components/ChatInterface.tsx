@@ -196,25 +196,38 @@ export function ChatInterface() {
       const elementRect = interactionContainer.getBoundingClientRect()
       
       // Вычисляем позицию прокрутки: позиция элемента относительно контейнера + текущая прокрутка
-      const scrollTop = container.scrollTop + (elementRect.top - containerRect.top) - 52 // 52px для header
+      // Контейнер имеет padding-top: 49px, header высотой 52px
+      // Нужно прокрутить так, чтобы элемент был у самого верха (с учетом padding-top контейнера)
+      const relativeTop = elementRect.top - containerRect.top
+      const headerHeight = 52 // Высота header
+      const containerPaddingTop = 49 // padding-top контейнера
+      
+      // Вычисляем target scrollTop: текущая позиция + смещение до элемента - header height
+      // Элемент должен быть у верха viewport (с учетом padding-top)
+      const scrollTop = container.scrollTop + relativeTop - headerHeight
+      
+      // Проверяем максимально возможный scrollTop (с учетом контента)
+      const maxScrollTop = container.scrollHeight - container.clientHeight
+      const clampedScrollTop = Math.max(0, Math.min(scrollTop, maxScrollTop))
       
       // #region debug log
-      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:186',message:'attemptScroll: calculated scroll position',data:{attempt,elementRectTop:elementRect.top,containerRectTop:containerRect.top,relativeTop:elementRect.top - containerRect.top,currentScrollTop:container.scrollTop,calculatedScrollTop:scrollTop},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:194',message:'attemptScroll: calculated scroll position',data:{attempt,elementRectTop:elementRect.top,containerRectTop:containerRect.top,relativeTop,currentScrollTop:container.scrollTop,calculatedScrollTop:scrollTop,maxScrollTop,clampedScrollTop,scrollHeight:container.scrollHeight,clientHeight:container.clientHeight},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'A'})}).catch(()=>{});
       // #endregion
       
       // Проверяем, что элемент имеет правильную позицию (не 0 или отрицательную)
-      if ((elementRect.top - containerRect.top) <= 0 && attempt < 5) {        // Элемент еще не готов, пробуем еще раз
+      if (relativeTop <= headerHeight && attempt < 5) {
+        // Элемент еще не готов или уже близко к верху, пробуем еще раз
         setTimeout(() => attemptScroll(attempt + 1), 100)
         return
       }
       
       container.scrollTo({
-        top: Math.max(0, scrollTop),
+        top: clampedScrollTop,
         behavior: 'smooth'
       })
       
       // #region debug log
-      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:197',message:'attemptScroll: scroll executed',data:{attempt,finalScrollTop:Math.max(0, scrollTop)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:217',message:'attemptScroll: scroll executed',data:{attempt,finalScrollTop:clampedScrollTop,wasClamped:clampedScrollTop !== scrollTop},timestamp:Date.now(),sessionId:'debug-session',runId:'run2',hypothesisId:'A'})}).catch(()=>{});
       // #endregion
       
       setShouldScrollToNew(false)
@@ -1146,6 +1159,10 @@ export function ChatInterface() {
                     // isLastUserMessage уже вычислен выше
                     const shouldShowThinking = isLastUserMessage && showThinkingIndicator && workflowIntentBlocks.length === 0
                     const hasIntentBlocks = workflowIntentBlocks.length > 0
+                    
+                    // #region agent log
+                    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:1157',message:'Intent blocks render check',data:{workflowId,intentBlocksCount:workflowIntentBlocks.length,isLastUserMessage,shouldShowThinking,hasIntentBlocks,showThinkingIndicator,allIntentBlockKeys:Object.keys(intentBlocks)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+                    // #endregion
                     
                     // Ничего не показываем если нет блоков и не нужно показывать thinking
                     if (!hasIntentBlocks && !shouldShowThinking) {

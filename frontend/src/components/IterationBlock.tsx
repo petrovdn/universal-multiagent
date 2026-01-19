@@ -66,6 +66,10 @@ export function IterationBlock({
   const getThinkingLabel = (): string => {
     const context = thinking.context || 'thinking'
     
+    // #region agent log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'IterationBlock.tsx:66',message:'getThinkingLabel called',data:{context,thinkingContextRaw:thinking.context,iterationNumber:iteration.iterationNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
+    // #endregion
+    
     const labels: Record<string, string> = {
       planning: 'Планирую следующие шаги',
       exploring: 'Исследую',
