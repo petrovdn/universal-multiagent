@@ -79,38 +79,13 @@ class SynthesisAgent:
                 HumanMessage(content=prompt)
             ]
             
-            # #region agent log
-            import json as _debug_json_stream; import time as _debug_time_stream
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_stream:
-                    _debug_f_stream.write(_debug_json_stream.dumps({"id":f"log_{int(_debug_time_stream.time()*1000)}_synthesis_before_astream","timestamp":int(_debug_time_stream.time()*1000),"location":"synthesis_agent.py:76","message":"BEFORE llm.astream","data":{"messages_count":len(messages)},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
-            except:
-                pass
-            # #endregion
-            
             full_summary = ""
             chunk_count = 0
             async for chunk in self.llm.astream(messages):
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_chunk:
-                        _debug_f_chunk.write(_debug_json_stream.dumps({"id":f"log_{int(_debug_time_stream.time()*1000)}_synthesis_chunk_received","timestamp":int(_debug_time_stream.time()*1000),"location":"synthesis_agent.py:84","message":"Chunk received from LLM","data":{"chunk_count":chunk_count,"has_content":hasattr(chunk, 'content'),"content_length":len(chunk.content) if hasattr(chunk, 'content') and chunk.content else 0},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
-                except:
-                    pass
-                # #endregion
-                
                 if hasattr(chunk, 'content') and chunk.content:
                     content_chunk = chunk.content
                     full_summary += content_chunk
                     chunk_count += 1
-                    
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_send:
-                            _debug_f_send.write(_debug_json_stream.dumps({"id":f"log_{int(_debug_time_stream.time()*1000)}_synthesis_before_send_chunk","timestamp":int(_debug_time_stream.time()*1000),"location":"synthesis_agent.py:89","message":"BEFORE send_event final_result_chunk","data":{"chunk_count":chunk_count,"chunk_length":len(content_chunk)},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
-                    except:
-                        pass
-                    # #endregion
                     
                     # Stream chunk to frontend
                     await ws_manager.send_event(
@@ -118,24 +93,8 @@ class SynthesisAgent:
                         "final_result_chunk",
                         {"content": content_chunk}
                     )
-                    
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_after_send:
-                            _debug_f_after_send.write(_debug_json_stream.dumps({"id":f"log_{int(_debug_time_stream.time()*1000)}_synthesis_after_send_chunk","timestamp":int(_debug_time_stream.time()*1000),"location":"synthesis_agent.py:93","message":"AFTER send_event final_result_chunk","data":{"chunk_count":chunk_count},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
-                    except:
-                        pass
-                    # #endregion
             
             summary = full_summary.strip()
-            
-            # #region agent log
-            try:
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_complete:
-                    _debug_f_complete.write(_debug_json_stream.dumps({"id":f"log_{int(_debug_time_stream.time()*1000)}_synthesis_streaming_complete","timestamp":int(_debug_time_stream.time()*1000),"location":"synthesis_agent.py:95","message":"Streaming complete","data":{"total_chunks":chunk_count,"summary_length":len(summary)},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
-            except:
-                pass
-            # #endregion
             
             # Note: final_result_complete will be sent by caller (unified_react_engine)
             # to allow adding error information if needed
