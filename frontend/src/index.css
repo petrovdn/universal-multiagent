@@ -5098,7 +5098,7 @@ div[style*="padding: '10px'"] .prose li {
 
 /* Action секция */
 .iteration-action {
-  margin-left: 18px;
+  margin-left: 0;  /* Выровнено по левому краю как iteration-think */
   margin-top: 0;
 }
 
@@ -5108,12 +5108,13 @@ div[style*="padding: '10px'"] .prose li {
   gap: 8px;
   font-size: 13px;
   line-height: 1.4;
+  color: var(--text-tertiary);  /* Совпадает с iteration-think-header */
 }
 
 .iteration-action-icon {
+  display: none;  /* Иконка скрыта */
   width: 16px;
   height: 16px;
-  display: flex;
   align-items: center;
   justify-content: center;
   font-size: 12px;
@@ -5129,7 +5130,8 @@ div[style*="padding: '10px'"] .prose li {
 }
 
 .iteration-action-title {
-  color: var(--text-primary);
+  color: inherit;  /* Наследует от header как iteration-think-label */
+  font-weight: 400;  /* Совпадает с iteration-think-label */
 }
 
 .iteration-action-title.pending {

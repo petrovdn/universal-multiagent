@@ -174,9 +174,6 @@ export function IterationBlock({
       {action && (
         <div className="iteration-action">
           <div className="iteration-action-header">
-            <span className={`iteration-action-icon ${action.status === 'done' ? 'done' : 'pending'}`}>
-              {action.status === 'done' ? '✓' : '○'}
-            </span>
             <span className={`iteration-action-title ${action.status === 'pending' ? 'pending' : ''}`}>
               {action.title}
             </span>
