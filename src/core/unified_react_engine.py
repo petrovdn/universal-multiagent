@@ -5818,12 +5818,29 @@ raise ValueError("Код анализа не был предоставлен. П
                 successful_results = {k: v for k, v in all_results.items() if not (isinstance(v, dict) and "error" in v)}
                 
                 if successful_results:
+                    # #region agent log
+                    import json as _debug_json_start; import time as _debug_time_start
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_start:
+                            _debug_f_start.write(_debug_json_start.dumps({"id":f"log_{int(_debug_time_start.time()*1000)}_synthesis_start","timestamp":int(_debug_time_start.time()*1000),"location":"unified_react_engine.py:5820","message":"BEFORE final_result_start","data":{"has_successful_results":True,"successful_results_count":len(successful_results)},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    
                     # Send "Готовлю результат..." block (final_result_start)
                     await self.ws_manager.send_event(
                         self.session_id,
                         "final_result_start",
                         {}
                     )
+                    
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_after_start:
+                            _debug_f_after_start.write(_debug_json_start.dumps({"id":f"log_{int(_debug_time_start.time()*1000)}_synthesis_after_start","timestamp":int(_debug_time_start.time()*1000),"location":"unified_react_engine.py:5827","message":"AFTER final_result_start, BEFORE synthesize_streaming","data":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
                     
                     # Stream synthesis result
                     summary = await self.synthesis_agent.synthesize_streaming(
@@ -5833,6 +5850,14 @@ raise ValueError("Код анализа не был предоставлен. П
                         ws_manager=self.ws_manager,
                         session_id=self.session_id
                     )
+                    
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_after_stream:
+                            _debug_f_after_stream.write(_debug_json_start.dumps({"id":f"log_{int(_debug_time_start.time()*1000)}_synthesis_after_stream","timestamp":int(_debug_time_start.time()*1000),"location":"unified_react_engine.py:5835","message":"AFTER synthesize_streaming","data":{"summary_length":len(summary) if summary else 0},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
                     
                     # Extract key points from summary
                     from src.core.synthesis_agent import SynthesisAgent
@@ -5849,6 +5874,15 @@ raise ValueError("Код анализа не был предоставлен. П
                             {"chunk": error_summary}
                         )
                     
+                    # #region agent log
+                    try:
+                        import json as _debug_json_complete; import time as _debug_time_complete
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_before_complete:
+                            _debug_f_before_complete.write(_debug_json_complete.dumps({"id":f"log_{int(_debug_time_complete.time()*1000)}_synthesis_before_complete","timestamp":int(_debug_time_complete.time()*1000),"location":"unified_react_engine.py:5852","message":"BEFORE final_result_complete","data":{"summary_length":len(summary) if summary else 0,"has_errors":bool(errors)},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    
                     # Send final_result_complete (with or without errors)
                     await self.ws_manager.send_event(
                         self.session_id,
@@ -5860,6 +5894,14 @@ raise ValueError("Код анализа не был предоставлен. П
                             "status": "success" if not errors else "partial_success"
                         }
                     )
+                    
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_after_complete:
+                            _debug_f_after_complete.write(_debug_json_complete.dumps({"id":f"log_{int(_debug_time_complete.time()*1000)}_synthesis_after_complete","timestamp":int(_debug_time_complete.time()*1000),"location":"unified_react_engine.py:5862","message":"AFTER final_result_complete","data":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
                     
                     return {
                         "agent": self.__class__.__name__,

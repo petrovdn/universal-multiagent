@@ -1285,8 +1285,12 @@ export class WebSocketClient {
         // Update final result with accumulated content (streaming)
         const finalResultChunkWorkflowId = ensureActiveWorkflow()
         if (finalResultChunkWorkflowId) {
-          chatStore.updateWorkflowFinalResult(finalResultChunkWorkflowId, event.data.content || '')
-          console.log('[WebSocket] Final result chunk received, length:', event.data.content?.length || 0)
+          // Accumulate chunks for streaming
+          const currentContent = useChatStore.getState().workflows[finalResultChunkWorkflowId]?.finalResult || ''
+          const newChunk = event.data.content || ''
+          const accumulatedContent = currentContent + newChunk
+          chatStore.updateWorkflowFinalResult(finalResultChunkWorkflowId, accumulatedContent)
+          console.log('[WebSocket] Final result chunk received, length:', newChunk.length, 'total:', accumulatedContent.length)
         }
         break
 

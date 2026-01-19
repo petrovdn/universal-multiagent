@@ -70,11 +70,6 @@ export function ParallelExecutionContainer({
         })}
       </div>
       
-      {/* Active Branch Label */}
-      <div className="active-branch-label">
-        Активная ветка: <span className="active-branch-name">{activeBranch.description}</span>
-      </div>
-      
       {/* Tab Content */}
       <div className="tab-content">
         {activeBranch.iterations.map((iteration, idx) => {

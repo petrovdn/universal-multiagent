@@ -2044,7 +2044,7 @@ export const useChatStore = create<ChatState>()(
                   content: '',
                   durationSec: 0,
                   isStreaming: true,
-                  isCollapsed: false, // Новая итерация развёрнута
+                  isCollapsed: true, // Блок "Думаю" свернут по умолчанию
                 },
               }
               
@@ -2418,7 +2418,7 @@ export const useChatStore = create<ChatState>()(
                       content: '',
                       durationSec: 0,
                       isStreaming: true,
-                      isCollapsed: false,
+                      isCollapsed: true, // Блок "Думаю" свернут по умолчанию
                       startedAt: Date.now(),  // Save start time for timer persistence across tab switches
                     },
                   }
