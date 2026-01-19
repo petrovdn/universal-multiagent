@@ -640,9 +640,6 @@ class GmailMCPServer:
                     max_results = min(arguments.get("maxResults", 10), 100)
                     label_ids = arguments.get("labelIds")
                     
-                    # Логируем параметры запроса для отладки
-                    logger.info(f"[GmailServer] gmail_search called with query='{query}', maxResults={max_results}, labelIds={label_ids}")
-                    
                     params = {
                         "userId": "me",
                         "q": query,

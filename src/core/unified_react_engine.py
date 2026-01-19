@@ -86,25 +86,9 @@ class UnifiedReActEngine:
         self.capabilities = self.registry.get_capabilities(
             categories=config.allowed_categories
         )
-        # #region agent log
-        import json as _debug_json_tools; import time as _debug_time_tools
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tools:
-                _debug_f_tools.write(_debug_json_tools.dumps({"id":f"log_{int(_debug_time_tools.time()*1000)}_capabilities_loaded","timestamp":int(_debug_time_tools.time()*1000),"location":"unified_react_engine.py:86","message":"Capabilities loaded from registry","data":{"capabilities_count":len(self.capabilities),"capability_names":[c.name for c in self.capabilities[:20]],"has_list_emails":any(c.name == "list_emails" for c in self.capabilities),"registry_providers_count":len(self.registry.providers),"provider_types":[p.provider_type.value for p in self.registry.providers]},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
-        except:
-            pass
-        # #endregion
         
         # Build LLM tools from capabilities for planning
         self.tools = self._build_tools_from_capabilities()
-        # #region agent log
-        try:
-            tool_names = [t.name for t in self.tools]
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tools:
-                _debug_f_tools.write(_debug_json_tools.dumps({"id":f"log_{int(_debug_time_tools.time()*1000)}_tools_built","timestamp":int(_debug_time_tools.time()*1000),"location":"unified_react_engine.py:91","message":"Tools built from capabilities","data":{"tools_count":len(self.tools),"tool_names":tool_names[:30],"has_list_emails":any(t.name == "list_emails" for t in self.tools)},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
-        except:
-            pass
-        # #endregion
         
         # Create LLM with thinking support
         self.llm = self._create_llm_with_thinking()
@@ -164,11 +148,6 @@ class UnifiedReActEngine:
                 from src.core.skills.skill_selector import SkillSelector
                 from pathlib import Path
                 
-                # #region agent log - время инициализации SmartToolSelector
-                import json as _debug_json_init; import time as _debug_time_init
-                _smart_init_start = _debug_time_init.time()
-                # #endregion
-                
                 # Initialize SmartToolSelector
                 cache_dir = DATA_DIR / "tool_embeddings"
                 
@@ -180,10 +159,6 @@ class UnifiedReActEngine:
                 if force_recompute:
                     logger.info("[UnifiedReActEngine] FORCE_RECOMPUTE_EMBEDDINGS=true: will recompute all embeddings")
                 
-                _cache_init_start = _debug_time_init.time()
-                _cache_init_duration = 0  # Инициализация EmbeddingCache теперь внутри SmartToolSelector
-                
-                _selector_init_start = _debug_time_init.time()
                 # SmartToolSelector теперь предзагружает embeddings в память при инициализации
                 # Это позволяет избежать дисковых операций при каждом вызове select_tools
                 self.smart_tool_selector = SmartToolSelector(
@@ -192,16 +167,6 @@ class UnifiedReActEngine:
                     preload_embeddings=True,  # Предзагрузить embeddings в память
                     force_recompute=force_recompute  # Принудительно пересчитать если флаг установлен
                 )
-                _selector_init_duration = _debug_time_init.time() - _selector_init_start
-                _smart_init_duration = _debug_time_init.time() - _smart_init_start
-                
-                # #region agent log - время инициализации SmartToolSelector
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_init:
-                        _debug_f_init.write(_debug_json_init.dumps({"id":f"log_{int(_debug_time_init.time()*1000)}_smart_selector_init","timestamp":int(_debug_time_init.time()*1000),"location":"unified_react_engine.py:178","message":"SmartToolSelector initialization completed","data":{"cache_init_ms":_cache_init_duration*1000,"selector_init_ms":_selector_init_duration*1000,"total_init_ms":_smart_init_duration*1000,"capabilities_count":len(self.capabilities)},"sessionId":"debug-session","runId":"run1","hypothesisId":"INIT_TIME"}) + '\n')
-                except:
-                    pass
-                # #endregion
                 
                 # Initialize SkillLoader and SkillSelector
                 project_root = Path(__file__).parent.parent.parent
@@ -298,40 +263,14 @@ class UnifiedReActEngine:
         tools = []
 
         # Get MCP provider if available
-        # #region agent log
-        import json as _debug_json_build; import time as _debug_time_build
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_build:
-                _debug_f_build.write(_debug_json_build.dumps({"id":f"log_{int(_debug_time_build.time()*1000)}_build_tools_start","timestamp":int(_debug_time_build.time()*1000),"location":"unified_react_engine.py:241","message":"Building tools from capabilities","data":{"providers_count":len(self.registry.providers),"provider_types":[p.provider_type.value for p in self.registry.providers]},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
-        except:
-            pass
-        # #endregion
         for provider in self.registry.providers:
             if provider.provider_type.value == "mcp_tool":
                 # MCP provider has direct access to BaseTool instances
-                # #region agent log
-                try:
-                    has_tools_attr = hasattr(provider, 'tools')
-                    tools_dict_size = len(provider.tools) if has_tools_attr else 0
-                    provider_tool_names = list(provider.tools.keys())[:30] if has_tools_attr else []
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_build:
-                        _debug_f_build.write(_debug_json_build.dumps({"id":f"log_{int(_debug_time_build.time()*1000)}_mcp_provider_found","timestamp":int(_debug_time_build.time()*1000),"location":"unified_react_engine.py:255","message":"MCP provider found","data":{"has_tools_attr":has_tools_attr,"tools_dict_size":tools_dict_size,"provider_tool_names":provider_tool_names,"has_list_emails":has_tools_attr and "list_emails" in provider.tools},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
-                except:
-                    pass
-                # #endregion
                 if hasattr(provider, 'tools'):
                     tools.extend(provider.tools.values())
                 break
 
         logger.info(f"[UnifiedReActEngine] Built {len(tools)} tools for LLM planning")
-        # #region agent log
-        try:
-            built_tool_names = [t.name for t in tools]
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_build:
-                _debug_f_build.write(_debug_json_build.dumps({"id":f"log_{int(_debug_time_build.time()*1000)}_build_tools_end","timestamp":int(_debug_time_build.time()*1000),"location":"unified_react_engine.py:260","message":"Tools built successfully","data":{"tools_count":len(tools),"built_tool_names":built_tool_names[:30],"has_list_emails":any(t.name == "list_emails" for t in tools)},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
-        except:
-            pass
-        # #endregion
         return tools
     
     def _create_fast_llm(self) -> BaseChatModel:
@@ -403,12 +342,6 @@ class UnifiedReActEngine:
         Returns:
             Execution result
         """
-        # #region agent log - execute entry
-        import json as _debug_json_entry; import time as _debug_time_entry
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_entry:
-            _debug_f_entry.write(_debug_json_entry.dumps({"id":f"log_{int(_debug_time_entry.time()*1000)}_execute_entry","timestamp":int(_debug_time_entry.time()*1000),"location":"unified_react_engine.py:320","message":"Execute function entry","data":{"goal":(goal[:80] if goal else None),"use_existing_intent_id":use_existing_intent_id,"skip_orchestration":skip_orchestration,"phase":phase},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
-        # #endregion
-        
         # Нормализуем неразрывные пробелы (U+00A0) в обычные пробелы
         # Это критично для keyword matching в DANGEROUS_OPERATIONS и других проверках
         if goal:
@@ -424,18 +357,6 @@ class UnifiedReActEngine:
         # CRITICAL: Save skip_orchestration flag as class attribute for ReAct cycle
         # Used to skip source tracking in orchestrated tasks (prevents old card UI)
         self._skip_source_tracking = skip_orchestration or _local_is_parallel_subtask
-        
-        # #region agent log
-        if self._skip_source_tracking:
-            import json as _debug_json_skip; import time as _debug_time_skip
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_skip:
-                _debug_f_skip.write(_debug_json_skip.dumps({"id":f"log_{int(_debug_time_skip.time()*1000)}_skip_source_tracking_set","timestamp":int(_debug_time_skip.time()*1000),"location":"unified_react_engine.py:352","message":"_skip_source_tracking set","data":{"skip_orchestration":skip_orchestration,"_local_is_parallel_subtask":_local_is_parallel_subtask,"goal":goal[:80] if goal else None},"sessionId":"debug-session","runId":"run1","hypothesisId":"H"}) + '\n')
-        # #endregion
-        
-        # #region agent log - parallel subtask flag
-        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_flag:
-            _debug_f_flag.write(_debug_json_entry.dumps({"id":f"log_{int(_debug_time_entry.time()*1000)}_parallel_flag","timestamp":int(_debug_time_entry.time()*1000),"location":"unified_react_engine.py:342","message":"_local_is_parallel_subtask set","data":{"value":_local_is_parallel_subtask,"use_existing_intent_id":use_existing_intent_id},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
-        # #endregion
         
         # Send research phase started event
         if phase == "research":
@@ -742,23 +663,8 @@ class UnifiedReActEngine:
             else:
                 self._use_existing_intent_id = None  # Explicitly clear for simple queries
             logger.info(f"[UnifiedReActEngine] Using existing intent_id for subtask: {task_intent_id}")
-            # #region agent log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"id": f"log_{int(time.time() * 1000)}_use_existing_set", "timestamp": int(time.time() * 1000), "location": "unified_react_engine.py:624", "message": "Set _use_existing_intent_id for parallel branch", "data": {"use_existing_intent_id": use_existing_intent_id, "is_multi_phase": self._is_multi_phase, "goal": goal[:100] if goal else None}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
-            # #endregion
         elif self._is_multi_phase:
-            # #region agent log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"id": f"log_{int(time.time() * 1000)}_multi_phase_clear_check", "timestamp": int(time.time() * 1000), "location": "unified_react_engine.py:627", "message": "BEFORE clearing _use_existing_intent_id in multi-phase", "data": {"current_use_existing_intent_id": self._use_existing_intent_id, "is_multi_phase": self._is_multi_phase, "num_phases": len(task_phases)}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
-            # #endregion
             self._use_existing_intent_id = None  # Clear previous value
-            # #region agent log
-            import json
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as f:
-                f.write(json.dumps({"id": f"log_{int(time.time() * 1000)}_multi_phase_clear_done", "timestamp": int(time.time() * 1000), "location": "unified_react_engine.py:627", "message": "AFTER clearing _use_existing_intent_id in multi-phase", "data": {"use_existing_intent_id_after": self._use_existing_intent_id}, "sessionId": "debug-session", "runId": "run1", "hypothesisId": "A"}) + '\n')
-            # #endregion
             logger.info(f"[UnifiedReActEngine] Multi-phase task detected: {len(task_phases)} phases")
             # Create the FIRST phase intent
             first_phase = task_phases[0]
@@ -806,11 +712,6 @@ class UnifiedReActEngine:
                     if not self._skip_source_tracking:
                         self._skip_source_tracking = True
                         logger.info(f"[UnifiedReActEngine] Setting _skip_source_tracking=True for orchestrated main task to prevent old card UI")
-                        # #region agent log
-                        import json as _debug_json_main; import time as _debug_time_main
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_main:
-                            _debug_f_main.write(_debug_json_main.dumps({"id":f"log_{int(_debug_time_main.time()*1000)}_main_task_skip_source","timestamp":int(_debug_time_main.time()*1000),"location":"unified_react_engine.py:719","message":"Setting _skip_source_tracking for orchestrated main task","data":{"goal":goal[:80] if goal else None,"subtasks_count":len(decomposition.subtasks)},"sessionId":"debug-session","runId":"run1","hypothesisId":"H"}) + '\n')
-                        # #endregion
                     
                     execution_plan = self.dependency_analyzer.analyze(decomposition.subtasks)
                     
@@ -885,17 +786,6 @@ class UnifiedReActEngine:
             {"thinking_id": self._current_thinking_id, "started_at": int(time.time() * 1000)}
         )
         
-        # #region agent log - время начала ReAct цикла
-        import time as _debug_time_loop
-        _react_loop_start = _debug_time_loop.time()
-        try:
-            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_loop:
-                import json as _debug_json_loop
-                _debug_f_loop.write(_debug_json_loop.dumps({"id":f"log_{int(_debug_time_loop.time()*1000)}_react_loop_start","timestamp":int(_debug_time_loop.time()*1000),"location":"unified_react_engine.py:885","message":"ReAct loop starting","data":{"goal":goal[:100],"max_iterations":state.max_iterations},"sessionId":"debug-session","runId":"run1","hypothesisId":"TIMING"}) + '\n')
-        except:
-            pass
-        # #endregion
-        
         try:
             # Main ReAct loop
             while state.iteration < state.max_iterations:
@@ -920,14 +810,6 @@ class UnifiedReActEngine:
                 # PHASE 0 FIX: Check that _use_existing_intent_id is not None (not just hasattr)
                 use_existing_value = getattr(self, '_use_existing_intent_id', None)
                 is_parallel = hasattr(self, '_use_existing_intent_id') and use_existing_value is not None
-                # #region agent log
-                import json as _debug_json_iter; import time as _debug_time_iter
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_iter:
-                        _debug_f_iter.write(_debug_json_iter.dumps({"id":f"log_{int(_debug_time_iter.time()*1000)}_iteration_start_decision","timestamp":int(_debug_time_iter.time()*1000),"location":"unified_react_engine.py:898","message":"Decision: parallel_branch_iteration_start vs iteration_start","data":{"has_attr":hasattr(self,'_use_existing_intent_id'),"use_existing_value":use_existing_value,"is_parallel":is_parallel,"iteration_intent_id":iteration_intent_id,"iteration_number":state.iteration},"sessionId":"debug-session","runId":"run1","hypothesisId":"N"}) + '\n')
-                except:
-                    pass
-                # #endregion
                 if is_parallel:
                     branch_id = self._use_existing_intent_id
                     # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
@@ -1032,14 +914,6 @@ class UnifiedReActEngine:
                 # 2. PLAN - Action plan уже получен из _think_and_plan
                 state.status = "acting"
                 planned_tool = action_plan.get("tool_name", "")
-                # #region agent log
-                import json as _debug_json_planned; import time as _debug_time_planned
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_planned:
-                        _debug_f_planned.write(_debug_json_planned.dumps({"id":f"log_{int(_debug_time_planned.time()*1000)}_planned_tool_initial","timestamp":int(_debug_time_planned.time()*1000),"location":"unified_react_engine.py:991","message":"Initial planned_tool from action_plan","data":{"planned_tool":planned_tool,"goal":state.goal[:100],"action_plan_tool_name":action_plan.get("tool_name","")},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
-                except:
-                    pass
-                # #endregion
                 
                 # === Send iteration_plan event ===
                 await self.ws_manager.send_event(
