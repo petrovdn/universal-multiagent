@@ -148,11 +148,13 @@ class UpdateDocumentTool(BaseTool):
     
     name: str = "update_document"
     description: str = """
-    Replace all content in a Google Docs document with new text.
+    Заменить всё содержимое документа Google Docs новым текстом.
     
-    Input:
-    - document_id: Document ID or URL
-    - content: New content to write
+    Параметры:
+    - document_id: ID документа или URL
+    - content: Новое содержимое для записи
+    
+    Ключевые слова: обновить документ, заменить содержимое, изменить документ, переписать документ.
     """
     args_schema: type = UpdateDocumentInput
     
@@ -192,11 +194,13 @@ class AppendToDocumentTool(BaseTool):
     
     name: str = "append_to_document"
     description: str = """
-    Append text to the end of a Google Docs document.
+    Добавить текст в конец документа Google Docs.
     
-    Input:
-    - document_id: Document ID or URL
-    - content: Text to append
+    Параметры:
+    - document_id: ID документа или URL
+    - content: Текст для добавления
+    
+    Ключевые слова: добавить в документ, дописать в документ, добавить текст, дописать текст.
     """
     args_schema: type = AppendToDocumentInput
     
@@ -237,12 +241,14 @@ class InsertIntoDocumentTool(BaseTool):
     
     name: str = "insert_into_document"
     description: str = """
-    Insert text at a specific position in a Google Docs document.
+    Вставить текст в определённую позицию документа Google Docs.
     
-    Input:
-    - document_id: Document ID or URL
-    - index: Character index where to insert (0-based)
-    - content: Text to insert
+    Параметры:
+    - document_id: ID документа или URL
+    - index: Индекс символа для вставки (начиная с 0)
+    - content: Текст для вставки
+    
+    Ключевые слова: вставить в документ, вставить текст, добавить текст в позицию.
     """
     args_schema: type = InsertIntoDocumentInput
     
@@ -289,22 +295,24 @@ class FormatDocumentTextTool(BaseTool):
     
     name: str = "format_document_text"
     description: str = """
-    Format text in a Google Docs document (bold, italic, underline, colors).
+    Форматировать текст в документе Google Docs (жирный, курсив, подчёркивание, цвета).
     
-    Input:
-    - document_id: Document ID or URL
-    - start_index: Start character index (0-based)
-    - end_index: End character index (exclusive)
-    - bold: Optional boolean to make text bold
-    - italic: Optional boolean to make text italic
-    - underline: Optional boolean to make text underlined
-    - foreground_color: Optional dict with 'red', 'green', 'blue', 'alpha' (0.0-1.0)
-    - background_color: Optional dict with 'red', 'green', 'blue', 'alpha' (0.0-1.0)
+    Параметры:
+    - document_id: ID документа или URL
+    - start_index: Начальный индекс символа (начиная с 0)
+    - end_index: Конечный индекс символа (исключающий)
+    - bold: Опциональный boolean - сделать текст жирным
+    - italic: Опциональный boolean - сделать текст курсивом
+    - underline: Опциональный boolean - подчеркнуть текст
+    - foreground_color: Опциональный dict с 'red', 'green', 'blue', 'alpha' (0.0-1.0) - цвет текста
+    - background_color: Опциональный dict с 'red', 'green', 'blue', 'alpha' (0.0-1.0) - цвет фона/выделения
     
-    Example colors:
-    - Red text: {'red': 1.0, 'green': 0.0, 'blue': 0.0, 'alpha': 1.0}
-    - Blue text: {'red': 0.0, 'green': 0.0, 'blue': 1.0, 'alpha': 1.0}
-    - Yellow highlight: {'red': 1.0, 'green': 1.0, 'blue': 0.0, 'alpha': 1.0}
+    Примеры цветов:
+    - Красный текст: {'red': 1.0, 'green': 0.0, 'blue': 0.0, 'alpha': 1.0}
+    - Синий текст: {'red': 0.0, 'green': 0.0, 'blue': 1.0, 'alpha': 1.0}
+    - Жёлтое выделение: {'red': 1.0, 'green': 1.0, 'blue': 0.0, 'alpha': 1.0}
+    
+    Ключевые слова: форматировать документ, форматирование текста, жирный, курсив, подчёркивание, цвет текста, выделить текст, отформатировать текст.
     """
     args_schema: type = FormatDocumentTextInput
     
@@ -387,23 +395,25 @@ class FormatDocumentParagraphTool(BaseTool):
     
     name: str = "format_document_paragraph"
     description: str = """
-    Format paragraph style in a Google Docs document (alignment, indentation, spacing).
-    Use this for 'beautiful' formatting: justify text, add first-line indents.
+    Форматировать стиль абзацев в документе Google Docs (выравнивание, отступы, интервалы).
+    Используй для "красивого" форматирования: выравнивание по ширине, отступ первой строки.
     
-    Input:
-    - document_id: Document ID or URL
-    - start_index: Start character index (0-based)
-    - end_index: End character index (exclusive)
-    - alignment: Optional paragraph alignment (START, CENTER, END, JUSTIFIED)
-    - indent_first_line: Optional first line indent in points (36pt = ~1.27cm standard)
-    - indent_start: Optional left indent in points
-    - indent_end: Optional right indent in points
-    - space_above: Optional space above paragraph in points
-    - space_below: Optional space below paragraph in points
-    - line_spacing: Optional line spacing multiplier (1.15, 1.5, 2.0)
+    Параметры:
+    - document_id: ID документа или URL
+    - start_index: Начальный индекс символа (начиная с 0)
+    - end_index: Конечный индекс символа (исключающий) - используй TEXT_LENGTH из read_document для форматирования ВСЕГО документа
+    - alignment: Опциональное выравнивание абзаца (START, CENTER, END, JUSTIFIED)
+    - indent_first_line: Опциональный отступ первой строки в пунктах (36pt = ~1.27см стандартный)
+    - indent_start: Опциональный левый отступ в пунктах
+    - indent_end: Опциональный правый отступ в пунктах
+    - space_above: Опциональный отступ сверху абзаца в пунктах
+    - space_below: Опциональный отступ снизу абзаца в пунктах
+    - line_spacing: Опциональный множитель межстрочного интервала (1.15, 1.5, 2.0)
     
-    Example for 'beautiful' formatting:
-    - alignment="JUSTIFIED", indent_first_line=36 for justified text with first-line indent
+    Пример для "красивого" форматирования:
+    - alignment="JUSTIFIED", indent_first_line=36 для выравнивания по ширине с отступом первой строки
+    
+    Ключевые слова: форматировать абзацы, выравнивание, отступы, интервалы, красиво оформить, выровнять по ширине, красная строка, отступ первой строки.
     """
     args_schema: type = FormatDocumentParagraphInput
     
@@ -483,12 +493,14 @@ class SearchDocumentTextTool(BaseTool):
     
     name: str = "search_document_text"
     description: str = """
-    Search for text in a Google Docs document and return matching positions.
+    Найти текст в документе Google Docs и вернуть позиции совпадений.
     
-    Input:
-    - document_id: Document ID or URL
-    - search_text: Text to search for
-    - match_case: Whether to match case (default: false)
+    Параметры:
+    - document_id: ID документа или URL
+    - search_text: Текст для поиска
+    - match_case: Учитывать регистр (по умолчанию: false)
+    
+    Ключевые слова: найти в документе, поиск в документе, найти текст, поиск текста.
     """
     args_schema: type = SearchDocumentTextInput
     

@@ -96,6 +96,9 @@ class UnifiedReActEngine:
         # Bind tools to LLM
         self.llm_with_tools = self.llm.bind_tools(self.tools)
         
+        # Store context reference for StreamingThoughtParser access
+        self._current_context: Optional[ConversationContext] = None
+        
         # Result analyzer
         self.result_analyzer = ResultAnalyzer(model_name=model_name)
         
@@ -342,6 +345,15 @@ class UnifiedReActEngine:
         Returns:
             Execution result
         """
+        # #region agent log
+        import json as _debug_json_exec; import time as _debug_time_exec
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_exec:
+                _debug_f_exec.write(_debug_json_exec.dumps({"id":f"log_{int(_debug_time_exec.time()*1000)}_execute_entry","timestamp":int(_debug_time_exec.time()*1000),"location":"unified_react_engine.py:324","message":"execute() entry point","data":{"goal":goal[:200],"skip_orchestration":skip_orchestration,"use_existing_intent_id":use_existing_intent_id,"phase":phase},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         # Нормализуем неразрывные пробелы (U+00A0) в обычные пробелы
         # Это критично для keyword matching в DANGEROUS_OPERATIONS и других проверках
         if goal:
@@ -377,7 +389,22 @@ class UnifiedReActEngine:
         confirmation_keywords = ["да", "давай", "создай", "подтверждаю", "ок", "ok", "yes", "согласен"]
         is_confirmation = any(kw in goal_lower for kw in confirmation_keywords) and len(goal_lower) < 20
         
+        # #region agent log
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_conf:
+                _debug_f_conf.write(_debug_json_exec.dumps({"id":f"log_{int(_debug_time_exec.time()*1000)}_confirmation_check","timestamp":int(_debug_time_exec.time()*1000),"location":"unified_react_engine.py:380","message":"Checking for confirmation","data":{"goal":goal[:200],"is_confirmation":is_confirmation,"has_pending_meeting":bool(context.pending_confirmations.get("meeting"))},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         if is_confirmation and context.pending_confirmations.get("meeting"):
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_conf_ret:
+                    _debug_f_conf_ret.write(_debug_json_exec.dumps({"id":f"log_{int(_debug_time_exec.time()*1000)}_confirmation_return","timestamp":int(_debug_time_exec.time()*1000),"location":"unified_react_engine.py:380","message":"Returning from confirmation handler (BYPASSING ReAct cycle)","data":{"goal":goal[:200]},"sessionId":"debug-session","runId":"run1","hypothesisId":"H"}) + '\n')
+            except:
+                pass
+            # #endregion
             pending = context.pending_confirmations["meeting"]
             logger.info(f"[UnifiedReActEngine] Confirmation detected - creating meeting with pending data")
             
@@ -517,17 +544,22 @@ class UnifiedReActEngine:
                 
                 logger.info(f"[UnifiedReActEngine] About to send final_result event with response: {response_text[:100]}")
                 
-                # Send final_result event through WebSocket directly (not via _stream_reasoning)
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "final_result",
-                    {
-                        "content": response_text,
-                        "status": "success"
-                    }
-                )
-                
-                logger.info(f"[UnifiedReActEngine] final_result event sent successfully")
+                # CRITICAL FIX: Skip final_result for parallel subtasks - they use parallel_branch_complete instead
+                # Check if this is a parallel subtask by checking _use_existing_intent_id
+                is_parallel_subtask = getattr(self, '_use_existing_intent_id', None) is not None
+                if not is_parallel_subtask:
+                    # Send final_result event through WebSocket directly (not via _stream_reasoning)
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "final_result",
+                        {
+                            "content": response_text,
+                            "status": "success"
+                        }
+                    )
+                    logger.info(f"[UnifiedReActEngine] final_result event sent successfully")
+                else:
+                    logger.info(f"[UnifiedReActEngine] Skipping final_result for parallel subtask (use_existing_intent_id={getattr(self, '_use_existing_intent_id', None)})")
                 
                 # Add assistant message to context
                 context.add_message("assistant", response_text)
@@ -634,6 +666,9 @@ class UnifiedReActEngine:
         }
         self._stop_requested = False
         
+        # CRITICAL: Store context reference for StreamingThoughtParser access
+        self._current_context = context
+        
         # === OPTIMIZATION: Send intent_start IMMEDIATELY for instant feedback ===
         # Analyze task phases (fast - regex only, no LLM)
         # CRITICAL: For parallel subtasks, DISABLE multi-phase to avoid creating new intents
@@ -680,26 +715,62 @@ class UnifiedReActEngine:
             # )
         else:
             # Single-phase task: Create ONE task-level intent for the entire goal
-            self._use_existing_intent_id = None  # Clear previous value
-            task_intent_id = f"task-{int(time.time() * 1000)}"
-            self._current_intent_id = task_intent_id
-            
-            # Generate meaningful task description from goal
-            task_description = self._generate_task_description(goal, file_ids)
-            # PHASE 0 FIX: Disable intent_start events
-            # await self.ws_manager.send_event(
-            #     self.session_id,
-            #     "intent_start",
-            #     {"intent_id": task_intent_id, "text": task_description}
-            # )
+            # CRITICAL FIX: Don't create new intent_id if this is a parallel subtask
+            # Parallel subtasks should use use_existing_intent_id (handled in if block above)
+            if use_existing_intent_id:
+                # This should not happen - use_existing_intent_id should be handled in if block
+                # But if it somehow reaches here, use it
+                task_intent_id = use_existing_intent_id
+                self._current_intent_id = task_intent_id
+                logger.warning(f"[UnifiedReActEngine] WARNING: use_existing_intent_id={use_existing_intent_id} reached else block, using it")
+            else:
+                # Normal single-phase task: create new intent_id
+                self._use_existing_intent_id = None  # Clear previous value
+                task_intent_id = f"task-{int(time.time() * 1000)}"
+                self._current_intent_id = task_intent_id
+                
+                # Generate meaningful task description from goal
+                task_description = self._generate_task_description(goal, file_ids)
+                # PHASE 0 FIX: Disable intent_start events
+                # await self.ws_manager.send_event(
+                #     self.session_id,
+                #     "intent_start",
+                #     {"intent_id": task_intent_id, "text": task_description}
+                # )
+        
+        # #region agent log
+        import json as _debug_json_intent; import time as _debug_time_intent
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_intent:
+                _debug_f_intent.write(_debug_json_intent.dumps({"id":f"log_{int(_debug_time_intent.time()*1000)}_intent_id_set","timestamp":int(_debug_time_intent.time()*1000),"location":"unified_react_engine.py:720","message":"Intent ID set","data":{"goal":goal[:200],"use_existing_intent_id":use_existing_intent_id,"task_intent_id":task_intent_id,"_current_intent_id":self._current_intent_id,"_is_multi_phase":self._is_multi_phase,"skip_orchestration":skip_orchestration},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         self._task_intent_id = self._current_intent_id  # Store for the entire execution
         
         # Phase 2, Steps 1-2: Test decomposition and dependency analysis in UI
         # Phase 2, Step 3: Real parallel execution for multi-tool queries
-        if not skip_orchestration and self._is_multi_tool_query(goal):
+        # #region agent log
+        import json as _debug_json_multi; import time as _debug_time_multi
+        is_multi_tool = self._is_multi_tool_query(goal) if not skip_orchestration else False
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_multi:
+                _debug_f_multi.write(_debug_json_multi.dumps({"id":f"log_{int(_debug_time_multi.time()*1000)}_multi_tool_check","timestamp":int(_debug_time_multi.time()*1000),"location":"unified_react_engine.py:700","message":"Checking if multi-tool query","data":{"goal":goal[:200],"skip_orchestration":skip_orchestration,"is_multi_tool_query":is_multi_tool},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
+        if not skip_orchestration and is_multi_tool:
             try:
                 logger.info(f"[UnifiedReActEngine] Multi-tool query detected, using orchestration")
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_orch:
+                        _debug_f_orch.write(_debug_json_multi.dumps({"id":f"log_{int(_debug_time_multi.time()*1000)}_orchestration_entry","timestamp":int(_debug_time_multi.time()*1000),"location":"unified_react_engine.py:702","message":"Entering orchestration path","data":{"goal":goal[:200]},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+                except:
+                    pass
+                # #endregion
                 decomposition = await self.task_decomposer.decompose(goal)
                 
                 # Edge case: Empty decomposition
@@ -749,11 +820,25 @@ class UnifiedReActEngine:
                         logger.info(f"[UnifiedReActEngine] Decomposition sent: {len(decomposition.subtasks)} subtasks, {len(execution_plan.execution_groups)} groups")
                         
                         # Phase 2, Step 3-4: Execute orchestrated (parallel) execution with synthesis
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_orch_ret:
+                                _debug_f_orch_ret.write(_debug_json_multi.dumps({"id":f"log_{int(_debug_time_multi.time()*1000)}_orchestration_return","timestamp":int(_debug_time_multi.time()*1000),"location":"unified_react_engine.py:752","message":"Returning from orchestration (BYPASSING ReAct cycle)","data":{"goal":goal[:200],"subtasks_count":len(decomposition.subtasks)},"sessionId":"debug-session","runId":"run1","hypothesisId":"D"}) + '\n')
+                        except:
+                            pass
+                        # #endregion
                         return await self._execute_orchestrated(goal, decomposition, execution_plan, context, file_ids)
             except Exception as e:
                 logger.error(f"[UnifiedReActEngine] Orchestration failed: {e}", exc_info=True)
                 # Fallback to normal ReAct cycle
                 logger.info(f"[UnifiedReActEngine] Falling back to normal ReAct cycle")
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_orch_err:
+                        _debug_f_orch_err.write(_debug_json_multi.dumps({"id":f"log_{int(_debug_time_multi.time()*1000)}_orchestration_error","timestamp":int(_debug_time_multi.time()*1000),"location":"unified_react_engine.py:754","message":"Orchestration failed, falling back to ReAct","data":{"goal":goal[:200],"error":str(e)[:200]},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
+                except:
+                    pass
+                # #endregion
         
         # Анализируем сложность задачи и выбираем модель/budget
         complexity = self.complexity_analyzer.analyze(goal)
@@ -786,6 +871,15 @@ class UnifiedReActEngine:
             {"thinking_id": self._current_thinking_id, "started_at": int(time.time() * 1000)}
         )
         
+        # #region agent log
+        import json as _debug_json_react; import time as _debug_time_react
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_react:
+                _debug_f_react.write(_debug_json_react.dumps({"id":f"log_{int(_debug_time_react.time()*1000)}_react_loop_start","timestamp":int(_debug_time_react.time()*1000),"location":"unified_react_engine.py:791","message":"About to start ReAct loop","data":{"goal":goal[:200],"max_iterations":state.max_iterations,"iteration":state.iteration,"_stop_requested":getattr(self, '_stop_requested', False)},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         try:
             # Main ReAct loop
             while state.iteration < state.max_iterations:
@@ -815,6 +909,16 @@ class UnifiedReActEngine:
                     # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
                     # Main task intent_id (parent intent) - use from context or fallback to _task_intent_id
                     main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                    
+                    # #region agent log
+                    import json as _debug_json_iter_start; import time as _debug_time_iter_start
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_iter_start:
+                            _debug_f_iter_start.write(_debug_json_iter_start.dumps({"id":f"log_{int(_debug_time_iter_start.time()*1000)}_parallel_iteration_start","timestamp":int(_debug_time_iter_start.time()*1000),"location":"unified_react_engine.py:906","message":"Sending parallel_branch_iteration_start","data":{"main_intent_id":main_intent_id,"branch_id":branch_id,"iteration_number":state.iteration,"goal":state.goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    
                     await self.ws_manager.send_event(
                         self.session_id,
                         "parallel_branch_iteration_start",
@@ -858,6 +962,16 @@ class UnifiedReActEngine:
                     branch_id = self._use_existing_intent_id
                     # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
                     main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                    
+                    # #region agent log
+                    import json as _debug_json_thinking_complete; import time as _debug_time_thinking_complete
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_thinking_complete:
+                            _debug_f_thinking_complete.write(_debug_json_thinking_complete.dumps({"id":f"log_{int(_debug_time_thinking_complete.time()*1000)}_parallel_thinking_complete","timestamp":int(_debug_time_thinking_complete.time()*1000),"location":"unified_react_engine.py:949","message":"Sending parallel_branch_iteration_thinking_complete","data":{"main_intent_id":main_intent_id,"branch_id":branch_id,"iteration_number":state.iteration,"think_duration":think_duration,"goal":state.goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    
                     await self.ws_manager.send_event(
                         self.session_id,
                         "parallel_branch_iteration_thinking_complete",
@@ -887,6 +1001,16 @@ class UnifiedReActEngine:
                         branch_id = self._use_existing_intent_id
                         # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
                         main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                        
+                        # #region agent log
+                        import json as _debug_json_thinking_result; import time as _debug_time_thinking_result
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_thinking_result:
+                                _debug_f_thinking_result.write(_debug_json_thinking_result.dumps({"id":f"log_{int(_debug_time_thinking_result.time()*1000)}_parallel_thinking_result","timestamp":int(_debug_time_thinking_result.time()*1000),"location":"unified_react_engine.py:977","message":"Sending parallel_branch_iteration_thinking_result","data":{"main_intent_id":main_intent_id,"branch_id":branch_id,"iteration_number":state.iteration,"thinking_result":thinking_result,"goal":state.goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                        except:
+                            pass
+                        # #endregion
+                        
                         await self.ws_manager.send_event(
                             self.session_id,
                             "parallel_branch_iteration_thinking_result",
@@ -964,17 +1088,24 @@ class UnifiedReActEngine:
                     # Первая итерация - "Прочитаю X для Y"
                     summary_text = f"→ {action_first_person}"
                     
-                    # Обновляем заголовок шага на основе первого действия
-                    short_title = self._get_short_action_title(planned_tool, action_plan.get("arguments", {}))
-                    if short_title and self._current_intent_id:
-                        await self.ws_manager.send_event(
-                            self.session_id,
-                            "intent_title_update",
-                            {
-                                "intent_id": self._current_intent_id,
-                                "title": short_title
-                            }
-                        )
+                    # CRITICAL FIX: Don't update intent title for parallel subtasks
+                    # Parallel subtasks use parallel_branch_start events with their own titles
+                    # Updating intent title here creates confusion in UI (tasks appear in wrong tabs)
+                    is_parallel_subtask = getattr(self, '_use_existing_intent_id', None) is not None
+                    if not is_parallel_subtask:
+                        # Обновляем заголовок шага на основе первого действия (только для обычных задач)
+                        short_title = self._get_short_action_title(planned_tool, action_plan.get("arguments", {}))
+                        if short_title and self._current_intent_id:
+                            await self.ws_manager.send_event(
+                                self.session_id,
+                                "intent_title_update",
+                                {
+                                    "intent_id": self._current_intent_id,
+                                    "title": short_title
+                                }
+                            )
+                    else:
+                        logger.debug(f"[UnifiedReActEngine] Skipping intent_title_update for parallel subtask (branch_id={getattr(self, '_use_existing_intent_id', None)})")
                 else:
                     # Последующие итерации - оценка предыдущего + план
                     prev_result = ""
@@ -1634,6 +1765,16 @@ class UnifiedReActEngine:
                     branch_id = self._use_existing_intent_id
                     # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
                     main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                    
+                    # #region agent log
+                    import json as _debug_json_action_start; import time as _debug_time_action_start
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_action_start:
+                            _debug_f_action_start.write(_debug_json_action_start.dumps({"id":f"log_{int(_debug_time_action_start.time()*1000)}_parallel_action_start","timestamp":int(_debug_time_action_start.time()*1000),"location":"unified_react_engine.py:1732","message":"Sending parallel_branch_iteration_action_start","data":{"main_intent_id":main_intent_id,"branch_id":branch_id,"iteration_number":state.iteration,"tool_name":planned_tool,"action_title":action_title,"goal":state.goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    
                     await self.ws_manager.send_event(
                         self.session_id,
                         "parallel_branch_iteration_action_start",
@@ -1686,6 +1827,16 @@ class UnifiedReActEngine:
                         branch_id = self._use_existing_intent_id
                         # PHASE 0 FIX: Read main_intent_id from context instead of self (race condition fix)
                         main_intent_id = getattr(context, '_parallel_main_intent_id', None) or getattr(self, '_task_intent_id', None) or iteration_intent_id
+                        
+                        # #region agent log
+                        import json as _debug_json_action_complete; import time as _debug_time_action_complete
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_action_complete:
+                                _debug_f_action_complete.write(_debug_json_action_complete.dumps({"id":f"log_{int(_debug_time_action_complete.time()*1000)}_parallel_action_complete","timestamp":int(_debug_time_action_complete.time()*1000),"location":"unified_react_engine.py:1777","message":"Sending parallel_branch_iteration_action_complete","data":{"main_intent_id":main_intent_id,"branch_id":branch_id,"iteration_number":state.iteration,"result_summary":result_summary,"tool_name":planned_tool,"goal":state.goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                        except:
+                            pass
+                        # #endregion
+                        
                         await self.ws_manager.send_event(
                             self.session_id,
                             "parallel_branch_iteration_action_complete",
@@ -2250,25 +2401,31 @@ class UnifiedReActEngine:
                 self._thinking_start_time = None
             
             # Send final result or message_complete based on mode
-            # Agent mode uses final_result like query mode (UI expects workflow.finalResult)
-            if self.config.mode in ("query", "agent"):
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "final_result",
-                    {"content": answer}
-                )
+            # CRITICAL FIX: Skip final_result for parallel subtasks - they use parallel_branch_complete instead
+            # Check if this is a parallel subtask by checking _use_existing_intent_id
+            is_parallel_subtask = getattr(self, '_use_existing_intent_id', None) is not None
+            if not is_parallel_subtask:
+                # Agent mode uses final_result like query mode (UI expects workflow.finalResult)
+                if self.config.mode in ("query", "agent"):
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "final_result",
+                        {"content": answer}
+                    )
+                else:
+                    # Plan mode uses message_complete
+                    message_id = f"react_{self.session_id}_{int(time.time() * 1000)}"
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "message_complete",
+                        {
+                            "role": "assistant",
+                            "message_id": message_id,
+                            "content": answer
+                        }
+                    )
             else:
-                # Plan mode uses message_complete
-                message_id = f"react_{self.session_id}_{int(time.time() * 1000)}"
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "message_complete",
-                    {
-                        "role": "assistant",
-                        "message_id": message_id,
-                        "content": answer
-                    }
-                )
+                logger.info(f"[UnifiedReActEngine] Skipping final_result for parallel subtask (use_existing_intent_id={getattr(self, '_use_existing_intent_id', None)})")
             
             # Save response to context for follow-up reference resolution
             if hasattr(context, 'add_message'):
@@ -2906,9 +3063,12 @@ class UnifiedReActEngine:
         if len(sources_found) >= 2:
             return True
         
-        # If action + source (e.g., "создай презентацию и проверь почту"), it's multi-tool
-        if len(actions_found) > 0 and len(sources_found) > 0:
-            return True
+        # REMOVED: Old logic that was too aggressive
+        # Old: "If action + source, it's multi-tool" - this incorrectly classified
+        # simple queries like "посмотри письма" as multi-tool
+        # Simple queries with one action and one source should NOT be multi-tool
+        # They should go through normal ReAct cycle
+        # Only queries with multiple actions OR explicit "и" (and) should be multi-tool
         
         # Check for explicit "и" (and) between sources or actions
         if " и " in goal_lower or " and " in goal_lower:
@@ -3242,7 +3402,30 @@ class UnifiedReActEngine:
                             if self.intent_id:
                                 if self.is_parallel_branch and self.branch_id:
                                     # Send parallel_branch_iteration_thinking_chunk for parallel branches
-                                    main_intent_id = getattr(self.engine, '_saved_main_intent_id', None) or getattr(self.engine, '_task_intent_id', None) or self.intent_id
+                                    # CRITICAL FIX: Get main_intent_id from context (stored in _parallel_main_intent_id)
+                                    # or fallback to _task_intent_id or intent_id
+                                    main_intent_id = None
+                                    if self.engine:
+                                        # Try to get from context if available (stored in _current_context)
+                                        context = getattr(self.engine, '_current_context', None)
+                                        if context:
+                                            main_intent_id = getattr(context, '_parallel_main_intent_id', None)
+                                        # Fallback to _task_intent_id
+                                        if not main_intent_id:
+                                            main_intent_id = getattr(self.engine, '_task_intent_id', None)
+                                    # Final fallback to intent_id
+                                    if not main_intent_id:
+                                        main_intent_id = self.intent_id
+                                    
+                                    # #region agent log
+                                    import json as _debug_json_thinking_chunk; import time as _debug_time_thinking_chunk
+                                    try:
+                                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_thinking_chunk:
+                                            _debug_f_thinking_chunk.write(_debug_json_thinking_chunk.dumps({"id":f"log_{int(_debug_time_thinking_chunk.time()*1000)}_parallel_thinking_chunk","timestamp":int(_debug_time_thinking_chunk.time()*1000),"location":"unified_react_engine.py:3369","message":"Sending parallel_branch_iteration_thinking_chunk","data":{"main_intent_id":main_intent_id,"branch_id":self.branch_id,"iteration_number":self.iteration_number,"chunk_length":len(new_chunk)},"sessionId":"debug-session","runId":"run1","hypothesisId":"G"}) + '\n')
+                                    except:
+                                        pass
+                                    # #endregion
+                                    
                                     await self.ws_manager.send_event(
                                         self.session_id,
                                         "parallel_branch_iteration_thinking_chunk",
@@ -3988,6 +4171,14 @@ class UnifiedReActEngine:
             try:
                 import time
                 _smart_select_start = time.time()
+                # #region agent log
+                import json as _debug_json_tool_select; import time as _debug_time_tool_select
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tool_select:
+                        _debug_f_tool_select.write(_debug_json_tool_select.dumps({"id":f"log_{int(_debug_time_tool_select.time()*1000)}_tool_selection_start","timestamp":int(_debug_time_tool_select.time()*1000),"location":"unified_react_engine.py:4054","message":"Starting smart tool selection","data":{"goal":goal,"completed_tools":completed_tools,"use_smart_tool_selection":self.use_smart_tool_selection},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                except:
+                    pass
+                # #endregion
                 selected_caps = self.smart_tool_selector.select_tools(
                     query=goal,
                     max_tools=7,
@@ -4018,6 +4209,91 @@ class UnifiedReActEngine:
                 )
                 logger.info(f"[UnifiedReActEngine] Selected tools: {selected_names}")
                 
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tool_select:
+                        _debug_f_tool_select.write(_debug_json_tool_select.dumps({"id":f"log_{int(_debug_time_tool_select.time()*1000)}_smart_tools_selected","timestamp":int(_debug_time_tool_select.time()*1000),"location":"unified_react_engine.py:4086","message":"Smart tool selection completed","data":{"selected_tools":selected_names,"tools_count":len(result),"goal":goal,"goal_lower":goal.lower(),"has_doc_keywords":any(kw in goal.lower() for kw in ["документ", "doc", "текст", "сказк", "допиши", "напиши"]),"has_presentation_keywords":any(kw in goal.lower() for kw in ["презентац", "presentation", "slide", "слайд"])},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                except:
+                    pass
+                # #endregion
+                
+                # CRITICAL FIX: Если запрос содержит ключевые слова для документов,
+                # но SmartToolSelector не выбрал инструменты для документов - добавляем их принудительно
+                goal_lower = goal.lower()
+                has_doc_keywords = any(kw in goal_lower for kw in ["документ", "doc", "текст", "сказк", "допиши", "напиши"])
+                has_presentation_keywords = any(kw in goal_lower for kw in ["презентац", "presentation", "slide", "слайд"])
+                
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tool_select:
+                        _debug_f_tool_select.write(_debug_json_tool_select.dumps({"id":f"log_{int(_debug_time_tool_select.time()*1000)}_doc_keyword_check","timestamp":int(_debug_time_tool_select.time()*1000),"location":"unified_react_engine.py:4095","message":"Checking doc keywords for forced tool addition","data":{"goal":goal,"has_doc_keywords":has_doc_keywords,"has_presentation_keywords":has_presentation_keywords,"selected_tools_before":selected_names},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                except:
+                    pass
+                # #endregion
+                
+                # Если есть ключевые слова для документов, но НЕТ для презентаций - приоритет документам
+                if has_doc_keywords and not has_presentation_keywords:
+                    # Проверяем, есть ли инструменты для документов в выбранных
+                    doc_tools_in_selected = any(t["name"] in ["read_document", "append_to_document", "insert_into_document", "update_document", "format_document_paragraph", "format_document_text"] for t in result)
+                    
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tool_select:
+                            _debug_f_tool_select.write(_debug_json_tool_select.dumps({"id":f"log_{int(_debug_time_tool_select.time()*1000)}_doc_tools_check","timestamp":int(_debug_time_tool_select.time()*1000),"location":"unified_react_engine.py:4102","message":"Checking if doc tools in selected","data":{"doc_tools_in_selected":doc_tools_in_selected,"selected_tools":selected_names},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    
+                    if not doc_tools_in_selected:
+                        # Добавляем обязательные инструменты для документов
+                        required_doc_tools = []
+                        # Определяем, создание или модификация
+                        create_keywords = ["создай документ", "создать документ", "новый документ", "create document", "создай новый", "создай файл"]
+                        is_create_doc = any(kw in goal_lower for kw in create_keywords)
+                        
+                        if is_create_doc:
+                            required_doc_tools = ["create_document", "append_to_document", "format_document_paragraph"]
+                        else:
+                            # Модификация существующего - начинаем с read_document
+                            required_doc_tools = ["read_document", "append_to_document", "insert_into_document", "update_document", "format_document_paragraph"]
+                        
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tool_select:
+                                _debug_f_tool_select.write(_debug_json_tool_select.dumps({"id":f"log_{int(_debug_time_tool_select.time()*1000)}_forcing_doc_tools","timestamp":int(_debug_time_tool_select.time()*1000),"location":"unified_react_engine.py:4115","message":"Forcing doc tools addition","data":{"is_create_doc":is_create_doc,"required_doc_tools":required_doc_tools},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                        except:
+                            pass
+                        # #endregion
+                        
+                        # Находим эти инструменты в capabilities и добавляем в результат
+                        added_tools = []
+                        for tool_name in required_doc_tools:
+                            if tool_name not in selected_names:
+                                # Ищем capability по имени в уже загруженных capabilities
+                                for cap in self.capabilities:
+                                    if cap.name == tool_name:
+                                        result.insert(0, {  # Вставляем в начало (высокий приоритет)
+                                            "name": cap.name,
+                                            "description": cap.description
+                                        })
+                                        selected_names.insert(0, cap.name)
+                                        added_tools.append(tool_name)
+                                        logger.info(f"[UnifiedReActEngine] FORCED ADD: Added {tool_name} to tools list (doc keyword detected)")
+                                        break
+                        
+                        # #region agent log
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tool_select:
+                                _debug_f_tool_select.write(_debug_json_tool_select.dumps({"id":f"log_{int(_debug_time_tool_select.time()*1000)}_doc_tools_added","timestamp":int(_debug_time_tool_select.time()*1000),"location":"unified_react_engine.py:4130","message":"Doc tools added to result","data":{"added_tools":added_tools,"selected_tools_after":selected_names},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                        except:
+                            pass
+                        # #endregion
+                        
+                        # Удаляем лишние инструменты, если превысили лимит
+                        if len(result) > 7:
+                            result = result[:7]
+                            selected_names = [t["name"] for t in result]
+                
                 return result[:7]  # Max 7 tools
                 
             except Exception as e:
@@ -4029,6 +4305,15 @@ class UnifiedReActEngine:
         # Legacy keyword-based tool selection (fallback)
         goal_lower = goal.lower()
         relevant_tool_names = set()
+        
+        # #region agent log
+        import json as _debug_json_keyword; import time as _debug_time_keyword
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_keyword:
+                _debug_f_keyword.write(_debug_json_keyword.dumps({"id":f"log_{int(_debug_time_keyword.time()*1000)}_keyword_selection_start","timestamp":int(_debug_time_keyword.time()*1000),"location":"unified_react_engine.py:4096","message":"Starting keyword-based tool selection","data":{"goal":goal,"goal_lower":goal_lower,"has_doc_keywords":any(kw in goal_lower for kw in ["документ", "doc", "текст", "сказк", "допиши", "напиши"]),"has_presentation_keywords":any(kw in goal_lower for kw in ["презентац", "presentation", "slide", "слайд"]),"has_beautiful_keywords":any(kw in goal_lower for kw in ["красиво", "красив", "оформить", "формат"])},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Определяем категорию задачи и добавляем релевантные инструменты
         if any(kw in goal_lower for kw in ["документ", "doc", "текст", "сказк", "допиши", "напиши"]):
@@ -4048,10 +4333,24 @@ class UnifiedReActEngine:
                 # Создание нового документа — НЕ нужен read_document
                 tools_to_add = ["create_document", "append_to_document", "format_document_paragraph"]
                 relevant_tool_names.update(tools_to_add)
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_keyword:
+                        _debug_f_keyword.write(_debug_json_keyword.dumps({"id":f"log_{int(_debug_time_keyword.time()*1000)}_doc_create_tools","timestamp":int(_debug_time_keyword.time()*1000),"location":"unified_react_engine.py:4114","message":"Document creation tools added","data":{"is_create_doc":is_create_doc,"tools_to_add":tools_to_add,"goal":goal},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+                except:
+                    pass
+                # #endregion
             else:
                 # Модификация существующего — начинаем с read_document
                 tools_to_add = ["read_document", "append_to_document", "insert_into_document", "update_document", "format_document_paragraph"]
                 relevant_tool_names.update(tools_to_add)
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_keyword:
+                        _debug_f_keyword.write(_debug_json_keyword.dumps({"id":f"log_{int(_debug_time_keyword.time()*1000)}_doc_modify_tools","timestamp":int(_debug_time_keyword.time()*1000),"location":"unified_react_engine.py:4119","message":"Document modification tools added","data":{"is_create_doc":is_create_doc,"is_modify_doc":is_modify_doc,"tools_to_add":tools_to_add,"goal":goal},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+                except:
+                    pass
+                # #endregion
             # Note: format_document_text (bold) removed - we skip bold formatting
         
         if any(kw in goal_lower for kw in ["таблиц", "sheet", "excel", "данн"]):
@@ -4434,6 +4733,15 @@ if salary_sheet:
         # Tools are already sorted by relevance (first is most relevant)
         self._current_relevant_tools = [t['name'] for t in relevant_tools]
         
+        # #region agent log
+        import json as _debug_json_prompt; import time as _debug_time_prompt
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_prompt:
+                _debug_f_prompt.write(_debug_json_prompt.dumps({"id":f"log_{int(_debug_time_prompt.time()*1000)}_tools_for_prompt","timestamp":int(_debug_time_prompt.time()*1000),"location":"unified_react_engine.py:4502","message":"Tools selected for prompt","data":{"goal":state.goal,"selected_tools":self._current_relevant_tools,"tools_descriptions":{t['name']:t['description'][:200] for t in relevant_tools}},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         tools_str = "\n".join([f"- {t['name']}: {t['description']}" for t in relevant_tools])
         
         # Select relevant skill (if smart tool selection is enabled)
@@ -4779,6 +5087,15 @@ if salary_sheet:
 {rules_section}
 {format_section}"""
         
+        # #region agent log
+        import json as _debug_json_full_prompt; import time as _debug_time_full_prompt
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_full_prompt:
+                _debug_f_full_prompt.write(_debug_json_full_prompt.dumps({"id":f"log_{int(_debug_time_full_prompt.time()*1000)}_full_prompt","timestamp":int(_debug_time_full_prompt.time()*1000),"location":"unified_react_engine.py:4885","message":"Full prompt sent to LLM","data":{"goal":state.goal,"prompt_length":len(prompt),"prompt_preview":prompt[:1000],"tools_section_preview":tools_section[:500] if 'tools_section' in locals() else "","has_doc_keywords":any(kw in state.goal.lower() for kw in ["документ", "doc", "текст", "сказк", "допиши", "напиши"]),"has_presentation_keywords":any(kw in state.goal.lower() for kw in ["презентац", "presentation", "slide", "слайд"]),"has_beautiful_keywords":any(kw in state.goal.lower() for kw in ["красиво", "красив", "оформить", "формат"])},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         try:
             messages = [
                 SystemMessage(content="Ты эксперт по анализу задач и планированию действий. Отвечай в указанном формате на русском языке."),
@@ -4969,6 +5286,14 @@ if salary_sheet:
             if "tool_name" not in action_plan:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
+            
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_action:
+                    _debug_f_action.write(_debug_json_full_prompt.dumps({"id":f"log_{int(_debug_time_full_prompt.time()*1000)}_llm_action_selected","timestamp":int(_debug_time_full_prompt.time()*1000),"location":"unified_react_engine.py:5095","message":"LLM selected action","data":{"goal":state.goal,"selected_tool":tool_name,"action_plan":action_plan,"was_from_tool_calls":action_plan_from_tool_calls is not None,"available_tools":relevant_tool_names,"thought_preview":thought[:200] if thought else ""},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+            except:
+                pass
+            # #endregion
             
             # CRITICAL: Remove prefix like "functions." if LLM returns it
             # Some LLMs return "functions.list_emails" instead of "list_emails"
@@ -5293,6 +5618,19 @@ raise ValueError("Код анализа не был предоставлен. П
         main_intent_id = self._current_intent_id
         logger.info(f"[UnifiedReActEngine] Parallel execution: main_intent_id={main_intent_id}, branches={[st.task_id for st in subtasks]}")
         
+        # #region agent log
+        import json as _debug_json_parallel; import time as _debug_time_parallel
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_parallel:
+                _debug_f_parallel.write(_debug_json_parallel.dumps({"id":f"log_{int(_debug_time_parallel.time()*1000)}_parallel_start","timestamp":int(_debug_time_parallel.time()*1000),"location":"unified_react_engine.py:5532","message":"Starting parallel execution","data":{"main_intent_id":main_intent_id,"branches":[{"task_id":st.task_id,"description":st.description,"tool_name":st.tool_name} for st in subtasks]},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
+        # CRITICAL: Store main_intent_id in context ONCE before all parallel branches start
+        # This ensures all branches use the same main_intent_id (no race condition)
+        context._parallel_main_intent_id = main_intent_id
+        
         # CRITICAL: Send parallel_branch_start events FIRST for new UI (ParallelExecutionContainer)
         # Then track sources for source cards (existing UI)
         
@@ -5495,13 +5833,22 @@ raise ValueError("Код анализа не был предоставлен. П
             # Save current intent_id and task_intent_id to restore after subtask execution
             saved_intent_id = self._current_intent_id
             saved_task_intent_id = self._task_intent_id
-            # PHASE 0 FIX: Store main_intent_id in context instead of self (race condition in parallel execution)
-            # Use provided main_intent_id (parent) - needed for parallel_branch_iteration events
-            # Store in context to avoid race condition when multiple branches execute in parallel
-            context._parallel_main_intent_id = main_intent_id  # Store for use in ReAct loop
+            # CRITICAL FIX: main_intent_id is already stored in context._parallel_main_intent_id
+            # by _execute_parallel_subtasks BEFORE all branches start (no race condition)
+            # DO NOT overwrite it here - it's already set correctly for all parallel branches
+            # context._parallel_main_intent_id = main_intent_id  # REMOVED - already set in _execute_parallel_subtasks
             # CRITICAL: Mark this as a parallel subtask BEFORE execute() call
             # This flag is used to skip final_result/message_complete for subtasks
             self._is_parallel_subtask = True
+            
+            # #region agent log
+            import json as _debug_json_subtask; import time as _debug_time_subtask
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_subtask:
+                    _debug_f_subtask.write(_debug_json_subtask.dumps({"id":f"log_{int(_debug_time_subtask.time()*1000)}_subtask_execute","timestamp":int(_debug_time_subtask.time()*1000),"location":"unified_react_engine.py:5748","message":"Executing parallel subtask","data":{"subtask_id":subtask.task_id,"subtask_description":subtask.description,"use_existing_intent_id":subtask.task_id,"main_intent_id_from_context":getattr(context, '_parallel_main_intent_id', None),"main_intent_id_param":main_intent_id},"sessionId":"debug-session","runId":"run1","hypothesisId":"F"}) + '\n')
+            except:
+                pass
+            # #endregion
             
             try:
                 # Execute through full ReAct cycle with skip_orchestration=True to avoid recursion

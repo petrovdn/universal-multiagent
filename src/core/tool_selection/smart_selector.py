@@ -205,6 +205,16 @@ class SmartToolSelector:
         similarities.sort(key=lambda x: x[1], reverse=True)
         _sort_duration = time.time() - _sort_start
         
+        # #region agent log
+        import json as _debug_json_smart; import time as _debug_time_smart
+        try:
+            top_tools_with_scores = [(cap.name, score) for cap, score in similarities[:max_tools]]
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_smart:
+                _debug_f_smart.write(_debug_json_smart.dumps({"id":f"log_{int(_debug_time_smart.time()*1000)}_smart_tool_scores","timestamp":int(_debug_time_smart.time()*1000),"location":"smart_selector.py:205","message":"Tool similarity scores from smart selector","data":{"query":query,"top_tools":top_tools_with_scores,"total_tools_checked":len(similarities)},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         # Возвращаем топ-N
         result = [cap for cap, _ in similarities[:max_tools]]
         

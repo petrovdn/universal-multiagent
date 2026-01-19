@@ -37,18 +37,20 @@ class CreatePresentationTool(BaseTool):
     
     name: str = "create_presentation"
     description: str = """
-    Create a NEW Google Slides presentation in the workspace folder.
+    Создать НОВУЮ презентацию Google Slides в рабочей папке.
     
-    ⚠️ IMPORTANT: 
-    - This creates a NEW presentation file with ONE EMPTY SLIDE already included.
-    - The response includes the first slide ID - use insert_slide_text with this slide ID to add content to the first slide.
-    - To add MORE slides, use create_slide (but remember: the first slide already exists, so if user asks for N slides, you only need to create N-1 additional slides).
+    ⚠️ ВАЖНО: 
+    - Это создаёт НОВЫЙ файл презентации с ОДНИМ ПУСТЫМ СЛАЙДОМ уже включённым.
+    - Ответ включает ID первого слайда - используй insert_slide_text с этим ID слайда, чтобы добавить содержимое на первый слайд.
+    - Чтобы добавить БОЛЬШЕ слайдов, используй create_slide (но помни: первый слайд уже существует, поэтому если пользователь просит N слайдов, нужно создать только N-1 дополнительных слайдов).
     
-    Input:
-    - title: Title of the presentation
+    Параметры:
+    - title: Название презентации
     
-    Use this ONLY when you need to create a brand new presentation file.
-    The result will include the presentation ID and the first slide ID - use the first slide ID to add content to the first slide without creating a new one.
+    Используй это ТОЛЬКО когда нужно создать совершенно новый файл презентации.
+    Результат будет включать ID презентации и ID первого слайда - используй ID первого слайда, чтобы добавить содержимое на первый слайд без создания нового.
+    
+    Ключевые слова: создать презентацию, новая презентация, создать Google Slides.
     """
     args_schema: type = CreatePresentationInput
     
@@ -124,10 +126,12 @@ class GetPresentationTool(BaseTool):
     
     name: str = "get_presentation"
     description: str = """
-    Get information about a Google Slides presentation.
+    Получить информацию о презентации Google Slides.
     
-    Input:
-    - presentation_id: Presentation ID or URL
+    Параметры:
+    - presentation_id: ID презентации или URL
+    
+    Ключевые слова: получить презентацию, информация о презентации, показать презентацию, структура презентации.
     """
     args_schema: type = GetPresentationInput
     
@@ -207,50 +211,51 @@ class CreatePresentationBatchTool(BaseTool):
     
     name: str = "create_presentation_batch"
     description: str = """
-    Create a presentation with multiple slides optimized using batch operations.
+    Создать презентацию с несколькими слайдами, оптимизированную с помощью batch операций.
     
-    ⚡ PERFORMANCE OPTIMIZED: This tool uses batchUpdate operations to minimize API calls.
-    For N slides, it makes only ~3-5 requests instead of ~4N requests, reducing creation time from 4-10 seconds to 1-2 seconds.
+    ⚡ ОПТИМИЗИРОВАНО ПО ПРОИЗВОДИТЕЛЬНОСТИ: Этот инструмент использует batchUpdate операции для минимизации API вызовов.
+    Для N слайдов он делает только ~3-5 запросов вместо ~4N запросов, сокращая время создания с 4-10 секунд до 1-2 секунд.
     
-    Use this tool when:
-    - Creating presentations with 5+ slides
-    - You have all slide content ready upfront
-    - Performance is important
+    Используй этот инструмент когда:
+    - Создаёшь презентации с 5+ слайдами
+    - У тебя готово всё содержимое слайдов заранее
+    - Важна производительность
     
-    Input:
-    - title: Presentation title
-    - theme: Presentation theme (professional, creative, minimal, dark) - REQUIRED
-    - slides: Array of slide objects, each with:
-      * title: Slide title (optional)
-      * content: Slide content - can be:
-        - String: plain text
+    Параметры:
+    - title: Название презентации
+    - theme: Тема презентации (professional, creative, minimal, dark) - ОБЯЗАТЕЛЬНО
+    - theme_source: Опционально - название существующей презентации из workspace для копирования стиля
+    - slides: Массив объектов слайдов, каждый с:
+      * title: Заголовок слайда (опционально)
+      * content: Содержимое слайда - может быть:
+        - String: обычный текст
         - Array: [{"type": "text", "text": "..."}, {"type": "bullet", "text": "..."}, {"type": "subheading", "text": "..."}]
-      * layout: Layout type (TITLE_AND_BODY, TITLE, BLANK, etc.) - default: TITLE_AND_BODY
-      * image: Optional image configuration:
-        - search_query: Unsplash search query (e.g., "ancient rome architecture")
-        - position: "left", "right" (default), or "center"
-        - width: Width in inches (default: 4.0)
-        - height: Height in inches (default: 3.0)
-      * formatting: Optional formatting object:
-        - title_bold: Make title bold (default: true)
-        - title_font_size: Title font size in points (default: 28)
-        - body_font_size: Body font size in points (default: 16)
+      * layout: Тип макета (TITLE_AND_BODY, TITLE, BLANK, и т.д.) - по умолчанию: TITLE_AND_BODY
+      * image: Опциональная конфигурация изображения:
+        - search_query: Поисковый запрос Unsplash (например, "ancient rome architecture")
+        - position: "left", "right" (по умолчанию), или "center"
+        - width: Ширина в дюймах (по умолчанию: 4.0)
+        - height: Высота в дюймах (по умолчанию: 3.0)
+      * formatting: Опциональный объект форматирования:
+        - title_bold: Сделать заголовок жирным (по умолчанию: true)
+        - title_font_size: Размер шрифта заголовка в пунктах (по умолчанию: 28)
+        - body_font_size: Размер шрифта тела в пунктах (по умолчанию: 16)
     
-    Example:
+    Пример:
     {
-      "title": "My Presentation",
+      "title": "Моя презентация",
       "theme": "professional",
       "slides": [
         {
-          "title": "Introduction",
-          "content": "Welcome to the presentation",
+          "title": "Введение",
+          "content": "Добро пожаловать в презентацию",
           "layout": "TITLE_AND_BODY"
         },
         {
-          "title": "Key Points",
+          "title": "Ключевые моменты",
           "content": [
-            {"type": "bullet", "text": "First point"},
-            {"type": "bullet", "text": "Second point"}
+            {"type": "bullet", "text": "Первый пункт"},
+            {"type": "bullet", "text": "Второй пункт"}
           ],
           "layout": "TITLE_AND_BODY",
           "image": {
@@ -262,6 +267,8 @@ class CreatePresentationBatchTool(BaseTool):
         }
       ]
     }
+    
+    Ключевые слова: создать презентацию, создать несколько слайдов, batch создание, оптимизированное создание.
     """
     args_schema: type = CreatePresentationBatchInput
     
@@ -368,18 +375,20 @@ class CreateSlideTool(BaseTool):
     
     name: str = "create_slide"
     description: str = """
-    Add a NEW SLIDE to an EXISTING Google Slides presentation.
+    Добавить НОВЫЙ СЛАЙД в СУЩЕСТВУЮЩУЮ презентацию Google Slides.
     
-    ⚠️ IMPORTANT: 
-    - This adds a slide to an ALREADY CREATED presentation. Do NOT use create_presentation for this!
-    - Remember: When create_presentation is called, it already creates a presentation with ONE slide. So if the user asks for N slides total, you only need to create N-1 additional slides using this tool.
+    ⚠️ ВАЖНО: 
+    - Это добавляет слайд в УЖЕ СОЗДАННУЮ презентацию. НЕ используй create_presentation для этого!
+    - Помни: Когда вызывается create_presentation, она уже создаёт презентацию с ОДНИМ слайдом. Поэтому если пользователь просит N слайдов всего, нужно создать только N-1 дополнительных слайдов с помощью этого инструмента.
     
-    Input:
-    - presentation_id: Presentation ID or URL (from a previously created presentation)
-    - layout: Layout type (TITLE, TITLE_AND_BODY, BLANK, etc.) (default: TITLE_AND_BODY)
-    - insertion_index: Index where to insert the slide (optional)
+    Параметры:
+    - presentation_id: ID презентации или URL (из ранее созданной презентации)
+    - layout: Тип макета (TITLE, TITLE_AND_BODY, BLANK, и т.д.) (по умолчанию: TITLE_AND_BODY)
+    - insertion_index: Индекс для вставки слайда (опционально)
     
-    Use this to add slides to a presentation that was already created (either by create_presentation or create_presentation_from_doc).
+    Используй это для добавления слайдов в презентацию, которая уже была создана (либо через create_presentation, либо через create_presentation_from_doc).
+    
+    Ключевые слова: добавить слайд, создать слайд, новый слайд.
     """
     args_schema: type = CreateSlideInput
     
@@ -460,23 +469,25 @@ class InsertSlideTextTool(BaseTool):
     
     name: str = "insert_slide_text"
     description: str = """
-    Insert text into a slide's title or body placeholder.
+    Вставить текст в заголовок или тело слайда.
     
-    Input:
-    - presentation_id: Presentation ID or URL
-    - page_id: Page (slide) ID
-    - text: Text to insert
-    - target_element: 'title' for slide title (bold), 'body' for content
-    - element_id: Text box element ID (optional, auto-detected)
-    - insert_index: Character index (default: append to end)
+    Параметры:
+    - presentation_id: ID презентации или URL
+    - page_id: ID страницы (слайда)
+    - text: Текст для вставки
+    - target_element: 'title' для заголовка слайда (жирный), 'body' для содержимого
+    - element_id: ID текстового блока (опционально, определяется автоматически)
+    - insert_index: Индекс символа (по умолчанию: добавить в конец)
     
-    CRITICAL USAGE PATTERN - call this tool TWICE for each slide:
-    1. First call with target_element='title' to insert the slide title
-    2. Second call with target_element='body' to insert the slide content/text
+    КРИТИЧЕСКИ ВАЖНЫЙ ПАТТЕРН ИСПОЛЬЗОВАНИЯ - вызывай этот инструмент ДВА РАЗА для каждого слайда:
+    1. Первый вызов с target_element='title' для вставки заголовка слайда
+    2. Второй вызов с target_element='body' для вставки содержимого/текста слайда
     
-    Example for one slide:
-    - Call 1: insert_slide_text(page_id='slide_xyz', text='My Title', target_element='title')
-    - Call 2: insert_slide_text(page_id='slide_xyz', text='Body text content here', target_element='body')
+    Пример для одного слайда:
+    - Вызов 1: insert_slide_text(page_id='slide_xyz', text='Мой заголовок', target_element='title')
+    - Вызов 2: insert_slide_text(page_id='slide_xyz', text='Текст содержимого здесь', target_element='body')
+    
+    Ключевые слова: вставить текст в слайд, добавить текст, вставить заголовок, вставить содержимое.
     """
     args_schema: type = InsertSlideTextInput
     
@@ -763,22 +774,24 @@ class CreatePresentationFromDocTool(BaseTool):
     
     name: str = "create_presentation_from_doc"
     description: str = """
-    Create a professional presentation from a Google Docs document.
+    Создать профессиональную презентацию из документа Google Docs.
     
-    The document structure is automatically analyzed:
-    - H1 headings create section divider slides
-    - H2 headings create content slides with titles
-    - Regular text becomes bullet points
-    - Images from the document are included
+    Структура документа анализируется автоматически:
+    - Заголовки H1 создают разделительные слайды
+    - Заголовки H2 создают слайды с содержимым и заголовками
+    - Обычный текст становится маркированными списками
+    - Изображения из документа включаются
     
-    Input:
-    - document_id: Document ID or URL
-    - presentation_title: Title for the new presentation (optional, defaults to document title)
-    - theme: Presentation theme - choose based on content:
-      * professional: Business presentations, reports, formal documents (blue accents, white background)
-      * creative: Marketing, startups, creative projects (bright colors, unique fonts)
-      * minimal: Academic, technical presentations (clean, lots of whitespace)
-      * dark: IT, technology presentations (dark background, light text)
+    Параметры:
+    - document_id: ID документа или URL
+    - presentation_title: Название новой презентации (опционально, по умолчанию: название документа)
+    - theme: Тема презентации - выбирай в зависимости от содержимого:
+      * professional: Бизнес-презентации, отчёты, официальные документы (синие акценты, белый фон)
+      * creative: Маркетинг, стартапы, творческие проекты (яркие цвета, уникальные шрифты)
+      * minimal: Академические, технические презентации (чистый стиль, много белого пространства)
+      * dark: IT, технологические презентации (тёмный фон, светлый текст)
+    
+    Ключевые слова: создать презентацию из документа, презентация из документа, конвертировать документ в презентацию.
     """
     args_schema: type = CreatePresentationFromDocInput
     
@@ -866,20 +879,22 @@ class AddSlideImageTool(BaseTool):
     
     name: str = "add_slide_image"
     description: str = """
-    Add an image to a slide from a public URL.
+    Добавить изображение на слайд из публичного URL.
     
-    Input:
-    - presentation_id: Presentation ID or URL
-    - page_id: Page (slide) ID
-    - image_url: Public URL of the image
-    - x: X position in EMU (use inches_to_emu helper: 1 inch = 914400 EMU)
-    - y: Y position in EMU
-    - width: Width in EMU
-    - height: Height in EMU
+    Параметры:
+    - presentation_id: ID презентации или URL
+    - page_id: ID страницы (слайда)
+    - image_url: Публичный URL изображения
+    - x: Позиция X в EMU (используй helper inches_to_emu: 1 дюйм = 914400 EMU)
+    - y: Позиция Y в EMU
+    - width: Ширина в EMU
+    - height: Высота в EMU
     
-    Example: For 1 inch margin and 5x3 inch image:
+    Пример: Для отступа 1 дюйм и изображения 5x3 дюйма:
     x = inches_to_emu(1.0), y = inches_to_emu(1.0)
     width = inches_to_emu(5.0), height = inches_to_emu(3.0)
+    
+    Ключевые слова: добавить изображение, вставить изображение, добавить картинку на слайд.
     """
     args_schema: type = AddSlideImageInput
     
@@ -959,17 +974,19 @@ class CreateSlideShapeTool(BaseTool):
     
     name: str = "create_slide_shape"
     description: str = """
-    Create a shape on a slide (rectangle, circle, arrow, etc.).
+    Создать фигуру на слайде (прямоугольник, круг, стрелка и т.д.).
     
-    Input:
-    - presentation_id: Presentation ID or URL
-    - page_id: Page (slide) ID
-    - shape_type: Shape type (RECTANGLE, ELLIPSE, ARROW_EAST, TEXT_BOX, etc.)
-    - x, y: Position in EMU
-    - width, height: Size in EMU
-    - fill_color: Optional fill color
-    - border_color: Optional border color
-    - border_weight: Optional border weight in points
+    Параметры:
+    - presentation_id: ID презентации или URL
+    - page_id: ID страницы (слайда)
+    - shape_type: Тип фигуры (RECTANGLE, ELLIPSE, ARROW_EAST, TEXT_BOX, и т.д.)
+    - x, y: Позиция в EMU
+    - width, height: Размер в EMU
+    - fill_color: Опциональный цвет заливки
+    - border_color: Опциональный цвет границы
+    - border_weight: Опциональная толщина границы в пунктах
+    
+    Ключевые слова: создать фигуру, добавить фигуру, фигура на слайде.
     """
     args_schema: type = CreateSlideShapeInput
     
@@ -1053,15 +1070,17 @@ class SetSlideBackgroundTool(BaseTool):
     
     name: str = "set_slide_background"
     description: str = """
-    Set slide background (solid color or image).
+    Установить фон слайда (сплошной цвет или изображение).
     
-    Input:
-    - presentation_id: Presentation ID or URL
-    - page_id: Page (slide) ID
-    - solid_color: Optional solid background color {red, green, blue, alpha} (0-1)
-    - image_url: Optional background image URL (if not using solidColor)
+    Параметры:
+    - presentation_id: ID презентации или URL
+    - page_id: ID страницы (слайда)
+    - solid_color: Опциональный сплошной цвет фона {red, green, blue, alpha} (0-1)
+    - image_url: Опциональный URL фонового изображения (если не используешь solidColor)
     
-    Provide either solid_color OR image_url, not both.
+    Укажи либо solid_color, либо image_url, не оба.
+    
+    Ключевые слова: установить фон, фон слайда, цвет фона, фоновое изображение.
     """
     args_schema: type = SetSlideBackgroundInput
     
@@ -1123,15 +1142,17 @@ class CreateSlideTableTool(BaseTool):
     
     name: str = "create_slide_table"
     description: str = """
-    Create a table on a slide.
+    Создать таблицу на слайде.
     
-    Input:
-    - presentation_id: Presentation ID or URL
-    - page_id: Page (slide) ID
-    - rows: Number of rows
-    - columns: Number of columns
-    - x, y: Position in EMU
-    - width, height: Size in EMU
+    Параметры:
+    - presentation_id: ID презентации или URL
+    - page_id: ID страницы (слайда)
+    - rows: Количество строк
+    - columns: Количество столбцов
+    - x, y: Позиция в EMU
+    - width, height: Размер в EMU
+    
+    Ключевые слова: создать таблицу, добавить таблицу, таблица на слайде.
     """
     args_schema: type = CreateSlideTableInput
     
@@ -1208,14 +1229,16 @@ class UpdateTableCellTool(BaseTool):
     
     name: str = "update_table_cell"
     description: str = """
-    Update text in a table cell.
+    Обновить текст в ячейке таблицы.
     
-    Input:
-    - presentation_id: Presentation ID or URL
-    - table_id: Table element ID
-    - row_index: Row index (0-based)
-    - column_index: Column index (0-based)
-    - text: Text to insert into cell
+    Параметры:
+    - presentation_id: ID презентации или URL
+    - table_id: ID элемента таблицы
+    - row_index: Индекс строки (начиная с 0)
+    - column_index: Индекс столбца (начиная с 0)
+    - text: Текст для вставки в ячейку
+    
+    Ключевые слова: обновить ячейку, изменить ячейку, текст в ячейке.
     """
     args_schema: type = UpdateTableCellInput
     
@@ -1272,16 +1295,18 @@ class CreateSlideChartTool(BaseTool):
     
     name: str = "create_slide_chart"
     description: str = """
-    Create a chart on a slide from Google Sheets.
+    Создать график на слайде из Google Sheets.
     
-    Input:
-    - presentation_id: Presentation ID or URL
-    - page_id: Page (slide) ID
-    - spreadsheet_id: Google Sheets spreadsheet ID containing the chart
-    - chart_id: Chart ID in the spreadsheet (must be created in Sheets first)
-    - x, y: Position in EMU
-    - width, height: Size in EMU
-    - linking_mode: LINKED (updates with Sheets) or NOT_LINKED_IMAGE (static image)
+    Параметры:
+    - presentation_id: ID презентации или URL
+    - page_id: ID страницы (слайда)
+    - spreadsheet_id: ID таблицы Google Sheets, содержащей график
+    - chart_id: ID графика в таблице (должен быть создан в Sheets сначала)
+    - x, y: Позиция в EMU
+    - width, height: Размер в EMU
+    - linking_mode: LINKED (обновляется с Sheets) или NOT_LINKED_IMAGE (статическое изображение)
+    
+    Ключевые слова: создать график, добавить график, график на слайде, диаграмма.
     """
     args_schema: type = CreateSlideChartInput
     
@@ -1364,18 +1389,20 @@ class FormatSlideParagraphTool(BaseTool):
     
     name: str = "format_slide_paragraph"
     description: str = """
-    Format paragraph style (alignment, line spacing, margins).
+    Форматировать стиль абзаца (выравнивание, межстрочный интервал, отступы).
     
-    Input:
-    - presentation_id: Presentation ID or URL
-    - page_id: Page (slide) ID
-    - element_id: Text box element ID
-    - start_index: Start character index (0-based)
-    - end_index: End character index (exclusive)
-    - alignment: Optional text alignment (START, CENTER, END, JUSTIFIED)
-    - line_spacing: Optional line spacing multiplier (e.g., 1.5)
-    - space_above: Optional space above paragraph in points
-    - space_below: Optional space below paragraph in points
+    Параметры:
+    - presentation_id: ID презентации или URL
+    - page_id: ID страницы (слайда)
+    - element_id: ID текстового блока
+    - start_index: Начальный индекс символа (начиная с 0)
+    - end_index: Конечный индекс символа (исключающий)
+    - alignment: Опциональное выравнивание текста (START, CENTER, END, JUSTIFIED)
+    - line_spacing: Опциональный множитель межстрочного интервала (например, 1.5)
+    - space_above: Опциональный отступ сверху абзаца в пунктах
+    - space_below: Опциональный отступ снизу абзаца в пунктах
+    
+    Ключевые слова: форматировать абзац, выравнивание текста, межстрочный интервал.
     """
     args_schema: type = FormatSlideParagraphInput
     
@@ -1531,17 +1558,19 @@ class UpdateElementTransformTool(BaseTool):
     
     name: str = "update_element_transform"
     description: str = """
-    Update element position, size, and rotation.
+    Обновить позицию, размер и поворот элемента.
     
-    Input:
-    - presentation_id: Presentation ID or URL
-    - page_id: Page (slide) ID
-    - element_id: Element ID
-    - translate_x: Optional X translation in EMU
-    - translate_y: Optional Y translation in EMU
-    - scale_x: Optional X scale factor (1.0 = 100%, 2.0 = 200%)
-    - scale_y: Optional Y scale factor (1.0 = 100%, 2.0 = 200%)
-    - rotation: Optional rotation angle in degrees
+    Параметры:
+    - presentation_id: ID презентации или URL
+    - page_id: ID страницы (слайда)
+    - element_id: ID элемента
+    - translate_x: Опциональное смещение по X в EMU
+    - translate_y: Опциональное смещение по Y в EMU
+    - scale_x: Опциональный масштаб по X (1.0 = 100%, 2.0 = 200%)
+    - scale_y: Опциональный масштаб по Y (1.0 = 100%, 2.0 = 200%)
+    - rotation: Опциональный угол поворота в градусах
+    
+    Ключевые слова: переместить элемент, изменить размер, повернуть элемент, трансформация элемента.
     """
     args_schema: type = UpdateElementTransformInput
     
@@ -1603,11 +1632,13 @@ class DeleteSlideElementTool(BaseTool):
     
     name: str = "delete_slide_element"
     description: str = """
-    Delete an element from a slide.
+    Удалить элемент со слайда.
     
-    Input:
-    - presentation_id: Presentation ID or URL
-    - element_id: Element ID to delete
+    Параметры:
+    - presentation_id: ID презентации или URL
+    - element_id: ID элемента для удаления
+    
+    Ключевые слова: удалить элемент, удалить со слайда.
     """
     args_schema: type = DeleteSlideElementInput
     
@@ -1650,12 +1681,14 @@ class GetSlideMastersTool(BaseTool):
     
     name: str = "get_slide_masters"
     description: str = """
-    Get available slide masters and layouts.
+    Получить доступные макеты слайдов и шаблоны.
     
-    Input:
-    - presentation_id: Presentation ID or URL
+    Параметры:
+    - presentation_id: ID презентации или URL
     
-    Returns list of available layouts with their IDs and names.
+    Возвращает список доступных макетов с их ID и названиями.
+    
+    Ключевые слова: получить макеты, доступные макеты, шаблоны слайдов.
     """
     args_schema: type = GetSlideMastersInput
     
@@ -1723,12 +1756,14 @@ class ApplySlideLayoutTool(BaseTool):
     
     name: str = "apply_slide_layout"
     description: str = """
-    Apply a layout to a slide.
+    Применить макет к слайду.
     
-    Input:
-    - presentation_id: Presentation ID or URL
-    - page_id: Page (slide) ID
-    - layout_id: Layout ID to apply (use get_slide_masters to see available layouts)
+    Параметры:
+    - presentation_id: ID презентации или URL
+    - page_id: ID страницы (слайда)
+    - layout_id: ID макета для применения (используй get_slide_masters, чтобы увидеть доступные макеты)
+    
+    Ключевые слова: применить макет, изменить макет слайда.
     """
     args_schema: type = ApplySlideLayoutInput
     

@@ -323,16 +323,18 @@ class GetSpreadsheetInfoTool(BaseTool):
     
     name: str = "get_spreadsheet_info"
     description: str = """
-    Get metadata about a Google Sheets spreadsheet including all sheets with their IDs.
-    This is REQUIRED before using format_cells or other formatting tools that need sheet_id.
+    Получить метаданные о таблице Google Sheets, включая все листы с их ID.
+    ОБЯЗАТЕЛЬНО вызови этот инструмент перед использованием format_cells или других инструментов форматирования, которым нужен sheet_id.
     
-    Input:
-    - spreadsheet_id: The ID or URL of the spreadsheet
+    Параметры:
+    - spreadsheet_id: ID или URL таблицы
     
-    Returns information about all sheets including:
-    - sheetId: Required for formatting operations (use this, not sheet name!)
-    - title: Sheet name
-    - rowCount, columnCount: Dimensions
+    Возвращает информацию о всех листах, включая:
+    - sheetId: Требуется для операций форматирования (используй это, а не имя листа!)
+    - title: Имя листа
+    - rowCount, columnCount: Размеры
+    
+    Ключевые слова: информация о таблице, метаданные таблицы, получить информацию о листах, sheet_id.
     """
     args_schema: type = GetSpreadsheetInfoInput
     
@@ -404,25 +406,27 @@ class FormatCellsTool(BaseTool):
     
     name: str = "format_cells"
     description: str = """
-    Format cells in Google Sheets (bold, italic, colors, borders).
+    Форматировать ячейки в Google Sheets (жирный, курсив, цвета, границы).
     
-    IMPORTANT: You MUST first call get_spreadsheet_info to get the sheet_id (integer).
-    Do NOT use sheet name - use the numeric sheet_id from get_spreadsheet_info!
+    ⚠️ ВАЖНО: Сначала ОБЯЗАТЕЛЬНО вызови get_spreadsheet_info, чтобы получить sheet_id (целое число).
+    НЕ используй имя листа - используй числовой sheet_id из get_spreadsheet_info!
     
-    Input:
-    - spreadsheet_id: The ID of the spreadsheet
-    - sheet_id: Sheet ID (integer from get_spreadsheet_info, NOT sheet name!)
-    - start_row_index, end_row_index: Row range (0-based, end exclusive)
-    - start_column_index, end_column_index: Column range (0-based, end exclusive)
-    - bold: Optional boolean to make text bold
-    - italic: Optional boolean to make text italic
-    - background_color: Optional dict with 'red', 'green', 'blue', 'alpha' (0.0-1.0)
-    - text_color: Optional dict with 'red', 'green', 'blue', 'alpha' (0.0-1.0)
+    Параметры:
+    - spreadsheet_id: ID таблицы
+    - sheet_id: ID листа (целое число из get_spreadsheet_info, НЕ имя листа!)
+    - start_row_index, end_row_index: Диапазон строк (начиная с 0, end исключающий)
+    - start_column_index, end_column_index: Диапазон столбцов (начиная с 0, end исключающий)
+    - bold: Опциональный boolean - сделать текст жирным
+    - italic: Опциональный boolean - сделать текст курсивом
+    - background_color: Опциональный dict с 'red', 'green', 'blue', 'alpha' (0.0-1.0) - цвет фона
+    - text_color: Опциональный dict с 'red', 'green', 'blue', 'alpha' (0.0-1.0) - цвет текста
     
-    Example colors:
-    - Red background: {'red': 1.0, 'green': 0.0, 'blue': 0.0, 'alpha': 1.0}
-    - Blue text: {'red': 0.0, 'green': 0.0, 'blue': 1.0, 'alpha': 1.0}
-    - Light gray: {'red': 0.9, 'green': 0.9, 'blue': 0.9, 'alpha': 1.0}
+    Примеры цветов:
+    - Красный фон: {'red': 1.0, 'green': 0.0, 'blue': 0.0, 'alpha': 1.0}
+    - Синий текст: {'red': 0.0, 'green': 0.0, 'blue': 1.0, 'alpha': 1.0}
+    - Светло-серый: {'red': 0.9, 'green': 0.9, 'blue': 0.9, 'alpha': 1.0}
+    
+    Ключевые слова: форматировать ячейки, форматирование таблицы, жирный, курсив, цвет ячеек, выделить ячейки.
     """
     args_schema: type = FormatCellsInput
     
@@ -502,13 +506,15 @@ class AutoResizeColumnsTool(BaseTool):
     
     name: str = "auto_resize_columns"
     description: str = """
-    Auto-resize columns in Google Sheets to fit their content.
+    Автоматически изменить ширину столбцов в Google Sheets под содержимое.
     
-    Input:
-    - spreadsheet_id: The ID of the spreadsheet
-    - sheet_id: Sheet ID (integer from get_spreadsheet_info)
-    - start_column_index: Start column index (0-based)
-    - end_column_index: End column index (exclusive)
+    Параметры:
+    - spreadsheet_id: ID таблицы
+    - sheet_id: ID листа (целое число из get_spreadsheet_info)
+    - start_column_index: Начальный индекс столбца (начиная с 0)
+    - end_column_index: Конечный индекс столбца (исключающий)
+    
+    Ключевые слова: автоматическая ширина столбцов, подогнать ширину, автоширина столбцов.
     """
     args_schema: type = AutoResizeColumnsInput
     
@@ -564,14 +570,16 @@ class MergeCellsTool(BaseTool):
     
     name: str = "merge_cells"
     description: str = """
-    Merge a range of cells in Google Sheets.
+    Объединить диапазон ячеек в Google Sheets.
     
-    Input:
-    - spreadsheet_id: The ID of the spreadsheet
-    - sheet_id: Sheet ID (integer from get_spreadsheet_info)
-    - start_row_index, end_row_index: Row range (0-based, end exclusive)
-    - start_column_index, end_column_index: Column range (0-based, end exclusive)
-    - merge_type: Optional - MERGE_ALL (default), MERGE_COLUMNS, or MERGE_ROWS
+    Параметры:
+    - spreadsheet_id: ID таблицы
+    - sheet_id: ID листа (целое число из get_spreadsheet_info)
+    - start_row_index, end_row_index: Диапазон строк (начиная с 0, end исключающий)
+    - start_column_index, end_column_index: Диапазон столбцов (начиная с 0, end исключающий)
+    - merge_type: Опционально - MERGE_ALL (по умолчанию), MERGE_COLUMNS, или MERGE_ROWS
+    
+    Ключевые слова: объединить ячейки, слить ячейки, объединение ячеек.
     """
     args_schema: type = MergeCellsInput
     
@@ -627,15 +635,17 @@ class AddSheetTool(BaseTool):
     
     name: str = "add_sheet"
     description: str = """
-    Add a new sheet (tab) to an existing Google Sheets spreadsheet.
+    Добавить новый лист (вкладку) в существующую таблицу Google Sheets.
     
-    Input:
-    - spreadsheet_id: The ID of the spreadsheet
-    - sheet_title: Title of the new sheet
-    - row_count: Number of rows (default: 1000)
-    - column_count: Number of columns (default: 26)
+    Параметры:
+    - spreadsheet_id: ID таблицы
+    - sheet_title: Название нового листа
+    - row_count: Количество строк (по умолчанию: 1000)
+    - column_count: Количество столбцов (по умолчанию: 26)
     
-    Returns the new sheet's properties including its ID.
+    Возвращает свойства нового листа, включая его ID.
+    
+    Ключевые слова: добавить лист, создать лист, новая вкладка, добавить вкладку.
     """
     args_schema: type = AddSheetInput
     

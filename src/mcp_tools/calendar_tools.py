@@ -178,14 +178,16 @@ class GetNextAvailabilityTool(BaseTool):
     
     name: str = "get_next_availability"
     description: str = """
-    Find the next available time slot for a group of attendees.
+    Найти следующее свободное время для группы участников.
     
-    Input:
-    - attendees: List of attendee email addresses
-    - duration: Meeting duration (e.g., '1h', '30m', '1.5h')
-    - start_time: Optional earliest start time to consider (defaults to now)
+    Параметры:
+    - attendees: Список email адресов участников
+    - duration: Длительность встречи (например, '1h', '30m', '1.5h')
+    - start_time: Опциональное время начала поиска (по умолчанию: сейчас)
     
-    Returns the first available slot when all attendees are free.
+    Возвращает первое свободное время, когда все участники свободны.
+    
+    Ключевые слова: найти свободное время, доступное время, когда все свободны, найти слот для встречи.
     """
     args_schema: type = GetNextAvailabilityInput
     
