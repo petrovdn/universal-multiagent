@@ -39,6 +39,72 @@ class SynthesisAgent:
             max_tokens=2000
         )
     
+    async def synthesize_streaming(
+        self,
+        query: str,
+        subtask_results: Dict[str, Any],
+        original_query: str,
+        ws_manager: Any,
+        session_id: str
+    ) -> str:
+        """
+        Synthesize results with streaming support.
+        
+        Streams result chunks via WebSocket events (final_result_chunk).
+        
+        Args:
+            query: Original user query
+            subtask_results: Dictionary mapping task_id to result
+            original_query: Original user query (for context)
+            ws_manager: WebSocketManager instance for sending events
+            session_id: Session ID for WebSocket events
+            
+        Returns:
+            Full summary string
+        """
+        if not subtask_results:
+            # Empty result - caller will handle final_result_complete
+            return "Нет данных для отображения"
+        
+        # Prepare data for LLM
+        results_summary = self._prepare_results_summary(subtask_results)
+        
+        # Create synthesis prompt
+        prompt = self._create_synthesis_prompt(query, results_summary, original_query)
+        
+        # Stream the response
+        try:
+            messages = [
+                SystemMessage(content=self._get_system_prompt()),
+                HumanMessage(content=prompt)
+            ]
+            
+            full_summary = ""
+            async for chunk in self.llm.astream(messages):
+                if hasattr(chunk, 'content') and chunk.content:
+                    content_chunk = chunk.content
+                    full_summary += content_chunk
+                    
+                    # Stream chunk to frontend
+                    await ws_manager.send_event(
+                        session_id,
+                        "final_result_chunk",
+                        {"chunk": content_chunk}
+                    )
+            
+            summary = full_summary.strip()
+            
+            # Note: final_result_complete will be sent by caller (unified_react_engine)
+            # to allow adding error information if needed
+            
+            return summary
+        except Exception as e:
+            logger.error(f"[SynthesisAgent] Synthesis streaming failed: {e}", exc_info=True)
+            # Fallback to simple aggregation
+            fallback_result = self._fallback_synthesis(subtask_results)
+            # Note: final_result_complete will be sent by caller (unified_react_engine)
+            return fallback_result.summary
+    
     async def synthesize(
         self,
         query: str,

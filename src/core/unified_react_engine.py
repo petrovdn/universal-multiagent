@@ -3443,7 +3443,7 @@ class UnifiedReActEngine:
             result: Execution result (dict or raw result)
             
         Returns:
-            Brief summary string
+            Brief summary string in Russian
         """
         tool_name = subtask.tool_name if hasattr(subtask, 'tool_name') else None
         
@@ -3460,40 +3460,50 @@ class UnifiedReActEngine:
                 # Look for raw result in observations
                 actual_result = result
         
-        # Try using _get_result_summary first if we have tool_name
+        # Convert to string for parsing
+        result_str = str(actual_result) if actual_result else ""
+        import re
+        
+        # Calendar events - парсим строки типа "get_calendar_events: Found 7 event(s):" или "✓ get_calendar_events: Found 7 event(s):"
+        if 'calendar' in (tool_name or '').lower() or 'event' in (tool_name or '').lower() or 'event' in result_str.lower():
+            # Паттерн: "Found N event(s):" или "найдено N событий"
+            count_match = re.search(r'(?:Found|found|найдено)\s+(\d+)\s+event', result_str, re.IGNORECASE)
+            if count_match:
+                count = count_match.group(1)
+                return f"Найдено {count} событий"
+            elif re.search(r'(?:Found|found|найдено)\s+0\s+event', result_str, re.IGNORECASE):
+                return "Событий не найдено"
+            else:
+                return "Получены события календаря"
+        
+        # Email messages - парсим строки типа "list_emails: Found 10 email(s)"
+        if 'email' in (tool_name or '').lower() or 'mail' in (tool_name or '').lower():
+            # Паттерн: "Found N email(s)" или "найдено N писем"
+            count_match = re.search(r'(?:Found|found|найдено)\s+(\d+)\s+(?:email|письм)', result_str, re.IGNORECASE)
+            if count_match:
+                count = count_match.group(1)
+                return f"Найдено {count} писем"
+            elif re.search(r'(?:Found|found|найдено)\s+0\s+(?:email|письм)', result_str, re.IGNORECASE):
+                return "Писем не найдено"
+            else:
+                return "Получены данные почты"
+        
+        # Try using _get_result_summary first if we have tool_name (fallback)
         if tool_name and actual_result:
             summary = self._get_result_summary(tool_name, actual_result)
             if summary:
                 # Remove emoji from summary for cleaner display
                 summary = summary.replace("✅ ", "").replace("❌ ", "").strip()
+                # Если summary на английском, переводим
+                if 'found' in summary.lower() and 'event' in summary.lower():
+                    count_match = re.search(r'(\d+)\s+event', summary, re.IGNORECASE)
+                    if count_match:
+                        return f"Найдено {count_match.group(1)} событий"
+                elif 'found' in summary.lower() and 'email' in summary.lower():
+                    count_match = re.search(r'(\d+)\s+email', summary, re.IGNORECASE)
+                    if count_match:
+                        return f"Найдено {count_match.group(1)} писем"
                 return summary
-        
-        # Fallback: create smart summary based on tool_name and result
-        result_str = str(actual_result) if actual_result else ""
-        
-        if 'calendar' in (tool_name or '').lower() or 'events' in result_str.lower():
-            # Extract count from result
-            import re
-            count_match = re.search(r'(\d+)\s+event', result_str, re.IGNORECASE)
-            if count_match:
-                count = count_match.group(1)
-                return f"Найдено {count} событий"
-            elif 'Found 0' in result_str or 'найдено 0' in result_str.lower():
-                return "Событий не найдено"
-            else:
-                return "Получены события календаря"
-        
-        if 'email' in (tool_name or '').lower() or 'mail' in (tool_name or '').lower() or 'emails' in result_str.lower():
-            # Extract count from result
-            import re
-            count_match = re.search(r'(\d+)\s+(?:email|письм)', result_str, re.IGNORECASE)
-            if count_match:
-                count = count_match.group(1)
-                return f"Найдено {count} писем"
-            elif 'Found 0' in result_str or 'найдено 0' in result_str.lower():
-                return "Писем не найдено"
-            else:
-                return "Получены данные почты"
         
         # Generic fallback
         if isinstance(result, dict):
@@ -5802,60 +5812,103 @@ raise ValueError("Код анализа не был предоставлен. П
         synthesis_task = next((st for st in decomposition.subtasks if st.is_synthesis), None)
         
         if synthesis_task:
-            # Phase 2, Step 4: Use SynthesisAgent to synthesize results
+            # Phase 2, Step 4: Use SynthesisAgent to synthesize results with streaming
             try:
                 # Filter out error results for synthesis (but keep them for reporting)
                 successful_results = {k: v for k, v in all_results.items() if not (isinstance(v, dict) and "error" in v)}
                 
                 if successful_results:
-                    synthesis_result = await self.synthesis_agent.synthesize(
+                    # Send "Готовлю результат..." block (final_result_start)
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "final_result_start",
+                        {}
+                    )
+                    
+                    # Stream synthesis result
+                    summary = await self.synthesis_agent.synthesize_streaming(
                         query=goal,
                         subtask_results=successful_results,
-                        original_query=goal
+                        original_query=goal,
+                        ws_manager=self.ws_manager,
+                        session_id=self.session_id
                     )
-                else:
-                    # All tasks failed - use fallback
-                    from src.core.synthesis_agent import SynthesisResult
-                    synthesis_result = SynthesisResult(
-                        summary="Не удалось выполнить задачи. Проверьте подключение к сервисам.",
-                        source_task_ids=list(all_results.keys()),
-                        key_points=[],
-                        raw_results=all_results
+                    
+                    # Extract key points from summary
+                    from src.core.synthesis_agent import SynthesisAgent
+                    key_points = self.synthesis_agent._extract_key_points(summary)
+                    
+                    # Include error information if any
+                    if errors:
+                        error_summary = f"\n\nОшибки: {len(errors)} задач завершились с ошибками."
+                        summary += error_summary
+                        # Send error chunk
+                        await self.ws_manager.send_event(
+                            self.session_id,
+                            "final_result_chunk",
+                            {"chunk": error_summary}
+                        )
+                    
+                    # Send final_result_complete (with or without errors)
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "final_result_complete",
+                        {
+                            "content": summary,
+                            "key_points": key_points or [],
+                            "errors": errors if errors else None,
+                            "status": "success" if not errors else "partial_success"
+                        }
                     )
-                
-                # Include error information if any
-                if errors:
-                    error_summary = f"\n\nОшибки: {len(errors)} задач завершились с ошибками."
-                    synthesis_result.summary += error_summary
-                
-                # Send final result
-                await self.ws_manager.send_event(
-                    self.session_id,
-                    "final_result",
-                    {
-                        "content": synthesis_result.summary,
+                    
+                    return {
+                        "agent": self.__class__.__name__,
+                        "response": summary,
                         "status": "success" if not errors else "partial_success",
-                        "key_points": synthesis_result.key_points or [],
+                        "orchestration_used": True,
+                        "parallel_tasks": len([st for st in decomposition.subtasks if not st.dependencies and not st.is_synthesis]),
+                        "synthesis_used": True,
+                        "key_points": key_points,
                         "errors": errors if errors else None
                     }
-                )
-                
-                return {
-                    "agent": self.__class__.__name__,
-                    "response": synthesis_result.summary,
-                    "status": "success" if not errors else "partial_success",
-                    "orchestration_used": True,
-                    "parallel_tasks": len([st for st in decomposition.subtasks if not st.dependencies and not st.is_synthesis]),
-                    "synthesis_used": True,
-                    "key_points": synthesis_result.key_points,
-                    "errors": errors if errors else None
-                }
+                else:
+                    # All tasks failed - use fallback
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "final_result_start",
+                        {}
+                    )
+                    await self.ws_manager.send_event(
+                        self.session_id,
+                        "final_result_complete",
+                        {"content": "Не удалось выполнить задачи. Проверьте подключение к сервисам."}
+                    )
+                    return {
+                        "agent": self.__class__.__name__,
+                        "response": "Не удалось выполнить задачи. Проверьте подключение к сервисам.",
+                        "status": "failed",
+                        "orchestration_used": True,
+                        "synthesis_used": True,
+                        "errors": errors if errors else None
+                    }
             except Exception as e:
                 logger.error(f"[UnifiedReActEngine] Synthesis failed: {e}", exc_info=True)
                 # Fallback to simple aggregation
                 summary = f"Выполнено {len([r for r in all_results.values() if not (isinstance(r, dict) and 'error' in r)])} из {len(all_results)} задач"
                 if errors:
                     summary += f". Ошибки: {len(errors)} задач."
+                
+                # Send fallback result
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "final_result_start",
+                    {}
+                )
+                await self.ws_manager.send_event(
+                    self.session_id,
+                    "final_result_complete",
+                    {"content": summary}
+                )
                 
                 return {
                     "agent": self.__class__.__name__,
