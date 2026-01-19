@@ -148,11 +148,17 @@ export function ChatInterface() {
   
   // Scroll to new user message
   useEffect(() => {
+    // #region debug log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:150',message:'scroll effect triggered',data:{messagesLength:messages.length,shouldScrollToNew,userMessagesCount:messages.filter(m => m.role === 'user').length,lastUserMessageCount:lastUserMessageCountRef.current,currentInteractionRefExists:!!currentInteractionRef.current,messagesContainerRefExists:!!messagesContainerRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     const userMessages = messages.filter(m => m.role === 'user')
     const currentUserMessageCount = userMessages.length
     
     // Проверяем, появилось ли новое user сообщение
     const hasNewUserMessage = currentUserMessageCount > lastUserMessageCountRef.current
+    // #region debug log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:156',message:'scroll check',data:{hasNewUserMessage,currentUserMessageCount,lastUserMessageCount:lastUserMessageCountRef.current,currentInteractionRefExists:!!currentInteractionRef.current,messagesContainerRefExists:!!messagesContainerRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     
     if (!hasNewUserMessage || !currentInteractionRef.current || !messagesContainerRef.current) {
       if (hasNewUserMessage) {
@@ -166,6 +172,9 @@ export function ChatInterface() {
     
     // Функция для выполнения прокрутки с повторными попытками
     const attemptScroll = (attempt: number) => {
+      // #region debug log
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:168',message:'attemptScroll called',data:{attempt,currentInteractionRefExists:!!currentInteractionRef.current,messagesContainerRefExists:!!messagesContainerRef.current},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       if (!currentInteractionRef.current || !messagesContainerRef.current) {        return
       }
       
@@ -175,7 +184,11 @@ export function ChatInterface() {
       // Находим родительский user-interaction-container для правильного расчета позиции
       const interactionContainer = element.closest('.user-interaction-container') as HTMLElement
       
-      if (!interactionContainer) {        return
+      if (!interactionContainer) {
+        // #region debug log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:178',message:'attemptScroll: no interactionContainer found',data:{attempt,elementText:element.textContent?.substring(0,50)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        return
       }
       
       // Используем getBoundingClientRect для получения абсолютной позиции
@@ -184,6 +197,10 @@ export function ChatInterface() {
       
       // Вычисляем позицию прокрутки: позиция элемента относительно контейнера + текущая прокрутка
       const scrollTop = container.scrollTop + (elementRect.top - containerRect.top) - 52 // 52px для header
+      
+      // #region debug log
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:186',message:'attemptScroll: calculated scroll position',data:{attempt,elementRectTop:elementRect.top,containerRectTop:containerRect.top,relativeTop:elementRect.top - containerRect.top,currentScrollTop:container.scrollTop,calculatedScrollTop:scrollTop},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       
       // Проверяем, что элемент имеет правильную позицию (не 0 или отрицательную)
       if ((elementRect.top - containerRect.top) <= 0 && attempt < 5) {        // Элемент еще не готов, пробуем еще раз
@@ -195,6 +212,10 @@ export function ChatInterface() {
         top: Math.max(0, scrollTop),
         behavior: 'smooth'
       })
+      
+      // #region debug log
+      fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:197',message:'attemptScroll: scroll executed',data:{attempt,finalScrollTop:Math.max(0, scrollTop)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       
       setShouldScrollToNew(false)
     }
@@ -699,6 +720,9 @@ export function ChatInterface() {
 
     // Add user message immediately to show it in UI
     const userMsgTimestamp = new Date().toISOString()
+    // #region debug log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:701',message:'handleSend: adding user message',data:{userMsgTimestamp,userMessage:userMessage.substring(0,50),currentMessagesCount:messages.length,currentUserMessagesCount:messages.filter(m => m.role === 'user').length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     addMessage({
       role: 'user',
       content: userMessage,
@@ -718,6 +742,9 @@ export function ChatInterface() {
     setAttachedFiles([])
 
     // Activate scroll to new message    setShouldScrollToNew(true)
+    // #region debug log
+    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:720',message:'handleSend: setShouldScrollToNew(true)',data:{userMsgTimestamp},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     
     // Mark agent as typing
     setAgentTyping(true)
@@ -1349,6 +1376,9 @@ export function ChatInterface() {
           }
           
           return assistantMessagesArray.map((assistantMsg) => {
+            // #region debug log
+            fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:1351',message:'rendering assistant message',data:{assistantMsgId:assistantMsg.id,reasoningBlocksCount:assistantMsg.reasoningBlocks.length,answerBlocksCount:assistantMsg.answerBlocks.length,executionMode,userMessagesCount:messages.filter(m => m.role === 'user').length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+            // #endregion
             // CRITICAL: For ReAct mode, render reasoning blocks directly using CollapsibleBlock (same as Plan mode)
             // This check MUST come FIRST, before all other checks, to ensure ReAct blocks are rendered
             // For Query and Agent modes, only show reasoning if showReasoning setting is enabled

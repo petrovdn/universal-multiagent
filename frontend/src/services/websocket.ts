@@ -186,16 +186,25 @@ export class WebSocketClient {
 
       case 'message_start':
         // Start of a new assistant message
+        // #region debug log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:187',message:'message_start received',data:{message_id:event.data.message_id,old_currentMessageId:this.currentMessageId,old_currentReasoningBlockId:this.currentReasoningBlockId,old_currentAnswerBlockId:this.currentAnswerBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         const messageId = event.data.message_id || `msg-${Date.now()}`
         this.currentMessageId = messageId
         this.currentReasoningBlockId = null
         this.currentAnswerBlockId = null
         chatStore.setAgentTyping(true)
         console.log('[WebSocket] Starting new message:', messageId)
+        // #region debug log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:195',message:'message_start processed',data:{new_currentMessageId:this.currentMessageId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         break
 
       case 'thinking':
         // Reasoning/thinking eventchatStore.setAgentTyping(true)
+        // #region debug log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:197',message:'thinking event received',data:{event_message_id:event.data.message_id,currentMessageId:this.currentMessageId,currentReasoningBlockId:this.currentReasoningBlockId,currentAnswerBlockId:this.currentAnswerBlockId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         const thinkingMessage = event.data.message || event.data.step || 'Thinking...'
         
         // Get or create current message ID
@@ -203,6 +212,9 @@ export class WebSocketClient {
           this.currentMessageId = `msg-${Date.now()}`
         }
         const thinkingMsgId = this.currentMessageId
+        // #region debug log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:207',message:'thinking using messageId',data:{thinkingMsgId,currentMessageId:this.currentMessageId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         // Check if we need to create a NEW reasoning block or continue existing one
         let shouldCreateNewReasoningBlock = false
         
@@ -258,6 +270,9 @@ export class WebSocketClient {
 
       case 'message_chunk':
         // Streaming answer content
+        // #region debug log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:271',message:'message_chunk event received',data:{event_message_id:event.data.message_id,currentMessageId:this.currentMessageId,currentReasoningBlockId:this.currentReasoningBlockId,currentAnswerBlockId:this.currentAnswerBlockId,contentLength:event.data.content?.length||0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         const chunkContent = event.data.content || ''
         
         // CRITICAL FIX: If event.data.message_id exists and differs from currentMessageId,
@@ -270,6 +285,9 @@ export class WebSocketClient {
           chunkMsgId = eventMessageId || `msg-${Date.now()}`
           this.currentMessageId = chunkMsgId
         } else if (eventMessageId && eventMessageId !== this.currentMessageId) {
+          // #region debug log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:284',message:'message_chunk: message_id mismatch detected',data:{old_currentMessageId:this.currentMessageId,new_eventMessageId:eventMessageId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
           // Event has different message_id - copy reasoning block to new message
           const oldMessageId = this.currentMessageId
           chunkMsgId = eventMessageId
@@ -410,6 +428,9 @@ export class WebSocketClient {
           // Use existing currentMessageId
           chunkMsgId = this.currentMessageId as string
         }
+        // #region debug log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:424',message:'message_chunk: using messageId',data:{chunkMsgId,currentMessageId:this.currentMessageId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         
         // CRITICAL: If we have an active reasoning block, complete it (answer is starting)
         // This must happen AFTER we've handled message_id switching, so we use the correct chunkMsgId
@@ -434,6 +455,9 @@ export class WebSocketClient {
         
         // Update answer block content (replace, not append - backend sends accumulated content)
         chatStore.updateAnswerBlock(chunkMsgId, this.currentAnswerBlockId, chunkContent)
+        // #region debug log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:449',message:'message_chunk: updated answer block',data:{chunkMsgId,answerBlockId:this.currentAnswerBlockId,contentLength:chunkContent.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
         console.log('[WebSocket] Updated answer block:', this.currentAnswerBlockId, 'content length:', chunkContent.length)
         break
 
