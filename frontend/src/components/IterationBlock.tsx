@@ -62,25 +62,10 @@ export function IterationBlock({
     ? elapsedSeconds 
     : (thinking.elapsedSeconds !== undefined ? thinking.elapsedSeconds : 0)
   
-  // Получение динамического текста заголовка в зависимости от контекста
+  // Упрощенная логика: "Думаю" во время streaming, "Думал" после завершения
   const getThinkingLabel = (): string => {
-    const context = thinking.context || 'thinking'
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'IterationBlock.tsx:66',message:'getThinkingLabel called',data:{context,thinkingContextRaw:thinking.context,iterationNumber:iteration.iterationNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
-    // #endregion
-    
-    const labels: Record<string, string> = {
-      planning: 'Планирую следующие шаги',
-      exploring: 'Исследую',
-      analyzing: 'Анализирую',
-      selecting: 'Выбираю инструменты',
-      verifying: 'Проверяю',
-      deciding: 'Принимаю решение',
-      thinking: 'Думаю',
-    }
-    
-    return labels[context] || 'Думаю'
+    // Во время streaming - "Думаю", после завершения - "Думал"
+    return thinking.isStreaming ? 'Думаю' : 'Думал'
   }
   
   // Получение результата после завершения
@@ -88,6 +73,9 @@ export function IterationBlock({
     if (!thinking.result) return null
     
     const { type, count } = thinking.result
+    
+    // Не показываем результат если count === 0 (нет реальных tool calls)
+    if (count === 0) return null
     
     // Функция склонения
     const pluralize = (n: number, one: string, few: string, many: string): string => {

@@ -288,10 +288,11 @@ class UnifiedReActEngine:
         matched_keywords = []
         
         # Проверяем ключевые слова в порядке приоритета
+        # ИСПРАВЛЕНИЕ: Используем корни слов для более точного поиска
         planning_keywords = ['план', 'шаг', 'сначала', 'затем', 'далее', 'порядок']
-        exploring_keywords = ['читаю', 'смотрю', 'ищу', 'файл', 'код', 'исследую', 'изучаю']
-        analyzing_keywords = ['анализ', 'обрабатыва', 'понима', 'разбира']
-        selecting_keywords = ['инструмент', 'tool', 'использую', 'выбира', 'вызову']
+        exploring_keywords = ['чита', 'смотр', 'ищу', 'файл', 'код', 'исслед', 'изуча']  # Корни: чита(ть/ю), смотр(ю/ю), исслед(ую)
+        analyzing_keywords = ['анализ', 'обрабатыв', 'понима', 'разбира']  # Корни: обрабатыв(аю/ать)
+        selecting_keywords = ['инструмент', 'tool', 'использ', 'выбира', 'вызов']  # Корни: использ(ую/ую)
         verifying_keywords = ['проверя', 'убежда', 'тест', 'валидир']
         deciding_keywords = ['решил', 'решаю', 'вывод', 'итог', 'результат']
         
@@ -3921,33 +3922,7 @@ class UnifiedReActEngine:
                     # FIX: Присваиваем, а не добавляем (было: self.thought_content += thought_chunk)
                     self.thought_content = full_thought
                     
-                    # Определяем контекст при завершении, если еще не определён
-                    if (self.thinking_context is None and 
-                        self.engine and 
-                        hasattr(self.engine, '_detect_thinking_context')):
-                        self.thinking_context = self.engine._detect_thinking_context(self.thought_content)
-                        # #region agent log - определение контекста при завершении
-                        import json as _debug_json_context_final; import time as _debug_time_context_final
-                        try:
-                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_context_final:
-                                _debug_f_context_final.write(_debug_json_context_final.dumps({
-                                    "id": f"log_{int(_debug_time_context_final.time()*1000)}_context_detection_final",
-                                    "timestamp": int(_debug_time_context_final.time()*1000),
-                                    "location": "unified_react_engine.py:3922",
-                                    "message": "Определение контекста при завершении thought",
-                                    "data": {
-                                        "detected_context": self.thinking_context,
-                                        "thought_content_length": len(self.thought_content),
-                                        "thought_content_preview": self.thought_content[:200]
-                                    },
-                                    "sessionId": "debug-session",
-                                    "runId": "run1",
-                                    "hypothesisId": "THINKING_CONTEXT"
-                                }, ensure_ascii=False) + '\n')
-                        except:
-                            pass
-                        # #endregion
-                    
+                    # Упрощенная логика: не определяем контекст
                     self.thought_complete = True
                     await self.ws_manager.send_event(
                         self.session_id,
@@ -3965,90 +3940,7 @@ class UnifiedReActEngine:
                         self.thought_content = self.buffer
                         
                         if new_chunk.strip():
-                            # Определяем context для динамических заголовков "Думаю"
-                            # КРИТИЧНО: Определяем контекст только когда накопилось достаточно текста (минимум 50 символов)
-                            # чтобы ключевые слова успели появиться
-                            MIN_CONTENT_LENGTH_FOR_CONTEXT = 50
-                            
-                            if (self.thinking_context is None and 
-                                self.engine and 
-                                hasattr(self.engine, '_detect_thinking_context') and
-                                len(self.thought_content) >= MIN_CONTENT_LENGTH_FOR_CONTEXT):
-                                
-                                # #region agent log - момент определения контекста
-                                import json as _debug_json_context_moment; import time as _debug_time_context_moment
-                                try:
-                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_context_moment:
-                                        _debug_f_context_moment.write(_debug_json_context_moment.dumps({
-                                            "id": f"log_{int(_debug_time_context_moment.time()*1000)}_context_detection_moment",
-                                            "timestamp": int(_debug_time_context_moment.time()*1000),
-                                            "location": "unified_react_engine.py:3941",
-                                            "message": "Определение контекста (достаточно текста накопилось)",
-                                            "data": {
-                                                "thought_content_length": len(self.thought_content),
-                                                "thought_content_first_200": self.thought_content[:200],
-                                                "thought_content_first_100": self.thought_content[:100],
-                                                "thought_content_first_50": self.thought_content[:50],
-                                                "new_chunk_length": len(new_chunk),
-                                                "new_chunk_preview": new_chunk[:100],
-                                                "iteration_number": self.iteration_number,
-                                                "intent_id": self.intent_id,
-                                                "min_content_length": MIN_CONTENT_LENGTH_FOR_CONTEXT
-                                            },
-                                            "sessionId": "debug-session",
-                                            "runId": "run1",
-                                            "hypothesisId": "THINKING_CONTEXT"
-                                        }, ensure_ascii=False) + '\n')
-                                except:
-                                    pass
-                                # #endregion
-                                
-                                # Используем накопленный контент для определения context
-                                self.thinking_context = self.engine._detect_thinking_context(self.thought_content)
-                                
-                                # #region agent log - результат определения контекста
-                                try:
-                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_context_result:
-                                        _debug_f_context_result.write(_debug_json_context_moment.dumps({
-                                            "id": f"log_{int(_debug_time_context_moment.time()*1000)}_context_detection_result",
-                                            "timestamp": int(_debug_time_context_moment.time()*1000),
-                                            "location": "unified_react_engine.py:4005",
-                                            "message": "Результат определения контекста",
-                                            "data": {
-                                                "detected_context": self.thinking_context,
-                                                "thought_content_length": len(self.thought_content)
-                                            },
-                                            "sessionId": "debug-session",
-                                            "runId": "run1",
-                                            "hypothesisId": "THINKING_CONTEXT"
-                                        }, ensure_ascii=False) + '\n')
-                                except:
-                                    pass
-                                # #endregion
-                            elif (self.thinking_context is None and 
-                                  len(self.thought_content) < MIN_CONTENT_LENGTH_FOR_CONTEXT):
-                                # #region agent log - слишком мало текста для определения контекста
-                                import json as _debug_json_context_wait; import time as _debug_time_context_wait
-                                try:
-                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_context_wait:
-                                        _debug_f_context_wait.write(_debug_json_context_wait.dumps({
-                                            "id": f"log_{int(_debug_time_context_wait.time()*1000)}_context_detection_wait",
-                                            "timestamp": int(_debug_time_context_wait.time()*1000),
-                                            "location": "unified_react_engine.py:4025",
-                                            "message": "Ожидание накопления текста для определения контекста",
-                                            "data": {
-                                                "thought_content_length": len(self.thought_content),
-                                                "thought_content_preview": self.thought_content[:100],
-                                                "min_content_length": MIN_CONTENT_LENGTH_FOR_CONTEXT,
-                                                "need_more_chars": MIN_CONTENT_LENGTH_FOR_CONTEXT - len(self.thought_content)
-                                            },
-                                            "sessionId": "debug-session",
-                                            "runId": "run1",
-                                            "hypothesisId": "THINKING_CONTEXT"
-                                        }, ensure_ascii=False) + '\n')
-                                except:
-                                    pass
-                                # #endregion
+                            # Упрощенная логика: не определяем контекст, просто стримим
                             
                             await self.ws_manager.send_event(
                                 self.session_id,
@@ -4086,38 +3978,28 @@ class UnifiedReActEngine:
                                         pass
                                     # #endregion
                                     
-                                    event_data = {
-                                        "intent_id": main_intent_id,  # Main task intent (parent)
-                                        "branch_id": self.branch_id,
-                                        "iteration_number": self.iteration_number,
-                                        "chunk": new_chunk
-                                    }
-                                    # Добавляем context для динамических заголовков (только при первом chunk)
-                                    if self.thinking_context and not self.context_sent:
-                                        event_data["context"] = self.thinking_context
-                                        self.context_sent = True
-                                    
+                                    # Упрощенная логика: не отправляем context
                                     await self.ws_manager.send_event(
                                         self.session_id,
                                         "parallel_branch_iteration_thinking_chunk",
-                                        event_data
+                                        {
+                                            "intent_id": main_intent_id,  # Main task intent (parent)
+                                            "branch_id": self.branch_id,
+                                            "iteration_number": self.iteration_number,
+                                            "chunk": new_chunk
+                                        }
                                     )
                                 else:
                                     # Send regular iteration_thinking_chunk
-                                    event_data = {
-                                        "intent_id": self.intent_id,
-                                        "iteration_number": self.iteration_number,
-                                        "chunk": new_chunk
-                                    }
-                                    # Добавляем context для динамических заголовков (только при первом chunk)
-                                    if self.thinking_context and not self.context_sent:
-                                        event_data["context"] = self.thinking_context
-                                        self.context_sent = True
-                                    
+                                    # Упрощенная логика: не отправляем context
                                     await self.ws_manager.send_event(
                                         self.session_id,
                                         "iteration_thinking_chunk",
-                                        event_data
+                                        {
+                                            "intent_id": self.intent_id,
+                                            "iteration_number": self.iteration_number,
+                                            "chunk": new_chunk
+                                        }
                                     )
                             # Отправляем как intent_thinking_append для streaming в UI
                             await self._send_intent_detail(new_chunk)
@@ -5716,7 +5598,7 @@ if salary_sheet:
                     all_files_summary.append(f"{len(all_files_summary) + 1}. {filename} — {description}")
             
             # Формируем секцию
-            context_section += f"""
+                context_section += f"""
 <attached_files>"""
             
             # Показываем сводку только для общих запросов
