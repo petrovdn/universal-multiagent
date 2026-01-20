@@ -318,9 +318,13 @@ class UnifiedReActEngine:
         """Определяем результат думания для отображения после завершения.
         
         Returns:
-            ThinkingResult или None
+            ThinkingResult или None (если нет реальных tool calls)
         """
         tool_name = action_plan.get("tool_name", "")
+        
+        # Не показываем результат для FINISH или пустого tool_name (нет реальных tool calls)
+        if not tool_name or tool_name.upper() == "FINISH" or tool_name == "ASK_CLARIFICATION":
+            return None
         
         # Определяем тип результата по инструменту
         if tool_name in ["search_documents", "search_emails", "search_web", "search_calendar"]:
@@ -432,6 +436,7 @@ class UnifiedReActEngine:
         """
         # #region agent log
         import json as _debug_json_exec; import time as _debug_time_exec
+        _execute_start = _debug_time_exec.time()  # Сохраняем время старта для логирования в finally
         try:
             with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_exec:
                 _debug_f_exec.write(_debug_json_exec.dumps({"id":f"log_{int(_debug_time_exec.time()*1000)}_execute_entry","timestamp":int(_debug_time_exec.time()*1000),"location":"unified_react_engine.py:324","message":"execute() entry point","data":{"goal":goal[:200],"skip_orchestration":skip_orchestration,"use_existing_intent_id":use_existing_intent_id,"phase":phase},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
@@ -1032,6 +1037,13 @@ class UnifiedReActEngine:
         
         try:
             # Main ReAct loop
+            # #region agent log
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_react_entry:
+                    _debug_f_react_entry.write(_debug_json_react.dumps({"id":f"log_{int(_debug_time_react.time()*1000)}_react_loop_entry","timestamp":int(_debug_time_react.time()*1000),"location":"unified_react_engine.py:1034","message":"Entering ReAct loop","data":{"goal":goal[:200],"max_iterations":state.max_iterations,"initial_iteration":state.iteration,"_stop_requested":getattr(self, '_stop_requested', False)},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+            except:
+                pass
+            # #endregion
             while state.iteration < state.max_iterations:
                 if self._stop_requested:
                     logger.info(f"[UnifiedReActEngine] Stop requested at iteration {state.iteration}")
@@ -1040,6 +1052,13 @@ class UnifiedReActEngine:
                 state.iteration += 1
                 self._current_iteration = state.iteration  # Store for use in _execute_action
                 logger.info(f"[UnifiedReActEngine] Starting iteration {state.iteration}")
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_react_iter:
+                        _debug_f_react_iter.write(_debug_json_react.dumps({"id":f"log_{int(_debug_time_react.time()*1000)}_react_iteration_start","timestamp":int(_debug_time_react.time()*1000),"location":"unified_react_engine.py:1040","message":"ReAct iteration started","data":{"iteration":state.iteration,"goal":goal[:200]},"sessionId":"debug-session","runId":"run1","hypothesisId":"C"}) + '\n')
+                except:
+                    pass
+                # #endregion
                 
                 # === Send iteration_start event for UI ===
                 # ВАЖНО: Используем _task_intent_id (первый intent) для ВСЕХ итераций,
@@ -2269,6 +2288,29 @@ class UnifiedReActEngine:
         finally:
             # Останавливаем SmartProgress в любом случае
             self.smart_progress.stop()
+            
+            # #region agent log - ЗАВЕРШЕНИЕ выполнения execute()
+            import json as _debug_json_exec_end; import time as _debug_time_exec_end
+            _execute_duration = _debug_time_exec_end.time() - _execute_start if '_execute_start' in locals() else 0
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_exec_end:
+                    _debug_f_exec_end.write(_debug_json_exec_end.dumps({
+                        "id": f"log_{int(_debug_time_exec_end.time()*1000)}_execute_complete",
+                        "timestamp": int(_debug_time_exec_end.time()*1000),
+                        "location": "unified_react_engine.py:2287",
+                        "message": "EXECUTE COMPLETE",
+                        "data": {
+                            "goal": goal,
+                            "total_duration_sec": _execute_duration,
+                            "iterations": state.iteration if 'state' in locals() else 0
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "EXECUTE"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
     
     async def _needs_tools(self, goal: str, context: ConversationContext, file_ids: Optional[List[str]] = None) -> bool:
         """
@@ -2485,11 +2527,59 @@ class UnifiedReActEngine:
                 HumanMessage(content=prompt)
             ]
             
+            # #region agent log - ПРОМПТ для классификации задачи
+            import json as _debug_json_needs_tools; import time as _debug_time_needs_tools
+            _needs_tools_start = _debug_time_needs_tools.time()
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_needs_tools:
+                    _debug_f_needs_tools.write(_debug_json_needs_tools.dumps({
+                        "id": f"log_{int(_debug_time_needs_tools.time()*1000)}_needs_tools_prompt",
+                        "timestamp": int(_debug_time_needs_tools.time()*1000),
+                        "location": "unified_react_engine.py:2476",
+                        "message": "NEEDS_TOOLS PROMPT",
+                        "data": {
+                            "goal": goal,
+                            "context_str": context_str[:500] if context_str else "",
+                            "FULL_PROMPT": prompt
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "NEEDS_TOOLS"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
+            
             # Use fast LLM (no extended thinking) for quick classification
             response = await self.fast_llm.ainvoke(messages)
             response_text = str(response.content).strip().upper()
             
+            _needs_tools_duration = _debug_time_needs_tools.time() - _needs_tools_start
+            
             llm_result = "ДА" in response_text or "YES" in response_text
+            
+            # #region agent log - ОТВЕТ для классификации задачи
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_needs_tools_response:
+                    _debug_f_needs_tools_response.write(_debug_json_needs_tools.dumps({
+                        "id": f"log_{int(_debug_time_needs_tools.time()*1000)}_needs_tools_response",
+                        "timestamp": int(_debug_time_needs_tools.time()*1000),
+                        "location": "unified_react_engine.py:2507",
+                        "message": "NEEDS_TOOLS RESPONSE",
+                        "data": {
+                            "goal": goal,
+                            "FULL_RESPONSE": str(response.content),
+                            "response_text": response_text,
+                            "needs_tools": llm_result,
+                            "duration_sec": _needs_tools_duration
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "NEEDS_TOOLS"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
             
             # Log the result
             logger.info(f"[_needs_tools] goal='{goal[:50]}...', llm_response='{response_text[:100]}', needs_tools={llm_result}")
@@ -2555,6 +2645,33 @@ class UnifiedReActEngine:
             # Add current user request
             messages.append(HumanMessage(content=goal))
             
+            # #region agent log - ПРОМПТ для простого ответа
+            import json as _debug_json_direct; import time as _debug_time_direct
+            _direct_start = _debug_time_direct.time()
+            try:
+                messages_for_log = []
+                for msg in messages:
+                    if hasattr(msg, 'content'):
+                        messages_for_log.append({"role": type(msg).__name__, "content": str(msg.content)[:500]})
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_direct_prompt:
+                    _debug_f_direct_prompt.write(_debug_json_direct.dumps({
+                        "id": f"log_{int(_debug_time_direct.time()*1000)}_answer_directly_prompt",
+                        "timestamp": int(_debug_time_direct.time()*1000),
+                        "location": "unified_react_engine.py:2574",
+                        "message": "ANSWER_DIRECTLY PROMPT",
+                        "data": {
+                            "goal": goal,
+                            "messages": messages_for_log,
+                            "uses_extended_thinking": uses_extended_thinking
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "ANSWER_DIRECTLY"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
+            
             # Send thinking_started event
             self._current_thinking_id = f"thinking-{int(time.time() * 1000)}"
             self._thinking_start_time = time.time()
@@ -2607,6 +2724,29 @@ class UnifiedReActEngine:
                             )
             
             answer = answer.strip()
+            
+            _direct_duration = _debug_time_direct.time() - _direct_start
+            
+            # #region agent log - ОТВЕТ для простого ответа
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_direct_response:
+                    _debug_f_direct_response.write(_debug_json_direct.dumps({
+                        "id": f"log_{int(_debug_time_direct.time()*1000)}_answer_directly_response",
+                        "timestamp": int(_debug_time_direct.time()*1000),
+                        "location": "unified_react_engine.py:2627",
+                        "message": "ANSWER_DIRECTLY RESPONSE",
+                        "data": {
+                            "goal": goal,
+                            "FULL_RESPONSE": answer,
+                            "duration_sec": _direct_duration
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "ANSWER_DIRECTLY"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
             
             # Send thinking_completed
             if self._current_thinking_id:
@@ -5537,6 +5677,36 @@ if salary_sheet:
             if last_chunk and hasattr(last_chunk, 'tool_calls') and last_chunk.tool_calls:
                 # LLM вернул tool_calls - используем их
                 tool_calls = last_chunk.tool_calls
+                
+                # #region agent log - LLM выбрал инструменты
+                try:
+                    import json as _debug_json_tool_calls; import time as _debug_time_tool_calls
+                    tool_calls_for_log = []
+                    for tc in tool_calls:
+                        if isinstance(tc, dict):
+                            tool_calls_for_log.append({"name": tc.get("name"), "args": tc.get("args", {})})
+                        elif hasattr(tc, "name"):
+                            tool_calls_for_log.append({"name": tc.name, "args": getattr(tc, "args", {})})
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tool_calls:
+                        _debug_f_tool_calls.write(_debug_json_tool_calls.dumps({
+                            "id": f"log_{int(_debug_time_tool_calls.time()*1000)}_llm_tool_calls",
+                            "timestamp": int(_debug_time_tool_calls.time()*1000),
+                            "location": "unified_react_engine.py:5676",
+                            "message": "LLM SELECTED TOOLS",
+                            "data": {
+                                "goal": state.goal,
+                                "iteration": state.iteration,
+                                "tool_calls": tool_calls_for_log,
+                                "tool_calls_count": len(tool_calls)
+                            },
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "TOOL_CALLS"
+                        }, ensure_ascii=False) + '\n')
+                except:
+                    pass
+                # #endregion
+                
                 if tool_calls and len(tool_calls) > 0:
                     # Берем первый tool_call (обычно один)
                     first_tool_call = tool_calls[0]
