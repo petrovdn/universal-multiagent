@@ -669,9 +669,12 @@ class UnifiedReActEngine:
                 # Fallback to ReAct if direct call fails
                 goal = f"Создай встречу '{tool_args['title']}' с участниками {attendees_str} на время {slot_start}"
         
-        # === Smart file resolution for follow-up questions ===
-        # Priority: 1) Conversation history, 2) Entity memory keywords, 3) General patterns
+        # === Упрощённая логика выбора файлов ===
+        # НОВЫЙ ПОДХОД: Всё в контекст + LLM сам разбирается
+        # file_ids используются только для оптимизации (включить полное содержимое конкретных файлов)
+        # Сводка ВСЕХ файлов всегда показывается в промпте, даже если file_ids пустые
         if not file_ids and context and hasattr(context, 'uploaded_files') and context.uploaded_files:
+            goal_lower = goal.lower()
             
             # #region agent log - начало разрешения файлов
             import json as _debug_json_file_resolve; import time as _debug_time_file_resolve
@@ -681,7 +684,7 @@ class UnifiedReActEngine:
                         "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_start",
                         "timestamp": int(_debug_time_file_resolve.time()*1000),
                         "location": "unified_react_engine.py:672",
-                        "message": "FILE RESOLUTION START",
+                        "message": "FILE RESOLUTION START (simplified)",
                         "data": {
                             "goal": goal,
                             "uploaded_files_count": len(context.uploaded_files),
@@ -696,221 +699,55 @@ class UnifiedReActEngine:
                 pass
             # #endregion
             
-            # NEW: Check if query has multiple parts (conjunction) - likely asking about multiple files
-            goal_lower = goal.lower()
+            # 1. Multi-part query (явный запрос про несколько файлов)
             multi_part_indicators = [' и ', ' а также ', ' ещё ', ' еще ', ' плюс ', ' потом ']
             is_multi_part_query = any(ind in goal_lower for ind in multi_part_indicators)
             
-            # If multi-part query AND multiple files in context - use ALL files
-            # This handles cases like "расскажи о годовом цикле И опиши спортивную форму"
-            # where different parts refer to different files
             if is_multi_part_query and len(context.uploaded_files) > 1:
                 file_ids = list(context.uploaded_files.keys())
                 logger.info(f"[execute] Multi-part query detected, using ALL {len(file_ids)} files: {file_ids}")
                 print(f"[execute] Multi-part query - using all files: {file_ids}", flush=True)
-                # #region agent log
-                try:
-                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
-                        _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
-                            "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_multi_part",
-                            "timestamp": int(_debug_time_file_resolve.time()*1000),
-                            "location": "unified_react_engine.py:684",
-                            "message": "FILE RESOLUTION: Multi-part query",
-                            "data": {"file_ids": file_ids, "is_multi_part": True},
-                            "sessionId": "debug-session",
-                            "runId": "run1",
-                            "hypothesisId": "FILE_RESOLUTION"
-                        }, ensure_ascii=False) + '\n')
-                except:
-                    pass
-                # #endregion
-            elif not file_ids:
-                # Only do smart resolution if multi-part didn't apply
-                # 1. First, try keyword-based resolution from entity_memory (PRIORITY - most specific)
-                # This should find the specific file mentioned in the query
-                relevant_ids = get_relevant_file_ids(goal, context)
+            # 2. General query (явный запрос про все файлы)
+            elif any(p in goal_lower for p in ['что видишь', 'что в файл', 'опиши файл', 'опиши все', 'про все файлы', 'во всех файлах', 'в файлах']):
+                file_ids = list(context.uploaded_files.keys())
+                logger.info(f"[execute] General query about files, using ALL {len(file_ids)} files: {file_ids}")
+                print(f"[execute] General query - using all files: {file_ids}", flush=True)
+            # 3. Ищем файлы из предыдущего ответа (для follow-up вопросов)
+            else:
+                # Ищем в последнем ответе ассистента
+                if hasattr(context, 'messages') and context.messages:
+                    for msg in reversed(context.messages[-10:]):
+                        if msg.get("role") == "assistant":
+                            metadata = msg.get("metadata", {})
+                            prev_source_files = metadata.get("source_files", [])
+                            if prev_source_files:
+                                file_ids = prev_source_files
+                                logger.info(f"[execute] Using files from previous response: {file_ids}")
+                                print(f"[execute] Using files from previous response: {file_ids}", flush=True)
+                                break
                 
-                if relevant_ids:
-                    # Found specific relevant files by keywords - use ONLY these
-                    file_ids = relevant_ids
-                    logger.info(f"[execute] Found {len(file_ids)} relevant files by keywords: {file_ids}")
-                    print(f"[execute] Found relevant files by keywords: {file_ids}", flush=True)
-                    # #region agent log
-                    try:
-                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
-                            _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
-                                "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_keywords",
-                                "timestamp": int(_debug_time_file_resolve.time()*1000),
-                                "location": "unified_react_engine.py:723",
-                                "message": "FILE RESOLUTION: Keyword match",
-                                "data": {"file_ids": file_ids, "method": "keyword_matching"},
-                                "sessionId": "debug-session",
-                                "runId": "run1",
-                                "hypothesisId": "FILE_RESOLUTION"
-                            }, ensure_ascii=False) + '\n')
-                    except:
-                        pass
-                    # #endregion
-                else:
-                    # 2. Search conversation history for references (fallback)
-                    # "расскажи про человека" → find where "человек" was mentioned → get source file
-                    history_source_files = find_source_for_reference(goal, context)
-                    
-                    if history_source_files:
-                        # Found source files from conversation history
-                        # CRITICAL FIX: If multiple files, ALWAYS try to narrow down by keyword matching
-                        # Don't use all files from history - user asked about specific file
-                        if len(history_source_files) > 1:
-                            # Try keyword matching again with more aggressive search
-                            keyword_matches = get_relevant_file_ids(goal, context)
-                            if keyword_matches:
-                                # Use intersection: files that are both in history AND match keywords
-                                relevant = [f for f in keyword_matches if f in history_source_files]
-                                if relevant:
-                                    file_ids = relevant
-                                    logger.info(f"[execute] Narrowed from {len(history_source_files)} to {len(file_ids)} files by keyword: {file_ids}")
-                                    print(f"[execute] Narrowed to relevant files: {file_ids}", flush=True)
-                                    # #region agent log
-                                    try:
-                                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
-                                            _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
-                                                "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_narrowed",
-                                                "timestamp": int(_debug_time_file_resolve.time()*1000),
-                                                "location": "unified_react_engine.py:703",
-                                                "message": "FILE RESOLUTION: Narrowed by keywords",
-                                                "data": {
-                                                    "history_files": history_source_files,
-                                                    "keyword_matches": keyword_matches,
-                                                    "final_file_ids": file_ids,
-                                                    "method": "history_intersection"
-                                                },
-                                                "sessionId": "debug-session",
-                                                "runId": "run1",
-                                                "hypothesisId": "FILE_RESOLUTION"
-                                            }, ensure_ascii=False) + '\n')
-                                    except:
-                                        pass
-                                    # #endregion
-                                else:
-                                    # No intersection - use keyword matches (more specific than history)
-                                    file_ids = keyword_matches
-                                    logger.info(f"[execute] Using keyword matches instead: {file_ids}")
-                                    print(f"[execute] Using keyword matches: {file_ids}", flush=True)
-                                    # #region agent log
-                                    try:
-                                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
-                                            _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
-                                                "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_keyword_fallback",
-                                                "timestamp": int(_debug_time_file_resolve.time()*1000),
-                                                "location": "unified_react_engine.py:708",
-                                                "message": "FILE RESOLUTION: Keyword fallback",
-                                                "data": {
-                                                    "history_files": history_source_files,
-                                                    "keyword_matches": keyword_matches,
-                                                    "final_file_ids": file_ids,
-                                                    "method": "keyword_fallback"
-                                                },
-                                                "sessionId": "debug-session",
-                                                "runId": "run1",
-                                                "hypothesisId": "FILE_RESOLUTION"
-                                            }, ensure_ascii=False) + '\n')
-                                    except:
-                                        pass
-                                    # #endregion
-                            else:
-                                # CRITICAL FIX: Don't use all files from history if no keyword match
-                                # User asked about specific file, but we couldn't find it
-                                # Better to use no files than wrong files
-                                file_ids = []
-                                logger.warning(f"[execute] Multiple files in history but no keyword match - using NO files to avoid wrong selection")
-                                print(f"[execute] WARNING: Multiple files in history but no keyword match - using NO files", flush=True)
-                                # #region agent log
-                                try:
-                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
-                                        _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
-                                            "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_no_match",
-                                            "timestamp": int(_debug_time_file_resolve.time()*1000),
-                                            "location": "unified_react_engine.py:713",
-                                            "message": "FILE RESOLUTION: No match found",
-                                            "data": {
-                                                "history_files": history_source_files,
-                                                "keyword_matches": [],
-                                                "final_file_ids": [],
-                                                "method": "no_match_fallback",
-                                                "reason": "Multiple files in history but no keyword match - avoiding wrong selection"
-                                            },
-                                            "sessionId": "debug-session",
-                                            "runId": "run1",
-                                            "hypothesisId": "FILE_RESOLUTION"
-                                        }, ensure_ascii=False) + '\n')
-                                except:
-                                    pass
-                                # #endregion
-                        else:
-                            # Single file from history
-                            file_ids = history_source_files
-                            logger.info(f"[execute] Found source file from history: {file_ids}")
-                            print(f"[execute] Found source from history: {file_ids}", flush=True)
-                            # #region agent log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
-                                    _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
-                                        "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_history_single",
-                                        "timestamp": int(_debug_time_file_resolve.time()*1000),
-                                        "location": "unified_react_engine.py:718",
-                                        "message": "FILE RESOLUTION: Single file from history",
-                                        "data": {"file_ids": file_ids, "method": "history_single"},
-                                        "sessionId": "debug-session",
-                                        "runId": "run1",
-                                        "hypothesisId": "FILE_RESOLUTION"
-                                    }, ensure_ascii=False) + '\n')
-                            except:
-                                pass
-                            # #endregion
-                    else:
-                        # 3. Check if query seems to be about files in general
-                        general_file_patterns = ['что видишь', 'что в файл', 'опиши файл', 'опиши все', 
-                                                'про все файлы', 'во всех файлах', 'в файлах']
-                        if any(p in goal_lower for p in general_file_patterns):
-                            # General query about all files
-                            file_ids = list(context.uploaded_files.keys())
-                            logger.info(f"[execute] Using ALL {len(file_ids)} files for general query")
-                            print(f"[execute] Using all files for general query: {file_ids}", flush=True)
-                            # #region agent log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
-                                    _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
-                                        "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_general",
-                                        "timestamp": int(_debug_time_file_resolve.time()*1000),
-                                        "location": "unified_react_engine.py:736",
-                                        "message": "FILE RESOLUTION: General query",
-                                        "data": {"file_ids": file_ids, "method": "general_pattern"},
-                                        "sessionId": "debug-session",
-                                        "runId": "run1",
-                                        "hypothesisId": "FILE_RESOLUTION"
-                                    }, ensure_ascii=False) + '\n')
-                            except:
-                                pass
-                            # #endregion
-                        else:
-                            logger.info(f"[execute] No relevant files found for query: {goal[:50]}")
-                            print(f"[execute] No relevant files found for query", flush=True)
-                            # #region agent log
-                            try:
-                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
-                                    _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
-                                        "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_none",
-                                        "timestamp": int(_debug_time_file_resolve.time()*1000),
-                                        "location": "unified_react_engine.py:740",
-                                        "message": "FILE RESOLUTION: No files",
-                                        "data": {"file_ids": [], "method": "no_match"},
-                                        "sessionId": "debug-session",
-                                        "runId": "run1",
-                                        "hypothesisId": "FILE_RESOLUTION"
-                                    }, ensure_ascii=False) + '\n')
-                            except:
-                                pass
-                            # #endregion
+                # Если не нашли в истории - оставляем file_ids пустым
+                # LLM увидит сводку всех файлов и сам разберется
+                if not file_ids:
+                    logger.info(f"[execute] No specific files identified - LLM will use file summary from context")
+                    print(f"[execute] No specific files - LLM will use file summary", flush=True)
+            
+            # #region agent log - результат разрешения
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
+                    _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
+                        "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_result",
+                        "timestamp": int(_debug_time_file_resolve.time()*1000),
+                        "location": "unified_react_engine.py:720",
+                        "message": "FILE RESOLUTION: Result",
+                        "data": {"file_ids": file_ids, "method": "simplified"},
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "FILE_RESOLUTION"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
         
         logger.info(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}, file_ids count: {len(file_ids)}")
         print(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}", flush=True)
@@ -5278,6 +5115,71 @@ if salary_sheet:
         
         return final_result
     
+    def _get_file_summaries_from_history(self, context: ConversationContext) -> Dict[str, str]:
+        """
+        Извлекает описания файлов из предыдущих ответов ассистента.
+        
+        Ищет в истории сообщений, где файлы были упомянуты, и извлекает
+        их описания для использования в сводке.
+        
+        Returns:
+            Dict[file_id: str, description: str] - описания файлов
+        """
+        file_summaries = {}
+        
+        if not context or not hasattr(context, 'messages'):
+            return file_summaries
+        
+        # Ищем в последних ответах ассистента (обратный порядок - от новых к старым)
+        for msg in reversed(context.messages):
+            if msg.get("role") != "assistant":
+                continue
+            
+            metadata = msg.get("metadata", {})
+            source_files = metadata.get("source_files", [])
+            content = msg.get("content", "")
+            
+            if not source_files or not content:
+                continue
+            
+            # Пытаемся найти описания файлов в тексте ответа
+            # Ищем паттерны типа "Файл: filename - описание" или "Изображение: filename - описание"
+            import re
+            
+            # Простой паттерн: ищем упоминания имен файлов и текст после них
+            for file_id in source_files:
+                if file_id in file_summaries:
+                    continue  # Уже нашли описание
+                
+                file_data = context.get_file(file_id)
+                if not file_data:
+                    continue
+                
+                filename = file_data.get('filename', '')
+                if not filename:
+                    continue
+                
+                # Ищем упоминание файла в тексте
+                filename_base = filename.rsplit('.', 1)[0]  # Без расширения
+                
+                # Паттерны для поиска описания
+                patterns = [
+                    rf"{re.escape(filename)}[:\-]\s*([^\.]+(?:\.[^\.]+)*)",
+                    rf"{re.escape(filename_base)}[:\-]\s*([^\.]+(?:\.[^\.]+)*)",
+                    rf"Изображение.*?{re.escape(filename)}[:\-]\s*([^\.]+(?:\.[^\.]+)*)",
+                    rf"PDF.*?{re.escape(filename)}[:\-]\s*([^\.]+(?:\.[^\.]+)*)",
+                ]
+                
+                for pattern in patterns:
+                    match = re.search(pattern, content, re.IGNORECASE)
+                    if match:
+                        description = match.group(1).strip()
+                        if len(description) > 10:  # Минимальная длина описания
+                            file_summaries[file_id] = description
+                            break
+        
+        return file_summaries
+    
     async def _think_and_plan(
         self,
         state: ReActState,
@@ -5521,29 +5423,77 @@ if salary_sheet:
 {chr(10).join(files_lines)}
 </open_files>"""
         
-        # Прикреплённые файлы
-        if file_ids:
-            uploaded_files_found = []
-            for file_id in file_ids:
-                file_data = context.get_file(file_id)
-                if file_data:
-                    uploaded_files_found.append(file_data)
+        # Прикреплённые файлы - НОВЫЙ ПОДХОД: всё в контекст + LLM сам разбирается
+        # 1. Всегда показываем сводку ВСЕХ файлов из сессии
+        # 2. Полное содержимое только тех файлов, которые были упомянуты в предыдущем ответе
+        if hasattr(context, 'uploaded_files') and context.uploaded_files:
+            # Получаем описания файлов из предыдущих ответов
+            file_summaries = self._get_file_summaries_from_history(context)
             
-            if uploaded_files_found:
-                files_content = []
-                for file_data in uploaded_files_found:
-                    filename = file_data.get('filename', 'unknown')
-                    file_type = file_data.get('type', '')
-                    if 'text' in file_data:
-                        text = file_data.get('text', '')[:3000]
-                        files_content.append(f"Файл: {filename}\n{text}")
-                    else:
-                        files_content.append(f"Файл: {filename} (тип: {file_type})")
+            # Определяем, какие файлы нужно включить полностью
+            # Приоритет: 1) файлы из file_ids (явно запрошены), 2) файлы из предыдущего ответа
+            files_to_include_fully = set(file_ids) if file_ids else set()
+            
+            # Ищем файлы из предыдущего ответа
+            if hasattr(context, 'messages') and context.messages:
+                for msg in reversed(context.messages[-10:]):  # Последние 10 сообщений
+                    if msg.get("role") == "assistant":
+                        metadata = msg.get("metadata", {})
+                        prev_source_files = metadata.get("source_files", [])
+                        if prev_source_files:
+                            files_to_include_fully.update(prev_source_files)
+                            break  # Берем только из последнего ответа
+            
+            # Формируем сводку всех файлов
+            all_files_summary = []
+            files_full_content = []
+            
+            for file_id, file_data in context.uploaded_files.items():
+                filename = file_data.get('filename', 'unknown')
+                file_type = file_data.get('type', '')
                 
-                context_section += f"""
+                # Получаем описание из истории или создаем базовое
+                description = file_summaries.get(file_id, '')
+                if not description:
+                    if file_type.startswith('image/'):
+                        description = 'Изображение'
+                    elif file_type == 'application/pdf':
+                        description = 'PDF документ'
+                    else:
+                        description = f'Файл ({file_type})'
+                
+                # Добавляем в сводку
+                all_files_summary.append(f"{len(all_files_summary) + 1}. {filename} — {description}")
+                
+                # Если файл нужно включить полностью - добавляем его содержимое
+                if file_id in files_to_include_fully:
+                    if 'text' in file_data:
+                        text = file_data.get('text', '')
+                        files_full_content.append(f"=== {filename} ===\n{text}")
+                    elif file_type.startswith('image/'):
+                        files_full_content.append(f"=== {filename} ===\n[Изображение включено в сообщение]")
+                    else:
+                        files_full_content.append(f"=== {filename} ===\n[Файл типа {file_type}]")
+            
+            # Формируем секцию
+            context_section += f"""
 <attached_files>
-{chr(10).join(files_content)}
-НЕ используй open_file для этих файлов - их содержимое УЖЕ выше!
+📎 ДОСТУПНЫЕ ФАЙЛЫ В СЕССИИ:
+{chr(10).join(all_files_summary)}
+
+"""
+            
+            if files_full_content:
+                context_section += f"""📄 ПОЛНОЕ СОДЕРЖИМОЕ ФАЙЛОВ (для детального анализа):
+{chr(10).join(files_full_content)}
+
+"""
+            
+            context_section += """💡 ИНСТРУКЦИЯ:
+- Если пользователь спрашивает про конкретный файл - используй его полное содержимое выше
+- Если пользователь спрашивает про несколько файлов - используй соответствующие файлы
+- Если нужна информация о файле, которого нет в полном содержимом - обратись к нему по имени из сводки
+- НЕ используй open_file для этих файлов - их содержимое УЖЕ выше или доступно по имени!
 </attached_files>"""
         
         # ===== СЕКЦИЯ 5: AVAILABLE_TOOLS (только релевантные!) =====
