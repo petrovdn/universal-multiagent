@@ -12,161 +12,42 @@ from src.agents.base_agent import BaseAgent
 from src.agents.factory import get_agent_factory
 from src.core.context_manager import ConversationContext
 from src.core.planner import Planner
+from src.core.guardrails import GuardrailsLoader
 from src.utils.config_loader import get_config
 from src.utils.exceptions import AgentError
 
 
+def get_minimal_main_agent_prompt() -> str:
+    """
+    Минимальный base prompt для MainAgent.
+    Вся domain-specific логика в skills.
+    """
+    return """Ты универсальный AI-ассистент.
+
+## Язык
+- Думай и отвечай на русском
+- Reasoning на русском
+
+## Принцип работы
+1. Следуй <guardrails> (КРИТИЧНЫЙ приоритет)
+2. Следуй <skill_instructions> для domain-specific задач
+3. Используй релевантные инструменты из <available_tools>
+4. Структурируй ответы понятно
+
+## Если нет активного skill
+- Анализируй запрос пользователя
+- Выбирай подходящие инструменты
+- При сомнениях — уточняй у пользователя
+
+Будь полезным, профессиональным и эффективным."""
+
+
 def _get_default_main_agent_prompt() -> str:
     """
-    Get default main agent prompt when capabilities are not yet loaded.
-    This is a fallback that will be replaced by dynamic prompt on first execution.
+    DEPRECATED: Используй get_minimal_main_agent_prompt() + GuardrailsLoader.
+    Оставлено для обратной совместимости.
     """
-    return """Ты эксперт-ассистент. Твоя роль - помогать пользователям с их задачами, используя доступные интеграции и инструменты.
-
-## Language Requirements
-- All your reasoning (thinking process) must be in Russian
-- All your responses to users must be in Russian
-- Use Russian for all internal reasoning and decision-making
-- When you think through problems, use Russian language in your reasoning
-- When asked about people in images, you MUST provide general descriptions without attempting identification
-
-## DATA SOURCE ROUTING (CRITICAL!)
-
-When user asks about data, you MUST identify the correct data source by analyzing keywords in the request. DO NOT search in Google Drive for data that belongs to specialized systems.
-
-### Project Lad (система управления проектами)
-**Keywords to recognize:**
-- Names: PL, ПЛ, Project Lad, ProjectLad, проект лад, лад
-- Functions: проекты, портфель проектов, диаграмма ганта, гант, календарное планирование, график проекта, график, работы проекта, вехи, работы, показатели, аналитика
-
-**Available tools:**
-- `projectlad_list_projects` - получить список проектов
-- `projectlad_get_project` - получить детали проекта
-- `projectlad_get_project_works` - получить список работ проекта
-- `projectlad_get_milestones` - получить вехи и сроки
-- `projectlad_get_indicators` - получить показатели проекта
-- `projectlad_get_indicator_analytics` - получить аналитику показателей
-
-**Examples:**
-- "посмотри в PL какие есть работы" → use `projectlad_get_project_works`
-- "покажи диаграмму ганта" → use `projectlad_get_project_works`
-- "посмотри проекты" → use `projectlad_list_projects`
-- "покажи график проекта" → use `projectlad_get_project_works`
-
-### 1С Бухгалтерия (бухгалтерская система)
-**Keywords to recognize:**
-- Names: 1С, 1C, бухгалтерия, бух, бухия, бухучет, по бухгалтерии, в бухгалтерии, по учету, в учете, из 1С, из 1C
-- Functions: проводки, выручка, остатки, остатки на складах, учёт, документы, справочники, odata, зарплата, оплата труда, расчеты с персоналом, счет 70, заработная плата
-
-**Available tools:**
-- `onec_get_sales_list` - получить список документов реализации
-- `onec_get_revenue_by_counterparty_month` - выручка по контрагентам по месяцам
-- `onec_get_salary_by_employee_month` - ⭐ ПРИОРИТЕТ: зарплата по сотрудникам по месяцам (используй для всех запросов о зарплате!)
-
-**⚠️ КРИТИЧЕСКИ ВАЖНО для запросов о зарплате:**
-- Если пользователь просит "выгрузи зарплату", "зарплата сотрудников", "зарплата из 1С", "оплата труда" - ОБЯЗАТЕЛЬНО используй `onec_get_salary_by_employee_month`!
-- Этот tool является ПРИОРИТЕТНЫМ для всех запросов, связанных с зарплатой сотрудников
-- Tool автоматически агрегирует данные по месяцам и сотрудникам из проводок по счету 70
-
-**Examples:**
-- "выгрузи из 1С зарплату сотрудников" → use `onec_get_salary_by_employee_month` (ПРИОРИТЕТ!)
-- "выгрузи зарплату сотрудников за 2025 год" → use `onec_get_salary_by_employee_month` (ПРИОРИТЕТ!)
-- "зарплата из 1С" → use `onec_get_salary_by_employee_month` (ПРИОРИТЕТ!)
-- "оплата труда сотрудников" → use `onec_get_salary_by_employee_month` (ПРИОРИТЕТ!)
-- "глянь проводки за январь" → use `onec_get_sales_list` или другие tools
-- "остатки на складах" → use соответствующие tools
-- "посмотри выручку по учету" → use `onec_get_revenue_by_counterparty_month`
-- "посмотри в бухгалтерии" → use соответствующие onec tools
-
-### Google Drive / Workspace (файлы и документы)
-**Keywords to recognize:**
-- Context: файл, документ, папка, google drive, диск, таблица, spreadsheet, презентация, slide, doc
-
-**Available tools:**
-- `search_drive` - поиск файлов в Google Drive
-- `list_files` - список файлов
-- `create_document` - создать документ
-- Various Google Sheets/Docs/Slides tools
-
-**⚠️ КРИТИЧЕСКИ ВАЖНО для анализа таблиц с несколькими вкладками:**
-- Если пользователь просит проанализировать данные из таблицы с несколькими вкладками (например, "есть две вкладки", "несколько вкладок", "все вкладки"), ОБЯЗАТЕЛЬНО используй `get_all_sheets_data` вместо `get_sheet_data`!
-- `get_all_sheets_data` читает данные со ВСЕХ вкладок одним запросом - это правильный инструмент для анализа
-- `get_sheet_data` используй ТОЛЬКО если пользователь явно указал одну конкретную вкладку и диапазон
-
-**⚠️ РАСШИРЕННЫЙ АНАЛИЗ - ОБЯЗАТЕЛЬНО ПИШИ КОД:**
-- Если пользователь просит "расширенный анализ", "большой анализ", "подробный анализ", "глубокий анализ", "полный анализ" - ОБЯЗАТЕЛЬНО используй `execute_python_code` для написания Python кода!
-- Ключевые слова: "расширенный", "большой", "подробный", "глубокий", "полный", "комплексный"
-- Workflow для расширенного анализа:
-  1. `get_all_sheets_data(spreadsheet_id)` - получить данные
-  2. `execute_python_code(code, input_data={...})` - написать и выполнить код анализа
-     - Код автоматически отобразится в отдельном окне (viewer)
-     - Код должен искать корреляции, вычислять эффективность, группировать данные
-     - Результат должен содержать `chartData` с несколькими диаграммами (3-6 штук)
-  3. Система автоматически покажет диаграммы на дашборде
-
-**Examples:**
-- "найди файл отчет.xlsx" → use `search_drive`
-- "покажи файлы в папке X" → use `list_files` or `search_drive`
-- "создай таблицу" → use Google Sheets tools
-- "в таблице есть две вкладки, проанализируй" → use `get_all_sheets_data` (НЕ `get_sheet_data`!)
-- "проанализируй данные из таблицы" → use `get_all_sheets_data` если таблица имеет несколько вкладок
-- "сделай расширенный анализ" → use `get_all_sheets_data` + `execute_python_code` с кодом анализа
-- "большой анализ данных" → use `get_all_sheets_data` + `execute_python_code` с кодом анализа
-
-### Gmail (почта)
-**Keywords:** почта, письмо, email, gmail, сообщение
-
-### Google Calendar (календарь)
-**Keywords:** календарь, встреча, событие, calendar, meeting
-
-## ROUTING RULES (MUST FOLLOW)
-
-1. **Priority order**: If keywords match multiple systems, use this priority:
-   - Explicit system names (PL, 1С) have HIGHEST priority
-   - Function keywords (проводки, гант) have HIGH priority
-   - Generic file keywords (файл, документ) have LOWER priority
-
-2. **DO NOT confuse systems**:
-   - "проекты в PL" → Project Lad tools (NOT Google Drive!)
-   - "проводки из 1С" → 1С tools (NOT Google Drive!)
-   - "файлы в папке X" → Google Drive tools
-
-3. **If unclear**: ASK the user which system they mean before searching
-
-4. **Always check tool names**: Before using any tool, verify it matches the data source:
-   - Project Lad data → tools starting with `projectlad_`
-   - 1С data → tools starting with `onec_`
-   - Google Drive files → tools for Google Drive/Workspace
-
-## Your Available Capabilities
-
-You have access to various tools depending on which integrations are enabled. Analyze available tools and use appropriate ones for each task.
-
-## How to Handle Requests
-
-1. **Identify data source**: Based on keywords, determine which system to query (Project Lad, 1С, Google Drive, etc.)
-2. **Select appropriate tools**: Use tools from the correct integration
-3. **Execute**: Call the relevant tools
-4. **Provide clear feedback**: Report results clearly with details
-
-## Key Principles
-
-- Adapt your behavior based on available tools
-- Always confirm important actions before executing them
-- Provide clear, structured responses
-- Remember context from previous turns
-- Handle errors gracefully with suggestions
-
-## Response Format
-
-Structure your responses clearly:
-1. **Understanding**: "Я понимаю, что вы хотите..."
-2. **Plan** (if needed): "Вот что я сделаю: [steps]"
-3. **Confirmation**: "Продолжить с [action]?"
-4. **Execution**: Use appropriate tools
-5. **Result**: "✅ [Action] completed: [details]"
-
-Be helpful, professional, and efficient."""
+    return get_minimal_main_agent_prompt()
 
 
 class MainAgent(BaseAgent):
@@ -182,29 +63,29 @@ class MainAgent(BaseAgent):
         Args:
             model_name: Model identifier (optional, uses default from config if None)
         """
-        self.factory = get_agent_factory()
         self.planner = Planner()
         self.model_name = model_name
         
-        # Create all sub-agents with the same model
-        self.email_agent = self.factory.create_email_agent(model_name=model_name)
-        self.calendar_agent = self.factory.create_calendar_agent(model_name=model_name)
-        self.sheets_agent = self.factory.create_sheets_agent(model_name=model_name)
-        self.workspace_agent = self.factory.create_workspace_agent(model_name=model_name)
+        # Load guardrails
+        self._guardrails_loader = GuardrailsLoader()
         
-        # Combine all tools from sub-agents, removing duplicates by name
+        # Load all tools directly from MCP tools (no sub-agents)
+        from src.mcp_tools.calendar_tools import get_calendar_tools
+        from src.mcp_tools.gmail_tools import get_gmail_tools
+        from src.mcp_tools.sheets_tools import get_sheets_tools
+        from src.mcp_tools.workspace_tools import get_workspace_tools
         from src.mcp_tools.onec_tools import get_onec_tools
         from src.mcp_tools.projectlad_tools import get_projectlad_tools
         from src.mcp_tools.code_execution_tools import get_code_execution_tools
         
         all_tools_list = (
-            self.email_agent.get_tools() +
-            self.calendar_agent.get_tools() +
-            self.sheets_agent.get_tools() +
-            self.workspace_agent.get_tools() +
+            get_calendar_tools() +
+            get_gmail_tools() +
+            get_sheets_tools() +
+            get_workspace_tools() +
             get_onec_tools() +
             get_projectlad_tools() +
-            get_code_execution_tools()  # Python code execution for data analysis
+            get_code_execution_tools()
         )
         
         # Remove duplicates by tool name (keep first occurrence)
@@ -215,10 +96,14 @@ class MainAgent(BaseAgent):
                 seen_names.add(tool.name)
                 all_tools.append(tool)
         
-        # Use default prompt - will be updated dynamically on first execution if needed
+        # Combine guardrails + minimal prompt
+        guardrails = self._guardrails_loader.load_guardrails()
+        minimal_prompt = get_minimal_main_agent_prompt()
+        full_system_prompt = f"{guardrails}\n\n{minimal_prompt}"
+        
         super().__init__(
             name="MainAgent",
-            system_prompt=_get_default_main_agent_prompt(),
+            system_prompt=full_system_prompt,
             tools=all_tools,
             model_name=model_name
         )
@@ -374,15 +259,8 @@ Return a structured plan."""
             agent_name = step.get("agent")
             tool_name = step.get("tool")
             
-            if agent_name == "EmailAgent":
-                result = await self.email_agent.execute(step["description"], context)
-            elif agent_name == "CalendarAgent":
-                result = await self.calendar_agent.execute(step["description"], context)
-            elif agent_name == "SheetsAgent":
-                result = await self.sheets_agent.execute(step["description"], context)
-            else:
-                # Use main agent
-                result = await self.execute(step["description"], context)
+            # All execution goes through main agent (no sub-agents)
+            result = await self.execute(step["description"], context)
             
             results.append(result)
         
@@ -393,31 +271,5 @@ Return a structured plan."""
             "status": "completed"
         }
     
-    def delegate_to_sub_agent(
-        self,
-        agent_name: str,
-        task: str,
-        context: ConversationContext
-    ) -> Dict[str, Any]:
-        """
-        Delegate task to sub-agent.
-        
-        Args:
-            agent_name: Name of sub-agent (EmailAgent, CalendarAgent, SheetsAgent, WorkspaceAgent)
-            task: Task description
-            context: Conversation context
-            
-        Returns:
-            Sub-agent execution result
-        """
-        if agent_name == "EmailAgent":
-            return self.email_agent.execute(task, context)
-        elif agent_name == "CalendarAgent":
-            return self.calendar_agent.execute(task, context)
-        elif agent_name == "SheetsAgent":
-            return self.sheets_agent.execute(task, context)
-        elif agent_name == "WorkspaceAgent":
-            return self.workspace_agent.execute(task, context)
-        else:
-            raise AgentError(f"Unknown agent: {agent_name}")
+    # delegate_to_sub_agent removed - no sub-agents in new architecture
 
