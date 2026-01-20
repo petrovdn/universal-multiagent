@@ -673,6 +673,29 @@ class UnifiedReActEngine:
         # Priority: 1) Conversation history, 2) Entity memory keywords, 3) General patterns
         if not file_ids and context and hasattr(context, 'uploaded_files') and context.uploaded_files:
             
+            # #region agent log - начало разрешения файлов
+            import json as _debug_json_file_resolve; import time as _debug_time_file_resolve
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
+                    _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
+                        "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_start",
+                        "timestamp": int(_debug_time_file_resolve.time()*1000),
+                        "location": "unified_react_engine.py:672",
+                        "message": "FILE RESOLUTION START",
+                        "data": {
+                            "goal": goal,
+                            "uploaded_files_count": len(context.uploaded_files),
+                            "uploaded_file_ids": list(context.uploaded_files.keys()),
+                            "uploaded_file_names": [f.get('filename', 'unknown') for f in context.uploaded_files.values()]
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "FILE_RESOLUTION"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
+            
             # NEW: Check if query has multiple parts (conjunction) - likely asking about multiple files
             goal_lower = goal.lower()
             multi_part_indicators = [' и ', ' а также ', ' ещё ', ' еще ', ' плюс ', ' потом ']
@@ -685,48 +708,165 @@ class UnifiedReActEngine:
                 file_ids = list(context.uploaded_files.keys())
                 logger.info(f"[execute] Multi-part query detected, using ALL {len(file_ids)} files: {file_ids}")
                 print(f"[execute] Multi-part query - using all files: {file_ids}", flush=True)
+                # #region agent log
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
+                        _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
+                            "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_multi_part",
+                            "timestamp": int(_debug_time_file_resolve.time()*1000),
+                            "location": "unified_react_engine.py:684",
+                            "message": "FILE RESOLUTION: Multi-part query",
+                            "data": {"file_ids": file_ids, "is_multi_part": True},
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "FILE_RESOLUTION"
+                        }, ensure_ascii=False) + '\n')
+                except:
+                    pass
+                # #endregion
             elif not file_ids:
                 # Only do smart resolution if multi-part didn't apply
-                # 1. First, search conversation history for references
-                # "расскажи про человека" → find where "человек" was mentioned → get source file
-                history_source_files = find_source_for_reference(goal, context)
+                # 1. First, try keyword-based resolution from entity_memory (PRIORITY - most specific)
+                # This should find the specific file mentioned in the query
+                relevant_ids = get_relevant_file_ids(goal, context)
                 
-                if history_source_files:
-                    # Found source files from conversation history
-                    # If multiple files, try to narrow down by keyword matching
-                    if len(history_source_files) > 1:
-                        keyword_matches = get_relevant_file_ids(goal, context)
-                        if keyword_matches:
-                            # Use intersection: files that are both in history AND match keywords
-                            relevant = [f for f in keyword_matches if f in history_source_files]
-                            if relevant:
-                                file_ids = relevant
-                                logger.info(f"[execute] Narrowed from {len(history_source_files)} to {len(file_ids)} files by keyword: {file_ids}")
-                                print(f"[execute] Narrowed to relevant files: {file_ids}", flush=True)
-                            else:
-                                # No intersection, use keyword matches directly
-                                file_ids = keyword_matches
-                                logger.info(f"[execute] Using keyword matches instead: {file_ids}")
-                                print(f"[execute] Using keyword matches: {file_ids}", flush=True)
-                        else:
-                            # No keyword matches, use all from history
-                            file_ids = history_source_files
-                            logger.info(f"[execute] Using all {len(file_ids)} source files from history: {file_ids}")
-                            print(f"[execute] Using all files from history: {file_ids}", flush=True)
-                    else:
-                        # Single file from history
-                        file_ids = history_source_files
-                        logger.info(f"[execute] Found source file from history: {file_ids}")
-                        print(f"[execute] Found source from history: {file_ids}", flush=True)
+                if relevant_ids:
+                    # Found specific relevant files by keywords - use ONLY these
+                    file_ids = relevant_ids
+                    logger.info(f"[execute] Found {len(file_ids)} relevant files by keywords: {file_ids}")
+                    print(f"[execute] Found relevant files by keywords: {file_ids}", flush=True)
+                    # #region agent log
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
+                            _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
+                                "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_keywords",
+                                "timestamp": int(_debug_time_file_resolve.time()*1000),
+                                "location": "unified_react_engine.py:723",
+                                "message": "FILE RESOLUTION: Keyword match",
+                                "data": {"file_ids": file_ids, "method": "keyword_matching"},
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "FILE_RESOLUTION"
+                            }, ensure_ascii=False) + '\n')
+                    except:
+                        pass
+                    # #endregion
                 else:
-                    # 2. Try keyword-based resolution from entity_memory
-                    relevant_ids = get_relevant_file_ids(goal, context)
+                    # 2. Search conversation history for references (fallback)
+                    # "расскажи про человека" → find where "человек" was mentioned → get source file
+                    history_source_files = find_source_for_reference(goal, context)
                     
-                    if relevant_ids:
-                        # Found specific relevant files by keywords
-                        file_ids = relevant_ids
-                        logger.info(f"[execute] Found {len(file_ids)} relevant files by keywords: {file_ids}")
-                        print(f"[execute] Found relevant files by keywords: {file_ids}", flush=True)
+                    if history_source_files:
+                        # Found source files from conversation history
+                        # CRITICAL FIX: If multiple files, ALWAYS try to narrow down by keyword matching
+                        # Don't use all files from history - user asked about specific file
+                        if len(history_source_files) > 1:
+                            # Try keyword matching again with more aggressive search
+                            keyword_matches = get_relevant_file_ids(goal, context)
+                            if keyword_matches:
+                                # Use intersection: files that are both in history AND match keywords
+                                relevant = [f for f in keyword_matches if f in history_source_files]
+                                if relevant:
+                                    file_ids = relevant
+                                    logger.info(f"[execute] Narrowed from {len(history_source_files)} to {len(file_ids)} files by keyword: {file_ids}")
+                                    print(f"[execute] Narrowed to relevant files: {file_ids}", flush=True)
+                                    # #region agent log
+                                    try:
+                                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
+                                            _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
+                                                "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_narrowed",
+                                                "timestamp": int(_debug_time_file_resolve.time()*1000),
+                                                "location": "unified_react_engine.py:703",
+                                                "message": "FILE RESOLUTION: Narrowed by keywords",
+                                                "data": {
+                                                    "history_files": history_source_files,
+                                                    "keyword_matches": keyword_matches,
+                                                    "final_file_ids": file_ids,
+                                                    "method": "history_intersection"
+                                                },
+                                                "sessionId": "debug-session",
+                                                "runId": "run1",
+                                                "hypothesisId": "FILE_RESOLUTION"
+                                            }, ensure_ascii=False) + '\n')
+                                    except:
+                                        pass
+                                    # #endregion
+                                else:
+                                    # No intersection - use keyword matches (more specific than history)
+                                    file_ids = keyword_matches
+                                    logger.info(f"[execute] Using keyword matches instead: {file_ids}")
+                                    print(f"[execute] Using keyword matches: {file_ids}", flush=True)
+                                    # #region agent log
+                                    try:
+                                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
+                                            _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
+                                                "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_keyword_fallback",
+                                                "timestamp": int(_debug_time_file_resolve.time()*1000),
+                                                "location": "unified_react_engine.py:708",
+                                                "message": "FILE RESOLUTION: Keyword fallback",
+                                                "data": {
+                                                    "history_files": history_source_files,
+                                                    "keyword_matches": keyword_matches,
+                                                    "final_file_ids": file_ids,
+                                                    "method": "keyword_fallback"
+                                                },
+                                                "sessionId": "debug-session",
+                                                "runId": "run1",
+                                                "hypothesisId": "FILE_RESOLUTION"
+                                            }, ensure_ascii=False) + '\n')
+                                    except:
+                                        pass
+                                    # #endregion
+                            else:
+                                # CRITICAL FIX: Don't use all files from history if no keyword match
+                                # User asked about specific file, but we couldn't find it
+                                # Better to use no files than wrong files
+                                file_ids = []
+                                logger.warning(f"[execute] Multiple files in history but no keyword match - using NO files to avoid wrong selection")
+                                print(f"[execute] WARNING: Multiple files in history but no keyword match - using NO files", flush=True)
+                                # #region agent log
+                                try:
+                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
+                                        _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
+                                            "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_no_match",
+                                            "timestamp": int(_debug_time_file_resolve.time()*1000),
+                                            "location": "unified_react_engine.py:713",
+                                            "message": "FILE RESOLUTION: No match found",
+                                            "data": {
+                                                "history_files": history_source_files,
+                                                "keyword_matches": [],
+                                                "final_file_ids": [],
+                                                "method": "no_match_fallback",
+                                                "reason": "Multiple files in history but no keyword match - avoiding wrong selection"
+                                            },
+                                            "sessionId": "debug-session",
+                                            "runId": "run1",
+                                            "hypothesisId": "FILE_RESOLUTION"
+                                        }, ensure_ascii=False) + '\n')
+                                except:
+                                    pass
+                                # #endregion
+                        else:
+                            # Single file from history
+                            file_ids = history_source_files
+                            logger.info(f"[execute] Found source file from history: {file_ids}")
+                            print(f"[execute] Found source from history: {file_ids}", flush=True)
+                            # #region agent log
+                            try:
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
+                                    _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
+                                        "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_history_single",
+                                        "timestamp": int(_debug_time_file_resolve.time()*1000),
+                                        "location": "unified_react_engine.py:718",
+                                        "message": "FILE RESOLUTION: Single file from history",
+                                        "data": {"file_ids": file_ids, "method": "history_single"},
+                                        "sessionId": "debug-session",
+                                        "runId": "run1",
+                                        "hypothesisId": "FILE_RESOLUTION"
+                                    }, ensure_ascii=False) + '\n')
+                            except:
+                                pass
+                            # #endregion
                     else:
                         # 3. Check if query seems to be about files in general
                         general_file_patterns = ['что видишь', 'что в файл', 'опиши файл', 'опиши все', 
@@ -736,9 +876,41 @@ class UnifiedReActEngine:
                             file_ids = list(context.uploaded_files.keys())
                             logger.info(f"[execute] Using ALL {len(file_ids)} files for general query")
                             print(f"[execute] Using all files for general query: {file_ids}", flush=True)
+                            # #region agent log
+                            try:
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
+                                    _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
+                                        "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_general",
+                                        "timestamp": int(_debug_time_file_resolve.time()*1000),
+                                        "location": "unified_react_engine.py:736",
+                                        "message": "FILE RESOLUTION: General query",
+                                        "data": {"file_ids": file_ids, "method": "general_pattern"},
+                                        "sessionId": "debug-session",
+                                        "runId": "run1",
+                                        "hypothesisId": "FILE_RESOLUTION"
+                                    }, ensure_ascii=False) + '\n')
+                            except:
+                                pass
+                            # #endregion
                         else:
                             logger.info(f"[execute] No relevant files found for query: {goal[:50]}")
                             print(f"[execute] No relevant files found for query", flush=True)
+                            # #region agent log
+                            try:
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_file_resolve:
+                                    _debug_f_file_resolve.write(_debug_json_file_resolve.dumps({
+                                        "id": f"log_{int(_debug_time_file_resolve.time()*1000)}_file_resolution_none",
+                                        "timestamp": int(_debug_time_file_resolve.time()*1000),
+                                        "location": "unified_react_engine.py:740",
+                                        "message": "FILE RESOLUTION: No files",
+                                        "data": {"file_ids": [], "method": "no_match"},
+                                        "sessionId": "debug-session",
+                                        "runId": "run1",
+                                        "hypothesisId": "FILE_RESOLUTION"
+                                    }, ensure_ascii=False) + '\n')
+                            except:
+                                pass
+                            # #endregion
         
         logger.info(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}, file_ids count: {len(file_ids)}")
         print(f"[execute] Starting execution - goal: {goal[:100]}, file_ids: {file_ids}", flush=True)

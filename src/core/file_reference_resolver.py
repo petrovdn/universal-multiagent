@@ -315,18 +315,34 @@ def find_source_for_reference(query: str, context: "ConversationContext") -> Lis
             continue
         
         # Check if any query keyword appears in the message content
+        matched_keywords = []
         for keyword in query_keywords:
             keyword_lower = keyword.lower()
             keyword_stem = get_word_stem(keyword_lower)
             
             # Check for exact match or stem match in content
             if keyword_lower in content:
+                matched_keywords.append(keyword)
+                # CRITICAL FIX: If multiple files, try to filter by entity_memory
+                if len(source_files) > 1 and hasattr(context, 'entity_memory') and context.entity_memory:
+                    # Try to find the most relevant file using entity_memory
+                    resolved_id = resolve_file_reference(query, context.entity_memory)
+                    if resolved_id and resolved_id in source_files:
+                        # Found specific file - return only that one
+                        return [resolved_id]
+                # If single file or couldn't narrow down, return all (legacy behavior)
                 return source_files
             
             # Check for stem match
             content_words = set(re.findall(r'[а-яёА-ЯЁa-zA-Z]+', content))
             for content_word in content_words:
                 if get_word_stem(content_word) == keyword_stem and len(keyword_stem) >= 4:
+                    matched_keywords.append(keyword)
+                    # CRITICAL FIX: If multiple files, try to filter by entity_memory
+                    if len(source_files) > 1 and hasattr(context, 'entity_memory') and context.entity_memory:
+                        resolved_id = resolve_file_reference(query, context.entity_memory)
+                        if resolved_id and resolved_id in source_files:
+                            return [resolved_id]
                     return source_files
         
         # Also check against extracted_entities in metadata
@@ -336,6 +352,11 @@ def find_source_for_reference(query: str, context: "ConversationContext") -> Lis
             for entity in extracted_entities:
                 entity_stem = get_word_stem(entity.lower())
                 if keyword_stem == entity_stem or keyword.lower() in entity.lower():
+                    # CRITICAL FIX: If multiple files, try to filter by entity_memory
+                    if len(source_files) > 1 and hasattr(context, 'entity_memory') and context.entity_memory:
+                        resolved_id = resolve_file_reference(query, context.entity_memory)
+                        if resolved_id and resolved_id in source_files:
+                            return [resolved_id]
                     return source_files
     
     return []
