@@ -733,9 +733,6 @@ export function ChatInterface() {
 
     // Add user message immediately to show it in UI
     const userMsgTimestamp = new Date().toISOString()
-    // #region debug log
-    fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:701',message:'handleSend: adding user message',data:{userMsgTimestamp,userMessage:userMessage.substring(0,50),currentMessagesCount:messages.length,currentUserMessagesCount:messages.filter(m => m.role === 'user').length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
     addMessage({
       role: 'user',
       content: userMessage,
@@ -762,14 +759,7 @@ export function ChatInterface() {
     // Mark agent as typing
     setAgentTyping(true)
     
-    // Показываем "Думаю..." через 0.5 секунды (если intent не появится раньше)
-    setTimeout(() => {
-      // Проверяем что всё ещё в процессе отправки и нет intent'ов
-      const state = useChatStore.getState()
-      if (state.isAgentTyping && !state.activeIntentId) {
-        setShowThinkingIndicator(true)
-      }
-    }, 500)
+    // Убрали показ "Думаю..." индикатора - IterationBlock уже показывает "Думаю (1с)"
 
     try {
       // Try WebSocket first if session exists and connection is open
@@ -1171,13 +1161,7 @@ export function ChatInterface() {
                     
                     return (
                       <div className="intent-blocks-section">
-                        {/* Показываем "Думаю..." только если нет блоков */}
-                        {shouldShowThinking && !hasIntentBlocks && (
-                          <div className="thinking-indicator">
-                            <span className="thinking-indicator-text">Думаю</span>
-                            <span className="thinking-indicator-dots" />
-                          </div>
-                        )}
+                        {/* Убрали "Думаю..." индикатор - IterationBlock уже показывает "Думаю (1с)" */}
                         
                         {/* Intent блоки с фазами Планирую/Выполняю */}
                         {hasIntentBlocks && (() => {
@@ -1399,12 +1383,47 @@ export function ChatInterface() {
           const assistantMessagesArray = Object.values(assistantMessages)
           const isEmpty = assistantMessagesArray.length === 0
           
-          // CRITICAL: If no assistant messages, return null immediately to prevent empty wrapper
-          if (isEmpty) {
+          // Get last user message timestamp to filter assistant messages
+          const userMessages = messages.filter(m => m.role === 'user')
+          const lastUserMessage = userMessages.length > 0 ? userMessages[userMessages.length - 1] : null
+          const lastUserTimestamp = lastUserMessage?.timestamp
+          
+          // Filter assistant messages: only show those created after the last user message
+          // This prevents old assistant messages from previous queries from being displayed
+          const filteredAssistantMessages = lastUserTimestamp
+            ? assistantMessagesArray.filter((assistantMsg) => {
+                // Extract timestamp from message ID if it's in format "msg-{timestamp}" or "react_{session}_{timestamp}"
+                const msgId = assistantMsg.id
+                let msgTimestamp: number | null = null
+                
+                // Try to extract timestamp from ID
+                if (msgId.startsWith('msg-')) {
+                  const timestampStr = msgId.replace('msg-', '')
+                  msgTimestamp = parseInt(timestampStr, 10)
+                } else if (msgId.includes('_')) {
+                  // Format: "react_{session}_{timestamp}"
+                  const parts = msgId.split('_')
+                  if (parts.length >= 3) {
+                    msgTimestamp = parseInt(parts[parts.length - 1], 10)
+                  }
+                }
+                
+                // If we can't extract timestamp, use message timestamp
+                if (!msgTimestamp || isNaN(msgTimestamp)) {
+                  msgTimestamp = new Date(assistantMsg.timestamp).getTime()
+                }
+                
+                const lastUserTimestampMs = new Date(lastUserTimestamp).getTime()
+                return msgTimestamp >= lastUserTimestampMs
+              })
+            : assistantMessagesArray
+          
+          // CRITICAL: If no assistant messages after filtering, return null immediately to prevent empty wrapper
+          if (filteredAssistantMessages.length === 0) {
             return null
           }
           
-          return assistantMessagesArray.map((assistantMsg) => {
+          return filteredAssistantMessages.map((assistantMsg) => {
             // #region debug log
             fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInterface.tsx:1351',message:'rendering assistant message',data:{assistantMsgId:assistantMsg.id,reasoningBlocksCount:assistantMsg.reasoningBlocks.length,answerBlocksCount:assistantMsg.answerBlocks.length,executionMode,userMessagesCount:messages.filter(m => m.role === 'user').length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
             // #endregion

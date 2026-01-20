@@ -753,6 +753,9 @@ export class WebSocketClient {
       // Новые события для отображения итераций (Think → Summary → Act → Result)
       case 'iteration_start': {
         console.log('[WebSocket] Iteration started:', event.data)
+        // Скрываем индикатор "Думаю..." при появлении первой итерации (IterationBlock покажет "Думаю (1с)")
+        chatStore.setShowThinkingIndicator(false)
+        
         const eventIntentId = event.data.intent_id
         const iterNumber = event.data.iteration_number || 1
         
@@ -767,8 +770,8 @@ export class WebSocketClient {
         
         // PHASE 0 FIX: Create intent if it doesn't exist (since intent_start is disabled)
         if (iterStartWorkflowId && eventIntentId && !existingIntent) {
-          // Create intent with default text
-          chatStore.startIntent(iterStartWorkflowId, eventIntentId, 'Выполняю задачу...')
+          // Create intent with empty text (no need to show "Выполняю задачу...")
+          chatStore.startIntent(iterStartWorkflowId, eventIntentId, '')
         }
         
         const finalWorkflowId = iterStartWorkflowId
@@ -873,8 +876,8 @@ export class WebSocketClient {
 
         // PHASE 0 FIX: Create intent if it doesn't exist (since intent_start is disabled)
         if (branchStartWorkflowId && eventIntentId && !targetIntentForBranch) {
-          // Create intent with default text
-          chatStore.startIntent(branchStartWorkflowId, eventIntentId, 'Выполняю задачу...')
+          // Create intent with empty text (no need to show "Выполняю задачу...")
+          chatStore.startIntent(branchStartWorkflowId, eventIntentId, '')
         }
 
         const finalWorkflowId = branchStartWorkflowId
@@ -943,7 +946,8 @@ export class WebSocketClient {
         const targetIntentForIter = existingIntentsForIter.find(i => i.id === branchIterStartIntentId)
         // PHASE 0 FIX: Create intent if it doesn't exist (since intent_start is disabled)
         if (branchIterStartWorkflowId && branchIterStartIntentId && !targetIntentForIter) {
-          chatStore.startIntent(branchIterStartWorkflowId, branchIterStartIntentId, 'Выполняю задачу...')
+          // Create intent with empty text (no need to show "Выполняю задачу...")
+          chatStore.startIntent(branchIterStartWorkflowId, branchIterStartIntentId, '')
         }
         const targetBranchForIter = targetIntentForIter?.parallelBranches?.find(b => b.branchId === branchId)
         fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:859',message:'parallel_branch_iteration_start - BEFORE startBranchIteration',data:{event_intent_id:event.data.intent_id,event_branch_id:branchId,resolved_intent_id:branchIterStartIntentId,workflowId:branchIterStartWorkflowId,intentFound:!!targetIntentForIter,branchFound:!!targetBranchForIter,existingIntentIds:existingIntentsForIter.map(i=>i.id),existingBranchIds:targetIntentForIter?.parallelBranches?.map(b=>b.branchId)||[]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
@@ -1283,14 +1287,16 @@ export class WebSocketClient {
 
       case 'final_result_chunk':
         // Update final result with accumulated content (streaming)
+        // FIX: Backend already sends accumulated content, so we should REPLACE, not accumulate
         const finalResultChunkWorkflowId = ensureActiveWorkflow()
         if (finalResultChunkWorkflowId) {
-          // Accumulate chunks for streaming
-          const currentContent = useChatStore.getState().workflows[finalResultChunkWorkflowId]?.finalResult || ''
           const newChunk = event.data.content || ''
-          const accumulatedContent = currentContent + newChunk
-          chatStore.updateWorkflowFinalResult(finalResultChunkWorkflowId, accumulatedContent)
-          console.log('[WebSocket] Final result chunk received, length:', newChunk.length, 'total:', accumulatedContent.length)
+          // #region agent log
+          fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:1284',message:'final_result_chunk received (FIXED: replacing not accumulating)',data:{newChunkLength:newChunk.length,newChunkPreview:newChunk.slice(0,50)},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          // FIX: Replace content directly - backend already accumulated it
+          chatStore.updateWorkflowFinalResult(finalResultChunkWorkflowId, newChunk)
+          console.log('[WebSocket] Final result chunk received (replaced), length:', newChunk.length)
         }
         break
 
@@ -1304,21 +1310,15 @@ export class WebSocketClient {
         // Clear pending thinking ID
         this.pendingThinkingId = null
         
-        // Complete final result streaming - only update if content is longer than current
+        // FIX: final_result_complete is now only a signal - no content update needed
+        // Content is already set by final_result_chunk events
         const finalResultCompleteWorkflowId = ensureActiveWorkflow()
-        const isAgentTypingBeforeFinal = useChatStore.getState().isAgentTyping
-        if (finalResultCompleteWorkflowId) {
-          const currentFinalContent = useChatStore.getState().workflows[finalResultCompleteWorkflowId]?.finalResult || ''
-          const newContent = event.data.content || ''
-          // Only update if new content is not shorter (avoid overwriting with truncated content)
-          if (newContent.length >= currentFinalContent.length) {
-            chatStore.updateWorkflowFinalResult(finalResultCompleteWorkflowId, newContent)
-          }
-          console.log('[WebSocket] Final result complete, current:', currentFinalContent.length, 'new:', newContent.length)
-        }
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:1297',message:'final_result_complete received (FIXED: signal only, no content)',data:{workflowId:finalResultCompleteWorkflowId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+        // No content update - just signal completion
         chatStore.setAgentTyping(false)
-        const isAgentTypingAfterFinal = useChatStore.getState().isAgentTyping
-        console.log('[WebSocket] Final result streaming completed')
+        console.log('[WebSocket] Final result streaming completed (signal only)')
         break
 
       case 'final_result': {
