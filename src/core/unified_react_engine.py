@@ -5115,6 +5115,61 @@ if salary_sheet:
         
         return final_result
     
+    def _is_specific_file_query(self, goal: str, context: ConversationContext, file_ids: List[str]) -> bool:
+        """
+        Определяет, является ли запрос конкретным (про конкретные файлы) или общим.
+        
+        Args:
+            goal: Запрос пользователя
+            context: Контекст разговора
+            file_ids: Список выбранных file_ids (если есть)
+            
+        Returns:
+            True если запрос конкретный (про конкретные файлы), False если общий
+        """
+        goal_lower = goal.lower()
+        
+        # Общие запросы - всегда показывать сводку
+        general_patterns = [
+            'что видишь', 'что в файл', 'опиши файл', 'опиши все', 
+            'про все файлы', 'во всех файлах', 'в файлах', 'что в файлах',
+            'что на них', 'что на файлах'
+        ]
+        if any(p in goal_lower for p in general_patterns):
+            return False  # Общий запрос - показывать сводку
+        
+        # Если есть конкретные file_ids (не все файлы) - это конкретный запрос
+        if file_ids and hasattr(context, 'uploaded_files') and context.uploaded_files:
+            all_file_ids = set(context.uploaded_files.keys())
+            selected_file_ids = set(file_ids)
+            if selected_file_ids and selected_file_ids != all_file_ids:
+                return True  # Выбраны не все файлы - конкретный запрос
+        
+        # Проверяем, упоминаются ли конкретные файлы по имени
+        if hasattr(context, 'uploaded_files') and context.uploaded_files:
+            for file_id, file_data in context.uploaded_files.items():
+                filename = file_data.get('filename', '')
+                if filename:
+                    # Проверяем упоминание имени файла (без расширения)
+                    filename_base = filename.rsplit('.', 1)[0].lower()
+                    if filename_base in goal_lower or filename.lower() in goal_lower:
+                        return True  # Упоминается конкретный файл
+        
+        # Проверяем упоминания по описаниям из истории
+        file_summaries = self._get_file_summaries_from_history(context)
+        for file_id, description in file_summaries.items():
+            # Ищем ключевые слова из описания в запросе
+            desc_words = set(description.lower().split()[:5])  # Первые 5 слов описания
+            goal_words = set(goal_lower.split())
+            if desc_words & goal_words:  # Есть пересечение
+                return True  # Упоминается по описанию
+        
+        # Если запрос короткий и не содержит общих паттернов - вероятно конкретный
+        if len(goal.split()) <= 5 and not any(p in goal_lower for p in ['все', 'всё', 'каждый', 'любой']):
+            return True  # Короткий запрос без общих слов - вероятно конкретный
+        
+        return False  # По умолчанию считаем общим
+    
     def _get_file_summaries_from_history(self, context: ConversationContext) -> Dict[str, str]:
         """
         Извлекает описания файлов из предыдущих ответов ассистента.
@@ -5424,9 +5479,12 @@ if salary_sheet:
 </open_files>"""
         
         # Прикреплённые файлы - НОВЫЙ ПОДХОД: всё в контекст + LLM сам разбирается
-        # 1. Всегда показываем сводку ВСЕХ файлов из сессии
-        # 2. Полное содержимое только тех файлов, которые были упомянуты в предыдущем ответе
+        # Для конкретных запросов (про конкретные файлы) - не показываем сводку всех файлов
+        # Для общих запросов ("что в файлах?") - показываем сводку всех файлов
         if hasattr(context, 'uploaded_files') and context.uploaded_files:
+            # Определяем, является ли запрос конкретным или общим
+            is_specific_query = self._is_specific_file_query(state.goal, context, file_ids)
+            
             # Получаем описания файлов из предыдущих ответов
             file_summaries = self._get_file_summaries_from_history(context)
             
@@ -5444,9 +5502,13 @@ if salary_sheet:
                             files_to_include_fully.update(prev_source_files)
                             break  # Берем только из последнего ответа
             
-            # Формируем сводку всех файлов
-            all_files_summary = []
+            # Если нет файлов для полного включения - используем все файлы
+            if not files_to_include_fully:
+                files_to_include_fully = set(context.uploaded_files.keys())
+            
+            # Формируем содержимое файлов
             files_full_content = []
+            all_files_summary = []
             
             for file_id, file_data in context.uploaded_files.items():
                 filename = file_data.get('filename', 'unknown')
@@ -5462,9 +5524,6 @@ if salary_sheet:
                     else:
                         description = f'Файл ({file_type})'
                 
-                # Добавляем в сводку
-                all_files_summary.append(f"{len(all_files_summary) + 1}. {filename} — {description}")
-                
                 # Если файл нужно включить полностью - добавляем его содержимое
                 if file_id in files_to_include_fully:
                     if 'text' in file_data:
@@ -5474,22 +5533,38 @@ if salary_sheet:
                         files_full_content.append(f"=== {filename} ===\n[Изображение включено в сообщение]")
                     else:
                         files_full_content.append(f"=== {filename} ===\n[Файл типа {file_type}]")
+                
+                # Для общих запросов - добавляем в сводку
+                if not is_specific_query:
+                    all_files_summary.append(f"{len(all_files_summary) + 1}. {filename} — {description}")
             
             # Формируем секцию
             context_section += f"""
-<attached_files>
+<attached_files>"""
+            
+            # Показываем сводку только для общих запросов
+            if not is_specific_query and all_files_summary:
+                context_section += f"""
 📎 ДОСТУПНЫЕ ФАЙЛЫ В СЕССИИ:
 {chr(10).join(all_files_summary)}
 
 """
             
+            # Показываем полное содержимое
             if files_full_content:
-                context_section += f"""📄 ПОЛНОЕ СОДЕРЖИМОЕ ФАЙЛОВ (для детального анализа):
+                context_section += f"""📄 СОДЕРЖИМОЕ ФАЙЛОВ:
 {chr(10).join(files_full_content)}
 
 """
             
-            context_section += """💡 ИНСТРУКЦИЯ:
+            # Инструкция зависит от типа запроса
+            if is_specific_query:
+                context_section += """💡 ИНСТРУКЦИЯ:
+- Используй содержимое файлов выше для ответа на вопрос пользователя
+- НЕ используй open_file для этих файлов - их содержимое УЖЕ выше!
+</attached_files>"""
+            else:
+                context_section += """💡 ИНСТРУКЦИЯ:
 - Если пользователь спрашивает про конкретный файл - используй его полное содержимое выше
 - Если пользователь спрашивает про несколько файлов - используй соответствующие файлы
 - Если нужна информация о файле, которого нет в полном содержимом - обратись к нему по имени из сводки
