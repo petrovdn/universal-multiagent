@@ -61,7 +61,9 @@ docs.prod.bak/
 !tests/
 
 # Tool embeddings cache (generated files)
-data/tool_embeddings/__query_*.json
+data/tool_embeddings/*.json
+# But keep directory structure
+!data/tool_embeddings/.gitkeep
 
 
 
