@@ -268,6 +268,16 @@ class BaseAgent:
         
         return create_llm(model_name, api_keys)
     
+    def _is_anthropic_model(self) -> bool:
+        """
+        Check if current LLM is Anthropic model.
+        
+        Returns:
+            True if LLM is ChatAnthropic, False otherwise
+        """
+        from langchain_anthropic import ChatAnthropic
+        return isinstance(self.llm, ChatAnthropic)
+    
     def _build_graph(self) -> StateGraph:
         """
         Build LangGraph state graph for agent execution.
@@ -282,6 +292,9 @@ class BaseAgent:
 
         escaped_system_prompt = _escape_langchain_fstring_template(self.system_prompt)
 
+        # Check if LLM is Anthropic model for cache_control
+        is_anthropic = self._is_anthropic_model()
+        
         # Create prompt template (use escaped system prompt)
         prompt = ChatPromptTemplate.from_messages([
             ("system", escaped_system_prompt),
@@ -295,6 +308,16 @@ class BaseAgent:
         async def agent_node(state: AgentState):
             messages = state["messages"]
             response = prompt.invoke({"messages": messages})
+            
+            # For Anthropic models: add cache_control to system message
+            if is_anthropic:
+                # Find system message and add cache_control
+                for msg in response.messages:
+                    if isinstance(msg, SystemMessage):
+                        msg.additional_kwargs = msg.additional_kwargs or {}
+                        msg.additional_kwargs["cache_control"] = {"type": "ephemeral"}
+                        break
+            
             # Use ainvoke for async execution (callbacks are passed via config)
             response = await llm_with_tools.ainvoke(response.messages)
             return {"messages": [response]}

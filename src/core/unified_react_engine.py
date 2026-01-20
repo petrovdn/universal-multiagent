@@ -30,6 +30,7 @@ from src.core.file_reference_resolver import (
     find_source_for_reference,
     extract_entities_from_response,
 )
+from src.core.skills.skill_instructions_cache import SkillInstructionsCache
 from src.api.websocket_manager import WebSocketManager
 from src.agents.model_factory import create_llm, supports_vision
 from src.utils.logging_config import get_logger
@@ -76,6 +77,16 @@ class UnifiedReActEngine:
             session_id: Session identifier
             model_name: Model name for LLM (optional)
         """
+        # #region agent log - начало инициализации engine
+        import json as _debug_json_init; import time as _debug_time_init
+        _engine_init_start = _debug_time_init.time()
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_init_start:
+                _debug_f_init_start.write(_debug_json_init.dumps({"id":f"log_{int(_debug_time_init.time()*1000)}_engine_init_start","timestamp":int(_debug_time_init.time()*1000),"location":"unified_react_engine.py:61","message":"UnifiedReActEngine.__init__ start","data":{"mode":config.mode if hasattr(config, 'mode') else "unknown"},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         self.config = config
         self.registry = capability_registry
         self.ws_manager = ws_manager
@@ -83,18 +94,54 @@ class UnifiedReActEngine:
         self.model_name = model_name
         
         # Get allowed capabilities based on config
+        _capabilities_start = _debug_time_init.time()
         self.capabilities = self.registry.get_capabilities(
             categories=config.allowed_categories
         )
+        _capabilities_duration = _debug_time_init.time() - _capabilities_start
+        # #region agent log - capabilities получены
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_cap:
+                _debug_f_cap.write(_debug_json_init.dumps({"id":f"log_{int(_debug_time_init.time()*1000)}_capabilities_obtained","timestamp":int(_debug_time_init.time()*1000),"location":"unified_react_engine.py:86","message":"Capabilities obtained","data":{"capabilities_count":len(self.capabilities) if hasattr(self.capabilities, '__len__') else 0,"duration_ms":_capabilities_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Build LLM tools from capabilities for planning
+        _tools_build_start = _debug_time_init.time()
         self.tools = self._build_tools_from_capabilities()
+        _tools_build_duration = _debug_time_init.time() - _tools_build_start
+        # #region agent log - tools построены
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_tools:
+                _debug_f_tools.write(_debug_json_init.dumps({"id":f"log_{int(_debug_time_init.time()*1000)}_tools_built","timestamp":int(_debug_time_init.time()*1000),"location":"unified_react_engine.py:91","message":"Tools built from capabilities","data":{"tools_count":len(self.tools) if hasattr(self.tools, '__len__') else 0,"duration_ms":_tools_build_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Create LLM with thinking support
+        _llm_create_start = _debug_time_init.time()
         self.llm = self._create_llm_with_thinking()
+        _llm_create_duration = _debug_time_init.time() - _llm_create_start
+        # #region agent log - LLM создан
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_llm:
+                _debug_f_llm.write(_debug_json_init.dumps({"id":f"log_{int(_debug_time_init.time()*1000)}_llm_created","timestamp":int(_debug_time_init.time()*1000),"location":"unified_react_engine.py:94","message":"LLM with thinking created","data":{"duration_ms":_llm_create_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Bind tools to LLM
+        _bind_start = _debug_time_init.time()
         self.llm_with_tools = self.llm.bind_tools(self.tools)
+        _bind_duration = _debug_time_init.time() - _bind_start
+        # #region agent log - tools привязаны
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_bind:
+                _debug_f_bind.write(_debug_json_init.dumps({"id":f"log_{int(_debug_time_init.time()*1000)}_tools_bound","timestamp":int(_debug_time_init.time()*1000),"location":"unified_react_engine.py:97","message":"Tools bound to LLM","data":{"duration_ms":_bind_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Store context reference for StreamingThoughtParser access
         self._current_context: Optional[ConversationContext] = None
@@ -140,12 +187,15 @@ class UnifiedReActEngine:
         self.smart_tool_selector = None
         self.skill_selector = None
         self.active_skill = None
+        # Short-lived cache для formatted skill instructions (TTL 5 минут)
+        self._skill_instructions_cache = SkillInstructionsCache(ttl_seconds=300)
         
         # Intent tracking for parallel branches
         self._use_existing_intent_id = None  # Set when executing parallel branch subtasks
         
         if self.use_smart_tool_selection:
             try:
+                _smart_selector_start = _debug_time_init.time()
                 from src.core.tool_selection.smart_selector import SmartToolSelector
                 from src.core.skills.skill_loader import SkillLoader
                 from src.core.skills.skill_selector import SkillSelector
@@ -170,6 +220,14 @@ class UnifiedReActEngine:
                     preload_embeddings=True,  # Предзагрузить embeddings в память
                     force_recompute=force_recompute  # Принудительно пересчитать если флаг установлен
                 )
+                _smart_selector_duration = _debug_time_init.time() - _smart_selector_start
+                # #region agent log - SmartToolSelector создан
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_smart:
+                        _debug_f_smart.write(_debug_json_init.dumps({"id":f"log_{int(_debug_time_init.time()*1000)}_smart_selector_created","timestamp":int(_debug_time_init.time()*1000),"location":"unified_react_engine.py:167","message":"SmartToolSelector created with preload_embeddings=True","data":{"duration_ms":_smart_selector_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                except:
+                    pass
+                # #endregion
                 
                 # Initialize SkillLoader and SkillSelector
                 project_root = Path(__file__).parent.parent.parent
@@ -192,6 +250,15 @@ class UnifiedReActEngine:
                 logger.error(f"[UnifiedReActEngine] Failed to initialize smart tool selection: {e}")
                 self.use_smart_tool_selection = False
                 logger.warning("[UnifiedReActEngine] Falling back to keyword-based tool selection")
+        
+        # #region agent log - завершение инициализации engine
+        _engine_init_total_duration = _debug_time_init.time() - _engine_init_start
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_init_end:
+                _debug_f_init_end.write(_debug_json_init.dumps({"id":f"log_{int(_debug_time_init.time()*1000)}_engine_init_complete","timestamp":int(_debug_time_init.time()*1000),"location":"unified_react_engine.py:250","message":"UnifiedReActEngine.__init__ complete","data":{"total_init_duration_ms":_engine_init_total_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Stop flag
         self._stop_requested: bool = False
@@ -879,9 +946,36 @@ class UnifiedReActEngine:
                 # #endregion
         
         # Анализируем сложность задачи и выбираем модель/budget
+        # #region agent log - начало анализа сложности
+        _complexity_start = _debug_time_exec.time()
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_complexity_start:
+                _debug_f_complexity_start.write(_debug_json_exec.dumps({"id":f"log_{int(_debug_time_exec.time()*1000)}_complexity_analysis_start","timestamp":int(_debug_time_exec.time()*1000),"location":"unified_react_engine.py:882","message":"Starting complexity analysis","data":{"goal":goal[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         complexity = self.complexity_analyzer.analyze(goal)
         
+        _complexity_duration = _debug_time_exec.time() - _complexity_start
+        # #region agent log - анализ сложности завершен
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_complexity:
+                _debug_f_complexity.write(_debug_json_exec.dumps({"id":f"log_{int(_debug_time_exec.time()*1000)}_complexity_analysis_done","timestamp":int(_debug_time_exec.time()*1000),"location":"unified_react_engine.py:884","message":"Complexity analysis completed","data":{"complexity_level":complexity.level,"use_fast_model":complexity.use_fast_model,"budget_tokens":complexity.budget_tokens,"duration_ms":_complexity_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         # Выбираем модель и budget на основе сложности
+        # #region agent log - выбор модели
+        _model_select_start = _debug_time_exec.time()
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_model_start:
+                _debug_f_model_start.write(_debug_json_exec.dumps({"id":f"log_{int(_debug_time_exec.time()*1000)}_model_selection_start","timestamp":int(_debug_time_exec.time()*1000),"location":"unified_react_engine.py:885","message":"Starting model selection","data":{"use_fast_model":complexity.use_fast_model},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         if complexity.use_fast_model:
             # Используем быструю модель без thinking
             self.llm = self.fast_llm
@@ -889,9 +983,27 @@ class UnifiedReActEngine:
             # Используем основную модель с адаптивным budget
             self.llm = self._create_llm_with_thinking(complexity.budget_tokens)
         
+        _model_select_duration = _debug_time_exec.time() - _model_select_start
+        # #region agent log - модель выбрана
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_model_done:
+                _debug_f_model_done.write(_debug_json_exec.dumps({"id":f"log_{int(_debug_time_exec.time()*1000)}_model_selection_done","timestamp":int(_debug_time_exec.time()*1000),"location":"unified_react_engine.py:890","message":"Model selection completed","data":{"duration_ms":_model_select_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+        except:
+            pass
+        # #endregion
+        
         # Запускаем SmartProgress с оценочным временем
         # Всегда запускаем ReAct цикл - LLM сам решит, нужны ли инструменты
+        _smart_progress_start = _debug_time_exec.time()
         await self.smart_progress.start(goal, complexity.estimated_duration_sec)
+        _smart_progress_duration = _debug_time_exec.time() - _smart_progress_start
+        # #region agent log - SmartProgress запущен
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_progress:
+                _debug_f_progress.write(_debug_json_exec.dumps({"id":f"log_{int(_debug_time_exec.time()*1000)}_smart_progress_started","timestamp":int(_debug_time_exec.time()*1000),"location":"unified_react_engine.py:894","message":"SmartProgress started","data":{"duration_ms":_smart_progress_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"B"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         # Send start event (legacy)
         await self.ws_manager.send_event(
@@ -4931,12 +5043,26 @@ if salary_sheet:
                 selected_skill = self.skill_selector.select_skill(state.goal)
                 if selected_skill:
                     self.active_skill = selected_skill
-                    skill_instructions = f"""
+                    
+                    # Проверяем cache для formatted instructions
+                    cached_instructions = self._skill_instructions_cache.get(selected_skill.name)
+                    
+                    if cached_instructions:
+                        # Cache hit - используем из cache
+                        skill_instructions = cached_instructions
+                        logger.debug(f"[UnifiedReActEngine] Using cached skill instructions for {selected_skill.name}")
+                    else:
+                        # Cache miss - форматируем заново
+                        skill_instructions = f"""
 <skill_instructions>
 АКТИВНЫЙ SKILL: {selected_skill.name}
 
 {selected_skill.get_instructions()}
 </skill_instructions>"""
+                        # Сохраняем в cache
+                        self._skill_instructions_cache.set(selected_skill.name, skill_instructions)
+                        logger.debug(f"[UnifiedReActEngine] Cached skill instructions for {selected_skill.name}")
+                    
                     logger.info(f"[UnifiedReActEngine] Selected skill: {selected_skill.name}")
                 else:
                     logger.info(f"[UnifiedReActEngine] No skill selected for goal: {state.goal[:50]}")

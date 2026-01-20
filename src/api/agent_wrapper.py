@@ -105,6 +105,15 @@ Initialize agent wrapper."""
         Returns:
             Final execution result
         """
+        # #region agent log - начало обработки сообщения
+        import json as _debug_json_wrapper; import time as _debug_time_wrapper
+        _wrapper_start_time = _debug_time_wrapper.time()
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_wrapper:
+                _debug_f_wrapper.write(_debug_json_wrapper.dumps({"id":f"log_{int(_debug_time_wrapper.time()*1000)}_wrapper_entry","timestamp":int(_debug_time_wrapper.time()*1000),"location":"agent_wrapper.py:88","message":"AgentWrapper.process_message entry","data":{"user_message":user_message[:100],"session_id":session_id},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+        except:
+            pass
+        # #endregion
         
         file_ids = file_ids or []
         open_files = open_files or []
@@ -184,7 +193,25 @@ Initialize agent wrapper."""
             if mapped_mode in ("query", "agent", "plan"):
                 logger.info(f"[AgentWrapper] Complex task detected, using {mapped_mode} mode adapter")
                 
+                # #region agent log - начало создания адаптера
+                _adapter_create_start = _debug_time_wrapper.time()
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_adapter_start:
+                        _debug_f_adapter_start.write(_debug_json_wrapper.dumps({"id":f"log_{int(_debug_time_wrapper.time()*1000)}_adapter_create_start","timestamp":int(_debug_time_wrapper.time()*1000),"location":"agent_wrapper.py:184","message":"Starting adapter creation","data":{"mapped_mode":mapped_mode},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+                except:
+                    pass
+                # #endregion
+                
                 registry = self._get_capability_registry()
+                
+                # #region agent log - registry получен
+                _registry_time = _debug_time_wrapper.time() - _adapter_create_start
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_registry:
+                        _debug_f_registry.write(_debug_json_wrapper.dumps({"id":f"log_{int(_debug_time_wrapper.time()*1000)}_registry_obtained","timestamp":int(_debug_time_wrapper.time()*1000),"location":"agent_wrapper.py:187","message":"CapabilityRegistry obtained","data":{"registry_time_ms":_registry_time*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+                except:
+                    pass
+                # #endregion
                 
                 # Get appropriate adapter
                 if mapped_mode == "query":
@@ -204,15 +231,42 @@ Initialize agent wrapper."""
                     )
                     logger.info(f"[AgentWrapper] PlanModeAdapter created successfully")
                 else:  # agent mode
+                    # #region agent log - создание AgentModeAdapter
+                    _adapter_init_start = _debug_time_wrapper.time()
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_adapter_init:
+                            _debug_f_adapter_init.write(_debug_json_wrapper.dumps({"id":f"log_{int(_debug_time_wrapper.time()*1000)}_adapter_init_start","timestamp":int(_debug_time_wrapper.time()*1000),"location":"agent_wrapper.py:207","message":"Creating AgentModeAdapter","data":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    
                     adapter = AgentModeAdapter(
                         capability_registry=registry,
                         ws_manager=self.ws_manager,
                         session_id=session_id,
                         model_name=context.model_name
                     )
+                    
+                    # #region agent log - AgentModeAdapter создан
+                    _adapter_init_duration = _debug_time_wrapper.time() - _adapter_init_start
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_adapter_done:
+                            _debug_f_adapter_done.write(_debug_json_wrapper.dumps({"id":f"log_{int(_debug_time_wrapper.time()*1000)}_adapter_init_done","timestamp":int(_debug_time_wrapper.time()*1000),"location":"agent_wrapper.py:214","message":"AgentModeAdapter created","data":{"init_duration_ms":_adapter_init_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
                 
                 # Store adapter for stop/confirmation handling
                 self._active_orchestrators[session_id] = adapter
+                
+                # #region agent log - начало выполнения через адаптер
+                _adapter_execute_start = _debug_time_wrapper.time()
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_exec_start:
+                        _debug_f_exec_start.write(_debug_json_wrapper.dumps({"id":f"log_{int(_debug_time_wrapper.time()*1000)}_adapter_execute_start","timestamp":int(_debug_time_wrapper.time()*1000),"location":"agent_wrapper.py:218","message":"Starting adapter.execute()","data":{},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+                except:
+                    pass
+                # #endregion
                 
                 # Execute through adapter
                 result = await adapter.execute(
@@ -220,6 +274,15 @@ Initialize agent wrapper."""
                     context=context,
                     file_ids=file_ids
                 )
+                
+                # #region agent log - адаптер выполнен
+                _adapter_execute_duration = _debug_time_wrapper.time() - _adapter_execute_start
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_exec_done:
+                        _debug_f_exec_done.write(_debug_json_wrapper.dumps({"id":f"log_{int(_debug_time_wrapper.time()*1000)}_adapter_execute_done","timestamp":int(_debug_time_wrapper.time()*1000),"location":"agent_wrapper.py:226","message":"adapter.execute() completed","data":{"execute_duration_ms":_adapter_execute_duration*1000},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+                except:
+                    pass
+                # #endregion
                 
                 orchestrator_type = f"{mapped_mode.capitalize()}ModeAdapter"
             else:
@@ -300,6 +363,15 @@ Initialize agent wrapper."""
             if assistant_response:
                 context.add_message("assistant", assistant_response)
                 logger.debug(f"[AgentWrapper] Added assistant response to context ({len(assistant_response)} chars)")
+            
+            # #region agent log - завершение обработки сообщения
+            _wrapper_total_duration = _debug_time_wrapper.time() - _wrapper_start_time
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_wrapper_end:
+                    _debug_f_wrapper_end.write(_debug_json_wrapper.dumps({"id":f"log_{int(_debug_time_wrapper.time()*1000)}_wrapper_complete","timestamp":int(_debug_time_wrapper.time()*1000),"location":"agent_wrapper.py:302","message":"AgentWrapper.process_message complete","data":{"total_duration_ms":_wrapper_total_duration*1000,"has_response":"response" in result if isinstance(result, dict) else False},"sessionId":"debug-session","runId":"run1","hypothesisId":"E"}) + '\n')
+            except:
+                pass
+            # #endregion
             
             return result
             
