@@ -5155,14 +5155,31 @@ if salary_sheet:
                     if filename_base in goal_lower or filename.lower() in goal_lower:
                         return True  # Упоминается конкретный файл
         
-        # Проверяем упоминания по описаниям из истории
+        # Проверяем упоминания по описаниям из истории (УЛУЧШЕННАЯ ЛОГИКА)
         file_summaries = self._get_file_summaries_from_history(context)
+        
+        # Извлекаем ключевые слова из запроса (исключая стоп-слова)
+        import re
+        goal_words = set(re.findall(r'[а-яёa-z]+', goal_lower))
+        stopwords = {'меня', 'интересует', 'описание', 'что', 'как', 'где', 'когда', 'про', 'об', 'в', 'на', 'с', 'по', 'к', 'у', 'о', 'за', 'от', 'из', 'до', 'для', 'это', 'этот', 'эта', 'эти', 'тот', 'та', 'те'}
+        goal_keywords = goal_words - stopwords
+        
+        # Ищем совпадения ключевых слов из запроса в описаниях файлов
+        matching_files = []
         for file_id, description in file_summaries.items():
-            # Ищем ключевые слова из описания в запросе
-            desc_words = set(description.lower().split()[:5])  # Первые 5 слов описания
-            goal_words = set(goal_lower.split())
-            if desc_words & goal_words:  # Есть пересечение
-                return True  # Упоминается по описанию
+            desc_lower = description.lower()
+            desc_words = set(re.findall(r'[а-яёa-z]+', desc_lower))
+            # Проверяем пересечение ключевых слов (минимум 1 совпадение значимого слова)
+            common_words = goal_keywords & desc_words
+            if common_words:
+                # Исключаем очень короткие слова (меньше 3 символов)
+                significant_common = {w for w in common_words if len(w) >= 3}
+                if significant_common:
+                    matching_files.append(file_id)
+        
+        # Если нашли совпадения - это конкретный запрос
+        if matching_files:
+            return True
         
         # Если запрос короткий и не содержит общих паттернов - вероятно конкретный
         if len(goal.split()) <= 5 and not any(p in goal_lower for p in ['все', 'всё', 'каждый', 'любой']):
@@ -8028,7 +8045,110 @@ raise ValueError("Код анализа не был предоставлен. П
                 observations_text = "Нет результатов от инструментов."
             
             # Build file contents for FINISH cases
+            # КРИТИЧНО: Для конкретных запросов используем только нужные файлы
             file_contents_text = ""
+            
+            # #region agent log - проверка file_ids в _generate_final_answer
+            import json as _debug_json_final; import time as _debug_time_final
+            try:
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_final:
+                    _debug_f_final.write(_debug_json_final.dumps({
+                        "id": f"log_{int(_debug_time_final.time()*1000)}_generate_final_answer_start",
+                        "timestamp": int(_debug_time_final.time()*1000),
+                        "location": "unified_react_engine.py:8030",
+                        "message": "_generate_final_answer: file_ids check",
+                        "data": {
+                            "goal": state.goal,
+                            "file_ids": file_ids,
+                            "file_ids_count": len(file_ids) if file_ids else 0,
+                            "all_files_count": len(context.uploaded_files) if context and hasattr(context, 'uploaded_files') else 0
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "FILE_SELECTION"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
+            
+            # Определяем, является ли запрос конкретным
+            is_specific_query = False
+            if context:
+                is_specific_query = self._is_specific_file_query(state.goal, context, file_ids or [])
+                
+                # #region agent log - результат проверки конкретности запроса
+                try:
+                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_final:
+                        _debug_f_final.write(_debug_json_final.dumps({
+                            "id": f"log_{int(_debug_time_final.time()*1000)}_is_specific_query",
+                            "timestamp": int(_debug_time_final.time()*1000),
+                            "location": "unified_react_engine.py:8045",
+                            "message": "_generate_final_answer: is_specific_query",
+                            "data": {
+                                "goal": state.goal,
+                                "is_specific_query": is_specific_query,
+                                "file_ids": file_ids
+                            },
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "FILE_SELECTION"
+                        }, ensure_ascii=False) + '\n')
+                except:
+                    pass
+                # #endregion
+                
+                # Если запрос конкретный, но file_ids содержит все файлы - фильтруем
+                if is_specific_query and file_ids and context and hasattr(context, 'uploaded_files'):
+                    all_file_ids = set(context.uploaded_files.keys())
+                    provided_file_ids = set(file_ids)
+                    
+                    # Если переданы все файлы, но запрос конкретный - нужно найти нужные файлы
+                    if provided_file_ids == all_file_ids:
+                        # Ищем файлы по упоминаниям в запросе
+                        goal_lower = state.goal.lower()
+                        relevant_file_ids = []
+                        
+                        for file_id, file_data in context.uploaded_files.items():
+                            filename = file_data.get('filename', '')
+                            if filename:
+                                filename_base = filename.rsplit('.', 1)[0].lower()
+                                if filename_base in goal_lower or filename.lower() in goal_lower:
+                                    relevant_file_ids.append(file_id)
+                        
+                        # Ищем по описаниям из истории
+                        if not relevant_file_ids:
+                            file_summaries = self._get_file_summaries_from_history(context)
+                            for file_id, description in file_summaries.items():
+                                desc_words = set(description.lower().split()[:5])
+                                goal_words = set(goal_lower.split())
+                                if desc_words & goal_words:
+                                    relevant_file_ids.append(file_id)
+                        
+                        # Если нашли релевантные файлы - используем только их
+                        if relevant_file_ids:
+                            file_ids = relevant_file_ids
+                            # #region agent log - фильтрация file_ids
+                            try:
+                                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_final:
+                                    _debug_f_final.write(_debug_json_final.dumps({
+                                        "id": f"log_{int(_debug_time_final.time()*1000)}_filtered_file_ids",
+                                        "timestamp": int(_debug_time_final.time()*1000),
+                                        "location": "unified_react_engine.py:8080",
+                                        "message": "_generate_final_answer: filtered file_ids",
+                                        "data": {
+                                            "goal": state.goal,
+                                            "original_file_ids": list(provided_file_ids),
+                                            "filtered_file_ids": file_ids,
+                                            "reason": "specific query but all files provided"
+                                        },
+                                        "sessionId": "debug-session",
+                                        "runId": "run1",
+                                        "hypothesisId": "FILE_SELECTION"
+                                    }, ensure_ascii=False) + '\n')
+                            except:
+                                pass
+                            # #endregion
+            
             if file_ids and context:
                 for file_id in file_ids:
                     file_data = context.get_file(file_id)
@@ -8076,7 +8196,26 @@ raise ValueError("Код анализа не был предоставлен. П
             
             if is_finish_case and file_contents_text:
                 # For FINISH with file content, include actual file contents in prompt
-                prompt = f"""Пользователь спросил: "{state.goal}"
+                # КРИТИЧНО: Для конкретных запросов - описываем только нужные файлы
+                if is_specific_query:
+                    prompt = f"""Пользователь спросил: "{state.goal}"
+
+Вот содержимое прикрепленных файлов:
+{file_contents_text}
+
+{table_instruction}
+ВАЖНО: Опиши КОНКРЕТНО что находится в прикрепленных файлах:
+- Для PDF/Word: кратко опиши содержание документа
+- Для изображения: опиши что на нём изображено
+Если на изображении есть люди - опиши что они делают и в каком контексте.
+НЕ отказывайся отвечать на вопросы о людях на изображении - описывай общими словами!
+
+ОТВЕТЬ ТОЛЬКО ПО ПРИКРЕПЛЕННЫМ ФАЙЛАМ ВЫШЕ (не по всем файлам сессии)!
+
+Ответ:"""
+                else:
+                    # Общий запрос - описываем все файлы
+                    prompt = f"""Пользователь спросил: "{state.goal}"
 
 Вот содержимое прикрепленных файлов:
 {file_contents_text}
