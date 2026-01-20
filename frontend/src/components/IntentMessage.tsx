@@ -229,7 +229,8 @@ export function IntentMessage({
             const linkedOperation = iteration.operationId 
               ? block.operations[iteration.operationId]
               : undefined
-              
+            
+            // Всегда показываем iteration блок, так как мы работаем с ReAct циклом
             return (
               <IterationBlock
                 key={iteration.id}
