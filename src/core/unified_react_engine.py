@@ -280,21 +280,74 @@ class UnifiedReActEngine:
         """
         content_lower = content.lower()
         
-        # Проверяем ключевые слова в порядке приоритета
-        if any(word in content_lower for word in ['план', 'шаг', 'сначала', 'затем', 'далее', 'порядок']):
-            return 'planning'
-        elif any(word in content_lower for word in ['читаю', 'смотрю', 'ищу', 'файл', 'код', 'исследую', 'изучаю']):
-            return 'exploring'
-        elif any(word in content_lower for word in ['анализ', 'обрабатыва', 'понима', 'разбира']):
-            return 'analyzing'
-        elif any(word in content_lower for word in ['инструмент', 'tool', 'использую', 'выбира', 'вызову']):
-            return 'selecting'
-        elif any(word in content_lower for word in ['проверя', 'убежда', 'тест', 'валидир']):
-            return 'verifying'
-        elif any(word in content_lower for word in ['решил', 'решаю', 'вывод', 'итог', 'результат']):
-            return 'deciding'
+        # #region agent log - логирование определения контекста
+        import json as _debug_json_context; import time as _debug_time_context
+        content_preview = content[:200]  # Первые 200 символов для анализа
+        content_length = len(content)
+        detected_context = None
+        matched_keywords = []
         
-        return 'thinking'
+        # Проверяем ключевые слова в порядке приоритета
+        planning_keywords = ['план', 'шаг', 'сначала', 'затем', 'далее', 'порядок']
+        exploring_keywords = ['читаю', 'смотрю', 'ищу', 'файл', 'код', 'исследую', 'изучаю']
+        analyzing_keywords = ['анализ', 'обрабатыва', 'понима', 'разбира']
+        selecting_keywords = ['инструмент', 'tool', 'использую', 'выбира', 'вызову']
+        verifying_keywords = ['проверя', 'убежда', 'тест', 'валидир']
+        deciding_keywords = ['решил', 'решаю', 'вывод', 'итог', 'результат']
+        
+        if any(word in content_lower for word in planning_keywords):
+            detected_context = 'planning'
+            matched_keywords = [w for w in planning_keywords if w in content_lower]
+        elif any(word in content_lower for word in exploring_keywords):
+            detected_context = 'exploring'
+            matched_keywords = [w for w in exploring_keywords if w in content_lower]
+        elif any(word in content_lower for word in analyzing_keywords):
+            detected_context = 'analyzing'
+            matched_keywords = [w for w in analyzing_keywords if w in content_lower]
+        elif any(word in content_lower for word in selecting_keywords):
+            detected_context = 'selecting'
+            matched_keywords = [w for w in selecting_keywords if w in content_lower]
+        elif any(word in content_lower for word in verifying_keywords):
+            detected_context = 'verifying'
+            matched_keywords = [w for w in verifying_keywords if w in content_lower]
+        elif any(word in content_lower for word in deciding_keywords):
+            detected_context = 'deciding'
+            matched_keywords = [w for w in deciding_keywords if w in content_lower]
+        else:
+            detected_context = 'thinking'
+        
+        try:
+            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_context:
+                _debug_f_context.write(_debug_json_context.dumps({
+                    "id": f"log_{int(_debug_time_context.time()*1000)}_detect_thinking_context",
+                    "timestamp": int(_debug_time_context.time()*1000),
+                    "location": "unified_react_engine.py:275",
+                    "message": "_detect_thinking_context: определение контекста",
+                    "data": {
+                        "content_length": content_length,
+                        "content_preview_first_200_chars": content_preview,
+                        "content_preview_first_100_chars": content[:100],
+                        "content_preview_first_50_chars": content[:50],
+                        "detected_context": detected_context,
+                        "matched_keywords": matched_keywords,
+                        "all_keywords_checked": {
+                            "planning": planning_keywords,
+                            "exploring": exploring_keywords,
+                            "analyzing": analyzing_keywords,
+                            "selecting": selecting_keywords,
+                            "verifying": verifying_keywords,
+                            "deciding": deciding_keywords
+                        }
+                    },
+                    "sessionId": "debug-session",
+                    "runId": "run1",
+                    "hypothesisId": "THINKING_CONTEXT"
+                }, ensure_ascii=False) + '\n')
+        except:
+            pass
+        # #endregion
+        
+        return detected_context
     
     def _get_use_existing_intent_id(self, state: ReActState) -> Optional[str]:
         """
@@ -3887,8 +3940,55 @@ class UnifiedReActEngine:
                         if new_chunk.strip():
                             # Определяем context для динамических заголовков "Думаю" при первом chunk
                             if self.thinking_context is None and self.engine and hasattr(self.engine, '_detect_thinking_context'):
+                                # #region agent log - момент определения контекста
+                                import json as _debug_json_context_moment; import time as _debug_time_context_moment
+                                try:
+                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_context_moment:
+                                        _debug_f_context_moment.write(_debug_json_context_moment.dumps({
+                                            "id": f"log_{int(_debug_time_context_moment.time()*1000)}_context_detection_moment",
+                                            "timestamp": int(_debug_time_context_moment.time()*1000),
+                                            "location": "unified_react_engine.py:3941",
+                                            "message": "Определение контекста при первом chunk",
+                                            "data": {
+                                                "thought_content_length": len(self.thought_content),
+                                                "thought_content_first_200": self.thought_content[:200],
+                                                "thought_content_first_100": self.thought_content[:100],
+                                                "thought_content_first_50": self.thought_content[:50],
+                                                "new_chunk_length": len(new_chunk),
+                                                "new_chunk_preview": new_chunk[:100],
+                                                "iteration_number": self.iteration_number,
+                                                "intent_id": self.intent_id
+                                            },
+                                            "sessionId": "debug-session",
+                                            "runId": "run1",
+                                            "hypothesisId": "THINKING_CONTEXT"
+                                        }, ensure_ascii=False) + '\n')
+                                except:
+                                    pass
+                                # #endregion
+                                
                                 # Используем накопленный контент для определения context
                                 self.thinking_context = self.engine._detect_thinking_context(self.thought_content)
+                                
+                                # #region agent log - результат определения контекста
+                                try:
+                                    with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_context_result:
+                                        _debug_f_context_result.write(_debug_json_context_moment.dumps({
+                                            "id": f"log_{int(_debug_time_context_moment.time()*1000)}_context_detection_result",
+                                            "timestamp": int(_debug_time_context_moment.time()*1000),
+                                            "location": "unified_react_engine.py:3975",
+                                            "message": "Результат определения контекста",
+                                            "data": {
+                                                "detected_context": self.thinking_context,
+                                                "thought_content_length": len(self.thought_content)
+                                            },
+                                            "sessionId": "debug-session",
+                                            "runId": "run1",
+                                            "hypothesisId": "THINKING_CONTEXT"
+                                        }, ensure_ascii=False) + '\n')
+                                except:
+                                    pass
+                                # #endregion
                             
                             await self.ws_manager.send_event(
                                 self.session_id,
