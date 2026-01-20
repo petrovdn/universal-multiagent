@@ -114,10 +114,11 @@ class SkillSelector:
         _skills_embed_start = time.time()
         similarities = []
         for skill in skills_to_search:
-            # Используем description для поиска (более краткое и релевантное)
+            # Используем полные инструкции для более точного matching
+            full_content = f"{skill.description}\n\n{skill.content}"
             skill_embedding = self.embedding_cache.get_embedding(
-                tool_name=f"skill_{skill.name}",
-                description=skill.description
+                tool_name=f"skill_{skill.name}_full",
+                description=full_content
             )
             
             similarity = cosine_similarity(query_embedding, skill_embedding)
@@ -178,9 +179,11 @@ class SkillSelector:
         # Вычисляем similarity для каждого skill
         similarities = []
         for skill in self.skills:
+            # Используем полные инструкции для более точного matching
+            full_content = f"{skill.description}\n\n{skill.content}"
             skill_embedding = self.embedding_cache.get_embedding(
-                tool_name=f"skill_{skill.name}",
-                description=skill.description
+                tool_name=f"skill_{skill.name}_full",
+                description=full_content
             )
             
             similarity = cosine_similarity(query_embedding, skill_embedding)

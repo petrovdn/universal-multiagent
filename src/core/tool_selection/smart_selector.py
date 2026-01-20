@@ -70,7 +70,7 @@ class SmartToolSelector:
             force_recompute: Принудительно пересчитать все embeddings при инициализации (по умолчанию: False)
         """
         self.capabilities = capabilities
-        self.embedding_cache = EmbeddingCache(cache_dir=cache_dir)
+        self.embedding_cache = EmbeddingCache(cache_dir=cache_dir, preload_embeddings=preload_embeddings)
         
         # In-memory cache для embeddings инструментов (предзагруженные из кэша)
         # Ключ: tool_name, Значение: numpy array с embedding

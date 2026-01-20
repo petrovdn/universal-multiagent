@@ -2,11 +2,12 @@
 EmbeddingCache - кэширование embeddings инструментов на диск.
 
 Zero-waste подход: embeddings вычисляются один раз и сохраняются для повторного использования.
+Поддерживает preload в память для мгновенного доступа.
 """
 import json
 import os
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 # Lazy import numpy to avoid segmentation fault in sandbox
 from openai import OpenAI
 from src.utils.config_loader import get_config
@@ -23,12 +24,13 @@ class EmbeddingCache:
     Автоматически инвалидирует кэш при изменении описания инструмента.
     """
     
-    def __init__(self, cache_dir: Optional[Path] = None):
+    def __init__(self, cache_dir: Optional[Path] = None, preload_embeddings: bool = False):
         """
         Инициализация EmbeddingCache.
         
         Args:
             cache_dir: Директория для кэша (по умолчанию: data/tool_embeddings)
+            preload_embeddings: Предзагрузить все embeddings в память при старте
         """
         if cache_dir is None:
             from src.utils.config_loader import DATA_DIR
@@ -50,6 +52,12 @@ class EmbeddingCache:
         self.client = OpenAI(api_key=api_key)
         self.model = "text-embedding-3-small"
         self.dimension = 1536  # text-embedding-3-small dimension
+        
+        # Memory cache for preloaded embeddings
+        self._memory_embeddings: Dict[str, np.ndarray] = {}
+        
+        if preload_embeddings:
+            self._preload_all_embeddings()
     
     def _get_cache_path(self, tool_name: str) -> Path:
         """Получить путь к файлу кэша для инструмента."""
@@ -148,12 +156,45 @@ class EmbeddingCache:
         
         return True
     
+    def _preload_all_embeddings(self):
+        """
+        Предзагрузить все embeddings из disk в memory.
+        
+        Загружает все JSON файлы из cache_dir в _memory_embeddings для мгновенного доступа.
+        """
+        import time
+        import numpy as np
+        
+        logger.info("[EmbeddingCache] Preloading embeddings to memory...")
+        start_time = time.time()
+        
+        count = 0
+        for cache_file in self.cache_dir.glob("*.json"):
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                tool_name = data.get('tool_name')
+                if tool_name:
+                    embedding_list = data.get('embedding')
+                    if embedding_list:
+                        embedding = np.array(embedding_list, dtype=np.float32)
+                        self._memory_embeddings[tool_name] = embedding
+                        count += 1
+            except Exception as e:
+                logger.warning(f"[EmbeddingCache] Failed to preload {cache_file}: {e}")
+        
+        duration = time.time() - start_time
+        memory_mb = count * 6 / 1024  # 6KB per embedding (1536 floats * 4 bytes)
+        logger.info(
+            f"[EmbeddingCache] Preloaded {count} embeddings "
+            f"({memory_mb:.1f} MB) in {duration:.2f}s"
+        )
+    
     def get_embedding(self, tool_name: str, description: str):
         """
         Получить embedding для инструмента.
         
-        Если embedding есть в кэше и валиден - возвращает из кэша.
-        Иначе вычисляет через OpenAI и сохраняет в кэш.
+        Проверяет memory cache (preloaded) → disk cache → вычисляет новый.
         
         Args:
             tool_name: Имя инструмента
@@ -162,7 +203,12 @@ class EmbeddingCache:
         Returns:
             numpy array с embedding вектором
         """
-        # Try to load from cache
+        # Check memory cache first (instant!)
+        if tool_name in self._memory_embeddings:
+            logger.debug(f"[EmbeddingCache] Memory hit for {tool_name}")
+            return self._memory_embeddings[tool_name]
+        
+        # Try to load from disk cache
         cached_data = self._load_from_cache(tool_name)
         
         if cached_data and self._is_cache_valid(cached_data, description):
@@ -170,15 +216,18 @@ class EmbeddingCache:
             import numpy as np
             embedding_list = cached_data["embedding"]
             embedding = np.array(embedding_list, dtype=np.float32)
-            logger.debug(f"[EmbeddingCache] Cache hit for {tool_name}")
+            # Store in memory for future
+            self._memory_embeddings[tool_name] = embedding
+            logger.debug(f"[EmbeddingCache] Disk cache hit for {tool_name}")
             return embedding
         
         # Cache miss or invalid - compute new embedding
         logger.debug(f"[EmbeddingCache] Computing embedding for {tool_name}")
         embedding = self._compute_embedding(description)
         
-        # Save to cache
+        # Save to cache (both disk and memory)
         self._save_to_cache(tool_name, description, embedding)
+        self._memory_embeddings[tool_name] = embedding
         
         return embedding
     
