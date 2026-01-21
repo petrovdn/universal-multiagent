@@ -801,6 +801,14 @@ Callback to handle streaming events and send to WebSocket."""
                         final_result_started = True
                     
                     # Send as final_result_chunk (with accumulated content)
+                    # #region agent log
+                    import json as _debug_json_chunk; import time as _debug_time_chunk
+                    try:
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_chunk:
+                            _debug_f_chunk.write(_debug_json_chunk.dumps({"id":f"log_{int(_debug_time_chunk.time()*1000)}_final_result_chunk_send","timestamp":int(_debug_time_chunk.time()*1000),"location":"agent_wrapper.py:803","message":"Sending final_result_chunk","data":{"token":token[:50],"accumulated_tokens_length":len(accumulated_tokens),"accumulated_tokens_preview":accumulated_tokens[:100]},"sessionId":"debug-session","runId":"run1","hypothesisId":"A"}) + '\n')
+                    except:
+                        pass
+                    # #endregion
                     await self.ws_manager.send_event(
                         session_id,
                         "final_result_chunk",
@@ -941,14 +949,22 @@ Callback to handle streaming events and send to WebSocket."""
                 
                 if stream_to_final_result:
                     # Stream to final_result mode: send final_result_complete
+                    # FIX: final_result_complete is now only a signal - no content needed
+                    # Content is already sent via final_result_chunk events
                     if final_result_started:
-                        logger.info(f"[AgentWrapper] Sending final_result_complete event")
+                        logger.info(f"[AgentWrapper] Sending final_result_complete event (signal only)")
+                        # #region agent log
+                        import json as _debug_json_complete; import time as _debug_time_complete
+                        try:
+                            with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_complete:
+                                _debug_f_complete.write(_debug_json_complete.dumps({"id":f"log_{int(_debug_time_complete.time()*1000)}_final_result_complete_send","timestamp":int(_debug_time_complete.time()*1000),"location":"agent_wrapper.py:946","message":"Sending final_result_complete (FIXED: signal only)","data":{"response_length":len(response)},"sessionId":"debug-session","runId":"post-fix","hypothesisId":"B"}) + '\n')
+                        except:
+                            pass
+                        # #endregion
                         await self.ws_manager.send_event(
                             session_id,
                             "final_result_complete",
-                            {
-                                "content": response
-                            }
+                            {}  # FIX: No content - just signal completion
                         )
                     else:
                         # If no tokens were streamed, still send final_result with content
@@ -999,13 +1015,11 @@ Callback to handle streaming events and send to WebSocket."""
                 # This ensures the frontend knows streaming is done even after error
                 if stream_to_final_result:
                     if final_result_started:
-                        logger.info(f"[AgentWrapper] Sending final_result_complete after error")
+                        logger.info(f"[AgentWrapper] Sending final_result_complete after error (signal only)")
                         await self.ws_manager.send_event(
                             session_id,
                             "final_result_complete",
-                            {
-                                "content": accumulated_tokens if accumulated_tokens else ""
-                            }
+                            {}  # FIX: No content - just signal completion
                         )
                 else:
                     logger.info(f"[AgentWrapper] Sending message_complete after error, message_id: {message_id}, message_started: {message_started}")
