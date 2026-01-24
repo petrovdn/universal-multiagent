@@ -1,49 +1,30 @@
 #!/bin/bash
-# Команда для перезапуска фронтенда
+# Перезапуск frontend (Vite)
 
-# Останавливаем все процессы vite/node на порту 5173
-pkill -9 -f "vite.*5173" || true
-pkill -9 -f "node.*5173" || true
+set -e
+cd "$(dirname "$0")"
+
+echo "🔄 Перезапуск frontend..."
+
+# Остановка Vite / Node на 5173
+pkill -f "vite" 2>/dev/null || true
+pkill -f "node.*5173" 2>/dev/null || true
 lsof -ti:5173 | xargs kill -9 2>/dev/null || true
-
-# Ждем 2 секунды
 sleep 2
 
-# Переходим в директорию проекта
-cd "$(dirname "$0")/frontend"
+# Запуск из frontend/
+echo "   Запуск Vite на http://localhost:5173 ..."
+(cd frontend && nohup npm run dev > /tmp/frontend.log 2>&1 &)
 
-# Запускаем фронтенд в фоновом режиме
-echo "Запускаем фронтенд..."
-nohup npm run dev > /tmp/frontend.log 2>&1 &
-
-# Ждем немного для запуска
-sleep 5
-
-# Проверяем, что фронтенд запустился
-for i in {1..10}; do
-    if curl -s http://localhost:5173 > /dev/null 2>&1; then
-        break
-    fi
-    if [ $i -lt 10 ]; then
-        sleep 1
-    fi
+# Ждём готовности
+for i in $(seq 1 15); do
+  if curl -s -o /dev/null -w "%{http_code}" http://localhost:5173 2>/dev/null | grep -qE '^2|^3'; then
+    echo "✅ Frontend перезапущен. Логи: /tmp/frontend.log"
+    exit 0
+  fi
+  sleep 1
 done
 
-if curl -s http://localhost:5173 > /dev/null 2>&1; then
-    # Получаем PID процесса
-    PID=$(ps aux | grep '[n]ode.*5173\|[v]ite' | awk '{print $2}' | head -1)
-    if [ -n "$PID" ]; then
-        echo "✅ Фронтенд перезапущен. PID: $PID"
-        echo "Логи: /tmp/frontend.log"
-    else
-        echo "✅ Фронтенд запущен и отвечает"
-    fi
-else
-    echo "❌ Ошибка: фронтенд не запустился. Проверьте логи: /tmp/frontend.log"
-    tail -20 /tmp/frontend.log
-    exit 1
-fi
-
-
-
-
+echo "❌ Frontend не ответил. Логи:"
+tail -30 /tmp/frontend.log
+exit 1

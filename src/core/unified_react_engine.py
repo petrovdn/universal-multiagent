@@ -4676,7 +4676,69 @@ class UnifiedReActEngine:
                     HumanMessage(content=prompt)
                 ]
             
+            # #region agent log - ПРОМПТ для _plan_action
+            import json as _debug_json_plan_prompt; import time as _debug_time_plan_prompt
+            try:
+                messages_for_log = []
+                for msg in messages:
+                    if hasattr(msg, 'content'):
+                        content = str(msg.content)
+                        if len(content) > 5000:
+                            content = content[:5000] + "... (truncated)"
+                        messages_for_log.append({"role": type(msg).__name__, "content": content})
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_plan_prompt:
+                    _debug_f_plan_prompt.write(_debug_json_plan_prompt.dumps({
+                        "id": f"log_{int(_debug_time_plan_prompt.time()*1000)}_plan_action_prompt",
+                        "timestamp": int(_debug_time_plan_prompt.time()*1000),
+                        "location": "unified_react_engine.py:4679",
+                        "message": "PLAN_ACTION PROMPT",
+                        "data": {
+                            "goal": state.goal if 'state' in locals() else "unknown",
+                            "thought": thought if 'thought' in locals() else "unknown",
+                            "messages": messages_for_log,
+                            "FULL_PROMPT": prompt[:10000] + ("... (truncated)" if len(prompt) > 10000 else "")
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "PLAN_ACTION"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
+            
             response = await self.llm.ainvoke(messages)
+            
+            # #region agent log - ОТВЕТ для _plan_action
+            try:
+                response_content = ""
+                if hasattr(response, 'content'):
+                    if isinstance(response.content, list):
+                        response_content = " ".join([str(b) for b in response.content])
+                    else:
+                        response_content = str(response.content)
+                else:
+                    response_content = str(response)
+                
+                if len(response_content) > 5000:
+                    response_content = response_content[:5000] + "... (truncated)"
+                
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_plan_response:
+                    _debug_f_plan_response.write(_debug_json_plan_prompt.dumps({
+                        "id": f"log_{int(_debug_time_plan_prompt.time()*1000)}_plan_action_response",
+                        "timestamp": int(_debug_time_plan_prompt.time()*1000),
+                        "location": "unified_react_engine.py:4705",
+                        "message": "PLAN_ACTION RESPONSE",
+                        "data": {
+                            "goal": state.goal if 'state' in locals() else "unknown",
+                            "FULL_RESPONSE": response_content
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "PLAN_ACTION"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
             
             # Handle different response formats
             if isinstance(response.content, list):
@@ -5867,6 +5929,56 @@ if salary_sheet:
             llm_with_relevant_tools = self.llm.bind_tools(relevant_base_tools)
             llm_to_use = llm_with_relevant_tools
             
+            # #region agent log - проверка инструментов, привязанных к LLM
+            import json as _debug_json_bind_check; import time as _debug_time_bind_check
+            try:
+                bound_tools_count = len(relevant_base_tools)
+                bound_tool_names = [t.name for t in relevant_base_tools]
+                has_execute_python_code = "execute_python_code" in bound_tool_names
+                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_bind_check:
+                    _debug_f_bind_check.write(_debug_json_bind_check.dumps({
+                        "id": f"log_{int(_debug_time_bind_check.time()*1000)}_bind_tools_check",
+                        "timestamp": int(_debug_time_bind_check.time()*1000),
+                        "location": "unified_react_engine.py:5929",
+                        "message": "Tools bound to LLM check",
+                        "data": {
+                            "goal": state.goal,
+                            "iteration": state.iteration,
+                            "bound_tools_count": bound_tools_count,
+                            "bound_tool_names": bound_tool_names,
+                            "has_execute_python_code": has_execute_python_code,
+                            "relevant_tool_names": relevant_tool_names,
+                            "all_tools_count": len(self.tools),
+                            "execute_python_code_in_all_tools": "execute_python_code" in [t.name for t in self.tools]
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "BIND_CHECK"
+                    }, ensure_ascii=False) + '\n')
+            except:
+                pass
+            # #endregion
+            
+            # #region agent log - ДО стриминга LLM
+            try:
+                _log_before_llm = open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a', encoding='utf-8')
+                try:
+                    _log_before_llm.write(json.dumps({
+                        "id": f"log_{int(time.time()*1000)}_before_llm_stream",
+                        "timestamp": int(time.time()*1000),
+                        "location": "unified_react_engine.py:5962",
+                        "message": "BEFORE LLM STREAMING",
+                        "data": {"goal": state.goal, "iteration": state.iteration},
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "LLM_STREAM"
+                    }, ensure_ascii=False) + '\n')
+                finally:
+                    _log_before_llm.close()
+            except:
+                pass
+            # #endregion
+            
             # Стримим ответ
             import time
             _llm_start = time.time()
@@ -5898,30 +6010,99 @@ if salary_sheet:
             _llm_duration = time.time() - _llm_start
             logger.info(f"[UnifiedReActEngine] LLM streaming took {_llm_duration:.3f}s ({_chunk_count} chunks)")
             
-            # #region agent log - ПОЛНЫЙ ответ LLM
+            # #region agent log - ПОСЛЕ стриминга LLM
             try:
-                import json as _debug_json_llm_response; import time as _debug_time_llm_response
-                response_id = f"response_{state.goal[:30].replace(' ', '_')}_{state.iteration}_{int(_debug_time_llm_response.time()*1000)}"
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_llm_response:
-                    _debug_f_llm_response.write(_debug_json_llm_response.dumps({
+                _log_after_llm = open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a', encoding='utf-8')
+                try:
+                    _log_after_llm.write(json.dumps({
+                        "id": f"log_{int(time.time()*1000)}_after_llm_stream",
+                        "timestamp": int(time.time()*1000),
+                        "location": "unified_react_engine.py:5990",
+                        "message": "AFTER LLM STREAMING",
+                        "data": {
+                            "goal": state.goal,
+                            "iteration": state.iteration,
+                            "full_response_length": len(full_response),
+                            "chunk_count": _chunk_count,
+                            "has_last_chunk": last_chunk is not None
+                        },
+                        "sessionId": "debug-session",
+                        "runId": "run1",
+                        "hypothesisId": "LLM_STREAM"
+                    }, ensure_ascii=False) + '\n')
+                finally:
+                    _log_after_llm.close()
+            except:
+                pass
+            # #endregion
+            
+            # #region agent log - ПОЛНЫЙ ответ LLM + tool_calls из last_chunk (УПРОЩЕННОЕ ЛОГИРОВАНИЕ)
+            import json as _debug_json_llm_response; import time as _debug_time_llm_response
+            response_id = f"response_{state.goal[:30].replace(' ', '_')}_{state.iteration}_{int(_debug_time_llm_response.time()*1000)}"
+            
+            # Проверяем tool_calls в last_chunk
+            tool_calls_info = None
+            try:
+                if last_chunk and hasattr(last_chunk, 'tool_calls') and last_chunk.tool_calls:
+                    tool_calls_info = []
+                    for tc in last_chunk.tool_calls:
+                        if isinstance(tc, dict):
+                            tool_calls_info.append({"name": tc.get("name"), "args": tc.get("args", {})})
+                        elif hasattr(tc, "name"):
+                            tool_calls_info.append({"name": tc.name, "args": getattr(tc, "args", {})})
+            except Exception as tc_err:
+                tool_calls_info = f"ERROR extracting tool_calls: {str(tc_err)}"
+            
+            # Упрощенное логирование - записываем ответ напрямую в файл
+            try:
+                _log_file = open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a', encoding='utf-8')
+                try:
+                    # Безопасно обрезаем full_response
+                    response_preview = full_response[:10000] + ("... (truncated)" if len(full_response) > 10000 else "")
+                    
+                    log_entry = {
                         "id": response_id,
                         "timestamp": int(_debug_time_llm_response.time()*1000),
-                        "location": "unified_react_engine.py:5237",
+                        "location": "unified_react_engine.py:5990",
                         "message": "FULL LLM RESPONSE",
                         "data": {
                             "is_parallel": self._get_use_existing_intent_id(state) is not None,
                             "use_existing_intent_id": self._get_use_existing_intent_id(state),
                             "goal": state.goal,
                             "iteration": state.iteration,
-                            "FULL_RESPONSE": full_response,
-                            "duration_sec": _llm_duration
+                            "FULL_RESPONSE": response_preview,
+                            "full_response_length": len(full_response),
+                            "tool_calls_in_last_chunk": tool_calls_info,
+                            "has_tool_calls": tool_calls_info is not None and (isinstance(tool_calls_info, list) and len(tool_calls_info) > 0) if isinstance(tool_calls_info, list) else False,
+                            "duration_sec": _llm_duration,
+                            "chunk_count": _chunk_count
                         },
                         "sessionId": "debug-session",
                         "runId": "run1",
                         "hypothesisId": "RESPONSE"
-                    }, ensure_ascii=False) + '\n')
-            except:
-                pass
+                    }
+                    _log_file.write(_debug_json_llm_response.dumps(log_entry, ensure_ascii=False) + '\n')
+                finally:
+                    _log_file.close()
+            except Exception as e:
+                # КРИТИЧНО: Логируем ошибку логирования
+                try:
+                    _err_file = open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a', encoding='utf-8')
+                    try:
+                        _err_file.write(_debug_json_llm_response.dumps({
+                            "id": f"log_{int(_debug_time_llm_response.time()*1000)}_llm_response_log_error",
+                            "timestamp": int(_debug_time_llm_response.time()*1000),
+                            "location": "unified_react_engine.py:5990",
+                            "message": "ERROR logging LLM response",
+                            "data": {"error": str(e), "full_response_length": len(full_response) if 'full_response' in locals() else 0},
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "RESPONSE"
+                        }, ensure_ascii=False) + '\n')
+                    finally:
+                        _err_file.close()
+                except:
+                    pass
             # #endregion
             
             # Получаем thought из парсера
@@ -6036,15 +6217,21 @@ if salary_sheet:
             remaining_buffer = parser.get_remaining_buffer()
             response_text = remaining_buffer if remaining_buffer else full_response
             
-            # #region agent log - логируем response_text перед парсингом
+            # #region agent log - логируем response_text перед парсингом (УПРОЩЕННОЕ ЛОГИРОВАНИЕ)
+            import json as _debug_json_parse; import time as _debug_time_parse
+            parse_id = f"parse_{state.goal[:30].replace(' ', '_')}_{state.iteration}_{int(_debug_time_parse.time()*1000)}"
+            
+            # Обрезаем response_text для логирования (первые 5000 символов)
+            response_text_preview = response_text[:5000] + ("... (truncated)" if len(response_text) > 5000 else "") if response_text else ""
+            full_response_preview = full_response[:5000] + ("... (truncated)" if len(full_response) > 5000 else "") if full_response else ""
+            
             try:
-                import json as _debug_json_parse; import time as _debug_time_parse
-                parse_id = f"parse_{state.goal[:30].replace(' ', '_')}_{state.iteration}_{int(_debug_time_parse.time()*1000)}"
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_parse:
-                    _debug_f_parse.write(_debug_json_parse.dumps({
+                _parse_file = open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a', encoding='utf-8')
+                try:
+                    _parse_file.write(_debug_json_parse.dumps({
                         "id": parse_id,
                         "timestamp": int(_debug_time_parse.time()*1000),
-                        "location": "unified_react_engine.py:5345",
+                        "location": "unified_react_engine.py:6131",
                         "message": "PARSING ACTION FROM TEXT",
                         "data": {
                             "is_parallel": self._get_use_existing_intent_id(state) is not None,
@@ -6054,15 +6241,36 @@ if salary_sheet:
                             "used_remaining_buffer": bool(remaining_buffer),
                             "remaining_buffer_length": len(remaining_buffer) if remaining_buffer else 0,
                             "full_response_length": len(full_response) if full_response else 0,
-                            "RESPONSE_TEXT_TO_PARSE": response_text,
-                            "full_response_preview": full_response[:500] if full_response else ""
+                            "RESPONSE_TEXT_TO_PARSE": response_text_preview,
+                            "full_response_preview": full_response_preview,
+                            "has_action_plan_from_tool_calls": action_plan_from_tool_calls is not None,
+                            "relevant_tools": relevant_tool_names
                         },
                         "sessionId": "debug-session",
                         "runId": "run1",
                         "hypothesisId": "PARSE"
                     }, ensure_ascii=False) + '\n')
-            except:
-                pass
+                finally:
+                    _parse_file.close()
+            except Exception as e:
+                # КРИТИЧНО: Логируем ошибку логирования парсинга
+                try:
+                    _parse_err_file = open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a', encoding='utf-8')
+                    try:
+                        _parse_err_file.write(_debug_json_parse.dumps({
+                            "id": f"log_{int(_debug_time_parse.time()*1000)}_parse_log_error",
+                            "timestamp": int(_debug_time_parse.time()*1000),
+                            "location": "unified_react_engine.py:6131",
+                            "message": "ERROR logging parse action",
+                            "data": {"error": str(e)},
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "PARSE"
+                        }, ensure_ascii=False) + '\n')
+                    finally:
+                        _parse_err_file.close()
+                except:
+                    pass
             # #endregion
             
             # Если есть action_plan из tool_calls, используем его, иначе парсим XML
@@ -6115,14 +6323,32 @@ if salary_sheet:
                 raise ValueError("tool_name missing in action plan")
             tool_name = action_plan.get("tool_name", "")
             
-            # #region agent log - ПОСЛЕ парсинга action_plan, ДО нормализации
+            # #region agent log - ПОСЛЕ парсинга action_plan, ДО нормализации (УПРОЩЕННОЕ ЛОГИРОВАНИЕ)
+            import json as _debug_json_parsed; import time as _debug_time_parsed
+            # Проверяем, есть ли выбранный инструмент в списке релевантных
+            tool_in_relevant_list = tool_name in relevant_tool_names if relevant_tool_names else False
+            tool_in_all_tools_list = tool_name in [t.name for t in self.tools] if self.tools else False
+            
             try:
-                import json as _debug_json_parsed; import time as _debug_time_parsed
-                with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_parsed:
-                    _debug_f_parsed.write(_debug_json_parsed.dumps({
+                _parsed_file = open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a', encoding='utf-8')
+                try:
+                    # Безопасно конвертируем action_plan в JSON
+                    action_plan_safe = {}
+                    if isinstance(action_plan, dict):
+                        for k, v in action_plan.items():
+                            try:
+                                # Пробуем сериализовать каждое значение
+                                _debug_json_parsed.dumps(v)
+                                action_plan_safe[k] = v
+                            except:
+                                action_plan_safe[k] = str(v)[:500]  # Обрезаем проблемные значения
+                    else:
+                        action_plan_safe = {"raw": str(action_plan)[:1000]}
+                    
+                    _parsed_file.write(_debug_json_parsed.dumps({
                         "id": f"log_{int(_debug_time_parsed.time()*1000)}_action_parsed",
                         "timestamp": int(_debug_time_parsed.time()*1000),
-                        "location": "unified_react_engine.py:5420",
+                        "location": "unified_react_engine.py:6250",
                         "message": "ACTION PARSED (before normalization)",
                         "data": {
                             "is_parallel": self._get_use_existing_intent_id(state) is not None,
@@ -6130,17 +6356,72 @@ if salary_sheet:
                             "goal": state.goal,
                             "iteration": state.iteration,
                             "selected_tool": tool_name,
-                            "action_plan": action_plan,
+                            "action_plan": action_plan_safe,
+                            "action_plan_arguments": action_plan.get("arguments", {}) if isinstance(action_plan, dict) else {},
                             "was_from_tool_calls": action_plan_from_tool_calls is not None,
-                            "relevant_tools": relevant_tool_names
+                            "relevant_tools": relevant_tool_names,
+                            "tool_in_relevant": tool_in_relevant_list,
+                            "tool_in_all_tools": tool_in_all_tools_list,
+                            "CRITICAL_ISSUE": not tool_in_relevant_list and tool_in_all_tools_list  # Инструмент выбран, но не в релевантных!
                         },
                         "sessionId": "debug-session",
                         "runId": "run1",
                         "hypothesisId": "PARSED"
                     }, ensure_ascii=False) + '\n')
+                finally:
+                    _parsed_file.close()
             except Exception as e:
-                pass
+                # КРИТИЧНО: Логируем ошибку логирования parsed action
+                try:
+                    _parsed_err_file = open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a', encoding='utf-8')
+                    try:
+                        _parsed_err_file.write(_debug_json_parsed.dumps({
+                            "id": f"log_{int(_debug_time_parsed.time()*1000)}_parsed_action_log_error",
+                            "timestamp": int(_debug_time_parsed.time()*1000),
+                            "location": "unified_react_engine.py:6250",
+                            "message": "ERROR logging parsed action",
+                            "data": {"error": str(e), "tool_name": tool_name if 'tool_name' in locals() else "unknown"},
+                            "sessionId": "debug-session",
+                            "runId": "run1",
+                            "hypothesisId": "PARSED"
+                        }, ensure_ascii=False) + '\n')
+                    finally:
+                        _parsed_err_file.close()
+                except:
+                    pass
             # #endregion
+            
+            # CRITICAL FIX: Проверяем, что выбранный инструмент есть в списке релевантных
+            # Если инструмент выбран, но НЕ в релевантных - это проблема!
+            if tool_name and tool_name != "FINISH" and tool_name != "ASK_CLARIFICATION":
+                tool_in_relevant_list = tool_name in relevant_tool_names if relevant_tool_names else False
+                if not tool_in_relevant_list:
+                    # #region agent log - КРИТИЧЕСКАЯ ПРОБЛЕМА: инструмент не в релевантных
+                    try:
+                        import json as _debug_json_invalid_tool; import time as _debug_time_invalid_tool
+                        with open('/Users/Dima/universal-multiagent/.cursor/debug.log', 'a') as _debug_f_invalid:
+                            _debug_f_invalid.write(_debug_json_invalid_tool.dumps({
+                                "id": f"log_{int(_debug_time_invalid_tool.time()*1000)}_invalid_tool_selected",
+                                "timestamp": int(_debug_time_invalid_tool.time()*1000),
+                                "location": "unified_react_engine.py:6270",
+                                "message": "CRITICAL: Invalid tool selected - not in relevant tools!",
+                                "data": {
+                                    "goal": state.goal,
+                                    "iteration": state.iteration,
+                                    "selected_tool": tool_name,
+                                    "relevant_tools": relevant_tool_names,
+                                    "bound_tool_names": [t.name for t in relevant_base_tools] if 'relevant_base_tools' in locals() else [],
+                                    "all_tools_count": len(self.tools),
+                                    "tool_exists_in_all": tool_name in [t.name for t in self.tools]
+                                },
+                                "sessionId": "debug-session",
+                                "runId": "run1",
+                                "hypothesisId": "INVALID_TOOL"
+                            }, ensure_ascii=False) + '\n')
+                    except:
+                        pass
+                    # #endregion
+                    logger.warning(f"[UnifiedReActEngine] LLM selected tool {tool_name} which is NOT in relevant tools list! Relevant tools: {relevant_tool_names}")
             
             # CRITICAL: Remove prefix like "functions." if LLM returns it
             # Some LLMs return "functions.list_emails" instead of "list_emails"

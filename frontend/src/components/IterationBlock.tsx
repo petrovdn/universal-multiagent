@@ -113,9 +113,12 @@ export function IterationBlock({
   }, [operation?.data, operation?.status])
 
   // Формируем текст заголовка
-  const headerLabel = thinking.isStreaming 
-    ? `${getThinkingLabel()} (${formatDuration(displayTime)})`
-    : (getResultLabel() || getThinkingLabel())
+  // КРИТИЧНО: При закрытии (isCollapsed) всегда показываем "Думал", а не результат инструмента
+  const headerLabel = thinking.isCollapsed
+    ? getThinkingLabel() // При закрытии всегда "Думал"
+    : thinking.isStreaming 
+      ? `${getThinkingLabel()} (${formatDuration(displayTime)})`
+      : (getResultLabel() || getThinkingLabel())
 
   return (
     <div className={`iteration-block ${className}`}>

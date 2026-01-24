@@ -2075,12 +2075,12 @@ export const useChatStore = create<ChatState>()(
             if (intent.id === intentId) {
               const updatedIterations = intent.iterations.map(iter => {
                 if (iter.iterationNumber === iterationNumber) {
-                  // Автоматически раскрываем блок при первом chunk, если он был свернут
-                  const wasEmpty = !iter.thinking.content || iter.thinking.content.trim() === ''
-                  const shouldExpand = wasEmpty && iter.thinking.isStreaming && iter.thinking.isCollapsed
+                  // КРИТИЧНО: Автоматически раскрываем блок при стриминге, если он был свернут
+                  // Раскрываем если: блок стримится И был свернут
+                  const shouldExpand = iter.thinking.isStreaming && iter.thinking.isCollapsed
                   
                   // #region agent log
-                  fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:2071',message:'appendIterationThinking',data:{workflowId,intentId,iterationNumber,chunkLength:chunk.length,wasEmpty,shouldExpand,currentIsCollapsed:iter.thinking.isCollapsed,isStreaming:iter.thinking.isStreaming,currentContentLength:iter.thinking.content.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+                  fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:2071',message:'appendIterationThinking',data:{workflowId,intentId,iterationNumber,chunkLength:chunk.length,shouldExpand,currentIsCollapsed:iter.thinking.isCollapsed,isStreaming:iter.thinking.isStreaming,currentContentLength:iter.thinking.content.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
                   // #endregion
                   
                   return {
@@ -2088,7 +2088,7 @@ export const useChatStore = create<ChatState>()(
                     thinking: {
                       ...iter.thinking,
                       content: iter.thinking.content + chunk,
-                      isCollapsed: shouldExpand ? false : iter.thinking.isCollapsed, // Раскрываем при первом chunk
+                      isCollapsed: shouldExpand ? false : iter.thinking.isCollapsed, // Раскрываем при стриминге, если был свернут
                     },
                   }
                 }

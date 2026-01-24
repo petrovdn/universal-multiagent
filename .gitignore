@@ -29,6 +29,7 @@ logs/
 # Data and tokens (sensitive!)
 config/*.json
 config/.env
+config/tokens/
 data/sessions/*.json
 data/tokens/
 gcp-oauth.keys.json

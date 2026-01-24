@@ -15,6 +15,7 @@ import os
 from src.utils.google_auth import AuthManager, OAuthAuth
 from src.utils.config_loader import get_config, get_onec_config, save_onec_config, OneCConfig, get_projectlad_config, save_projectlad_config, ProjectLadConfig
 from src.utils.audit import get_audit_logger
+from src.utils.user_helpers import get_username_from_session
 from src.api.session_manager import get_session_manager
 
 logger = logging.getLogger(__name__)
@@ -79,55 +80,68 @@ integration_oauth_states: Dict[str, Dict[str, str]] = {}  # session_id -> {integ
 
 # Token paths - получаем из конфига динамически
 class DynamicPath:
-    """Wrapper для Path, который вычисляет путь динамически из конфига."""
+    """
+    Wrapper для Path с поддержкой per-user токенов.
+    При username задан — путь config/tokens/{username}/{token_name}.
+    При username=None — legacy глобальный путь (только для совместимости, не используется после миграции).
+    """
+
     def __init__(self, token_name: str, is_config: bool = False):
         self.token_name = token_name
         self.is_config = is_config
-    
-    def _get_path(self) -> Path:
-        """Получить актуальный путь из конфига."""
+
+    def _get_path(self, username: Optional[str] = None) -> Path:
+        """Получить путь. username — для per-user хранения."""
         config = get_config()
+        if username:
+            user_dir = config.config_dir / "tokens" / username
+            return user_dir / self.token_name
         if self.is_config:
             return config.config_dir / self.token_name
         return config.tokens_dir / self.token_name
-    
-    @property
-    def parent(self) -> Path:
-        """Получить родительскую директорию."""
-        return self._get_path().parent
-    
-    def exists(self) -> bool:
-        return self._get_path().exists()
-    
-    def unlink(self, missing_ok: bool = False) -> None:
-        return self._get_path().unlink(missing_ok=missing_ok)
-    
+
+    def exists(self, username: Optional[str] = None) -> bool:
+        return self._get_path(username).exists()
+
+    def unlink(self, missing_ok: bool = False, username: Optional[str] = None) -> None:
+        return self._get_path(username).unlink(missing_ok=missing_ok)
+
     def __str__(self) -> str:
         return str(self._get_path())
-    
+
     def __fspath__(self) -> str:
         return str(self._get_path())
-    
-    def open(self, mode='r', **kwargs):
-        return self._get_path().open(mode, **kwargs)
-    
-    def __truediv__(self, other):
-        return self._get_path() / other
-    
-    def parent(self):
-        return self._get_path().parent
-    
-    def read_text(self, encoding=None, errors=None):
-        return self._get_path().read_text(encoding=encoding, errors=errors)
-    
-    def write_text(self, data, encoding=None, errors=None):
-        return self._get_path().write_text(data, encoding=encoding, errors=errors)
-    
-    def read_bytes(self):
-        return self._get_path().read_bytes()
-    
-    def write_bytes(self, data):
-        return self._get_path().write_bytes(data)
+
+    def open(self, mode: str = "r", username: Optional[str] = None, **kwargs):
+        return self._get_path(username).open(mode, **kwargs)
+
+    def read_text(
+        self,
+        username: Optional[str] = None,
+        encoding: Optional[str] = None,
+        errors: Optional[str] = None,
+    ) -> str:
+        return self._get_path(username).read_text(encoding=encoding, errors=errors)
+
+    def write_text(
+        self,
+        data: str,
+        username: str,
+        encoding: Optional[str] = None,
+        errors: Optional[str] = None,
+    ) -> int:
+        """Записать в файл пользователя. username обязателен."""
+        p = self._get_path(username)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p.write_text(data, encoding=encoding, errors=errors)
+
+    def read_bytes(self, username: Optional[str] = None) -> bytes:
+        return self._get_path(username).read_bytes()
+
+    def write_bytes(self, data: bytes, username: str) -> int:
+        p = self._get_path(username)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        return p.write_bytes(data)
 
 # Для обратной совместимости - используем DynamicPath
 CALENDAR_TOKEN_PATH = DynamicPath("google_calendar_token.json")
@@ -164,191 +178,167 @@ WORKSPACE_SCOPES = [
 async def get_integrations_status(request: Request):
     """
     Get status of all integrations.
-    
-    Returns:
-        Dictionary with integration statuses
+    Requires authenticated user (username in session).
     """
     session_id = request.cookies.get("session_id")
-    
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
     status = {
         "google_calendar": {
             "enabled": False,
             "authenticated": False,
-            "token_exists": CALENDAR_TOKEN_PATH.exists()
+            "token_exists": CALENDAR_TOKEN_PATH.exists(username),
         },
         "gmail": {
             "enabled": False,
             "authenticated": False,
-            "token_exists": GMAIL_TOKEN_PATH.exists()
+            "token_exists": GMAIL_TOKEN_PATH.exists(username),
         },
         "google_sheets": {
             "enabled": False,
             "authenticated": False,
-            "token_exists": SHEETS_TOKEN_PATH.exists()
+            "token_exists": SHEETS_TOKEN_PATH.exists(username),
         },
         "google_workspace": {
             "enabled": False,
             "authenticated": False,
-            "token_exists": WORKSPACE_TOKEN_PATH.exists(),
-            "folder_configured": False
-        }
+            "token_exists": WORKSPACE_TOKEN_PATH.exists(username),
+            "folder_configured": False,
+        },
     }
-    
-    # Check if calendar token exists and is valid
-    if CALENDAR_TOKEN_PATH.exists():
+
+    _tp = lambda p: str(p._get_path(username))
+
+    if CALENDAR_TOKEN_PATH.exists(username):
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request as GoogleRequest
-            
+
             creds = Credentials.from_authorized_user_file(
-                str(CALENDAR_TOKEN_PATH),
-                ["https://www.googleapis.com/auth/calendar"]
+                _tp(CALENDAR_TOKEN_PATH),
+                ["https://www.googleapis.com/auth/calendar"],
             )
-            
-            # Check if token is valid (not expired or can be refreshed)
             if creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(GoogleRequest())
-                    # Save refreshed token
-                    with open(CALENDAR_TOKEN_PATH, 'w') as token:
+                    with open(CALENDAR_TOKEN_PATH._get_path(username), "w") as token:
                         token.write(creds.to_json())
                 except Exception:
                     pass
-            
             status["google_calendar"]["authenticated"] = creds.valid
             status["google_calendar"]["enabled"] = creds.valid
         except Exception as e:
-            logger.warning(f"Failed to validate calendar token: {e}")
+            logger.warning("Failed to validate calendar token for %s: %s", username, e)
             status["google_calendar"]["authenticated"] = False
-    
-    # Check if Gmail token exists and is valid
-    if GMAIL_TOKEN_PATH.exists():
+
+    if GMAIL_TOKEN_PATH.exists(username):
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request as GoogleRequest
-            
-            creds = Credentials.from_authorized_user_file(
-                str(GMAIL_TOKEN_PATH),
-                GMAIL_SCOPES
-            )
-            
-            # Check if token is valid (not expired or can be refreshed)
+
+            creds = Credentials.from_authorized_user_file(_tp(GMAIL_TOKEN_PATH), GMAIL_SCOPES)
             if creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(GoogleRequest())
-                    # Save refreshed token
-                    with open(GMAIL_TOKEN_PATH, 'w') as token:
+                    with open(GMAIL_TOKEN_PATH._get_path(username), "w") as token:
                         token.write(creds.to_json())
                 except Exception:
                     pass
-            
             status["gmail"]["authenticated"] = creds.valid
             status["gmail"]["enabled"] = creds.valid
         except Exception as e:
-            logger.warning(f"Failed to validate Gmail token: {e}")
+            logger.warning("Failed to validate Gmail token for %s: %s", username, e)
             status["gmail"]["authenticated"] = False
-    
-    # Check if Sheets token exists and is valid
-    if SHEETS_TOKEN_PATH.exists():
+
+    if SHEETS_TOKEN_PATH.exists(username):
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request as GoogleRequest
-            
-            creds = Credentials.from_authorized_user_file(
-                str(SHEETS_TOKEN_PATH),
-                SHEETS_SCOPES
-            )
-            
-            # Check if token is valid (not expired or can be refreshed)
+
+            creds = Credentials.from_authorized_user_file(_tp(SHEETS_TOKEN_PATH), SHEETS_SCOPES)
             if creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(GoogleRequest())
-                    # Save refreshed token
-                    with open(SHEETS_TOKEN_PATH, 'w') as token:
+                    with open(SHEETS_TOKEN_PATH._get_path(username), "w") as token:
                         token.write(creds.to_json())
                 except Exception:
                     pass
-            
             status["google_sheets"]["authenticated"] = creds.valid
             status["google_sheets"]["enabled"] = creds.valid
         except Exception as e:
-            logger.warning(f"Failed to validate Sheets token: {e}")
+            logger.warning("Failed to validate Sheets token for %s: %s", username, e)
             status["google_sheets"]["authenticated"] = False
-    
-    # Check if Workspace token exists and is valid
-    if WORKSPACE_TOKEN_PATH.exists():
+
+    if WORKSPACE_TOKEN_PATH.exists(username):
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request as GoogleRequest
-            
-            creds = Credentials.from_authorized_user_file(
-                str(WORKSPACE_TOKEN_PATH),
-                WORKSPACE_SCOPES
-            )
-            
-            # Check if token is valid (not expired or can be refreshed)
+
+            creds = Credentials.from_authorized_user_file(_tp(WORKSPACE_TOKEN_PATH), WORKSPACE_SCOPES)
             if creds.expired and creds.refresh_token:
                 try:
                     creds.refresh(GoogleRequest())
-                    # Save refreshed token
-                    with open(WORKSPACE_TOKEN_PATH, 'w') as token:
+                    with open(WORKSPACE_TOKEN_PATH._get_path(username), "w") as token:
                         token.write(creds.to_json())
                 except Exception:
                     pass
-            
             status["google_workspace"]["authenticated"] = creds.valid
             status["google_workspace"]["enabled"] = creds.valid
-            
-            # Check if folder is configured
-            if WORKSPACE_CONFIG_PATH.exists():
+            if WORKSPACE_CONFIG_PATH.exists(username):
                 try:
-                    config_text = WORKSPACE_CONFIG_PATH.read_text()
+                    config_text = WORKSPACE_CONFIG_PATH.read_text(username)
                     config = json.loads(config_text)
                     status["google_workspace"]["folder_configured"] = bool(config.get("folder_id"))
                 except Exception:
                     pass
         except Exception as e:
-            logger.warning(f"Failed to validate Workspace token: {e}")
+            logger.warning("Failed to validate Workspace token for %s: %s", username, e)
             status["google_workspace"]["authenticated"] = False
-    
+
     return status
 
 
 @router.get("/google-calendar/status")
-async def get_calendar_status():
+async def get_calendar_status(request: Request):
     """
     Get Google Calendar integration status.
-    
-    Returns:
-        Status information about Calendar integration
+    Requires authenticated user (username in session).
     """
-    token_exists = CALENDAR_TOKEN_PATH.exists()
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
+    token_exists = CALENDAR_TOKEN_PATH.exists(username)
     authenticated = False
-    
     if token_exists:
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request
-            
+
             creds = Credentials.from_authorized_user_file(
-                str(CALENDAR_TOKEN_PATH),
-                ["https://www.googleapis.com/auth/calendar"]
+                str(CALENDAR_TOKEN_PATH._get_path(username)),
+                ["https://www.googleapis.com/auth/calendar"],
             )
-            
-            # Refresh if needed
             if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
-                with open(CALENDAR_TOKEN_PATH, 'w') as token:
+                with open(CALENDAR_TOKEN_PATH._get_path(username), "w") as token:
                     token.write(creds.to_json())
-            
             authenticated = creds.valid
         except Exception as e:
-            logger.warning(f"Failed to validate calendar token: {e}")
-    
+            logger.warning("Failed to validate calendar token for %s: %s", username, e)
+
     return {
         "enabled": authenticated,
         "authenticated": authenticated,
-        "token_exists": token_exists
+        "token_exists": token_exists,
     }
 
 
@@ -356,54 +346,45 @@ async def get_calendar_status():
 async def enable_calendar_integration(request: Request):
     """
     Enable Google Calendar integration.
-    If not authenticated, initiates OAuth flow.
-    
-    Returns:
-        - If authenticated: success status
-        - If not authenticated: OAuth authorization URL
+    Requires login. Initiates OAuth flow if not already authenticated for this user.
     """
     session_id = request.cookies.get("session_id")
     if not session_id:
         session_id = get_session_manager().create_session()
-    
-    # Check if already authenticated
-    if CALENDAR_TOKEN_PATH.exists():
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Please login first")
+
+    if CALENDAR_TOKEN_PATH.exists(username):
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request
-            
+
             creds = Credentials.from_authorized_user_file(
-                str(CALENDAR_TOKEN_PATH),
-                ["https://www.googleapis.com/auth/calendar"]
+                str(CALENDAR_TOKEN_PATH._get_path(username)),
+                ["https://www.googleapis.com/auth/calendar"],
             )
-            
-            # Refresh if needed
             if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
-                with open(CALENDAR_TOKEN_PATH, 'w') as token:
+                with open(CALENDAR_TOKEN_PATH._get_path(username), "w") as token:
                     token.write(creds.to_json())
-            
             if creds.valid:
-                # Already authenticated
                 audit_logger = get_audit_logger()
                 audit_logger.log_user_interaction(
                     "calendar_integration_enabled",
                     "Google Calendar integration enabled",
-                    session_id=session_id
+                    session_id=session_id,
                 )
-                
                 return {
                     "status": "enabled",
                     "authenticated": True,
-                    "message": "Google Calendar integration is already enabled"
+                    "message": "Google Calendar integration is already enabled",
                 }
         except Exception as e:
-            logger.warning(f"Token exists but invalid: {e}")
-    
-    # Need to authenticate - initiate OAuth flow
+            logger.warning("Token exists but invalid for %s: %s", username, e)
+
     try:
         config = get_config()
-        # Use Calendar-specific redirect URI
         base_url = get_base_url()
         calendar_redirect_uri = f"{base_url}/api/integrations/google-calendar/callback"
         oauth_auth = OAuthAuth(
@@ -411,31 +392,23 @@ async def enable_calendar_integration(request: Request):
             client_secret=config.google_auth.oauth_client_secret,
             redirect_uri=calendar_redirect_uri,
             scopes=["https://www.googleapis.com/auth/calendar"],
-            token_path=CALENDAR_TOKEN_PATH
+            token_path=CALENDAR_TOKEN_PATH._get_path(username),
         )
-        
-        # Generate state for CSRF protection
         state = secrets.token_urlsafe(32)
         if session_id not in integration_oauth_states:
             integration_oauth_states[session_id] = {}
         integration_oauth_states[session_id]["google_calendar"] = state
-        
-        # Get authorization URL
+
         auth_url = oauth_auth.get_authorization_url(state)
-        
         return {
             "status": "oauth_required",
             "authenticated": False,
             "auth_url": auth_url,
-            "message": "OAuth authorization required"
+            "message": "OAuth authorization required",
         }
-        
     except Exception as e:
-        logger.error(f"Failed to initiate OAuth flow: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to initiate OAuth flow: {str(e)}"
-        )
+        logger.error("Failed to initiate OAuth flow: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to initiate OAuth flow: {str(e)}")
 
 
 @router.get("/google-calendar/callback")
@@ -443,45 +416,33 @@ async def calendar_oauth_callback(
     code: str,
     state: str,
     request: Request,
-    error: Optional[str] = None
+    error: Optional[str] = None,
 ):
     """
     OAuth callback for Google Calendar integration.
-    Exchanges authorization code for access token and saves it.
+    Exchanges authorization code for access token and saves it to the user's token dir.
     """
     if error:
-        raise HTTPException(
-            status_code=400,
-            detail=f"OAuth error: {error}"
-        )
-    
+        raise HTTPException(status_code=400, detail=f"OAuth error: {error}")
     if not code:
-        raise HTTPException(
-            status_code=400,
-            detail="Authorization code is missing"
-        )
-    
+        raise HTTPException(status_code=400, detail="Authorization code is missing")
+
     session_id = request.cookies.get("session_id")
     if not session_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Session not found"
-        )
-    
-    # Verify state
+        raise HTTPException(status_code=400, detail="Session not found")
+
     stored_state = None
     if session_id in integration_oauth_states:
         stored_state = integration_oauth_states[session_id].get("google_calendar")
-    
     if not stored_state or stored_state != state:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid state parameter"
-        )
-    
+        raise HTTPException(status_code=400, detail="Invalid state parameter")
+
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
     try:
         config = get_config()
-        # Use Calendar-specific redirect URI
         base_url = get_base_url()
         calendar_redirect_uri = f"{base_url}/api/integrations/google-calendar/callback"
         oauth_auth = OAuthAuth(
@@ -489,120 +450,101 @@ async def calendar_oauth_callback(
             client_secret=config.google_auth.oauth_client_secret,
             redirect_uri=calendar_redirect_uri,
             scopes=["https://www.googleapis.com/auth/calendar"],
-            token_path=CALENDAR_TOKEN_PATH
+            token_path=CALENDAR_TOKEN_PATH._get_path(username),
         )
-        
-        # Exchange code for token
-        credentials = oauth_auth.exchange_code_for_token(code)
-        
-        # Clean up state
+        oauth_auth.exchange_code_for_token(code)
+
         if session_id in integration_oauth_states:
             integration_oauth_states[session_id].pop("google_calendar", None)
-        
-        # Log authentication
+
         audit_logger = get_audit_logger()
         audit_logger.log_user_interaction(
             "calendar_oauth_completed",
             "Google Calendar OAuth completed successfully",
-            session_id=session_id
+            session_id=session_id,
         )
-        
-        # Redirect to frontend with success
+
         frontend_url = get_frontend_url()
-        return RedirectResponse(
-            url=f"{frontend_url}/?calendar_auth=success",
-            status_code=302
-        )
-        
+        return RedirectResponse(url=f"{frontend_url}/?calendar_auth=success", status_code=302)
     except Exception as e:
-        logger.error(f"Failed to complete OAuth flow: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to complete OAuth flow: {str(e)}"
-        )
+        logger.error("Failed to complete OAuth flow: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to complete OAuth flow: {str(e)}")
 
 
 @router.post("/google-calendar/disable")
 async def disable_calendar_integration(request: Request):
     """
     Disable Google Calendar integration.
-    Removes the OAuth token.
+    Removes the OAuth token for the current user.
     """
     session_id = request.cookies.get("session_id")
-    
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
     try:
-        # Remove token file
-        if CALENDAR_TOKEN_PATH.exists():
-            CALENDAR_TOKEN_PATH.unlink()
-        
-        # Log action
+        if CALENDAR_TOKEN_PATH.exists(username):
+            CALENDAR_TOKEN_PATH.unlink(username=username)
         audit_logger = get_audit_logger()
         audit_logger.log_user_interaction(
             "calendar_integration_disabled",
             "Google Calendar integration disabled",
-            session_id=session_id
+            session_id=session_id,
         )
-        
-        return {
-            "status": "disabled",
-            "message": "Google Calendar integration has been disabled"
-        }
-        
+        return {"status": "disabled", "message": "Google Calendar integration has been disabled"}
     except Exception as e:
-        logger.error(f"Failed to disable calendar integration: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to disable integration: {str(e)}"
-        )
+        logger.error("Failed to disable calendar integration: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to disable integration: {str(e)}")
 
 
 # ========== GMAIL INTEGRATION ROUTES ==========
 
 @router.get("/gmail/status")
-async def get_gmail_status():
+async def get_gmail_status(request: Request):
     """
     Get Gmail integration status.
-    
-    Returns:
-        Status information about Gmail integration
+    Requires authenticated user (username in session).
     """
-    token_exists = GMAIL_TOKEN_PATH.exists()
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
+    token_exists = GMAIL_TOKEN_PATH.exists(username)
     authenticated = False
     email_address = None
-    
     if token_exists:
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request as GoogleRequest
-            
+
             creds = Credentials.from_authorized_user_file(
-                str(GMAIL_TOKEN_PATH),
-                GMAIL_SCOPES
+                str(GMAIL_TOKEN_PATH._get_path(username)),
+                GMAIL_SCOPES,
             )
-            
-            # Refresh if needed
             if creds.expired and creds.refresh_token:
                 creds.refresh(GoogleRequest())
-                with open(GMAIL_TOKEN_PATH, 'w') as token:
+                with open(GMAIL_TOKEN_PATH._get_path(username), "w") as token:
                     token.write(creds.to_json())
-            
             authenticated = creds.valid
-            
-            # Get user email if authenticated
             if authenticated:
                 from googleapiclient.discovery import build
-                service = build('gmail', 'v1', credentials=creds)
-                profile = service.users().getProfile(userId='me').execute()
-                email_address = profile.get('emailAddress')
-                
+
+                service = build("gmail", "v1", credentials=creds)
+                profile = service.users().getProfile(userId="me").execute()
+                email_address = profile.get("emailAddress")
         except Exception as e:
-            logger.warning(f"Failed to validate Gmail token: {e}")
-    
+            logger.warning("Failed to validate Gmail token for %s: %s", username, e)
+
     return {
         "enabled": authenticated,
         "authenticated": authenticated,
         "token_exists": token_exists,
-        "email": email_address
+        "email": email_address,
     }
 
 
@@ -610,61 +552,51 @@ async def get_gmail_status():
 async def enable_gmail_integration(request: Request):
     """
     Enable Gmail integration.
-    If not authenticated, initiates OAuth flow.
-    
-    Returns:
-        - If authenticated: success status
-        - If not authenticated: OAuth authorization URL
+    Requires login. Initiates OAuth flow if not already authenticated for this user.
     """
     session_id = request.cookies.get("session_id")
     if not session_id:
         session_id = get_session_manager().create_session()
-    
-    # Check if already authenticated
-    if GMAIL_TOKEN_PATH.exists():
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Please login first")
+
+    if GMAIL_TOKEN_PATH.exists(username):
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request as GoogleRequest
-            
+
             creds = Credentials.from_authorized_user_file(
-                str(GMAIL_TOKEN_PATH),
-                GMAIL_SCOPES
+                str(GMAIL_TOKEN_PATH._get_path(username)),
+                GMAIL_SCOPES,
             )
-            
-            # Refresh if needed
             if creds.expired and creds.refresh_token:
                 creds.refresh(GoogleRequest())
-                with open(GMAIL_TOKEN_PATH, 'w') as token:
+                with open(GMAIL_TOKEN_PATH._get_path(username), "w") as token:
                     token.write(creds.to_json())
-            
             if creds.valid:
-                # Get user email
                 from googleapiclient.discovery import build
-                service = build('gmail', 'v1', credentials=creds)
-                profile = service.users().getProfile(userId='me').execute()
-                email_address = profile.get('emailAddress')
-                
-                # Already authenticated
+
+                service = build("gmail", "v1", credentials=creds)
+                profile = service.users().getProfile(userId="me").execute()
+                email_address = profile.get("emailAddress")
                 audit_logger = get_audit_logger()
                 audit_logger.log_user_interaction(
                     "gmail_integration_enabled",
                     f"Gmail integration enabled for {email_address}",
-                    session_id=session_id
+                    session_id=session_id,
                 )
-                
                 return {
                     "status": "enabled",
                     "authenticated": True,
                     "email": email_address,
-                    "message": "Gmail integration is already enabled"
+                    "message": "Gmail integration is already enabled",
                 }
         except Exception as e:
-            logger.warning(f"Gmail token exists but invalid: {e}")
-    
-    # Need to authenticate - initiate OAuth flow
+            logger.warning("Gmail token exists but invalid for %s: %s", username, e)
+
     try:
         config = get_config()
-        # Use Gmail-specific redirect URI
         base_url = get_base_url()
         gmail_redirect_uri = f"{base_url}/api/integrations/gmail/callback"
         oauth_auth = OAuthAuth(
@@ -672,33 +604,25 @@ async def enable_gmail_integration(request: Request):
             client_secret=config.google_auth.oauth_client_secret,
             redirect_uri=gmail_redirect_uri,
             scopes=GMAIL_SCOPES,
-            token_path=GMAIL_TOKEN_PATH
+            token_path=GMAIL_TOKEN_PATH._get_path(username),
         )
-        
-        # Generate state for CSRF protection
         state = secrets.token_urlsafe(32)
         if session_id not in integration_oauth_states:
             integration_oauth_states[session_id] = {}
         integration_oauth_states[session_id]["gmail"] = state
-        
-        # Get authorization URL
+
         auth_url = oauth_auth.get_authorization_url(state)
-        
         response = JSONResponse({
             "status": "oauth_required",
             "authenticated": False,
             "auth_url": auth_url,
-            "message": "OAuth authorization required for Gmail"
+            "message": "OAuth authorization required for Gmail",
         })
         response.set_cookie("session_id", session_id, httponly=True)
         return response
-        
     except Exception as e:
-        logger.error(f"Failed to initiate Gmail OAuth flow: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to initiate OAuth flow: {str(e)}"
-        )
+        logger.error("Failed to initiate Gmail OAuth flow: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to initiate OAuth flow: {str(e)}")
 
 
 @router.get("/gmail/callback")
@@ -706,47 +630,37 @@ async def gmail_oauth_callback(
     code: str,
     state: str,
     request: Request,
-    error: Optional[str] = None
+    error: Optional[str] = None,
 ):
     """
     OAuth callback for Gmail integration.
-    Exchanges authorization code for access token and saves it.
+    Exchanges authorization code for access token and saves it to the user's token dir.
     """
     if error:
-        # Redirect to frontend with error
         frontend_url = get_frontend_url()
         return RedirectResponse(
             url=f"{frontend_url}/?gmail_auth=error&error={error}",
-            status_code=302
+            status_code=302,
         )
-    
     if not code:
-        raise HTTPException(
-            status_code=400,
-            detail="Authorization code is missing"
-        )
-    
+        raise HTTPException(status_code=400, detail="Authorization code is missing")
+
     session_id = request.cookies.get("session_id")
     if not session_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Session not found"
-        )
-    
-    # Verify state
+        raise HTTPException(status_code=400, detail="Session not found")
+
     stored_state = None
     if session_id in integration_oauth_states:
         stored_state = integration_oauth_states[session_id].get("gmail")
-    
     if not stored_state or stored_state != state:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid state parameter"
-        )
-    
+        raise HTTPException(status_code=400, detail="Invalid state parameter")
+
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
     try:
         config = get_config()
-        # Use Gmail-specific redirect URI
         base_url = get_base_url()
         gmail_redirect_uri = f"{base_url}/api/integrations/gmail/callback"
         oauth_auth = OAuthAuth(
@@ -754,43 +668,37 @@ async def gmail_oauth_callback(
             client_secret=config.google_auth.oauth_client_secret,
             redirect_uri=gmail_redirect_uri,
             scopes=GMAIL_SCOPES,
-            token_path=GMAIL_TOKEN_PATH
+            token_path=GMAIL_TOKEN_PATH._get_path(username),
         )
-        
-        # Exchange code for token
         credentials = oauth_auth.exchange_code_for_token(code)
-        
-        # Clean up state
+
         if session_id in integration_oauth_states:
             integration_oauth_states[session_id].pop("gmail", None)
-        
-        # Get user email
+
         from googleapiclient.discovery import build
-        service = build('gmail', 'v1', credentials=credentials)
-        profile = service.users().getProfile(userId='me').execute()
-        email_address = profile.get('emailAddress')
-        
-        # Log authentication
+
+        service = build("gmail", "v1", credentials=credentials)
+        profile = service.users().getProfile(userId="me").execute()
+        email_address = profile.get("emailAddress")
+
         audit_logger = get_audit_logger()
         audit_logger.log_user_interaction(
             "gmail_oauth_completed",
             f"Gmail OAuth completed for {email_address}",
-            session_id=session_id
+            session_id=session_id,
         )
-        
-        # Redirect to frontend with success
+
         frontend_url = get_frontend_url()
         return RedirectResponse(
             url=f"{frontend_url}/?gmail_auth=success",
-            status_code=302
+            status_code=302,
         )
-        
     except Exception as e:
-        logger.error(f"Failed to complete Gmail OAuth flow: {e}")
+        logger.error("Failed to complete Gmail OAuth flow: %s", e)
         frontend_url = get_frontend_url()
         return RedirectResponse(
             url=f"{frontend_url}/?gmail_auth=error&error={str(e)}",
-            status_code=302
+            status_code=302,
         )
 
 
@@ -798,74 +706,68 @@ async def gmail_oauth_callback(
 async def disable_gmail_integration(request: Request):
     """
     Disable Gmail integration.
-    Removes the OAuth token.
+    Removes the OAuth token for the current user.
     """
     session_id = request.cookies.get("session_id")
-    
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
     try:
-        # Remove token file
-        if GMAIL_TOKEN_PATH.exists():
-            GMAIL_TOKEN_PATH.unlink()
-        
-        # Log action
+        if GMAIL_TOKEN_PATH.exists(username):
+            GMAIL_TOKEN_PATH.unlink(username=username)
         audit_logger = get_audit_logger()
         audit_logger.log_user_interaction(
             "gmail_integration_disabled",
             "Gmail integration disabled",
-            session_id=session_id
+            session_id=session_id,
         )
-        
-        return {
-            "status": "disabled",
-            "message": "Gmail integration has been disabled"
-        }
-        
+        return {"status": "disabled", "message": "Gmail integration has been disabled"}
     except Exception as e:
-        logger.error(f"Failed to disable Gmail integration: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to disable integration: {str(e)}"
-        )
+        logger.error("Failed to disable Gmail integration: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to disable integration: {str(e)}")
 
 
 # ========== GOOGLE SHEETS INTEGRATION ROUTES ==========
 
 @router.get("/google-sheets/status")
-async def get_sheets_status():
+async def get_sheets_status(request: Request):
     """
     Get Google Sheets integration status.
-    
-    Returns:
-        Status information about Sheets integration
+    Requires authenticated user (username in session).
     """
-    token_exists = SHEETS_TOKEN_PATH.exists()
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
+    token_exists = SHEETS_TOKEN_PATH.exists(username)
     authenticated = False
-    
     if token_exists:
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request as GoogleRequest
-            
+
             creds = Credentials.from_authorized_user_file(
-                str(SHEETS_TOKEN_PATH),
-                SHEETS_SCOPES
+                str(SHEETS_TOKEN_PATH._get_path(username)),
+                SHEETS_SCOPES,
             )
-            
-            # Refresh if needed
             if creds.expired and creds.refresh_token:
                 creds.refresh(GoogleRequest())
-                with open(SHEETS_TOKEN_PATH, 'w') as token:
+                with open(SHEETS_TOKEN_PATH._get_path(username), "w") as token:
                     token.write(creds.to_json())
-            
             authenticated = creds.valid
-                
         except Exception as e:
-            logger.warning(f"Failed to validate Sheets token: {e}")
-    
+            logger.warning("Failed to validate Sheets token for %s: %s", username, e)
+
     return {
         "enabled": authenticated,
         "authenticated": authenticated,
-        "token_exists": token_exists
+        "token_exists": token_exists,
     }
 
 
@@ -873,40 +775,37 @@ async def get_sheets_status():
 async def enable_sheets_integration_get(request: Request):
     """
     Enable Google Sheets integration via GET (for browser access).
-    Redirects to OAuth authorization URL if not authenticated.
+    Requires login. Redirects to OAuth if not authenticated for this user.
     """
     session_id = request.cookies.get("session_id")
     if not session_id:
         session_id = get_session_manager().create_session()
-    
-    # Check if already authenticated
-    if SHEETS_TOKEN_PATH.exists():
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Please login first")
+
+    if SHEETS_TOKEN_PATH.exists(username):
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request as GoogleRequest
-            
+
             creds = Credentials.from_authorized_user_file(
-                str(SHEETS_TOKEN_PATH),
-                SHEETS_SCOPES
+                str(SHEETS_TOKEN_PATH._get_path(username)),
+                SHEETS_SCOPES,
             )
-            
-            # Refresh if needed
             if creds.expired and creds.refresh_token:
                 creds.refresh(GoogleRequest())
-                with open(SHEETS_TOKEN_PATH, 'w') as token:
+                with open(SHEETS_TOKEN_PATH._get_path(username), "w") as token:
                     token.write(creds.to_json())
-            
             if creds.valid:
-                # Already authenticated - redirect to frontend with success
                 frontend_url = get_frontend_url()
                 return RedirectResponse(
                     url=f"{frontend_url}/?sheets_auth=already_enabled",
-                    status_code=302
+                    status_code=302,
                 )
         except Exception as e:
-            logger.warning(f"Sheets token exists but invalid: {e}")
-    
-    # Need to authenticate - initiate OAuth flow
+            logger.warning("Sheets token exists but invalid for %s: %s", username, e)
+
     try:
         config = get_config()
         base_url = get_base_url()
@@ -916,82 +815,65 @@ async def enable_sheets_integration_get(request: Request):
             client_secret=config.google_auth.oauth_client_secret,
             redirect_uri=sheets_redirect_uri,
             scopes=SHEETS_SCOPES,
-            token_path=SHEETS_TOKEN_PATH
+            token_path=SHEETS_TOKEN_PATH._get_path(username),
         )
-        
-        # Generate state for CSRF protection
         state = secrets.token_urlsafe(32)
         if session_id not in integration_oauth_states:
             integration_oauth_states[session_id] = {}
         integration_oauth_states[session_id]["google_sheets"] = state
-        
-        # Get authorization URL and redirect directly
+
         auth_url = oauth_auth.get_authorization_url(state)
-        
         response = RedirectResponse(url=auth_url, status_code=302)
         response.set_cookie("session_id", session_id, httponly=True)
         return response
-        
     except Exception as e:
-        logger.error(f"Failed to initiate Google Sheets OAuth flow: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to initiate OAuth flow: {str(e)}"
-        )
+        logger.error("Failed to initiate Google Sheets OAuth flow: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to initiate OAuth flow: {str(e)}")
 
 
 @router.post("/google-sheets/enable")
 async def enable_sheets_integration(request: Request):
     """
     Enable Google Sheets integration.
-    If not authenticated, initiates OAuth flow.
-    
-    Returns:
-        - If authenticated: success status
-        - If not authenticated: OAuth authorization URL
+    Requires login. Initiates OAuth flow if not already authenticated for this user.
     """
     session_id = request.cookies.get("session_id")
     if not session_id:
         session_id = get_session_manager().create_session()
-    
-    # Check if already authenticated
-    if SHEETS_TOKEN_PATH.exists():
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Please login first")
+
+    if SHEETS_TOKEN_PATH.exists(username):
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request as GoogleRequest
-            
+
             creds = Credentials.from_authorized_user_file(
-                str(SHEETS_TOKEN_PATH),
-                SHEETS_SCOPES
+                str(SHEETS_TOKEN_PATH._get_path(username)),
+                SHEETS_SCOPES,
             )
-            
-            # Refresh if needed
             if creds.expired and creds.refresh_token:
                 creds.refresh(GoogleRequest())
-                with open(SHEETS_TOKEN_PATH, 'w') as token:
+                with open(SHEETS_TOKEN_PATH._get_path(username), "w") as token:
                     token.write(creds.to_json())
-            
             if creds.valid:
-                # Already authenticated
                 audit_logger = get_audit_logger()
                 audit_logger.log_user_interaction(
                     "sheets_integration_enabled",
                     "Google Sheets integration enabled",
-                    session_id=session_id
+                    session_id=session_id,
                 )
-                
                 return {
                     "status": "enabled",
                     "authenticated": True,
-                    "message": "Google Sheets integration is already enabled"
+                    "message": "Google Sheets integration is already enabled",
                 }
         except Exception as e:
-            logger.warning(f"Sheets token exists but invalid: {e}")
-    
-    # Need to authenticate - initiate OAuth flow
+            logger.warning("Sheets token exists but invalid for %s: %s", username, e)
+
     try:
         config = get_config()
-        # Use Sheets-specific redirect URI
         base_url = get_base_url()
         sheets_redirect_uri = f"{base_url}/api/integrations/google-sheets/callback"
         oauth_auth = OAuthAuth(
@@ -999,33 +881,25 @@ async def enable_sheets_integration(request: Request):
             client_secret=config.google_auth.oauth_client_secret,
             redirect_uri=sheets_redirect_uri,
             scopes=SHEETS_SCOPES,
-            token_path=SHEETS_TOKEN_PATH
+            token_path=SHEETS_TOKEN_PATH._get_path(username),
         )
-        
-        # Generate state for CSRF protection
         state = secrets.token_urlsafe(32)
         if session_id not in integration_oauth_states:
             integration_oauth_states[session_id] = {}
         integration_oauth_states[session_id]["google_sheets"] = state
-        
-        # Get authorization URL
+
         auth_url = oauth_auth.get_authorization_url(state)
-        
         response = JSONResponse({
             "status": "oauth_required",
             "authenticated": False,
             "auth_url": auth_url,
-            "message": "OAuth authorization required for Google Sheets"
+            "message": "OAuth authorization required for Google Sheets",
         })
         response.set_cookie("session_id", session_id, httponly=True)
         return response
-        
     except Exception as e:
-        logger.error(f"Failed to initiate Google Sheets OAuth flow: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to initiate OAuth flow: {str(e)}"
-        )
+        logger.error("Failed to initiate Google Sheets OAuth flow: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to initiate OAuth flow: {str(e)}")
 
 
 @router.get("/google-sheets/callback")
@@ -1033,47 +907,37 @@ async def sheets_oauth_callback(
     code: str,
     state: str,
     request: Request,
-    error: Optional[str] = None
+    error: Optional[str] = None,
 ):
     """
     OAuth callback for Google Sheets integration.
-    Exchanges authorization code for access token and saves it.
+    Exchanges authorization code for access token and saves it to the user's token dir.
     """
     if error:
-        # Redirect to frontend with error
         frontend_url = get_frontend_url()
         return RedirectResponse(
             url=f"{frontend_url}/?sheets_auth=error&error={error}",
-            status_code=302
+            status_code=302,
         )
-    
     if not code:
-        raise HTTPException(
-            status_code=400,
-            detail="Authorization code is missing"
-        )
-    
+        raise HTTPException(status_code=400, detail="Authorization code is missing")
+
     session_id = request.cookies.get("session_id")
     if not session_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Session not found"
-        )
-    
-    # Verify state
+        raise HTTPException(status_code=400, detail="Session not found")
+
     stored_state = None
     if session_id in integration_oauth_states:
         stored_state = integration_oauth_states[session_id].get("google_sheets")
-    
     if not stored_state or stored_state != state:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid state parameter"
-        )
-    
+        raise HTTPException(status_code=400, detail="Invalid state parameter")
+
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
     try:
         config = get_config()
-        # Use Sheets-specific redirect URI
         base_url = get_base_url()
         sheets_redirect_uri = f"{base_url}/api/integrations/google-sheets/callback"
         oauth_auth = OAuthAuth(
@@ -1081,37 +945,31 @@ async def sheets_oauth_callback(
             client_secret=config.google_auth.oauth_client_secret,
             redirect_uri=sheets_redirect_uri,
             scopes=SHEETS_SCOPES,
-            token_path=SHEETS_TOKEN_PATH
+            token_path=SHEETS_TOKEN_PATH._get_path(username),
         )
-        
-        # Exchange code for token
-        credentials = oauth_auth.exchange_code_for_token(code)
-        
-        # Clean up state
+        oauth_auth.exchange_code_for_token(code)
+
         if session_id in integration_oauth_states:
             integration_oauth_states[session_id].pop("google_sheets", None)
-        
-        # Log authentication
+
         audit_logger = get_audit_logger()
         audit_logger.log_user_interaction(
             "sheets_oauth_completed",
             "Google Sheets OAuth completed successfully",
-            session_id=session_id
+            session_id=session_id,
         )
-        
-        # Redirect to frontend with success
+
         frontend_url = get_frontend_url()
         return RedirectResponse(
             url=f"{frontend_url}/?sheets_auth=success",
-            status_code=302
+            status_code=302,
         )
-        
     except Exception as e:
-        logger.error(f"Failed to complete Google Sheets OAuth flow: {e}")
+        logger.error("Failed to complete Google Sheets OAuth flow: %s", e)
         frontend_url = get_frontend_url()
         return RedirectResponse(
             url=f"{frontend_url}/?sheets_auth=error&error={str(e)}",
-            status_code=302
+            status_code=302,
         )
 
 
@@ -1119,73 +977,66 @@ async def sheets_oauth_callback(
 async def disable_sheets_integration(request: Request):
     """
     Disable Google Sheets integration.
-    Removes the OAuth token.
+    Removes the OAuth token for the current user.
     """
     session_id = request.cookies.get("session_id")
-    
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
     try:
-        # Remove token file
-        if SHEETS_TOKEN_PATH.exists():
-            SHEETS_TOKEN_PATH.unlink()
-        
-        # Log action
+        if SHEETS_TOKEN_PATH.exists(username):
+            SHEETS_TOKEN_PATH.unlink(username=username)
         audit_logger = get_audit_logger()
         audit_logger.log_user_interaction(
             "sheets_integration_disabled",
             "Google Sheets integration disabled",
-            session_id=session_id
+            session_id=session_id,
         )
-        
-        return {
-            "status": "disabled",
-            "message": "Google Sheets integration has been disabled"
-        }
-        
+        return {"status": "disabled", "message": "Google Sheets integration has been disabled"}
     except Exception as e:
-        logger.error(f"Failed to disable Google Sheets integration: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to disable integration: {str(e)}"
-        )
+        logger.error("Failed to disable Google Sheets integration: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to disable integration: {str(e)}")
 
 
 # ========== GOOGLE WORKSPACE INTEGRATION ROUTES ==========
 
 @router.get("/google-workspace/status")
-async def get_workspace_status():
+async def get_workspace_status(request: Request):
     """
     Get Google Workspace integration status.
-    
-    Returns:
-        Status information about Workspace integration
+    Requires authenticated user (username in session).
     """
-    token_exists = WORKSPACE_TOKEN_PATH.exists()
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
+    token_exists = WORKSPACE_TOKEN_PATH.exists(username)
     authenticated = False
     folder_configured = False
     folder_info = None
-    
     if token_exists:
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request as GoogleRequest
-            
+
             creds = Credentials.from_authorized_user_file(
-                str(WORKSPACE_TOKEN_PATH),
-                WORKSPACE_SCOPES
+                str(WORKSPACE_TOKEN_PATH._get_path(username)),
+                WORKSPACE_SCOPES,
             )
-            
-            # Refresh if needed
             if creds.expired and creds.refresh_token:
                 creds.refresh(GoogleRequest())
-                with open(WORKSPACE_TOKEN_PATH, 'w') as token:
+                with open(WORKSPACE_TOKEN_PATH._get_path(username), "w") as token:
                     token.write(creds.to_json())
-            
             authenticated = creds.valid
-            
-            # Check folder configuration
-            if WORKSPACE_CONFIG_PATH.exists():
+            if WORKSPACE_CONFIG_PATH.exists(username):
                 try:
-                    config_text = WORKSPACE_CONFIG_PATH.read_text()
+                    config_text = WORKSPACE_CONFIG_PATH.read_text(username)
                     config = json.loads(config_text)
                     folder_id = config.get("folder_id")
                     folder_configured = bool(folder_id)
@@ -1193,19 +1044,19 @@ async def get_workspace_status():
                         folder_info = {
                             "id": folder_id,
                             "name": config.get("folder_name"),
-                            "url": config.get("folder_url")
+                            "url": config.get("folder_url"),
                         }
                 except Exception as e:
-                    logger.warning(f"Failed to load workspace config: {e}")
+                    logger.warning("Failed to load workspace config for %s: %s", username, e)
         except Exception as e:
-            logger.warning(f"Failed to validate Workspace token: {e}")
-    
+            logger.warning("Failed to validate Workspace token for %s: %s", username, e)
+
     return {
         "enabled": authenticated and folder_configured,
         "authenticated": authenticated,
         "token_exists": token_exists,
         "folder_configured": folder_configured,
-        "folder": folder_info
+        "folder": folder_info,
     }
 
 
@@ -1213,64 +1064,53 @@ async def get_workspace_status():
 async def enable_workspace_integration(request: Request):
     """
     Enable Google Workspace integration.
-    If not authenticated, initiates OAuth flow.
-    
-    Returns:
-        - If authenticated: success status
-        - If not authenticated: OAuth authorization URL
+    Requires login. Initiates OAuth flow if not already authenticated for this user.
     """
     session_id = request.cookies.get("session_id")
     if not session_id:
         session_id = get_session_manager().create_session()
-    
-    # Check if already authenticated
-    if WORKSPACE_TOKEN_PATH.exists():
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Please login first")
+
+    if WORKSPACE_TOKEN_PATH.exists(username):
         try:
             from google.oauth2.credentials import Credentials
             from google.auth.transport.requests import Request as GoogleRequest
-            
+
             creds = Credentials.from_authorized_user_file(
-                str(WORKSPACE_TOKEN_PATH),
-                WORKSPACE_SCOPES
+                str(WORKSPACE_TOKEN_PATH._get_path(username)),
+                WORKSPACE_SCOPES,
             )
-            
-            # Refresh if needed
             if creds.expired and creds.refresh_token:
                 creds.refresh(GoogleRequest())
-                with open(WORKSPACE_TOKEN_PATH, 'w') as token:
+                with open(WORKSPACE_TOKEN_PATH._get_path(username), "w") as token:
                     token.write(creds.to_json())
-            
             if creds.valid:
-                # Check if folder is configured
                 folder_configured = False
-                if WORKSPACE_CONFIG_PATH.exists():
+                if WORKSPACE_CONFIG_PATH.exists(username):
                     try:
-                        config_text = WORKSPACE_CONFIG_PATH.read_text()
+                        config_text = WORKSPACE_CONFIG_PATH.read_text(username)
                         config = json.loads(config_text)
                         folder_configured = bool(config.get("folder_id"))
                     except Exception:
                         pass
-                
-                # Already authenticated
                 audit_logger = get_audit_logger()
                 audit_logger.log_user_interaction(
                     "workspace_integration_enabled",
                     "Google Workspace integration enabled",
-                    session_id=session_id
+                    session_id=session_id,
                 )
-                
                 return {
                     "status": "enabled",
                     "authenticated": True,
                     "folder_configured": folder_configured,
-                    "message": "Google Workspace integration is already enabled" + (
-                        "" if folder_configured else ". Please configure workspace folder."
-                    )
+                    "message": "Google Workspace integration is already enabled"
+                    + ("" if folder_configured else ". Please configure workspace folder."),
                 }
         except Exception as e:
-            logger.warning(f"Workspace token exists but invalid: {e}")
-    
-    # Need to authenticate - initiate OAuth flow
+            logger.warning("Workspace token exists but invalid for %s: %s", username, e)
+
     try:
         config = get_config()
         base_url = get_base_url()
@@ -1280,33 +1120,25 @@ async def enable_workspace_integration(request: Request):
             client_secret=config.google_auth.oauth_client_secret,
             redirect_uri=workspace_redirect_uri,
             scopes=WORKSPACE_SCOPES,
-            token_path=WORKSPACE_TOKEN_PATH
+            token_path=WORKSPACE_TOKEN_PATH._get_path(username),
         )
-        
-        # Generate state for CSRF protection
         state = secrets.token_urlsafe(32)
         if session_id not in integration_oauth_states:
             integration_oauth_states[session_id] = {}
         integration_oauth_states[session_id]["google_workspace"] = state
-        
-        # Get authorization URL
+
         auth_url = oauth_auth.get_authorization_url(state)
-        
         response = JSONResponse({
             "status": "oauth_required",
             "authenticated": False,
             "auth_url": auth_url,
-            "message": "OAuth authorization required for Google Workspace"
+            "message": "OAuth authorization required for Google Workspace",
         })
         response.set_cookie("session_id", session_id, httponly=True)
         return response
-        
     except Exception as e:
-        logger.error(f"Failed to initiate Google Workspace OAuth flow: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to initiate OAuth flow: {str(e)}"
-        )
+        logger.error("Failed to initiate Google Workspace OAuth flow: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to initiate OAuth flow: {str(e)}")
 
 
 @router.get("/google-workspace/callback")
@@ -1314,42 +1146,31 @@ async def workspace_oauth_callback(
     code: str,
     state: str,
     request: Request,
-    error: Optional[str] = None
+    error: Optional[str] = None,
 ):
     """
     OAuth callback for Google Workspace integration.
-    Exchanges authorization code for access token and saves it.
+    Exchanges authorization code for access token and saves it to the user's token dir.
     """
     if error:
-        raise HTTPException(
-            status_code=400,
-            detail=f"OAuth error: {error}"
-        )
-    
+        raise HTTPException(status_code=400, detail=f"OAuth error: {error}")
     if not code:
-        raise HTTPException(
-            status_code=400,
-            detail="Authorization code is missing"
-        )
-    
+        raise HTTPException(status_code=400, detail="Authorization code is missing")
+
     session_id = request.cookies.get("session_id")
     if not session_id:
-        raise HTTPException(
-            status_code=400,
-            detail="Session not found"
-        )
-    
-    # Verify state
+        raise HTTPException(status_code=400, detail="Session not found")
+
     stored_state = None
     if session_id in integration_oauth_states:
         stored_state = integration_oauth_states[session_id].get("google_workspace")
-    
     if not stored_state or stored_state != state:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid state parameter"
-        )
-    
+        raise HTTPException(status_code=400, detail="Invalid state parameter")
+
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
     try:
         config = get_config()
         base_url = get_base_url()
@@ -1359,37 +1180,31 @@ async def workspace_oauth_callback(
             client_secret=config.google_auth.oauth_client_secret,
             redirect_uri=workspace_redirect_uri,
             scopes=WORKSPACE_SCOPES,
-            token_path=WORKSPACE_TOKEN_PATH
+            token_path=WORKSPACE_TOKEN_PATH._get_path(username),
         )
-        
-        # Exchange code for token
-        credentials = oauth_auth.exchange_code_for_token(code)
-        
-        # Clean up state
+        oauth_auth.exchange_code_for_token(code)
+
         if session_id in integration_oauth_states:
             integration_oauth_states[session_id].pop("google_workspace", None)
-        
-        # Log authentication
+
         audit_logger = get_audit_logger()
         audit_logger.log_user_interaction(
             "workspace_oauth_completed",
             "Google Workspace OAuth completed successfully",
-            session_id=session_id
+            session_id=session_id,
         )
-        
-        # Redirect to frontend - will prompt for folder selection
+
         frontend_url = get_frontend_url()
         return RedirectResponse(
             url=f"{frontend_url}/?workspace_auth=success",
-            status_code=302
+            status_code=302,
         )
-        
     except Exception as e:
-        logger.error(f"Failed to complete Google Workspace OAuth flow: {e}")
+        logger.error("Failed to complete Google Workspace OAuth flow: %s", e)
         frontend_url = get_frontend_url()
         return RedirectResponse(
             url=f"{frontend_url}/?workspace_auth=error&error={str(e)}",
-            status_code=302
+            status_code=302,
         )
 
 
@@ -1397,73 +1212,69 @@ async def workspace_oauth_callback(
 async def disable_workspace_integration(request: Request):
     """
     Disable Google Workspace integration.
-    Removes the OAuth token and configuration.
+    Removes the OAuth token and configuration for the current user.
     """
     session_id = request.cookies.get("session_id")
-    
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
     try:
-        # Remove token file
-        if WORKSPACE_TOKEN_PATH.exists():
-            WORKSPACE_TOKEN_PATH.unlink()
-        
-        # Remove config file
-        if WORKSPACE_CONFIG_PATH.exists():
-            WORKSPACE_CONFIG_PATH.unlink()
-        
-        # Log action
+        if WORKSPACE_TOKEN_PATH.exists(username):
+            WORKSPACE_TOKEN_PATH.unlink(username=username)
+        if WORKSPACE_CONFIG_PATH.exists(username):
+            WORKSPACE_CONFIG_PATH.unlink(username=username)
         audit_logger = get_audit_logger()
         audit_logger.log_user_interaction(
             "workspace_integration_disabled",
             "Google Workspace integration disabled",
-            session_id=session_id
+            session_id=session_id,
         )
-        
-        return {
-            "status": "disabled",
-            "message": "Google Workspace integration has been disabled"
-        }
-        
+        return {"status": "disabled", "message": "Google Workspace integration has been disabled"}
     except Exception as e:
-        logger.error(f"Failed to disable Google Workspace integration: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to disable integration: {str(e)}"
-        )
+        logger.error("Failed to disable Google Workspace integration: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to disable integration: {str(e)}")
 
 
 @router.get("/google-workspace/folders")
 async def list_workspace_folders(
     request: Request,
-    parent_folder_id: Optional[str] = Query(None, description="Optional parent folder ID to list subfolders")
+    parent_folder_id: Optional[str] = Query(None, description="Optional parent folder ID to list subfolders"),
 ):
     """
     List folders from Google Drive that can be used as workspace folder.
     If parent_folder_id is provided, returns subfolders of that folder.
     Otherwise, returns all top-level folders.
     """
-    if not WORKSPACE_TOKEN_PATH.exists():
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+    if not WORKSPACE_TOKEN_PATH.exists(username):
         raise HTTPException(
             status_code=401,
-            detail="Google Workspace not authenticated. Please enable integration first."
+            detail="Google Workspace not authenticated. Please enable integration first.",
         )
-    
+
     try:
         from google.oauth2.credentials import Credentials
         from google.auth.transport.requests import Request as GoogleRequest
         from googleapiclient.discovery import build
-        
+
         creds = Credentials.from_authorized_user_file(
-            str(WORKSPACE_TOKEN_PATH),
-            WORKSPACE_SCOPES
+            str(WORKSPACE_TOKEN_PATH._get_path(username)),
+            WORKSPACE_SCOPES,
         )
-        
-        # Refresh if needed
         if creds.expired and creds.refresh_token:
             creds.refresh(GoogleRequest())
-            with open(WORKSPACE_TOKEN_PATH, 'w') as token:
+            with open(WORKSPACE_TOKEN_PATH._get_path(username), "w") as token:
                 token.write(creds.to_json())
-        
-        drive_service = build('drive', 'v3', credentials=creds)
+
+        drive_service = build("drive", "v3", credentials=creds)
         
         # Build query
         query_parts = ["mimeType='application/vnd.google-apps.folder'", "trashed=false"]
@@ -1514,203 +1325,171 @@ async def list_workspace_folders(
 async def set_workspace_folder(
     request: Request,
     folder_id: str = Query(..., description="Google Drive folder ID"),
-    folder_name: Optional[str] = Query(None, description="Optional folder name")
+    folder_name: Optional[str] = Query(None, description="Optional folder name"),
 ):
     """
-    Set the workspace folder ID.
-    
-    Args:
-        folder_id: Google Drive folder ID
-        folder_name: Optional folder name (will be fetched if not provided)
+    Set the workspace folder ID for the current user.
     """
-    if not WORKSPACE_TOKEN_PATH.exists():
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+    if not WORKSPACE_TOKEN_PATH.exists(username):
         raise HTTPException(
             status_code=401,
-            detail="Google Workspace not authenticated. Please enable integration first."
+            detail="Google Workspace not authenticated. Please enable integration first.",
         )
-    
+
     try:
         from google.oauth2.credentials import Credentials
         from google.auth.transport.requests import Request as GoogleRequest
         from googleapiclient.discovery import build
-        
+        from googleapiclient.errors import HttpError
+
         creds = Credentials.from_authorized_user_file(
-            str(WORKSPACE_TOKEN_PATH),
-            WORKSPACE_SCOPES
+            str(WORKSPACE_TOKEN_PATH._get_path(username)),
+            WORKSPACE_SCOPES,
         )
-        
-        # Refresh if needed
         if creds.expired and creds.refresh_token:
             creds.refresh(GoogleRequest())
-            with open(WORKSPACE_TOKEN_PATH, 'w') as token:
+            with open(WORKSPACE_TOKEN_PATH._get_path(username), "w") as token:
                 token.write(creds.to_json())
-        
-        # Get folder info if name not provided
+
+        drive_service = build("drive", "v3", credentials=creds)
         if not folder_name:
-            drive_service = build('drive', 'v3', credentials=creds)
             folder_info = drive_service.files().get(
                 fileId=folder_id,
-                fields="id, name, webViewLink"
+                fields="id, name, webViewLink",
             ).execute()
-            folder_name = folder_info.get('name')
-            folder_url = folder_info.get('webViewLink')
+            folder_name = folder_info.get("name")
+            folder_url = folder_info.get("webViewLink")
         else:
-            drive_service = build('drive', 'v3', credentials=creds)
             folder_info = drive_service.files().get(
                 fileId=folder_id,
-                fields="webViewLink"
+                fields="webViewLink",
             ).execute()
-            folder_url = folder_info.get('webViewLink')
-        
-        # Save configuration
+            folder_url = folder_info.get("webViewLink")
+
         config = {
             "folder_id": folder_id,
             "folder_name": folder_name,
-            "folder_url": folder_url
+            "folder_url": folder_url,
         }
-        
-        # Get actual path from DynamicPath and ensure parent directory exists
-        config_path = WORKSPACE_CONFIG_PATH._get_path()
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        # Write configuration using write_text method
-        WORKSPACE_CONFIG_PATH.write_text(json.dumps(config, indent=2))
-        
-        # Log action
-        session_id = request.cookies.get("session_id")
+        WORKSPACE_CONFIG_PATH.write_text(json.dumps(config, indent=2), username=username)
+
         audit_logger = get_audit_logger()
         audit_logger.log_user_interaction(
             "workspace_folder_configured",
             f"Workspace folder set to: {folder_name} ({folder_id})",
-            session_id=session_id
+            session_id=session_id,
         )
-        
         return {
             "status": "configured",
             "folder_id": folder_id,
             "folder_name": folder_name,
-            "folder_url": folder_url
+            "folder_url": folder_url,
         }
-        
     except HttpError as e:
-        logger.error(f"Failed to set workspace folder: {e}")
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid folder ID or access denied: {str(e)}"
-        )
+        logger.error("Failed to set workspace folder: %s", e)
+        raise HTTPException(status_code=400, detail=f"Invalid folder ID or access denied: {str(e)}")
     except Exception as e:
-        logger.error(f"Failed to set workspace folder: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to set folder: {str(e)}"
-        )
+        logger.error("Failed to set workspace folder: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to set folder: {str(e)}")
 
 
 @router.get("/google-workspace/current-folder")
-async def get_current_workspace_folder():
+async def get_current_workspace_folder(request: Request):
     """
-    Get the current workspace folder configuration.
-    
-    Returns:
-        Current folder information or null if not configured
+    Get the current workspace folder configuration for the current user.
     """
-    if not WORKSPACE_CONFIG_PATH.exists():
-        return {
-            "folder_id": None,
-            "folder_name": None,
-            "folder_url": None
-        }
-    
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+
+    if not WORKSPACE_CONFIG_PATH.exists(username):
+        return {"folder_id": None, "folder_name": None, "folder_url": None}
+
     try:
-        config_text = WORKSPACE_CONFIG_PATH.read_text()
+        config_text = WORKSPACE_CONFIG_PATH.read_text(username)
         config = json.loads(config_text)
-        
         return {
             "folder_id": config.get("folder_id"),
             "folder_name": config.get("folder_name"),
-            "folder_url": config.get("folder_url")
+            "folder_url": config.get("folder_url"),
         }
     except Exception as e:
-        logger.warning(f"Failed to load workspace config: {e}")
-        return {
-            "folder_id": None,
-            "folder_name": None,
-            "folder_url": None
-        }
+        logger.warning("Failed to load workspace config for %s: %s", username, e)
+        return {"folder_id": None, "folder_name": None, "folder_url": None}
 
 
 @router.post("/google-workspace/create-folder")
 async def create_workspace_folder(
     request: Request,
     folder_name: str = Query(..., description="Name of the folder to create"),
-    parent_folder_id: Optional[str] = Query(None, description="Optional parent folder ID")
+    parent_folder_id: Optional[str] = Query(None, description="Optional parent folder ID"),
 ):
     """
-    Create a new folder in Google Drive.
+    Create a new folder in Google Drive for the current user.
     If parent_folder_id is not provided, creates in Drive root.
-    
-    Args:
-        folder_name: Name of the folder to create
-        parent_folder_id: Optional parent folder ID (defaults to root)
     """
-    if not WORKSPACE_TOKEN_PATH.exists():
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+    if not WORKSPACE_TOKEN_PATH.exists(username):
         raise HTTPException(
             status_code=401,
-            detail="Google Workspace not authenticated. Please enable integration first."
+            detail="Google Workspace not authenticated. Please enable integration first.",
         )
-    
+
     try:
         from google.oauth2.credentials import Credentials
         from google.auth.transport.requests import Request as GoogleRequest
         from googleapiclient.discovery import build
-        
+
         creds = Credentials.from_authorized_user_file(
-            str(WORKSPACE_TOKEN_PATH),
-            WORKSPACE_SCOPES
+            str(WORKSPACE_TOKEN_PATH._get_path(username)),
+            WORKSPACE_SCOPES,
         )
-        
-        # Refresh if needed
         if creds.expired and creds.refresh_token:
             creds.refresh(GoogleRequest())
-            with open(WORKSPACE_TOKEN_PATH, 'w') as token:
+            with open(WORKSPACE_TOKEN_PATH._get_path(username), "w") as token:
                 token.write(creds.to_json())
-        
-        drive_service = build('drive', 'v3', credentials=creds)
-        
+
+        drive_service = build("drive", "v3", credentials=creds)
         folder_metadata = {
             "name": folder_name,
-            "mimeType": "application/vnd.google-apps.folder"
+            "mimeType": "application/vnd.google-apps.folder",
         }
-        
         if parent_folder_id:
             folder_metadata["parents"] = [parent_folder_id]
-        
+
         folder = drive_service.files().create(
             body=folder_metadata,
-            fields="id, name, webViewLink"
+            fields="id, name, webViewLink",
         ).execute()
-        
-        # Log action
-        session_id = request.cookies.get("session_id")
+
         audit_logger = get_audit_logger()
         audit_logger.log_user_interaction(
             "workspace_folder_created",
             f"Created folder: {folder_name} ({folder.get('id')})",
-            session_id=session_id
+            session_id=session_id,
         )
-        
         return {
-            "id": folder.get('id'),
-            "name": folder.get('name'),
-            "url": folder.get('webViewLink')
+            "id": folder.get("id"),
+            "name": folder.get("name"),
+            "url": folder.get("webViewLink"),
         }
-        
     except Exception as e:
-        logger.error(f"Failed to create folder: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to create folder: {str(e)}"
-        )
+        logger.error("Failed to create folder: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to create folder: {str(e)}")
 
 
 @router.get("/google-workspace/files")
@@ -1718,120 +1497,111 @@ async def list_workspace_files(
     request: Request,
     mime_type: Optional[str] = Query(None, description="Filter by MIME type"),
     query: Optional[str] = Query(None, description="Search query for file names"),
-    max_results: int = Query(100, description="Maximum number of results")
+    max_results: int = Query(100, description="Maximum number of results"),
 ):
     """
-    List files in the workspace folder.
-    
-    Returns:
-        List of files with id, name, mimeType, etc.
+    List files in the workspace folder for the current user.
     """
-    if not WORKSPACE_TOKEN_PATH.exists():
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+    if not WORKSPACE_TOKEN_PATH.exists(username):
         raise HTTPException(
             status_code=401,
-            detail="Google Workspace not authenticated. Please enable integration first."
+            detail="Google Workspace not authenticated. Please enable integration first.",
         )
-    
+
     try:
         from google.oauth2.credentials import Credentials
         from google.auth.transport.requests import Request as GoogleRequest
         from googleapiclient.discovery import build
-        
+
         creds = Credentials.from_authorized_user_file(
-            str(WORKSPACE_TOKEN_PATH),
-            WORKSPACE_SCOPES
+            str(WORKSPACE_TOKEN_PATH._get_path(username)),
+            WORKSPACE_SCOPES,
         )
-        
-        # Refresh if needed
         if creds.expired and creds.refresh_token:
             creds.refresh(GoogleRequest())
-            with open(WORKSPACE_TOKEN_PATH, 'w') as token:
+            with open(WORKSPACE_TOKEN_PATH._get_path(username), "w") as token:
                 token.write(creds.to_json())
-        
-        drive_service = build('drive', 'v3', credentials=creds)
-        
-        # Get workspace folder ID
-        if not WORKSPACE_CONFIG_PATH.exists():
-            raise HTTPException(
-                status_code=400,
-                detail="Workspace folder not configured"
-            )
-        
-        config_text = WORKSPACE_CONFIG_PATH.read_text()
+
+        drive_service = build("drive", "v3", credentials=creds)
+
+        if not WORKSPACE_CONFIG_PATH.exists(username):
+            raise HTTPException(status_code=400, detail="Workspace folder not configured")
+
+        config_text = WORKSPACE_CONFIG_PATH.read_text(username)
         config = json.loads(config_text)
         folder_id = config.get("folder_id")
-        
         if not folder_id:
-            raise HTTPException(
-                status_code=400,
-                detail="Workspace folder not configured"
-            )
-        
-        # Build query
+            raise HTTPException(status_code=400, detail="Workspace folder not configured")
+
         query_parts = [f"'{folder_id}' in parents", "trashed=false"]
-        
         if mime_type:
             query_parts.append(f"mimeType='{mime_type}'")
-        
         if query:
             query_parts.append(f"name contains '{query}'")
-        
         drive_query = " and ".join(query_parts)
-        
-        # List files
+
         results = drive_service.files().list(
             q=drive_query,
             pageSize=min(max_results, 100),
             fields="files(id, name, mimeType, createdTime, modifiedTime, webViewLink, size, owners)",
             orderBy="modifiedTime desc",
             supportsAllDrives=True,
-            includeItemsFromAllDrives=True
+            includeItemsFromAllDrives=True,
         ).execute()
-        
-        files = results.get('files', [])
-        
+        files = results.get("files", [])
+
         return {
             "files": [
                 {
-                    "id": f.get('id'),
-                    "name": f.get('name'),
-                    "mimeType": f.get('mimeType'),
-                    "createdTime": f.get('createdTime'),
-                    "modifiedTime": f.get('modifiedTime'),
-                    "url": f.get('webViewLink'),
-                    "size": f.get('size'),
-                    "owner": f.get('owners', [{}])[0].get('displayName', 'я') if f.get('owners') else 'я'
+                    "id": f.get("id"),
+                    "name": f.get("name"),
+                    "mimeType": f.get("mimeType"),
+                    "createdTime": f.get("createdTime"),
+                    "modifiedTime": f.get("modifiedTime"),
+                    "url": f.get("webViewLink"),
+                    "size": f.get("size"),
+                    "owner": (
+                        f.get("owners", [{}])[0].get("displayName", "я")
+                        if f.get("owners")
+                        else "я"
+                    ),
                 }
                 for f in files
             ],
-            "count": len(files)
+            "count": len(files),
         }
-        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to list files: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to list files: {str(e)}"
-        )
+        logger.error("Failed to list files: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to list files: {str(e)}")
 
 
 @router.get("/google-workspace/file/{file_id}/content")
-async def get_file_content(
-    request: Request,
-    file_id: str
-):
+async def get_file_content(request: Request, file_id: str):
     """
-    Get file content from workspace.
-    
+    Get file content from workspace for the current user.
     For Google Docs/Sheets, exports as plain text or markdown.
     For other files, downloads the file content.
     """
-    if not WORKSPACE_TOKEN_PATH.exists():
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    username = get_username_from_session(session_id, get_session_manager())
+    if not username:
+        raise HTTPException(status_code=401, detail="Username not found in session")
+    if not WORKSPACE_TOKEN_PATH.exists(username):
         raise HTTPException(
             status_code=401,
-            detail="Google Workspace not authenticated. Please enable integration first."
+            detail="Google Workspace not authenticated. Please enable integration first.",
         )
-    
+
     try:
         from google.oauth2.credentials import Credentials
         from google.auth.transport.requests import Request as GoogleRequest
@@ -1839,19 +1609,17 @@ async def get_file_content(
         from googleapiclient.http import MediaIoBaseDownload
         from googleapiclient.errors import HttpError
         import io
-        
+
         creds = Credentials.from_authorized_user_file(
-            str(WORKSPACE_TOKEN_PATH),
-            WORKSPACE_SCOPES
+            str(WORKSPACE_TOKEN_PATH._get_path(username)),
+            WORKSPACE_SCOPES,
         )
-        
-        # Refresh if needed
         if creds.expired and creds.refresh_token:
             creds.refresh(GoogleRequest())
-            with open(WORKSPACE_TOKEN_PATH, 'w') as token:
+            with open(WORKSPACE_TOKEN_PATH._get_path(username), "w") as token:
                 token.write(creds.to_json())
-        
-        drive_service = build('drive', 'v3', credentials=creds)
+
+        drive_service = build("drive", "v3", credentials=creds)
         
         # Get file metadata
         file_metadata = drive_service.files().get(

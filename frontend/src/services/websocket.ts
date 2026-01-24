@@ -1636,8 +1636,19 @@ export class WebSocketClient {
         console.log('[WebSocket] Thinking started:', event.data)
         const thinkingId = event.data.thinking_id || `thinking-${Date.now()}`
         
+        // #region agent log
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:1635',message:'thinking_started event received',data:{thinkingId,startedAt:event.data.started_at},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        
         // Create thinking block and show it IMMEDIATELY (no delay)
         chatStore.startThinking(thinkingId)
+        
+        // #region agent log - проверяем состояние после startThinking
+        const afterStartState = useChatStore.getState()
+        const createdBlock = afterStartState.thinkingBlocks[thinkingId]
+        fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'websocket.ts:1640',message:'after startThinking',data:{thinkingId,blockExists:!!createdBlock,isCollapsed:createdBlock?.isCollapsed,status:createdBlock?.status},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        
         chatStore.setActiveThinking(thinkingId)
         chatStore.setAgentTyping(true)
         

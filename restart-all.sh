@@ -1,22 +1,19 @@
 #!/bin/bash
-# Команда для перезапуска backend и frontend
+# Перезапуск backend и frontend
 
-echo "🔄 Перезапуск всех сервисов..."
+set -e
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
 
-# Запускаем скрипты перезапуска
+echo "🔄 Перезапуск backend и frontend..."
 echo ""
-echo "📦 Перезапуск backend..."
-bash "$(dirname "$0")/restart-server.sh"
 
+bash "$ROOT/restart-server.sh"
 echo ""
-echo "🎨 Перезапуск frontend..."
-bash "$(dirname "$0")/restart-frontend.sh"
 
+bash "$ROOT/restart-frontend.sh"
 echo ""
-echo "✅ Все сервисы перезапущены!"
+
+echo "✅ Готово."
 echo "   Backend:  http://localhost:8000"
 echo "   Frontend: http://localhost:5173"
-
-
-
-
