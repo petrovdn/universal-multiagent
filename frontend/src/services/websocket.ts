@@ -766,7 +766,7 @@ export class WebSocketClient {
         
         const iterStartStateAfter = useChatStore.getState()
         const iterStartIntentId = eventIntentId || iterStartStateAfter.activeIntentId
-        const existingIntent = iterStartStateAfter.intentBlocks[iterStartWorkflowId]?.find(i => i.id === iterStartIntentId)
+        const existingIntent = iterStartWorkflowId ? iterStartStateAfter.intentBlocks[iterStartWorkflowId]?.find((i: { id: string }) => i.id === iterStartIntentId) : undefined
         
         // PHASE 0 FIX: Create intent if it doesn't exist (since intent_start is disabled)
         if (iterStartWorkflowId && eventIntentId && !existingIntent) {
@@ -870,8 +870,8 @@ export class WebSocketClient {
         let branchStartWorkflowId = ensureActiveWorkflow()
         const branchStartState = useChatStore.getState()
 
-        const existingIntentsForBranch = branchStartState.intentBlocks[branchStartWorkflowId] || []
-        const targetIntentForBranch = existingIntentsForBranch.find(i => i.id === eventIntentId)
+        const existingIntentsForBranch = branchStartWorkflowId ? (branchStartState.intentBlocks[branchStartWorkflowId] || []) : []
+        const targetIntentForBranch = existingIntentsForBranch.find((i: { id: string }) => i.id === eventIntentId)
         const branchStartIntentId = eventIntentId || branchStartState.activeIntentId
 
         // PHASE 0 FIX: Create intent if it doesn't exist (since intent_start is disabled)

@@ -109,7 +109,7 @@ export function OperationBlock({
               className="operation-streaming-content"
             >
               {streamingContent}
-              {isStreaming && fileType !== 'code' && (
+              {isStreaming && fileType && (
                 <span className="text-streaming-cursor">▊</span>
               )}
             </div>

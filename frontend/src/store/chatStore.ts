@@ -2054,7 +2054,7 @@ export const useChatStore = create<ChatState>()(
                 operations: collapsedOperations,
               }
               // #region agent log
-              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:2103',message:'startIteration - AFTER creating iteration',data:{workflowId,intentId,iterationNumber,hasParallelBranches:updatedIntent.parallelBranches?.length>0,parallelBranchesCount:updatedIntent.parallelBranches?.length||0,iterationsCount:updatedIntent.iterations.length,thinkingIsCollapsed:newIteration.thinking.isCollapsed,thinkingIsStreaming:newIteration.thinking.isStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+              fetch('http://127.0.0.1:7244/ingest/b733f86e-10e8-4a42-b8ba-7cfb96fa3c70',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'chatStore.ts:2103',message:'startIteration - AFTER creating iteration',data:{workflowId,intentId,iterationNumber,hasParallelBranches:(updatedIntent.parallelBranches?.length ?? 0)>0,parallelBranchesCount:updatedIntent.parallelBranches?.length||0,iterationsCount:updatedIntent.iterations.length,thinkingIsCollapsed:newIteration.thinking.isCollapsed,thinkingIsStreaming:newIteration.thinking.isStreaming},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
               // #endregion
               return updatedIntent
             }

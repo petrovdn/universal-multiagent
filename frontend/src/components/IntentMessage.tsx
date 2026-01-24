@@ -59,15 +59,18 @@ export function IntentMessage({
       
       {/* Phase 2, Steps 1-2: Task decomposition visualization with parallel execution indicators */}
       {/* Скрываем при параллельном выполнении - вся информация будет в ParallelExecutionContainer */}
-      {block.taskDecomposition && !hasParallelBranches && (
+      {block.taskDecomposition && !hasParallelBranches && (() => {
+        const taskDecomp = block.taskDecomposition
+        if (!taskDecomp) return null
+        return (
         <div style={{ marginBottom: '12px', padding: '12px', backgroundColor: '#f0f7ff', borderRadius: '8px', border: '1px solid #b3d9ff' }}>
           <div style={{ fontWeight: 600, marginBottom: '8px', color: '#0066cc', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span>📋 План выполнения</span>
             <span style={{ fontSize: '12px', fontWeight: 'normal', color: '#666' }}>
-              ({block.taskDecomposition.subtasks.length} подзадач)
+              ({taskDecomp.subtasks.length} подзадач)
             </span>
-            {block.taskDecomposition.execution_groups.some((_, idx) => 
-              block.taskDecomposition.group_types[idx] === 'parallel'
+            {taskDecomp.execution_groups.some((_, idx) => 
+              taskDecomp.group_types[idx] === 'parallel'
             ) && (
               <span style={{ fontSize: '11px', padding: '2px 6px', backgroundColor: '#4CAF50', color: 'white', borderRadius: '4px', fontWeight: 'normal' }}>
                 ⚡ Параллельное выполнение
@@ -76,8 +79,8 @@ export function IntentMessage({
           </div>
           
           {/* Execution groups with visual indicators */}
-          {block.taskDecomposition.execution_groups.map((group, groupIdx) => {
-            const isParallel = block.taskDecomposition.group_types[groupIdx] === 'parallel'
+          {taskDecomp.execution_groups.map((group, groupIdx) => {
+            const isParallel = taskDecomp.group_types[groupIdx] === 'parallel'
             return (
               <div key={groupIdx} style={{ marginBottom: '10px', padding: '8px', backgroundColor: isParallel ? '#e8f5e9' : '#fff3e0', borderRadius: '6px', border: `1px solid ${isParallel ? '#c8e6c9' : '#ffcc80'}` }}>
                 <div style={{ fontSize: '12px', fontWeight: 600, marginBottom: '6px', color: isParallel ? '#2e7d32' : '#e65100', display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -99,7 +102,7 @@ export function IntentMessage({
                 </div>
                 <div style={{ marginLeft: '8px', display: 'flex', flexDirection: isParallel ? 'row' : 'column', flexWrap: isParallel ? 'wrap' : 'nowrap', gap: '4px' }}>
                   {group.map(taskId => {
-                    const subtask = block.taskDecomposition.subtasks.find(st => st.task_id === taskId)
+                    const subtask = taskDecomp.subtasks.find(st => st.task_id === taskId)
                     if (!subtask) return null
                     return (
                       <div 
@@ -133,7 +136,8 @@ export function IntentMessage({
             )
           })}
         </div>
-      )}
+        )
+      })()}
       
       {/* Parallel Execution Container (Variant 1: Tabs) */}
       {hasParallelBranches && (
